@@ -27,3 +27,20 @@
 - 点任务看详情，点「编辑」修改
 - 右上设置调整偏好、备份数据、清空重开
 - 备注支持Markdown的加粗、斜体、删除线
+
+## 截图
+
+<div align="center">
+  <img src="./Screenshots/Screenshots1.jpg" width="30%" />
+  <img src="./Screenshots/Screenshots2.jpg" width="30%" />
+  <img src="./Screenshots/Screenshots3.jpg" width="30%" />
+</div>
+<div align="center">
+  <img src="./Screenshots/Screenshots4.jpg" width="30%" />
+  <img src="./Screenshots/Screenshots5.jpg" width="30%" />
+  <img src="./Screenshots/Screenshots6.jpg" width="30%" />
+</div>
+<div align="center">
+  <img src="./Screenshots/Screenshots7.jpg" width="45%" />
+  <img src="./Screenshots/Screenshots8.jpg" width="45%" />
+</div>
