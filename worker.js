@@ -1,6 +1,6 @@
 /*
- * Cloudflare Worker + D1 Todo App (v2.6.1_例行事项增加更多可选项)
- * Features: Filter, Trash Bin, Batch Manage, Sub-tasks, Selectable Search Provider, Settings, Statistics, Advanced Recurring, O(1) Template Engine
+ * Cloudflare Worker + D1 Todo App (v2.6.2_导出-添加上版本被忽略的todo_templates)
+ * Features: Filter, Trash Bin, Batch Manage, Sub-tasks, Selectable Search Provider, Statistics
  */
 
 let isDbInitialized = false;
@@ -296,6 +296,23 @@ export default {
             }
           }
           
+          controller.enqueue(encoder.encode('\n],\n"todo_templates":[\n'));
+          
+          const tplCountRow = await env.DB.prepare(`SELECT COUNT(*) as total FROM todo_templates`).first();
+          const tplTotal = tplCountRow ? (tplCountRow.total || 0) : 0;
+          let isFirstTplRow = true;
+          
+          for (let offset = 0; offset < tplTotal; offset += limit) {
+            const { results } = await env.DB.prepare(`SELECT * FROM todo_templates LIMIT ? OFFSET ?`).bind(limit, offset).all();
+            for (const row of results) {
+              if (!isFirstTplRow) {
+                controller.enqueue(encoder.encode(',\n'));
+              }
+              controller.enqueue(encoder.encode(JSON.stringify(row)));
+              isFirstTplRow = false;
+            }
+          }
+          
           controller.enqueue(encoder.encode('\n]\n}'));
           controller.close();
         }
@@ -310,7 +327,7 @@ export default {
     }
 
     if (url.pathname === '/api/import' && request.method === 'POST') {
-      const { todos, mode } = await request.json();
+      const { todos, todo_templates, mode } = await request.json();
       
       if (mode === 'overwrite') {
         await env.DB.prepare('DELETE FROM todos').run();
@@ -334,18 +351,23 @@ export default {
         for (let i = 0; i < stmts.length; i += 100) {
           await env.DB.batch(stmts.slice(i, i + 100));
         }
+      }
 
-        // 重构模板结构，杜绝潜在的不一致
-        await env.DB.prepare('DELETE FROM todo_templates').run();
-        await env.DB.prepare(`
-            INSERT INTO todo_templates (parent_id, text, time, priority, desc, url, copy_text, subtasks, search_terms, repeat_type, repeat_custom, anchor_date, blacklist)
-            SELECT parent_id, text, time, priority, desc, url, copy_text, subtasks, search_terms, 
-            CASE WHEN (repeat_type IS NULL OR repeat_type = 'none' OR repeat_type = '') THEN 'daily' ELSE repeat_type END,
-            repeat_custom, date, '[]'
-            FROM todos t1
-            WHERE repeat = 1 AND deleted = 0 
-            AND date = (SELECT MAX(date) FROM todos t2 WHERE t2.parent_id = t1.parent_id AND t2.repeat = 1 AND t2.deleted = 0)
-        `).run();
+      // 导入模板：有数据则写入，无数据则不管（不再从 todos 重建）
+      if (todo_templates && todo_templates.length > 0) {
+        const tplStmts = todo_templates.map(t => {
+          return env.DB.prepare(
+            `INSERT OR REPLACE INTO todo_templates 
+            (parent_id, text, time, priority, desc, url, copy_text, subtasks, search_terms, repeat_type, repeat_custom, anchor_date, blacklist) 
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+          ).bind(
+            t.parent_id, t.text || '', t.time || '', t.priority || 'low', t.desc || '', t.url || '', t.copy_text || '',
+            t.subtasks || '[]', t.search_terms || '[]', t.repeat_type || 'none', t.repeat_custom || '', t.anchor_date || '', t.blacklist || '[]'
+          );
+        });
+        for (let i = 0; i < tplStmts.length; i += 100) {
+          await env.DB.batch(tplStmts.slice(i, i + 100));
+        }
       }
       return new Response(JSON.stringify({ success: true }), { headers: { 'Content-Type': 'application/json' } });
     }
@@ -1255,7 +1277,7 @@ function renderHTML(isAuthorized) {
       <input type="url" id="add-url" placeholder="URL / APP Scheme (可选)">
       <input type="text" id="add-copy" placeholder="快捷复制内容（可选）">
       
-      <div class="detail-label" style="margin-top:10px;">例行调度 (重复设置)</div>
+      <div class="detail-label" style="margin-top:10px;">例行</div>
       <div class="fake-input" id="add-repeat-trigger" onclick="toggleRepeatMenu('add', this)">
         <span id="add-repeat-display">重复: 不重复</span>
         <span style="font-size:0.8rem">▼</span>
@@ -1385,7 +1407,7 @@ function renderHTML(isAuthorized) {
 
       <div class="detail-label">关于 MOARA 待办事项</div>
       <div class="settings-card">
-          <p class="settings-text" style="margin-bottom: 5px;"><strong>当前版本:</strong> v2.6.1</p>
+          <p class="settings-text" style="margin-bottom: 5px;"><strong>当前版本:</strong> v2.6.2</p>
           <p class="settings-text" style="margin-bottom: 5px;"><strong>底层架构:</strong> Cloudflare Worker + D1 Database</p>
           <p class="settings-text"><strong>项目描述:</strong> 普通的待办事项管理</p>
       </div>
@@ -2072,9 +2094,11 @@ function renderHTML(isAuthorized) {
           if (data.todos) toImport = toImport.concat(data.todos);
           if (data.trash) toImport = toImport.concat(data.trash);
           if (!data.todos && Array.isArray(data)) toImport = data;
+          
+          let toImportTemplates = data.todo_templates || [];
 
           let mode = 'merge';
-          if (toImport.length > 0) {
+          if (toImport.length > 0 || toImportTemplates.length > 0) {
             if (confirm("是否使用【覆盖模式】？\\n点击“确定”将清空云端的所有数据，然后完全替换为导入的新数据。\\n点击“取消”将进入【合并模式】或取消导入操作。")) {
                 mode = 'overwrite';
             } else {
@@ -2087,10 +2111,10 @@ function renderHTML(isAuthorized) {
             throw new Error("未在文件中找到有效的待办或设置数据。");
           }
 
-          if (toImport.length > 0 || mode === 'overwrite') {
+          if (toImport.length > 0 || toImportTemplates.length > 0 || mode === 'overwrite') {
             const res = await fetch('/api/import', {
               method: 'POST',
-              body: JSON.stringify({ todos: toImport, mode: mode }),
+              body: JSON.stringify({ todos: toImport, todo_templates: toImportTemplates, mode: mode }),
               headers: { 'Content-Type': 'application/json' }
             });
             if (!res.ok) throw new Error('云端合并/覆盖恢复操作执行异常');
@@ -3223,7 +3247,7 @@ function renderHTML(isAuthorized) {
             <div class="flex-1"><div class="detail-label">优先级</div><div class="detail-value">\${pMap[task.priority]}</div></div>
           </div>
           \${urlSection}\${copySection}
-          <div class="detail-label">属性 (例行调度)</div><div class="detail-value">\${rText}</div>
+          <div class="detail-label">属性</div><div class="detail-value">\${rText}</div>
           \${descSection}
         \`;
       } else {
@@ -3261,7 +3285,7 @@ function renderHTML(isAuthorized) {
           <div class="detail-label">链接 (URL)</div><input type="url" id="edit-url" value="\${task.url || ''}" class="detail-value editable" placeholder="https://...">
           <div class="detail-label">快捷复制内容</div><input type="text" id="edit-copy" value="\${task.copy_text || ''}" class="detail-value editable" placeholder="需复制的文本...">
           
-          <div class="detail-label">属性 (例行调度)</div>
+          <div class="detail-label">属性</div>
           <div class="fake-input detail-value editable" onclick="toggleRepeatMenu('edit', this)" style="display:flex; justify-content:space-between;">
             <span id="edit-repeat-display">重复: \${rMap[tempRepeatType]}</span>
             <span style="font-size:0.8rem">▼</span>
