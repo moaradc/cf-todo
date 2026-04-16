@@ -1,6 +1,6 @@
 /*
- * Cloudflare Worker + D1 Todo App (v2.6.0-beta3: Import Mode, Stream Export, Cloud Settings)
- * Features: Filter, Trash Bin, Smart Sorting, Security Lockout, Batch Manage, Sub-tasks, Server-Side Multi-Source Search, Selectable Search Provider, Settings & Data Backup
+ * Cloudflare Worker + D1 Todo App (v2.6.1_例行事项增加更多可选项)
+ * Features: Filter, Trash Bin, Batch Manage, Sub-tasks, Selectable Search Provider, Settings, Statistics, Advanced Recurring, O(1) Template Engine
  */
 
 let isDbInitialized = false;
@@ -45,6 +45,14 @@ function cryptoTimingSafeEqual(a, b) {
     result |= aBuf[i] ^ bBuf[i];
   }
   return result === 0;
+}
+
+// 解决时区偏移问题的严谨日历解析
+function getDayOfWeek(dateStr) {
+  const parts = dateStr.split('-');
+  if (parts.length < 3) return 0;
+  const d = new Date(parts[0], parts[1] - 1, parts[2]);
+  return d.getDay();
 }
 
 async function fetchHotSearchData(providerName = 'auto') {
@@ -123,11 +131,23 @@ export default {
               subtasks TEXT,
               search_terms TEXT,
               done INTEGER NOT NULL DEFAULT 0,
-              deleted INTEGER NOT NULL DEFAULT 0
+              deleted INTEGER NOT NULL DEFAULT 0,
+              repeat_type TEXT DEFAULT 'none',
+              repeat_custom TEXT DEFAULT ''
             )
           `),
           env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_todos_date ON todos(date)`),
           env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_todos_parent_id ON todos(parent_id)`),
+          env.DB.prepare(`
+            CREATE TABLE IF NOT EXISTS todo_templates (
+              parent_id TEXT PRIMARY KEY,
+              text TEXT, time TEXT, priority TEXT, desc TEXT, url TEXT, 
+              copy_text TEXT, subtasks TEXT, search_terms TEXT, 
+              repeat_type TEXT, repeat_custom TEXT,
+              anchor_date TEXT,
+              blacklist TEXT DEFAULT '[]'
+            )
+          `),
           env.DB.prepare(`
             CREATE TABLE IF NOT EXISTS login_attempts (
               ip TEXT PRIMARY KEY,
@@ -146,7 +166,26 @@ export default {
         try { await env.DB.prepare(`ALTER TABLE todos ADD COLUMN copy_text TEXT`).run(); } catch (e) {}
         try { await env.DB.prepare(`ALTER TABLE todos ADD COLUMN subtasks TEXT`).run(); } catch (e) {}
         try { await env.DB.prepare(`ALTER TABLE todos ADD COLUMN search_terms TEXT`).run(); } catch (e) {}
+        try { await env.DB.prepare(`ALTER TABLE todos ADD COLUMN repeat_type TEXT DEFAULT 'none'`).run(); } catch (e) {}
+        try { await env.DB.prepare(`ALTER TABLE todos ADD COLUMN repeat_custom TEXT DEFAULT ''`).run(); } catch (e) {}
+        try { await env.DB.prepare(`ALTER TABLE todo_templates ADD COLUMN blacklist TEXT DEFAULT '[]'`).run(); } catch (e) {}
         
+        // 自动迁移老版本
+        try {
+          const c = await env.DB.prepare("SELECT COUNT(*) as c FROM todo_templates").first();
+          if (c && c.c === 0) {
+            await env.DB.prepare(`
+              INSERT OR IGNORE INTO todo_templates (parent_id, text, time, priority, desc, url, copy_text, subtasks, search_terms, repeat_type, repeat_custom, anchor_date, blacklist)
+              SELECT parent_id, text, time, priority, desc, url, copy_text, subtasks, search_terms, 
+                CASE WHEN (repeat_type IS NULL OR repeat_type = 'none' OR repeat_type = '') THEN 'daily' ELSE repeat_type END,
+                repeat_custom, date, '[]'
+              FROM todos t1
+              WHERE repeat = 1 AND deleted = 0 
+              AND date = (SELECT MAX(date) FROM todos t2 WHERE t2.parent_id = t1.parent_id AND t2.repeat = 1 AND t2.deleted = 0)
+            `).run();
+          }
+        } catch (e) {}
+
         isDbInitialized = true;
       } catch (e) {
         console.error("DB Init error:", e);
@@ -207,6 +246,16 @@ export default {
       return new Response(JSON.stringify({ success: true, data: allWords }), { headers: { 'Content-Type': 'application/json' } });
     }
 
+    if (url.pathname === '/api/stats' && request.method === 'GET') {
+      const start = url.searchParams.get('start');
+      const end = url.searchParams.get('end');
+      if (!start || !end) return new Response("Date required", { status: 400 });
+      const { results } = await env.DB.prepare(
+        'SELECT date, priority, done FROM todos WHERE date >= ? AND date <= ? AND deleted = 0'
+      ).bind(start, end).all();
+      return new Response(JSON.stringify(results), { headers: { 'Content-Type': 'application/json' } });
+    }
+
     if (url.pathname === '/api/export' && request.method === 'GET') {
       const incTodos = url.searchParams.get('todos') === 'true';
       const incTrash = url.searchParams.get('trash') === 'true';
@@ -255,7 +304,7 @@ export default {
       return new Response(stream, {
         headers: {
           'Content-Type': 'application/json',
-          'Content-Disposition': `attachment; filename="moara_todo_export_${Date.now()}.json"`
+          'Content-Disposition': `attachment; filename="todo_export_${Date.now()}.json"`
         }
       });
     }
@@ -265,23 +314,38 @@ export default {
       
       if (mode === 'overwrite') {
         await env.DB.prepare('DELETE FROM todos').run();
+        await env.DB.prepare('DELETE FROM todo_templates').run();
       }
 
       if (todos && todos.length > 0) {
         const stmts = todos.map(t => {
           return env.DB.prepare(
             `INSERT OR REPLACE INTO todos 
-            (id, parent_id, date, text, time, priority, repeat, desc, url, copy_text, subtasks, search_terms, done, deleted) 
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+            (id, parent_id, date, text, time, priority, repeat, desc, url, copy_text, subtasks, search_terms, done, deleted, repeat_type, repeat_custom) 
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
           ).bind(
             t.id, t.parent_id || t.id, t.date, t.text, t.time || '', t.priority || 'low', 
-            t.repeat || 0, t.desc || '', t.url || '', t.copy_text || '', 
-            t.subtasks || '[]', t.search_terms || '[]', t.done || 0, t.deleted || 0
+            t.repeat !== undefined ? t.repeat : ((t.repeat_type && t.repeat_type !== 'none') ? 1 : 0), 
+            t.desc || '', t.url || '', t.copy_text || '', 
+            t.subtasks || '[]', t.search_terms || '[]', t.done || 0, t.deleted || 0,
+            t.repeat_type || 'none', t.repeat_custom || ''
           );
         });
         for (let i = 0; i < stmts.length; i += 100) {
           await env.DB.batch(stmts.slice(i, i + 100));
         }
+
+        // 重构模板结构，杜绝潜在的不一致
+        await env.DB.prepare('DELETE FROM todo_templates').run();
+        await env.DB.prepare(`
+            INSERT INTO todo_templates (parent_id, text, time, priority, desc, url, copy_text, subtasks, search_terms, repeat_type, repeat_custom, anchor_date, blacklist)
+            SELECT parent_id, text, time, priority, desc, url, copy_text, subtasks, search_terms, 
+            CASE WHEN (repeat_type IS NULL OR repeat_type = 'none' OR repeat_type = '') THEN 'daily' ELSE repeat_type END,
+            repeat_custom, date, '[]'
+            FROM todos t1
+            WHERE repeat = 1 AND deleted = 0 
+            AND date = (SELECT MAX(date) FROM todos t2 WHERE t2.parent_id = t1.parent_id AND t2.repeat = 1 AND t2.deleted = 0)
+        `).run();
       }
       return new Response(JSON.stringify({ success: true }), { headers: { 'Content-Type': 'application/json' } });
     }
@@ -309,7 +373,18 @@ export default {
     if (url.pathname === '/api/trash-action' && request.method === 'POST') {
       const { action, id, ids } = await request.json();
       if (action === 'RESTORE') {
+        const t = await env.DB.prepare('SELECT parent_id, date, repeat FROM todos WHERE id = ?').bind(id).first();
         await env.DB.prepare('UPDATE todos SET deleted = 0 WHERE id = ?').bind(id).run();
+        if (t && t.repeat === 1) {
+            const tpl = await env.DB.prepare('SELECT blacklist FROM todo_templates WHERE parent_id = ?').bind(t.parent_id).first();
+            if (tpl && tpl.blacklist) {
+                let bl =[]; try { bl = JSON.parse(tpl.blacklist); } catch(e){}
+                if (bl.includes(t.date)) {
+                    bl = bl.filter(d => d !== t.date);
+                    await env.DB.prepare('UPDATE todo_templates SET blacklist = ? WHERE parent_id = ?').bind(JSON.stringify(bl), t.parent_id).run();
+                }
+            }
+        }
       } else if (action === 'DELETE_PERMANENT') {
         await env.DB.prepare('DELETE FROM todos WHERE id = ?').bind(id).run();
       } else if (action === 'CLEAR_ALL') {
@@ -317,7 +392,27 @@ export default {
       } else if (action === 'BATCH_RESTORE') {
         if (ids && ids.length > 0) {
           const placeholders = ids.map(() => '?').join(',');
+          const tasks = await env.DB.prepare(`SELECT parent_id, date, repeat FROM todos WHERE id IN (${placeholders})`).bind(...ids).all();
           await env.DB.prepare(`UPDATE todos SET deleted = 0 WHERE id IN (${placeholders})`).bind(...ids).run();
+          const blUpdates = {};
+          for (const t of tasks.results) {
+            if (t.repeat === 1) {
+              if (!blUpdates[t.parent_id]) blUpdates[t.parent_id] = [];
+              blUpdates[t.parent_id].push(t.date);
+            }
+          }
+          for (const pid of Object.keys(blUpdates)) {
+            const tpl = await env.DB.prepare('SELECT blacklist FROM todo_templates WHERE parent_id = ?').bind(pid).first();
+            if (tpl && tpl.blacklist) {
+              let bl =[]; try { bl = JSON.parse(tpl.blacklist); } catch(e){}
+              let changed = false;
+              for (const d of blUpdates[pid]) {
+                const idx = bl.indexOf(d);
+                if (idx !== -1) { bl.splice(idx, 1); changed = true; }
+              }
+              if (changed) await env.DB.prepare('UPDATE todo_templates SET blacklist = ? WHERE parent_id = ?').bind(JSON.stringify(bl), pid).run();
+            }
+          }
         }
       } else if (action === 'BATCH_DELETE_PERMANENT') {
         if (ids && ids.length > 0) {
@@ -326,6 +421,7 @@ export default {
         }
       } else if (action === 'CLEAR_ALL_DATA') {
         await env.DB.prepare('DELETE FROM todos').run();
+        await env.DB.prepare('DELETE FROM todo_templates').run();
         await env.DB.prepare('DELETE FROM settings').run();
       }
       return new Response(JSON.stringify({ success: true }), { headers: { 'Content-Type': 'application/json' } });
@@ -339,41 +435,55 @@ export default {
         'SELECT * FROM todos WHERE date = ? AND deleted = 0'
       ).bind(date).all();
       
-      const queryMissing = `
-        SELECT t1.* 
-        FROM todos t1
-        INNER JOIN (
-          SELECT parent_id, MAX(date) as max_date
-          FROM todos
-          WHERE repeat = 1 AND deleted = 0 AND date < ?
-          GROUP BY parent_id
-        ) t2 ON t1.parent_id = t2.parent_id AND t1.date = t2.max_date
-        WHERE NOT EXISTS (
-          SELECT 1 FROM todos t3 WHERE t3.parent_id = t1.parent_id AND t3.date = ?
-        )
-      `;
-      const missingRecords = await env.DB.prepare(queryMissing).bind(date, date).all();
+      const existingParentIds = new Set(results.map(r => r.parent_id));
+      const templatesReq = await env.DB.prepare('SELECT * FROM todo_templates').all();
       
+      const insertStmts = [];
       let newlyFetchedSearchTerms = null;
 
-      if (missingRecords.results.length > 0) {
-        const insertStmts =[];
-        
-        for (const prev of missingRecords.results) {
+      if (templatesReq.results && templatesReq.results.length > 0) {
+        for (const tpl of templatesReq.results) {
+          if (existingParentIds.has(tpl.parent_id)) continue;
+          
+          let isMatch = false;
+          const rType = tpl.repeat_type || 'none';
+          if (rType === 'none') continue;
+          
+          if (rType === 'daily') {
+              isMatch = true;
+          } else {
+              const targetDayOfWeek = getDayOfWeek(date);
+              const anchorDayOfWeek = getDayOfWeek(tpl.anchor_date);
+
+              if (rType === 'weekly') {
+                  isMatch = targetDayOfWeek === anchorDayOfWeek;
+              } else if (rType === 'monthly') {
+                  isMatch = date.slice(8, 10) === tpl.anchor_date.slice(8, 10);
+              } else if (rType === 'yearly') {
+                  isMatch = date.slice(5, 10) === tpl.anchor_date.slice(5, 10);
+              }
+          }
+          if (!isMatch) continue;
+
+          // 拦截黑名单中被标记"仅此项删除"的日期
+          let parsedBlacklist =[];
+          try { if (tpl.blacklist) parsedBlacklist = JSON.parse(tpl.blacklist); } catch(e){}
+          if (parsedBlacklist.includes(date)) continue;
+
           const newId = Date.now().toString() + Math.random().toString().slice(2, 6);
           
-          let parsedSubtasks =[];
-          if (prev.subtasks) {
+          let parsedSubtasks = [];
+          if (tpl.subtasks) {
             try {
-              parsedSubtasks = JSON.parse(prev.subtasks);
+              parsedSubtasks = JSON.parse(tpl.subtasks);
               parsedSubtasks.forEach(st => st.done = false); 
             } catch(e) {}
           }
 
-          let parsedSearchTerms =[];
-          if (prev.search_terms) {
+          let parsedSearchTerms = [];
+          if (tpl.search_terms) {
             try {
-              const oldTerms = JSON.parse(prev.search_terms);
+              const oldTerms = JSON.parse(tpl.search_terms);
               if (Array.isArray(oldTerms) && oldTerms.length > 0) {
                  if (!newlyFetchedSearchTerms) {
                      const fetched = await fetchHotSearchData('auto');
@@ -392,21 +502,31 @@ export default {
             } catch(e) {}
           }
 
-          const newRecord = { ...prev, id: newId, date: date, done: 0, deleted: 0, repeat: 1, subtasks: JSON.stringify(parsedSubtasks), search_terms: JSON.stringify(parsedSearchTerms) };
+          const newRecord = { 
+            ...tpl, id: newId, date: date, parent_id: tpl.parent_id, 
+            done: 0, deleted: 0, repeat: 1, 
+            subtasks: JSON.stringify(parsedSubtasks), 
+            search_terms: JSON.stringify(parsedSearchTerms) 
+          };
           results.push(newRecord); 
           
           insertStmts.push(env.DB.prepare(
-            'INSERT INTO todos (id, parent_id, date, text, time, priority, repeat, desc, url, copy_text, subtasks, search_terms, done, deleted) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+            'INSERT INTO todos (id, parent_id, date, text, time, priority, repeat, desc, url, copy_text, subtasks, search_terms, done, deleted, repeat_type, repeat_custom) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
           ).bind(
-            newId, prev.parent_id, date, prev.text, prev.time || '', prev.priority || 'low', 1, prev.desc || '', prev.url || '', prev.copy_text || '', JSON.stringify(parsedSubtasks), JSON.stringify(parsedSearchTerms), 0, 0  
+            newId, tpl.parent_id, date, tpl.text, tpl.time || '', tpl.priority || 'low', 1, 
+            tpl.desc || '', tpl.url || '', tpl.copy_text || '', 
+            JSON.stringify(parsedSubtasks), JSON.stringify(parsedSearchTerms), 
+            0, 0, tpl.repeat_type || 'none', tpl.repeat_custom || ''  
           ));
         }
-        await env.DB.batch(insertStmts);
+        if (insertStmts.length > 0) {
+            await env.DB.batch(insertStmts);
+        }
       }
     
       const formatted = results.map(row => {
-        let parsedSubtasks =[];
-        let parsedSearchTerms =[];
+        let parsedSubtasks = [];
+        let parsedSearchTerms = [];
         try { if (row.subtasks) parsedSubtasks = JSON.parse(row.subtasks); } catch(e){}
         try { if (row.search_terms) parsedSearchTerms = JSON.parse(row.search_terms); } catch(e){}
         
@@ -416,11 +536,16 @@ export default {
             return null;
         }).filter(Boolean);
 
+        let rType = row.repeat_type || 'none';
+        if (row.repeat === 1 && rType === 'none') rType = 'daily';
+
         return {
           ...row, 
           parentId: row.parent_id, 
           repeat: row.repeat === 1,
-          isSeries: row.repeat !== 0,
+          repeat_type: rType,
+          repeat_custom: row.repeat_custom || '',
+          isSeries: row.repeat !== 0 || rType !== 'none',
           done: !!row.done,
           subtasks: parsedSubtasks,
           search_terms: parsedSearchTerms
@@ -455,44 +580,101 @@ export default {
         else if (action === 'BATCH_DELETE') {
           if (ids && ids.length > 0) {
             const placeholders = ids.map(() => '?').join(',');
-            await env.DB.prepare(`UPDATE todos SET deleted = 1 WHERE id IN (${placeholders})`)
-              .bind(...ids).run();
+            // 【新增】批量删除加入黑名单
+            const tasks = await env.DB.prepare(`SELECT parent_id, date, repeat FROM todos WHERE id IN (${placeholders})`).bind(...ids).all();
+            await env.DB.prepare(`UPDATE todos SET deleted = 1 WHERE id IN (${placeholders})`).bind(...ids).run();
+            
+            const blUpdates = {};
+            for (const t of tasks.results) {
+              if (t.repeat === 1) { 
+                if (!blUpdates[t.parent_id]) blUpdates[t.parent_id] = [];
+                blUpdates[t.parent_id].push(t.date);
+              }
+            }
+            for (const pid of Object.keys(blUpdates)) {
+              const tpl = await env.DB.prepare('SELECT blacklist FROM todo_templates WHERE parent_id = ?').bind(pid).first();
+              if (tpl) {
+                let bl = []; try { bl = JSON.parse(tpl.blacklist || '[]'); } catch(e){}
+                let changed = false;
+                for (const d of blUpdates[pid]) { if (!bl.includes(d)) { bl.push(d); changed = true; } }
+                if (changed) await env.DB.prepare('UPDATE todo_templates SET blacklist = ? WHERE parent_id = ?').bind(JSON.stringify(bl), pid).run();
+              }
+            }
           }
         }
         else if (action === 'CREATE') {
+          const rptType = task.repeat_type || 'none';
+          const rpt = rptType !== 'none' ? 1 : 0;
           await env.DB.prepare(
-            'INSERT INTO todos (id, parent_id, date, text, time, priority, repeat, desc, url, copy_text, subtasks, search_terms, done, deleted) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+            'INSERT INTO todos (id, parent_id, date, text, time, priority, repeat, desc, url, copy_text, subtasks, search_terms, done, deleted, repeat_type, repeat_custom) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
           ).bind(
-            task.id, task.parentId || task.id, date, task.text, task.time || '', task.priority || 'low', task.repeat ? 1 : 0, task.desc || '', task.url || '', task.copyText || '', JSON.stringify(task.subtasks||[]), JSON.stringify(task.search_terms||[]), 0, 0
+            task.id, task.parentId || task.id, date, task.text, task.time || '', task.priority || 'low', 
+            rpt, task.desc || '', task.url || '', task.copyText || '', JSON.stringify(task.subtasks||[]), JSON.stringify(task.search_terms||[]), 
+            0, 0, rptType, ''
           ).run();
+          
+          if (rpt) {
+              await env.DB.prepare(
+                'INSERT INTO todo_templates (parent_id, text, time, priority, desc, url, copy_text, subtasks, search_terms, repeat_type, repeat_custom, anchor_date, blacklist) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+              ).bind(
+                task.parentId || task.id, task.text, task.time || '', task.priority || 'low', task.desc || '', task.url || '', task.copyText || '', 
+                JSON.stringify(task.subtasks||[]), JSON.stringify(task.search_terms||[]), rptType, '', date, '[]'
+              ).run();
+          }
         }
         else if (action === 'UPDATE') {
-          const rpt = task.repeat ? 1 : 0;
+          const rptType = task.repeat_type || 'none';
+          const rpt = rptType !== 'none' ? 1 : 0;
           const subtasksStr = JSON.stringify(task.subtasks ||[]);
           const searchTermsStr = JSON.stringify(task.search_terms ||[]);
-
-          if (scope === 'single' || !task.repeat) {
+        
+          if (scope === 'single' || rptType === 'none') {
             await env.DB.prepare(
-              'UPDATE todos SET text=?, time=?, priority=?, repeat=?, desc=?, url=?, copy_text=?, subtasks=?, search_terms=? WHERE id=?'
-            ).bind(task.text, task.time || '', task.priority || 'low', rpt, task.desc || '', task.url || '', task.copyText || '', subtasksStr, searchTermsStr, task.id).run();
+              'UPDATE todos SET text=?, time=?, priority=?, repeat=?, desc=?, url=?, copy_text=?, subtasks=?, search_terms=?, repeat_type=?, repeat_custom=? WHERE id=?'
+            ).bind(task.text, task.time || '', task.priority || 'low', rpt, task.desc || '', task.url || '', task.copyText || '', subtasksStr, searchTermsStr, rptType, '', task.id).run();
           } else if (scope === 'future') {
             await env.DB.prepare(
-              'UPDATE todos SET text=?, time=?, priority=?, repeat=?, desc=?, url=?, copy_text=?, subtasks=?, search_terms=? WHERE parent_id=? AND date >= ?'
-            ).bind(task.text, task.time || '', task.priority || 'low', rpt, task.desc || '', task.url || '', task.copyText || '', subtasksStr, searchTermsStr, task.parentId, date).run();
+              'UPDATE todos SET text=?, time=?, priority=?, repeat=?, desc=?, url=?, copy_text=?, subtasks=?, search_terms=?, repeat_type=?, repeat_custom=? WHERE parent_id=? AND date >= ?'
+            ).bind(task.text, task.time || '', task.priority || 'low', rpt, task.desc || '', task.url || '', task.copyText || '', subtasksStr, searchTermsStr, rptType, '', task.parentId, date).run();
           } else if (scope === 'all') {
             await env.DB.prepare(
-              'UPDATE todos SET text=?, time=?, priority=?, repeat=?, desc=?, url=?, copy_text=?, subtasks=?, search_terms=? WHERE parent_id=?'
-            ).bind(task.text, task.time || '', task.priority || 'low', rpt, task.desc || '', task.url || '', task.copyText || '', subtasksStr, searchTermsStr, task.parentId).run();
+              'UPDATE todos SET text=?, time=?, priority=?, repeat=?, desc=?, url=?, copy_text=?, subtasks=?, search_terms=?, repeat_type=?, repeat_custom=? WHERE parent_id=?'
+            ).bind(task.text, task.time || '', task.priority || 'low', rpt, task.desc || '', task.url || '', task.copyText || '', subtasksStr, searchTermsStr, rptType, '', task.parentId).run();
           }
-        } 
+        
+          if (scope === 'future' || scope === 'all') {
+              if (rpt) {
+                  await env.DB.prepare(
+                    'INSERT OR REPLACE INTO todo_templates (parent_id, text, time, priority, desc, url, copy_text, subtasks, search_terms, repeat_type, repeat_custom, anchor_date, blacklist) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+                  ).bind(
+                    task.parentId, task.text, task.time || '', task.priority || 'low', task.desc || '', task.url || '', task.copyText || '', 
+                    subtasksStr, searchTermsStr, rptType, '', date, '[]' 
+                  ).run();
+              } else {
+                  await env.DB.prepare('DELETE FROM todo_templates WHERE parent_id=?').bind(task.parentId).run();
+              }
+          }
+        }
         else if (action === 'DELETE') {
           if (scope === 'single' || (!task.repeat && !task.isSeries)) {
             await env.DB.prepare('UPDATE todos SET deleted = 1 WHERE id = ?').bind(task.id).run();
+            if (task.isSeries) {
+              const tpl = await env.DB.prepare('SELECT blacklist FROM todo_templates WHERE parent_id = ?').bind(task.parentId).first();
+              if (tpl) {
+                let bl = []; try { bl = JSON.parse(tpl.blacklist || '[]'); } catch(e){}
+                if (!bl.includes(date)) {
+                  bl.push(date);
+                  await env.DB.prepare('UPDATE todo_templates SET blacklist = ? WHERE parent_id = ?').bind(JSON.stringify(bl), task.parentId).run();
+                }
+              }
+            }
           } else if (scope === 'future') {
             await env.DB.prepare('UPDATE todos SET deleted = 1 WHERE parent_id=? AND date >= ?').bind(task.parentId, date).run();
-            await env.DB.prepare('UPDATE todos SET repeat = -1 WHERE parent_id=? AND date < ?').bind(task.parentId, date).run();
+            await env.DB.prepare("UPDATE todos SET repeat = -1, repeat_type = 'none', repeat_custom = '' WHERE parent_id=? AND date < ?").bind(task.parentId, date).run();
+            await env.DB.prepare('DELETE FROM todo_templates WHERE parent_id=?').bind(task.parentId).run();
           } else if (scope === 'all') {
             await env.DB.prepare('UPDATE todos SET deleted = 1 WHERE parent_id=?').bind(task.parentId).run();
+            await env.DB.prepare('DELETE FROM todo_templates WHERE parent_id=?').bind(task.parentId).run();
           }
         }
         return new Response(JSON.stringify({ success: true }), { headers: { 'Content-Type': 'application/json' } });
@@ -514,6 +696,7 @@ function renderHTML(isAuthorized) {
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <title>MOARA 待办事项</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <style>
     /* =========================================
        DEFAULT THEME: DARK BRUTALISM
@@ -632,7 +815,7 @@ function renderHTML(isAuthorized) {
 
     .item-meta { display: flex; flex-direction: column; flex-grow: 1; overflow: hidden; }
     .item-title { font-size: 1rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; transition: color 0.2s; }
-    .item-info { font-size: 0.75rem; color: #666; margin-top: 4px; display: flex; gap: 10px; align-items: center; }
+    .item-info { font-size: 0.75rem; color: #666; margin-top: 4px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
     
     .badge { padding: 1px 4px; border-radius: 2px; font-size: 0.7rem; color: #000; font-weight: bold; }
     .badge-high { background: var(--accent); }
@@ -643,7 +826,7 @@ function renderHTML(isAuthorized) {
     .btn-link {
       background: #222; border: 1px solid #444; color: var(--crt);
       width: 32px; height: 32px; display: flex; align-items: center; justify-content: center;
-      margin-left: 10px; font-size: 0.9rem; text-decoration: none; cursor: pointer;
+      margin-left: 10px; font-size: 0.9rem; text-decoration: none; cursor: pointer; flex-shrink: 0;
     }
     .btn-link:hover { background: var(--crt); color: #000; }
 
@@ -787,16 +970,20 @@ function renderHTML(isAuthorized) {
     .setting-item { display: flex; align-items: center; justify-content: space-between; background: var(--panel); padding: 10px; border: 1px solid #333; margin-bottom: 5px; border-radius: 4px; }
     .setting-item span { font-size: 0.9rem; color: var(--fg); }
 
-    /* 设置页扩展卡片样式 */
     .settings-card { margin-bottom: 20px; background: var(--panel); padding: 15px; border: 1px dashed var(--fg); border-radius: 4px; }
     .settings-card.danger { border: 1px solid var(--accent); }
     .settings-text { font-size: 0.85rem; line-height: 1.6; color: #888; margin-bottom: 0; }
     .settings-text strong { color: var(--crt); }
     
-    /* Markdown 渲染样式 */
     .md-code { background: #222; padding: 2px 4px; border-radius: 2px; color: var(--crt); font-family: var(--font-main); }
     .md-ul { padding-left: 20px; margin: 5px 0; }
     del { opacity: 0.6; }
+
+    .stats-grid { display: grid; grid-template-columns: 1fr; gap: 20px; }
+    .stats-row-bottom { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; }
+    .chart-container { background: var(--panel); border: 1px dashed var(--fg); padding: 15px; border-radius: 4px; position: relative; }
+    .chart-container-bar { height: 250px; }
+    .chart-container-pie { height: 200px; display: flex; justify-content: center; align-items: center; }
 
     /* =========================================
        ISOLATED THEME: LIGHT CASSETTE FUTURISM
@@ -865,6 +1052,114 @@ function renderHTML(isAuthorized) {
     [data-theme="light"] .settings-text { color: #1B1915; font-weight: bold; }
     [data-theme="light"] .settings-text strong { color: #5C960B; }
     [data-theme="light"] .md-code { background: #E5E5E5; color: #5C960B; border: 1px solid #1B1915; }
+    [data-theme="light"] .chart-container { background: #F0F0F0; border: 2px dashed #1B1915; box-shadow: inset 2px 2px 0 #E5E5E5; }
+    
+    /* === 年度报告样式 === */
+    .stats-tabs { display: flex; gap: 0; border: 1px solid var(--fg); overflow: hidden; }
+    .stats-tab {
+      padding: 5px 14px; font-size: 0.8rem; border: none !important;
+      background: transparent !important; color: var(--fg) !important; cursor: pointer;
+      text-transform: uppercase; letter-spacing: 0.5px; box-shadow: none !important;
+    }
+    .stats-tab.active { background: var(--accent) !important; color: #000 !important; font-weight: bold; }
+
+    .annual-year-title {
+      text-align: center; margin-bottom: 25px; padding: 12px 0;
+      border-bottom: 1px dashed #333;
+    }
+    .annual-year-title span {
+      font-size: 1.2rem; font-weight: bold; color: var(--crt); letter-spacing: 4px;
+    }
+
+    .annual-hero {
+      text-align: center; padding: 30px 15px; margin-bottom: 25px;
+      border: 2px solid var(--accent); background: var(--panel); position: relative; overflow: hidden;
+    }
+    .annual-hero::before {
+      content: ''; position: absolute; top: 0; left: 0; right: 0; height: 3px;
+      background: linear-gradient(90deg, var(--accent), var(--warn), var(--crt));
+    }
+    .annual-ending-title {
+      font-size: 1.8rem; font-weight: bold; color: var(--accent);
+      margin-bottom: 8px; letter-spacing: 3px; text-transform: uppercase;
+    }
+    .annual-ending-subtitle {
+      font-size: 0.75rem; color: #666; margin-bottom: 15px; letter-spacing: 4px;
+    }
+    .annual-ending-desc {
+      font-size: 0.9rem; color: var(--fg); line-height: 1.8;
+      border-top: 1px dashed #444; padding-top: 15px; text-align: left;
+    }
+
+    .annual-stats-grid {
+      display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 25px;
+    }
+    .annual-stat-card {
+      background: var(--panel); border: 1px solid #333; padding: 14px 10px; text-align: center;
+    }
+    .annual-stat-value { font-size: 1.6rem; font-weight: bold; color: var(--crt); }
+    .annual-stat-label { font-size: 0.7rem; color: #666; text-transform: uppercase; margin-top: 4px; letter-spacing: 1px; }
+
+    .annual-section-title {
+      font-size: 0.8rem; color: var(--accent); text-transform: uppercase;
+      letter-spacing: 2px; margin-bottom: 12px; padding-bottom: 5px;
+      border-bottom: 1px dashed #444;
+    }
+
+    .annual-month-chart { margin-bottom: 25px; }
+    .annual-month-row { display: flex; align-items: center; gap: 8px; margin-bottom: 5px; }
+    .annual-month-label { font-size: 0.7rem; color: #999; width: 30px; text-align: right; flex-shrink: 0; }
+    .annual-month-bar-bg {
+      flex: 1; height: 18px; background: #111; position: relative; overflow: hidden; border: 1px solid #222;
+    }
+    .annual-month-bar-total { height: 100%; position: absolute; top: 0; left: 0; background: rgba(255,255,255,0.06); }
+    .annual-month-bar-done { height: 100%; position: absolute; top: 0; left: 0; background: var(--crt); opacity: 0.65; }
+    .annual-month-count { font-size: 0.7rem; color: #aaa; width: 30px; flex-shrink: 0; }
+
+    .annual-narrative {
+      background: var(--panel); border: 1px dashed var(--fg); padding: 20px;
+      line-height: 1.9; color: var(--fg); font-size: 0.9rem; margin-bottom: 20px;
+    }
+    .annual-narrative strong { color: var(--crt); }
+    .annual-narrative em { color: var(--accent); font-style: normal; }
+    .annual-narrative .highlight { color: var(--warn); font-weight: bold; border-bottom: 1px dashed var(--warn); }
+
+    .annual-divider { text-align: center; color: #333; margin: 25px 0; letter-spacing: 5px; font-size: 0.8rem; }
+
+    .annual-pri-row { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
+    .annual-pri-label { font-size: 0.75rem; color: #999; width: 24px; flex-shrink: 0; text-align: right; }
+    .annual-pri-bar-bg { flex: 1; height: 12px; background: #111; position: relative; overflow: hidden; border: 1px solid #222; }
+    .annual-pri-bar-fill { height: 100%; position: absolute; top: 0; left: 0; }
+    .annual-pri-count { font-size: 0.7rem; color: #aaa; width: 30px; flex-shrink: 0; }
+    .annual-report-time { margin-top: 25px; padding-top: 15px; border-top: 1px dashed #333; text-align: center; font-size: 0.75rem; color: #666; line-height: 1.8; }
+
+    /* Light theme 年度报告 */
+    [data-theme="light"] .stats-tabs { border: 2px solid #1B1915; border-radius: 4px; }
+    [data-theme="light"] .stats-tab { color: #1B1915 !important; border-radius: 0 !important; }
+    [data-theme="light"] .stats-tab.active { background: #1B1915 !important; color: #5C960B !important; }
+    [data-theme="light"] .annual-hero { background: #FEFEFE; border: 3px solid #1B1915; box-shadow: 6px 6px 0 #1B1915; border-radius: 8px; }
+    [data-theme="light"] .annual-ending-title { color: #CE2424; }
+    [data-theme="light"] .annual-ending-subtitle { color: #1B1915; }
+    [data-theme="light"] .annual-ending-desc { border-top-color: #1B1915; color: #1B1915; }
+    [data-theme="light"] .annual-stat-card { background: #FEFEFE; border: 2px solid #1B1915; box-shadow: 2px 2px 0 #E5E5E5; border-radius: 4px; }
+    [data-theme="light"] .annual-stat-value { color: #5C960B; }
+    [data-theme="light"] .annual-stat-label { color: #1B1915; font-weight: bold; }
+    [data-theme="light"] .annual-section-title { color: #CE2424; border-bottom-color: #1B1915; }
+    [data-theme="light"] .annual-month-bar-bg { background: #F0F0F0; border-color: #CCC; }
+    [data-theme="light"] .annual-month-bar-total { background: rgba(0,0,0,0.06); }
+    [data-theme="light"] .annual-month-bar-done { background: #5C960B; }
+    [data-theme="light"] .annual-month-label { color: #1B1915; }
+    [data-theme="light"] .annual-month-count { color: #1B1915; }
+    [data-theme="light"] .annual-narrative { background: #FEFEFE; border: 2px dashed #1B1915; color: #1B1915; box-shadow: inset 2px 2px 0 #E5E5E5; }
+    [data-theme="light"] .annual-narrative strong { color: #5C960B; }
+    [data-theme="light"] .annual-narrative em { color: #CE2424; }
+    [data-theme="light"] .annual-divider { color: #CCC; }
+    [data-theme="light"] .annual-year-title { border-bottom-color: #1B1915; }
+    [data-theme="light"] .annual-year-title span { color: #5C960B; text-shadow: 0 0 4px rgba(92,150,11,0.3); }
+    [data-theme="light"] .annual-pri-bar-bg { background: #F0F0F0; border-color: #CCC; }
+    [data-theme="light"] .annual-pri-label { color: #1B1915; }
+    [data-theme="light"] .annual-pri-count { color: #1B1915; }
+    [data-theme="light"] .annual-report-time { border-top-color: #1B1915; color: #666; }
   </style>
 </head>
 <body>
@@ -873,6 +1168,7 @@ function renderHTML(isAuthorized) {
   <div class="container">
     <div class="top-actions-left">
       <button class="theme-toggle-btn" onclick="openTrash()">回收站</button>
+      <button class="theme-toggle-btn" onclick="openStats()">统计</button>
     </div>
     <div class="top-actions">
       <button class="theme-toggle-btn" onclick="openSettings()">设置</button>
@@ -919,7 +1215,6 @@ function renderHTML(isAuthorized) {
     <button onclick="exitBatchMode()">退出</button>
   </div>
 
-  <!-- 新建事项模态框 -->
   <div id="modal-add" class="modal-overlay" onclick="if(event.target===this) closeAddModal()">
     <div class="modal-content">
       <h3 style="margin-bottom:15px; padding-bottom:5px;">>> 新建事项</h3>
@@ -959,10 +1254,13 @@ function renderHTML(isAuthorized) {
       </div>
       <input type="url" id="add-url" placeholder="URL / APP Scheme (可选)">
       <input type="text" id="add-copy" placeholder="快捷复制内容（可选）">
-      <div class="switch-label" onclick="toggleAddRepeat()">
-        <div class="switch-box" id="add-repeat-box"></div>
-        <span>每天 (Daily Reset)</span>
+      
+      <div class="detail-label" style="margin-top:10px;">例行调度 (重复设置)</div>
+      <div class="fake-input" id="add-repeat-trigger" onclick="toggleRepeatMenu('add', this)">
+        <span id="add-repeat-display">重复: 不重复</span>
+        <span style="font-size:0.8rem">▼</span>
       </div>
+      
       <textarea id="add-desc" rows="3" placeholder="输入备注/详细描述（可选）"></textarea>
       <div class="row" style="margin-top:10px;">
         <button class="flex-1" onclick="closeAddModal()">取消</button>
@@ -984,7 +1282,6 @@ function renderHTML(isAuthorized) {
     </div>
   </div>
 
-  <!-- 回收站视图 -->
   <div id="trash-overlay" class="detail-overlay">
     <div class="detail-header" style="align-items: center;">
       <button onclick="closeTrash()" style="padding: 4px 8px;">← 返回</button>
@@ -1004,7 +1301,33 @@ function renderHTML(isAuthorized) {
     </div>
   </div>
 
-  <!-- 设置页面视图 -->
+  <div id="stats-overlay" class="detail-overlay">
+    <div class="detail-header" style="align-items: center;">
+      <button onclick="closeStats()" style="padding: 4px 8px;">← 返回</button>
+      <span style="font-weight:bold;" id="stats-title-text">7天统计</span>
+      <button id="stats-switch-btn" class="btn-ghost hidden" style="padding:4px 8px; border:1px solid #666;" onclick="switchStatsTab()">年度报告</button>
+    </div>
+    <div style="flex:1; overflow-y:auto; padding-bottom: 20px;">
+      <div id="stats-weekly">
+        <div id="stats-loading" style="text-align:center; padding:40px; color:var(--fg);">数据拉取中...</div>
+        <div id="stats-content" class="hidden">
+          <div class="stats-grid">
+            <div class="chart-container chart-container-bar"><canvas id="chart-bar"></canvas></div>
+            <div style="text-align: center; color: var(--crt); font-weight: bold; font-size: 1.1rem; margin: 5px 0;" id="stats-total-info">近7天总完成数: 0</div>
+            <div class="stats-row-bottom">
+              <div class="chart-container chart-container-pie"><canvas id="chart-pie-priority"></canvas></div>
+              <div class="chart-container chart-container-pie"><canvas id="chart-pie-status"></canvas></div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div id="stats-annual" class="hidden">
+        <div id="annual-loading" style="text-align:center; padding:40px; color:var(--fg);">年度数据加载中...</div>
+        <div id="annual-content" class="hidden"></div>
+      </div>
+    </div>
+  </div>
+
   <div id="settings-overlay" class="detail-overlay">
     <div class="detail-header" style="align-items: center;">
       <button onclick="closeSettings()" style="padding: 4px 8px;">← 返回</button>
@@ -1062,7 +1385,7 @@ function renderHTML(isAuthorized) {
 
       <div class="detail-label">关于 MOARA 待办事项</div>
       <div class="settings-card">
-          <p class="settings-text" style="margin-bottom: 5px;"><strong>当前版本:</strong> v2.6.0-beta3</p>
+          <p class="settings-text" style="margin-bottom: 5px;"><strong>当前版本:</strong> v2.6.1</p>
           <p class="settings-text" style="margin-bottom: 5px;"><strong>底层架构:</strong> Cloudflare Worker + D1 Database</p>
           <p class="settings-text"><strong>项目描述:</strong> 普通的待办事项管理</p>
       </div>
@@ -1070,7 +1393,7 @@ function renderHTML(isAuthorized) {
       <div class="detail-label" style="color: var(--accent);">危险区域</div>
       <div class="settings-card danger">
           <p class="settings-text" style="margin-bottom: 15px;">执行此操作将不可逆转地清空所有的系统记录、回收站数据并重置偏好设置。建议提前导出备份。</p>
-          <button class="btn-danger" style="width:100%" onclick="factoryReset()">恢复出厂设置 (清空所有数据)</button>
+          <button class="btn-danger" style="width:100%" onclick="factoryReset()">恢复出厂设置</button>
       </div>
 
     </div>
@@ -1104,6 +1427,14 @@ function renderHTML(isAuthorized) {
     <button onclick="selectProvider('weibo')">微博热搜</button>
     <button onclick="selectProvider('zhihu')">知乎热榜</button>
     <button onclick="selectProvider('baidu')">百度热搜</button>
+  </div>
+
+  <div id="popover-repeat" class="popover-menu">
+    <button onclick="selectRepeat('none', '不重复')">不重复</button>
+    <button onclick="selectRepeat('daily', '每天')">每天</button>
+    <button onclick="selectRepeat('weekly', '每周')">每周</button>
+    <button onclick="selectRepeat('monthly', '每月')">每月</button>
+    <button onclick="selectRepeat('yearly', '每年')">每年</button>
   </div>
 
   <div id="popover-set-provider" class="popover-menu">
@@ -1167,7 +1498,6 @@ function renderHTML(isAuthorized) {
       return[];
     }
 
-    // 简单的Markdown解析器 支持加粗 (**text**)、斜体 (*text*)、删除线 (~~text~~)
     function parseMarkdown(text) {
       if (!text) return '';
       let lines = text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').split('\\n');
@@ -1194,12 +1524,9 @@ function renderHTML(isAuthorized) {
         } else {
           if (inList) { html += '</ul>'; inList = false; }
         }
-        
         html += formatInline(line) + (i === lines.length - 1 ? '' : '<br>');
       }
-      
       if (inList) html += '</ul>';
-      
       return html;
     }
 
@@ -1239,7 +1566,6 @@ function renderHTML(isAuthorized) {
     let isEditMode = false;
     let pendingAction = null; 
     let filterMethod = 'all'; 
-    let addRepeatState = false;
     
     let tempSubtasks =[];
     let tempSearchTerms =[];
@@ -1248,6 +1574,8 @@ function renderHTML(isAuthorized) {
 
     let tempPriority = 'low'; 
     let tempTime = ''; 
+    let tempRepeatType = 'none';
+    
     let activeMode = ''; 
     let calDate = new Date(); 
     let calMode = 'date'; 
@@ -1256,19 +1584,29 @@ function renderHTML(isAuthorized) {
     let isBatchMode = false;
     let selectedTasks = new Set();
     
-    // 回收站状态
     let trashTodos =[];
     let isTrashBatchMode = false;
     let selectedTrashTasks = new Set();
 
-    // 偏好设置管理
     let sortMethod = 'time'; 
     let sortAsc = true; 
     let appSettings = {};
-    // 设置页面暂存状态
     let tempSetProvider = 'auto';
     let tempSetSort = 'time';
     let tempSetSortAsc = true;
+    
+    function hideAndRescuePopovers() {
+      document.querySelectorAll('.popover-menu').forEach(p => {
+        p.style.display = 'none';
+        document.body.appendChild(p);
+      });
+    }
+    
+    let chartInstanceBar = null;
+    let chartInstancePri = null;
+    let chartInstanceStat = null;
+    let currentStatsTab = 'weekly';
+    let annualYear = null;
 
     async function initSettings() {
       try {
@@ -1468,6 +1806,26 @@ function renderHTML(isAuthorized) {
         if (todo.priority === 'med') badges += '<span class="badge badge-med">中</span> ';
         if (todo.time) badges += \`<span class="badge badge-time">\${todo.time}</span> \`;
 
+        if (todo.repeat_type && todo.repeat_type !== 'none') {
+          if (todo.repeat_type === 'daily') {
+              badges += '<span class="badge" style="background:transparent;border:1px solid var(--fg);color:var(--fg);">每天</span> ';
+          } else if (todo.repeat_type === 'weekly') {
+              const days = ['日','一','二','三','四','五','六'];
+              const parts = todo.date.split('-');
+              const day = new Date(parts[0], parts[1]-1, parts[2]).getDay();
+              badges += \`<span class="badge" style="background:transparent;border:1px solid var(--fg);color:var(--fg);">每周\${days[day]}</span> \`;
+          } else if (todo.repeat_type === 'monthly') {
+              const parts = todo.date.split('-');
+              const d = parseInt(parts[2], 10);
+              badges += \`<span class="badge" style="background:transparent;border:1px solid var(--fg);color:var(--fg);">每月\${d}号</span> \`;
+          } else if (todo.repeat_type === 'yearly') {
+              const parts = todo.date.split('-');
+              const m = parseInt(parts[1], 10);
+              const d = parseInt(parts[2], 10);
+              badges += \`<span class="badge" style="background:transparent;border:1px solid var(--fg);color:var(--fg);">每年\${m}月\${d}日</span> \`;
+          }
+        }
+
         if (todo.subtasks && todo.subtasks.length > 0) {
           const completed = todo.subtasks.filter(st => st.done).length;
           badges += \`<span class="badge" style="background:transparent;border:1px solid var(--fg);color:var(--fg);">\${completed}/\${todo.subtasks.length}</span> \`;
@@ -1610,7 +1968,6 @@ function renderHTML(isAuthorized) {
       exitBatchMode(); loadTodos();
     }
 
-    // --- 设置与导入导出相关逻辑 ---
     function openSettings() {
       tempSetProvider = appSettings.provider || 'auto';
       tempSetSort = appSettings.sortMethod || 'time';
@@ -1697,7 +2054,7 @@ function renderHTML(isAuthorized) {
       const dlUrl = \`/api/export?todos=\${incTodos}&trash=\${incTrash}&settings=\${incSettings}\`;
       const a = document.createElement('a');
       a.href = dlUrl;
-      a.download = \`moara_todo_export_\${formatDate(new Date())}.json\`;
+      a.download = \`todo_export_\${formatDate(new Date())}.json\`;
       document.body.appendChild(a); 
       a.click();
       document.body.removeChild(a);
@@ -1773,7 +2130,589 @@ function renderHTML(isAuthorized) {
       }
     }
 
-    // 回收站相关逻辑
+    async function openStats() {
+      var statsView = document.getElementById('stats-overlay');
+      statsView.classList.remove('closing');
+      statsView.classList.add('active');
+      
+      currentStatsTab = 'weekly';
+      updateStatsHeader();
+      loadWeeklyStats();
+    }
+
+    async function loadWeeklyStats() {
+      document.getElementById('stats-loading').classList.remove('hidden');
+      document.getElementById('stats-content').classList.add('hidden');
+
+      if(chartInstanceBar) chartInstanceBar.destroy();
+      if(chartInstancePri) chartInstancePri.destroy();
+      if(chartInstanceStat) chartInstanceStat.destroy();
+
+      const endDt = new Date();
+      const startDt = new Date();
+      startDt.setDate(startDt.getDate() - 6);
+      
+      const endStr = formatDate(endDt);
+      const startStr = formatDate(startDt);
+
+      const datesArray = [];
+      let tempDt = new Date(startDt);
+      while(tempDt <= endDt) {
+        datesArray.push(formatDate(tempDt));
+        tempDt.setDate(tempDt.getDate() + 1);
+      }
+
+      try {
+        const res = await fetch(\`/api/stats?start=\${startStr}&end=\${endStr}\`);
+        if(res.ok) {
+          const rawData = await res.json();
+          renderStatsCharts(rawData, datesArray);
+          document.getElementById('stats-loading').classList.add('hidden');
+          document.getElementById('stats-content').classList.remove('hidden');
+        } else {
+          document.getElementById('stats-loading').innerText = '数据拉取失败。';
+        }
+      } catch(e) {
+        document.getElementById('stats-loading').innerText = '网络请求异常。';
+      }
+    }
+
+    function closeStats() {
+      const statsView = document.getElementById('stats-overlay');
+      statsView.classList.add('closing');
+      statsView.addEventListener('animationend', function handler() {
+        statsView.classList.remove('active');
+        statsView.classList.remove('closing');
+        statsView.removeEventListener('animationend', handler);
+      });
+    }
+    
+    function switchStatsTab() {
+      if (currentStatsTab === 'weekly') {
+        if (getAnnualReportYear() === null) return;
+        currentStatsTab = 'annual';
+        document.getElementById('stats-weekly').classList.add('hidden');
+        document.getElementById('stats-annual').classList.remove('hidden');
+        loadAnnualReport();
+      } else {
+        currentStatsTab = 'weekly';
+        document.getElementById('stats-annual').classList.add('hidden');
+        document.getElementById('stats-weekly').classList.remove('hidden');
+      }
+      updateStatsHeader();
+    }
+    
+    // 年度报告出现时间 0=1月, 1=2月, ..., 11=12月
+    function getAnnualReportYear() {
+      var now = new Date();
+      var month = now.getMonth();
+      var day = now.getDate();
+      if (month === 11 && day === 31) return now.getFullYear();
+      if (month === 0 && day >= 1 && day <= 7) return now.getFullYear() - 1;
+      return null;
+    }
+
+    function updateStatsHeader() {
+      var titleEl = document.getElementById('stats-title-text');
+      var switchBtn = document.getElementById('stats-switch-btn');
+      
+      if (currentStatsTab === 'weekly') {
+        titleEl.innerText = '7天统计';
+        if (getAnnualReportYear() !== null) {
+          switchBtn.classList.remove('hidden');
+          switchBtn.innerText = '年度报告';
+        } else {
+          switchBtn.classList.add('hidden');
+        }
+      } else {
+        titleEl.innerText = '年度报告';
+        switchBtn.classList.remove('hidden');
+        switchBtn.innerText = '7天统计';
+      }
+    }
+
+    async function loadAnnualReport() {
+      var reportYear = getAnnualReportYear();
+      if (reportYear === null) return;
+      annualYear = reportYear;
+
+      var loading = document.getElementById('annual-loading');
+      var content = document.getElementById('annual-content');
+      loading.classList.remove('hidden');
+      content.classList.add('hidden');
+      loading.innerText = '年度数据加载中...';
+
+      var startStr = annualYear + '-01-01';
+      var endStr = annualYear + '-12-31';
+
+      try {
+        var res = await fetch('/api/stats?start=' + startStr + '&end=' + endStr);
+        if (res.ok) {
+          var rawData = await res.json();
+          renderAnnualReport(rawData);
+          loading.classList.add('hidden');
+          content.classList.remove('hidden');
+        } else {
+          loading.innerText = '年度数据拉取失败。';
+        }
+      } catch(e) {
+        loading.innerText = '网络请求异常。';
+      }
+    }
+
+    function renderAnnualReport(rawData) {
+      const content = document.getElementById('annual-content');
+      
+      const totalTasks = rawData.length;
+      const doneTasks = rawData.filter(function(r){ return r.done === 1; }).length;
+      const undoneTasks = totalTasks - doneTasks;
+      const doneRate = totalTasks > 0 ? (doneTasks / totalTasks * 100) : 0;
+      
+      const highPri = rawData.filter(function(r){ return r.priority === 'high'; }).length;
+      const medPri = rawData.filter(function(r){ return r.priority === 'med'; }).length;
+      const lowPri = rawData.filter(function(r){ return r.priority === 'low'; }).length;
+      const highPriRate = totalTasks > 0 ? (highPri / totalTasks * 100) : 0;
+      const medPriRate = totalTasks > 0 ? (medPri / totalTasks * 100) : 0;
+      const lowPriRate = totalTasks > 0 ? (lowPri / totalTasks * 100) : 0;
+      
+      var monthData = [];
+      for (var mi = 0; mi < 12; mi++) monthData.push({ total: 0, done: 0 });
+      rawData.forEach(function(r) {
+        var month = parseInt(r.date.slice(5, 7)) - 1;
+        if (month >= 0 && month < 12) {
+          monthData[month].total++;
+          if (r.done === 1) monthData[month].done++;
+        }
+      });
+      
+      var busiestMonth = 0;
+      monthData.forEach(function(m, i) { if (m.total > monthData[busiestMonth].total) busiestMonth = i; });
+      
+      var dateCount = {};
+      rawData.forEach(function(r) { dateCount[r.date] = (dateCount[r.date] || 0) + 1; });
+      var busiestDate = '--';
+      var busiestDateCount = 0;
+      for (var dk in dateCount) {
+        if (dateCount[dk] > busiestDateCount) { busiestDate = dk; busiestDateCount = dateCount[dk]; }
+      }
+      
+      var firstHalf = 0, secondHalf = 0;
+      monthData.forEach(function(m, i) { if (i < 6) firstHalf += m.total; else secondHalf += m.total; });
+      
+      var activeDays = Object.keys(dateCount).length;
+      
+      var ending = determineEnding(totalTasks, doneRate, highPriRate, firstHalf, secondHalf, monthData, activeDays, medPriRate, lowPriRate);
+      
+      var monthMax = 1;
+      monthData.forEach(function(m) { if (m.total > monthMax) monthMax = m.total; });
+      var monthLabels = ['1月','2月','3月','4月','5月','6月','7月','8月','9月','10月','11月','12月'];
+      
+      var monthBarsHtml = '';
+      for (var bi = 0; bi < 12; bi++) {
+        var m = monthData[bi];
+        var totalW = (m.total / monthMax * 100);
+        var doneW = (m.done / monthMax * 100);
+        monthBarsHtml += '<div class="annual-month-row">' +
+          '<div class="annual-month-label">' + monthLabels[bi] + '</div>' +
+          '<div class="annual-month-bar-bg">' +
+            '<div class="annual-month-bar-total" style="width:' + totalW + '%"></div>' +
+            '<div class="annual-month-bar-done" style="width:' + doneW + '%"></div>' +
+          '</div>' +
+          '<div class="annual-month-count">' + m.total + '</div>' +
+        '</div>';
+      }
+
+      var priMax = Math.max(highPri, medPri, lowPri, 1);
+      var priColors = ['var(--accent)', 'var(--warn)', '#666'];
+      var priLabels = ['高', '中', '低'];
+      var priValues = [highPri, medPri, lowPri];
+      var priRates = [highPriRate, medPriRate, lowPriRate];
+      var priBarsHtml = '';
+      for (var pi = 0; pi < 3; pi++) {
+        priBarsHtml += '<div class="annual-pri-row">' +
+          '<div class="annual-pri-label">' + priLabels[pi] + '</div>' +
+          '<div class="annual-pri-bar-bg">' +
+            '<div class="annual-pri-bar-fill" style="width:' + (priValues[pi] / priMax * 100) + '%; background:' + priColors[pi] + ';"></div>' +
+          '</div>' +
+          '<div class="annual-pri-count">' + priValues[pi] + ' (' + priRates[pi].toFixed(0) + '%)</div>' +
+        '</div>';
+      }
+
+      var narrative = generateNarrative(totalTasks, doneTasks, doneRate, busiestMonth, busiestDate, busiestDateCount, highPri, medPri, lowPri, activeDays, firstHalf, secondHalf, monthData, annualYear);
+
+      content.innerHTML = 
+        '<div class="annual-year-title"><span>' + annualYear + ' 年度报告</span></div>' +
+        '<div class="annual-hero">' +
+          '<div class="annual-ending-title">' + ending.title + '</div>' +
+          '<div class="annual-ending-subtitle">' + ending.subtitle + '</div>' +
+          '<div class="annual-ending-desc">' + ending.desc + '</div>' +
+        '</div>' +
+        '<div class="annual-divider">◆ ◆ ◆</div>' +
+        '<div class="annual-section-title">核心数据</div>' +
+        '<div class="annual-stats-grid">' +
+          '<div class="annual-stat-card"><div class="annual-stat-value">' + totalTasks + '</div><div class="annual-stat-label">总事项数</div></div>' +
+          '<div class="annual-stat-card"><div class="annual-stat-value">' + doneTasks + '</div><div class="annual-stat-label">已完成</div></div>' +
+          '<div class="annual-stat-card"><div class="annual-stat-value">' + doneRate.toFixed(1) + '%</div><div class="annual-stat-label">完成率</div></div>' +
+          '<div class="annual-stat-card"><div class="annual-stat-value">' + activeDays + '</div><div class="annual-stat-label">活跃天数</div></div>' +
+        '</div>' +
+        '<div class="annual-section-title">月度活跃度</div>' +
+        '<div class="annual-month-chart">' + monthBarsHtml + '</div>' +
+        '<div class="annual-section-title">优先级分布</div>' +
+        '<div style="margin-bottom:25px;">' + priBarsHtml + '</div>' +
+        '<div class="annual-divider">◆ ◆ ◆</div>' +
+        '<div class="annual-section-title">年度叙事</div>' +
+        '<div class="annual-narrative">' + narrative + '<div class="annual-report-time">统计周期：' + annualYear + '-01-01 至 ' + annualYear + '-12-31<br>显示截止：' + getAnnualExpiryTime() + '</div></div>';
+    }
+
+    function determineEnding(totalTasks, doneRate, highPriRate, firstHalf, secondHalf, monthData, activeDays, medPriRate, lowPriRate) {
+      if (totalTasks < 5) {
+        return {
+          title: '空白画布',
+          subtitle: 'THE BLANK CANVAS',
+          desc: '这一年，你选择了留下大片空白。也许是没有什么需要记录，也许是最好的待办就是没有待办。空白不是虚无——它是等待被书写的可能性。下一年，你会落笔吗？'
+        };
+      }
+      if (doneRate >= 80 && totalTasks >= 50) {
+        return {
+          title: '效率引擎',
+          subtitle: 'THE EFFICIENCY ENGINE',
+          desc: '你将待办清单视为战场，80%以上的任务被你无情终结。每一条划掉的待办，都是一次对混沌的宣战。你是秩序的信徒，效率的化身。在你面前，没有任何一条待办能活过明天。'
+        };
+      }
+      if (doneRate < 30 && totalTasks >= 20) {
+        return {
+          title: '拖延哲学家',
+          subtitle: 'THE PROCRASTINATION PHILOSOPHER',
+          desc: '你不是在拖延——你是在思考。那些未完成的待办，每一个都承载着深邃的犹豫与无限的可能。也许明天，也许下辈子，它们终将被完成。至少，你写下了它们。'
+        };
+      }
+      if (highPriRate > 40 && doneRate >= 60) {
+        return {
+          title: '战略规划师',
+          subtitle: 'THE STRATEGIC PLANNER',
+          desc: '你只关注真正重要的事。高优先级是你的武器，完成率是你的战绩。无关紧要的事？不配出现在你的清单上。你不是在做待办——你是在指挥战役。'
+        };
+      }
+      if (totalTasks < 30 && doneRate >= 70) {
+        return {
+          title: '精准打击者',
+          subtitle: 'THE PRECISION STRIKER',
+          desc: '少即是多。你不贪多，但每一发都命中靶心。你的待办清单短小精悍，却弹无虚发。真正的高手，从不需要满屏的红点来证明自己的存在。'
+        };
+      }
+      if (totalTasks >= 100 && doneRate < 50) {
+        return {
+          title: '待办收藏家',
+          subtitle: 'THE TODO COLLECTOR',
+          desc: '你的待办清单是一座博物馆。每一项都被精心收藏，却鲜有人问津。但谁知道呢？也许某天你会打开它，然后惊叹于自己曾经的野心和想象。'
+        };
+      }
+      if (firstHalf > 0 && secondHalf >= 0 && firstHalf > secondHalf * 2) {
+        return {
+          title: '开局王者',
+          subtitle: 'THE QUICK STARTER',
+          desc: '年初的你意气风发，雄心万丈。但时间是最好的稀释剂。你的故事总是从"这次一定"开始，然后以"下次再说"收尾。但至少，你的开局总是漂亮的。'
+        };
+      }
+      if (secondHalf > firstHalf * 2 && firstHalf > 0) {
+        return {
+          title: '后发制人',
+          subtitle: 'THE LATE BLOOMER',
+          desc: '上半年还在酝酿，下半年突然爆发。你用实际行动证明了：重要的不是何时开始，而是何时发力。厚积薄发，大器晚成——说的就是你。'
+        };
+      }
+      var priArr = [highPriRate, medPriRate, lowPriRate];
+      var maxPriDiff = Math.max.apply(null, priArr) - Math.min.apply(null, priArr);
+      if (maxPriDiff < 20 && doneRate >= 55 && doneRate <= 85) {
+        return {
+          title: '均衡大师',
+          subtitle: 'THE BALANCE MASTER',
+          desc: '高、中、低优先级在你手中均匀分布。你不偏废，不冒进，以中庸之道驾驭时间。这世上没有你特别在意的事，也没有你愿意放弃的事——也许这就是最大的智慧。'
+        };
+      }
+      if (doneRate >= 50 && doneRate < 80 && totalTasks >= 30 && totalTasks < 100) {
+        return {
+          title: '从容行者',
+          subtitle: 'THE STEADY WALKER',
+          desc: '不急不躁，按自己的节奏前行。你完成的每一件事都有分量，未完成的也不过是留给未来的礼物。你不需要被定义——你的待办清单，就是你自己。'
+        };
+      }
+      if (doneRate >= 30 && doneRate < 50 && totalTasks >= 30) {
+        return {
+          title: '半途旅人',
+          subtitle: 'THE HALFWAY TRAVELER',
+          desc: '你开始了，但经常没有到达。这不丢人——每一段旅程都有意义，即使没有走到终点。你的清单上写满了"进行中"，而"进行中"本身就是一种态度。'
+        };
+      }
+      return {
+        title: '待办探索者',
+        subtitle: 'THE TODO EXPLORER',
+        desc: '你在待办的世界里漫游，不为征服，只为探索。每一条记录都是一次尝试，每一次完成都是一次惊喜。没有KPI，没有目标——只有你和你的清单。'
+      };
+    }
+
+    function generateNarrative(totalTasks, doneTasks, doneRate, busiestMonth, busiestDate, busiestDateCount, highPri, medPri, lowPri, activeDays, firstHalf, secondHalf, monthData, year) {
+      var monthNames = ['一月','二月','三月','四月','五月','六月','七月','八月','九月','十月','十一月','十二月'];
+      var n = '';
+
+      n += '<strong>' + year + '</strong> 年，你一共创建了 <em>' + totalTasks + '</em> 条待办事项。';
+
+      if (totalTasks === 0) {
+        n += '这一年你的清单空空如也。也许你活在当下，从不需要计划——又或者，你本身就是最好的计划。';
+        return n;
+      }
+
+      n += '其中 <em>' + doneTasks + '</em> 条被你亲手终结，完成率 <em>' + doneRate.toFixed(1) + '%</em>。';
+
+      if (doneRate >= 90) n += '这是一个令人敬畏的数字。你的清单上几乎没有逃脱者。';
+      else if (doneRate >= 70) n += '大多数任务没能逃过你的追击，少数幸存者大概在瑟瑟发抖。';
+      else if (doneRate >= 50) n += '一半做了，一半没做。这大概是世界上最诚实的比例。';
+      else if (doneRate >= 30) n += '虽然完成的不多，但每一条都是诚意之作……大概吧。';
+      else n += '你的待办清单更像是一个许愿池——扔进去的硬币，偶尔会发光。';
+
+      n += '<br><br>';
+      n += '你在 <em>' + activeDays + '</em> 个不同的日子里打开了这个应用。';
+
+      if (activeDays >= 300) n += '几乎没有一天缺席——你比打卡机还准时。';
+      else if (activeDays >= 200) n += '一年三分之二的时间你都在这里，这已经不是习惯，是信仰。';
+      else if (activeDays >= 100) n += '三天打鱼两天晒网？不，你只是选择在重要的日子出现。';
+      else if (activeDays >= 30) n += '偶尔来看看，确认清单还在，然后离开。这也是一种使用方式。';
+      else n += '你来去如风，像一位神秘的访客。清单记得你来过。';
+
+      n += '<br><br>';
+
+      if (busiestMonth >= 0 && monthData[busiestMonth].total > 0) {
+        n += '<strong>' + monthNames[busiestMonth] + '</strong> 是你最忙碌的月份，一共 <em>' + monthData[busiestMonth].total + '</em> 条事项涌入';
+        var bDoneRate = monthData[busiestMonth].total > 0 ? (monthData[busiestMonth].done / monthData[busiestMonth].total * 100).toFixed(0) : 0;
+        n += '，当月完成率 <em>' + bDoneRate + '%</em>。';
+        if (monthData[busiestMonth].total >= 30) n += '那段时间你一定忙得不可开措。';
+        else if (monthData[busiestMonth].total >= 15) n += '虽然忙碌，但你扛过来了。';
+      }
+
+      if (busiestDate !== '--') {
+        n += '而 <strong>' + busiestDate + '</strong> 是你最充实的一天，单日创建 <em>' + busiestDateCount + '</em> 条待办。';
+      }
+
+      n += '<br><br>';
+
+      var total = highPri + medPri + lowPri;
+      if (total > 0) {
+        if (highPri > medPri && highPri > lowPri) {
+          n += '你的清单中高优先级事项占了 <em>' + (highPri/total*100).toFixed(0) + '%</em>——你总是先处理最紧急的事，或者说，你制造了太多紧急的事。';
+        } else if (lowPri > highPri && lowPri > medPri) {
+          n += '低优先级事项占了 <em>' + (lowPri/total*100).toFixed(0) + '%</em>——看起来你的大多数待办都"不那么重要"。但谁知道呢，也许"不重要"才是最诚实的标签。';
+        } else if (medPri >= highPri && medPri >= lowPri) {
+          n += '中优先级事项占据了 <em>' + (medPri/total*100).toFixed(0) + '%</em>——大多数事情既不紧急也不可忽略。这就是生活的真相：平淡而持续。';
+        } else {
+          n += '高、中、低优先级均匀分布，你对待每一件事都一视同仁……或者说，你对优先级这个功能有些随意。';
+        }
+      }
+
+      n += '<br><br>';
+
+      if (firstHalf > 0 || secondHalf > 0) {
+        if (firstHalf > secondHalf * 1.5 && secondHalf > 0) {
+          n += '上半年你意气风发，产出了 <em>' + firstHalf + '</em> 条事项；下半年只有 <em>' + secondHalf + '</em> 条。经典的三分钟热度曲线。';
+        } else if (secondHalf > firstHalf * 1.5 && firstHalf > 0) {
+          n += '下半年你突然发力，产出了 <em>' + secondHalf + '</em> 条事项，远超上半年的 <em>' + firstHalf + '</em> 条。后发制人，大器晚成。';
+        } else if (firstHalf === secondHalf && firstHalf > 0) {
+          n += '上下半年各产出 <em>' + firstHalf + '</em> 条事项，节奏稳定如钟。你是时间的朋友。';
+        } else if (firstHalf > 0 && secondHalf > 0) {
+          n += '上下半年各产出 <em>' + firstHalf + '</em> 和 <em>' + secondHalf + '</em> 条事项，节奏基本稳定。';
+        } else if (firstHalf > 0 && secondHalf === 0) {
+          n += '所有的事项都集中在上半年。下半年？大概是在享受上半年的劳动成果。';
+        } else {
+          n += '所有的事项都集中在下半年。上半年？大概是在积蓄力量。';
+        }
+      }
+
+      n += '<br><br>';
+
+      // 找出有数据的月份数
+      var activeMonths = 0;
+      monthData.forEach(function(m) { if (m.total > 0) activeMonths++; });
+      n += '这一年有 <em>' + activeMonths + '</em> 个月份留下了你的记录。';
+
+      if (activeMonths >= 10) n += '你几乎全年无休，是真正的待办常驻居民。';
+      else if (activeMonths >= 6) n += '大半年的时间你都在与清单为伴。';
+      else if (activeMonths >= 3) n += '你只在某些时段出现，像候鸟一样有规律地迁徙。';
+      else n += '你的记录零星而珍贵，像夜空中偶尔闪过的流星。';
+
+      n += '<br><br>';
+      n += '这就是你的 <strong>' + year + '</strong> 年待办故事。无论结局如何，每一条记录都是你认真活过的证据。';
+
+      return n;
+    }
+    
+    function getAnnualExpiryTime() {
+      var y = annualYear + 1;
+      return y + '-01-07 23:59:59';
+    }
+
+    function renderStatsCharts(rawData, datesArray) {
+      const isLight = document.documentElement.getAttribute('data-theme') === 'light';
+      const cText = isLight ? '#111111' : '#ffffff';
+      const cBg = isLight ? '#F0EEE2' : '#0a0a0a';
+      const cPanel = isLight ? '#E5E5E5' : '#222222';
+      const cBorder = isLight ? '#1B1915' : '#555555';
+      const cAccent = isLight ? '#CE2424' : '#ff3300';
+      const cWarn = isLight ? '#E1AC07' : '#ff9900';
+      const cGray = isLight ? '#999999' : '#666666';
+
+      const cFont = getComputedStyle(document.documentElement).getPropertyValue('--font-main').trim() || 'Courier New';
+
+      Chart.defaults.color = cText;
+      Chart.defaults.font.family = cFont;
+      Chart.defaults.font.weight = 'bold';
+      Chart.defaults.plugins.tooltip.backgroundColor = isLight ? '#ffffff' : '#141414';
+      Chart.defaults.plugins.tooltip.titleColor = cAccent;
+      Chart.defaults.plugins.tooltip.bodyColor = cText;
+      Chart.defaults.plugins.tooltip.borderColor = cBorder;
+      Chart.defaults.plugins.tooltip.borderWidth = 1;
+
+      let dailyDoneCounts = {};
+      let dailyTotalCounts = {};
+      datesArray.forEach(d => {
+        dailyDoneCounts[d] = 0;
+        dailyTotalCounts[d] = 0;
+      });
+      let totalDone = 0;
+
+      let priCounts = { high: 0, med: 0, low: 0 };
+      let statusCounts = { done: 0, undone: 0 };
+
+      rawData.forEach(row => {
+        if (row.done === 1) statusCounts.done++;
+        else statusCounts.undone++;
+
+        if (row.priority === 'high') priCounts.high++;
+        else if (row.priority === 'med') priCounts.med++;
+        else priCounts.low++;
+
+        if (dailyTotalCounts[row.date] !== undefined) {
+          dailyTotalCounts[row.date]++;
+          if (row.done === 1) {
+            dailyDoneCounts[row.date]++;
+            totalDone++;
+          }
+        }
+      });
+
+      document.getElementById('stats-total-info').innerText = "近7天总完成数: " + totalDone;
+      document.getElementById('stats-total-info').style.color = cText;
+
+      // 柱状图 (每日总数 vs 完成数)
+      const ctxBar = document.getElementById('chart-bar').getContext('2d');
+      chartInstanceBar = new Chart(ctxBar, {
+        type: 'bar',
+        data: {
+          labels: datesArray.map(d => d.slice(5)), // 仅显示 MM-DD
+          datasets: [
+            {
+              label: '当日总事项',
+              data: datesArray.map(d => dailyTotalCounts[d]),
+              backgroundColor: cPanel,
+              borderColor: cBorder,
+              borderWidth: 1
+            },
+            {
+              label: '当日完成事项',
+              data: datesArray.map(d => dailyDoneCounts[d]),
+              backgroundColor: cAccent,
+              borderColor: cBorder,
+              borderWidth: 1
+            }
+          ]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          animation: { duration: 800, easing: 'easeOutQuart' },
+          scales: {
+            y: { beginAtZero: true, ticks: { stepSize: 1, color: cText }, grid: { color: cPanel } },
+            x: { ticks: { color: cText }, grid: { color: cPanel } }
+          },
+          plugins: {
+            legend: { labels: { color: cText, font: { weight: 'bold' } } }
+          }
+        }
+      });
+
+      // 圆环图 (优先级占比)
+      const ctxPri = document.getElementById('chart-pie-priority').getContext('2d');
+      chartInstancePri = new Chart(ctxPri, {
+        type: 'doughnut',
+        data: {
+          labels: ['高', '中', '低'],
+          datasets: [{
+            data: [priCounts.high, priCounts.med, priCounts.low],
+            backgroundColor: [cAccent, cWarn, cGray],
+            borderColor: cBg,
+            borderWidth: 2
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          animation: { duration: 800, easing: 'easeOutQuart' },
+          plugins: {
+            legend: { position: 'bottom', labels: { color: cText, padding: 10, boxWidth: 12, font: { weight: 'bold' } } },
+            title: { display: true, text: '优先级占比', color: cText, font: { size: 14, weight: 'bold' } },
+            tooltip: {
+              callbacks: {
+                label: function(context) {
+                  let dataArr = context.dataset.data;
+                  let total = 0;
+                  for (let i = 0; i < dataArr.length; i++) {
+                    total += dataArr[i];
+                  }
+                  let percentage = total === 0 ? 0 : Math.round((context.raw / total) * 100);
+                  return context.raw + ' (' + percentage + '%)';
+                }
+              }
+            }
+          }
+        }
+      });
+
+      // 圆环图 (完成率占比)
+      const ctxStat = document.getElementById('chart-pie-status').getContext('2d');
+      chartInstanceStat = new Chart(ctxStat, {
+        type: 'doughnut',
+        data: {
+          labels: ['已完成', '未完成'],
+          datasets: [{
+            data: [statusCounts.done, statusCounts.undone],
+            backgroundColor:[cGray, cAccent],
+            borderColor: cBg,
+            borderWidth: 2
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          animation: { duration: 800, easing: 'easeOutQuart' },
+          plugins: {
+            legend: { position: 'bottom', labels: { color: cText, padding: 10, boxWidth: 12, font: { weight: 'bold' } } },
+            title: { display: true, text: '事项完成率', color: cText, font: { size: 14, weight: 'bold' } },
+            tooltip: {
+              callbacks: {
+                label: function(context) {
+                  let dataArr = context.dataset.data;
+                  let total = 0;
+                  for (let i = 0; i < dataArr.length; i++) {
+                    total += dataArr[i];
+                  }
+                  let percentage = total === 0 ? 0 : Math.round((context.raw / total) * 100);
+                  return context.raw + ' (' + percentage + '%)';
+                }
+              }
+            }
+          }
+        }
+      });
+    }
+
     function openTrash() {
       exitTrashBatchMode();
       const trashView = document.getElementById('trash-overlay');
@@ -1931,7 +2870,6 @@ function renderHTML(isAuthorized) {
       loadTrashData();
     }
 
-    // 子任务与网络搜索逻辑
     function addTempSubtask(mode) {
       const inputId = mode === 'add' ? 'add-subtask-input' : 'edit-subtask-input';
       const input = document.getElementById(inputId);
@@ -2085,12 +3023,41 @@ function renderHTML(isAuthorized) {
       }
     }
 
+    function toggleRepeatMenu(mode, triggerEl) {
+      activeMode = mode; 
+      const popover = document.getElementById('popover-repeat'); 
+      triggerEl.parentNode.style.position = 'relative';
+      triggerEl.parentNode.appendChild(popover);
+      popover.style.display = 'flex'; 
+      popover.style.top = (triggerEl.offsetTop + triggerEl.offsetHeight + 5) + 'px'; 
+      popover.style.left = triggerEl.offsetLeft + 'px';
+      const closeHandler = (e) => { 
+        if(!popover.contains(e.target) && e.target !== triggerEl && !triggerEl.contains(e.target)) { 
+          popover.style.display = 'none'; 
+          document.removeEventListener('click', closeHandler); 
+        } 
+      };
+      setTimeout(() => document.addEventListener('click', closeHandler), 0);
+    }
+
+    function selectRepeat(val, label) {
+      tempRepeatType = val;
+      if (activeMode === 'add') {
+        document.getElementById('add-repeat-display').innerText = '重复: ' + label;
+      } else if (activeMode === 'edit') {
+        document.getElementById('edit-repeat-display').innerText = '重复: ' + label;
+      }
+      document.getElementById('popover-repeat').style.display = 'none';
+    }
+
     function openAddModal() {
       activeMode = 'add';
       document.getElementById('modal-add').classList.add('active');
       document.getElementById('add-text').value = ''; document.getElementById('add-desc').value = '';
       document.getElementById('add-url').value = ''; document.getElementById('add-copy').value = '';
-      tempTime = ''; tempPriority = 'low'; addRepeatState = false;
+      tempTime = ''; tempPriority = 'low';
+      tempRepeatType = 'none';
+      document.getElementById('add-repeat-display').innerText = '重复: 不重复';
       
       tempSubtasks =[]; tempSearchTerms =[]; addSearchState = false; 
       tempSearchProvider = appSettings.provider || 'auto';
@@ -2111,12 +3078,9 @@ function renderHTML(isAuthorized) {
       document.getElementById('add-time-display').innerText = tempTime || '--:--';
       const pMap = {low:'优先级: 低', med:'优先级: 中', high:'优先级: 高'};
       document.getElementById('add-priority-display').innerText = pMap[tempPriority];
-      const box = document.getElementById('add-repeat-box');
-      if(addRepeatState) box.classList.add('checked'); else box.classList.remove('checked');
     }
 
-    function closeAddModal() { document.getElementById('modal-add').classList.remove('active'); }
-    function toggleAddRepeat() { addRepeatState = !addRepeatState; updateAddUI(); }
+    function closeAddModal() { hideAndRescuePopovers(); document.getElementById('modal-add').classList.remove('active'); }
 
     async function confirmAddTask() {
       const text = document.getElementById('add-text').value.trim();
@@ -2124,7 +3088,9 @@ function renderHTML(isAuthorized) {
       const newId = Date.now().toString() + Math.random().toString().slice(2, 6);
       const newTask = {
         id: newId, parentId: newId, text: text, time: tempTime,
-        priority: tempPriority, repeat: addRepeatState,
+        priority: tempPriority, 
+        repeat_type: tempRepeatType,
+        repeat_custom: '',
         desc: document.getElementById('add-desc').value, url: document.getElementById('add-url').value,
         copyText: document.getElementById('add-copy').value, done: false,
         subtasks: tempSubtasks, search_terms: tempSearchTerms
@@ -2180,16 +3146,18 @@ function renderHTML(isAuthorized) {
     }
 
     function closeDetail() {
+      hideAndRescuePopovers();
       const detailView = document.getElementById('detail-view'); detailView.classList.add('closing');
       detailView.addEventListener('animationend', function handler() {
         detailView.classList.remove('active'); detailView.classList.remove('closing'); detailView.removeEventListener('animationend', handler);
       });
-      document.getElementById('popover-action').style.display = 'none';
     }
 
     function renderDetailContent() {
+      hideAndRescuePopovers();
       const task = todos[currentDetailIndex]; const container = document.getElementById('detail-content');
       const pMap = {low:'低', med:'中', high:'高'};
+      const rMap = { none: '不重复', daily: '每天', weekly: '每周', monthly: '每月', yearly: '每年' };
       
       if (!isEditMode) {
         let urlSection = '';
@@ -2239,6 +3207,13 @@ function renderHTML(isAuthorized) {
           \`;
         }
 
+        let rText = '单次任务';
+        if (task.repeat_type && task.repeat_type !== 'none') {
+            rText = \`重复: \${rMap[task.repeat_type]}\`;
+        } else if (task.isSeries) {
+            rText = '已停用未来的系列事项';
+        }
+
         container.innerHTML = \`
           <div class="detail-label">事项内容</div><div class="detail-value">\${task.text}</div>
           \${subtasksSection}
@@ -2248,7 +3223,7 @@ function renderHTML(isAuthorized) {
             <div class="flex-1"><div class="detail-label">优先级</div><div class="detail-value">\${pMap[task.priority]}</div></div>
           </div>
           \${urlSection}\${copySection}
-          <div class="detail-label">属性</div><div class="detail-value">\${task.repeat ? '每天 (Daily Reset)' : (task.isSeries ? '已停用未来的系列事项' : '单次任务')}</div>
+          <div class="detail-label">属性 (例行调度)</div><div class="detail-value">\${rText}</div>
           \${descSection}
         \`;
       } else {
@@ -2285,10 +3260,13 @@ function renderHTML(isAuthorized) {
           </div>
           <div class="detail-label">链接 (URL)</div><input type="url" id="edit-url" value="\${task.url || ''}" class="detail-value editable" placeholder="https://...">
           <div class="detail-label">快捷复制内容</div><input type="text" id="edit-copy" value="\${task.copy_text || ''}" class="detail-value editable" placeholder="需复制的文本...">
-          <div class="detail-label">属性</div>
-          <div class="switch-label" onclick="document.getElementById('edit-repeat-box').classList.toggle('checked')">
-            <div class="switch-box \${task.repeat?'checked':''}" id="edit-repeat-box"></div><span>每天 (Daily Reset)</span>
+          
+          <div class="detail-label">属性 (例行调度)</div>
+          <div class="fake-input detail-value editable" onclick="toggleRepeatMenu('edit', this)" style="display:flex; justify-content:space-between;">
+            <span id="edit-repeat-display">重复: \${rMap[tempRepeatType]}</span>
+            <span style="font-size:0.8rem">▼</span>
           </div>
+          
           <div class="detail-label">备注</div><textarea id="edit-desc" rows="5" class="detail-value editable">\${task.desc || ''}</textarea>
         \`;
         renderTempSubtasks('edit');
@@ -2303,6 +3281,7 @@ function renderHTML(isAuthorized) {
         btnSave.classList.remove('hidden'); btnDel.classList.add('hidden'); btnEdit.innerText = "取消编辑";
         const task = todos[currentDetailIndex]; 
         tempTime = task.time || ''; tempPriority = task.priority || 'low';
+        tempRepeatType = task.repeat_type || 'none';
         tempSubtasks = JSON.parse(JSON.stringify(task.subtasks ||[]));
         tempSearchTerms = JSON.parse(JSON.stringify(task.search_terms ||[]));
         tempSearchProvider = appSettings.provider || 'auto';
@@ -2425,7 +3404,7 @@ function renderHTML(isAuthorized) {
           options.innerHTML += \`<button onclick="confirmAction('all')">所有重复项</button>\`;
         } else { options.innerHTML += \`<button onclick="confirmAction('single')">确认删除 (Confirm)</button>\`; }
       } else if (action === 'save') {
-        const isRepeatNow = document.getElementById('edit-repeat-box').classList.contains('checked');
+        const isRepeatNow = tempRepeatType !== 'none';
         if (task.isSeries || isRepeatNow) {
           title.innerText = "保存为：";
           options.innerHTML += \`<button onclick="confirmAction('single')">仅此项</button>\`;
@@ -2443,7 +3422,7 @@ function renderHTML(isAuthorized) {
     }
 
     async function confirmAction(scope) {
-      document.getElementById('popover-action').style.display = 'none';
+      hideAndRescuePopovers();
       const task = todos[currentDetailIndex];
       if (pendingAction === 'delete') {
         closeDetail();
@@ -2455,7 +3434,8 @@ function renderHTML(isAuthorized) {
         task.desc = document.getElementById('edit-desc').value; task.url = document.getElementById('edit-url').value;
         task.copyText = document.getElementById('edit-copy').value; task.copy_text = task.copyText; 
         task.subtasks = tempSubtasks; task.search_terms = tempSearchTerms;
-        task.repeat = document.getElementById('edit-repeat-box').classList.contains('checked');
+        task.repeat_type = tempRepeatType; task.repeat_custom = '';
+        
         toggleEditMode();
         await fetch('/api/todo-action', { method: 'POST', body: JSON.stringify({ action: 'UPDATE', date: formatDate(currentDate), task: task, scope: scope }), headers: { 'Content-Type': 'application/json' } });
         await loadTodos();
@@ -2480,7 +3460,7 @@ function renderHTML(isAuthorized) {
       document.getElementById('cal-title').innerHTML = \`<span class="cal-title-btn" onclick="openYearPicker()">\${year}年</span> <span class="cal-title-btn" onclick="openMonthPicker()">\${month + 1}月</span>\`;
       
       const grid = document.getElementById('cal-grid'); grid.style.gridTemplateColumns = 'repeat(7, 1fr)'; grid.innerHTML = '';
-      const days =['日','一','二','三','四','五','六']; days.forEach(d => grid.innerHTML += \`<div class="cal-day-name">\${d}</div>\`);
+      const days = ['日','一','二','三','四','五','六']; days.forEach(d => grid.innerHTML += \`<div class="cal-day-name">\${d}</div>\`);
       const firstDay = new Date(year, month, 1).getDay(); const daysInMonth = new Date(year, month + 1, 0).getDate();
       const todayStr = formatDate(new Date()); const selectedStr = formatDate(currentDate);
 
