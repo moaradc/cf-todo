@@ -1,5 +1,5 @@
 /*
- * Cloudflare Worker + D1 Todo App (v2.6.2_导出-添加上版本被忽略的todo_templates)
+ * Cloudflare Worker + D1 Todo App (v2.6.4: 支持前端定制注入)
  * Features: Filter, Trash Bin, Batch Manage, Sub-tasks, Selectable Search Provider, Statistics
  */
 
@@ -228,8 +228,28 @@ export default {
 
     if (url.pathname === '/' && request.method === 'GET') {
       const authorized = await isAuthorized();
-      if (authorized) await initDb();
-      return new Response(renderHTML(authorized), {
+      await initDb();
+      
+      let customHeader = env.CUSTOM_HEADER || '';
+      let customContent = env.CUSTOM_CONTENT || '';
+      
+    if (url.searchParams.get('preview') === '1') {
+      customHeader = '';
+      customContent = '';
+    }
+      
+      try {
+        const record = await env.DB.prepare("SELECT value FROM settings WHERE key = 'app_settings'").first();
+        if (record && record.value) {
+          const settings = JSON.parse(record.value);
+          if (settings.customCodeEnabled === false) {
+            customHeader = '';
+            customContent = '';
+          }
+        }
+      } catch (e) {}
+    
+      return new Response(renderHTML(authorized, customHeader, customContent), {
         headers: { 'Content-Type': 'text/html;charset=UTF-8' },
       });
     }
@@ -710,8 +730,10 @@ export default {
 };
 
 // 前端页面
-function renderHTML(isAuthorized) {
-  return `
+function renderHTML(isAuthorized, customHeader, customContent) {
+  const safeHeaderJSON = JSON.stringify(customHeader || '');
+  const safeContentJSON = JSON.stringify(customContent || '');
+  let html = `
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
@@ -808,7 +830,7 @@ function renderHTML(isAuthorized) {
     }
     .date-display { text-align: center; cursor: pointer; }
     .date-display .main { font-size: 1.2rem; font-weight: bold; color: var(--crt); }
-    .date-display .sub { font-size: 0.7rem; color: #666; display: block; }
+    .date-display .sub { font-size: 0.8rem; color: #aaa; display: block; }
 
     .toolbar { display: flex; justify-content: space-between; gap: 4px; margin-bottom: 15px; }
     .toolbar button { 
@@ -1182,17 +1204,28 @@ function renderHTML(isAuthorized) {
     [data-theme="light"] .annual-pri-label { color: #1B1915; }
     [data-theme="light"] .annual-pri-count { color: #1B1915; }
     [data-theme="light"] .annual-report-time { border-top-color: #1B1915; color: #666; }
+    [data-theme="light"] #custom-header-preview,
+    [data-theme="light"] #custom-content-preview {
+      background: #FEFEFE; color: #1B1915; border: 2px solid #1B1915;
+      box-shadow: inset 2px 2px 0 #E5E5E5; border-radius: 4px;
+    }
+    
+    [data-theme="light"] #preview-notice { background: #E1AC07; color: #1B1915; border-bottom: 2px solid #1B1915; }
+    [data-theme="light"] #preview-notice .md-code { background: #1B1915; color: #E1AC07; border: 1px solid #1B1915; }
   </style>
+  <script>/*CUSTOM_HEADER_PLACEHOLDER*/</script>
 </head>
 <body>
   <div class="scanlines"></div>
+  
+  <div id="preview-notice" class="hidden" style="background:var(--warn);color:#000;padding:8px 15px;text-align:center;font-weight:bold;font-size:0.85rem;position:fixed;top:0;left:0;right:0;z-index:1000;">⚠ 前端定制预览状态 — 自定义仅在本地生效 <span class="md-code" style="cursor:pointer;margin-left:8px;background:#000;color:var(--warn);" onclick="restoreAllPreview()">还原</span></div>
 
   <div class="container">
-    <div class="top-actions-left">
+    <div class="top-actions-left ${isAuthorized ? '' : 'hidden'}">
       <button class="theme-toggle-btn" onclick="openTrash()">回收站</button>
       <button class="theme-toggle-btn" onclick="openStats()">统计</button>
     </div>
-    <div class="top-actions">
+    <div class="top-actions ${isAuthorized ? '' : 'hidden'}">
       <button class="theme-toggle-btn" onclick="openSettings()">设置</button>
       <button id="theme-toggle-btn" class="theme-toggle-btn" onclick="toggleTheme()">自动</button>
     </div>
@@ -1277,10 +1310,16 @@ function renderHTML(isAuthorized) {
       <input type="url" id="add-url" placeholder="URL / APP Scheme (可选)">
       <input type="text" id="add-copy" placeholder="快捷复制内容（可选）">
       
-      <div class="detail-label" style="margin-top:10px;">例行</div>
-      <div class="fake-input" id="add-repeat-trigger" onclick="toggleRepeatMenu('add', this)">
-        <span id="add-repeat-display">重复: 不重复</span>
-        <span style="font-size:0.8rem">▼</span>
+      <div class="detail-label" style="margin-top:10px;">日期 / 例行</div>
+      <div class="row" style="margin-bottom: 10px;">
+        <div class="fake-input flex-1" onclick="openCalendarForAdd()" style="margin-bottom:0;">
+          <span id="add-date-display">----/--/--</span>
+          <span style="font-size:0.8rem">▼</span>
+        </div>
+        <div class="fake-input flex-1" id="add-repeat-trigger" onclick="toggleRepeatMenu('add', this)" style="margin-bottom:0;">
+          <span id="add-repeat-display">重复: 不重复</span>
+          <span style="font-size:0.8rem">▼</span>
+        </div>
       </div>
       
       <textarea id="add-desc" rows="3" placeholder="输入备注/详细描述（可选）"></textarea>
@@ -1382,6 +1421,36 @@ function renderHTML(isAuthorized) {
               </div>
           </div>
       </div>
+      
+       <div class="detail-label">前端定制</div>
+      <div class="settings-card">
+          <div class="setting-item" style="margin-bottom: 15px; border: none; padding: 0;">
+              <span class="settings-text" style="margin:0;"><strong>启用前端定制注入</strong></span>
+              <div class="switch-label" onclick="toggleCustomCodeEnabled()" style="margin-bottom: 0;">
+                  <div class="switch-box" id="custom-code-enabled-box"></div>
+              </div>
+          </div>
+
+          <p class="settings-text" style="margin-bottom: 12px;">通过环境变量注入自定义 HTML/CSS/JS，可修改页面外观或增加行为。关闭后将忽略环境变量内容。</p>
+          
+         <div class="detail-label" style="margin-top: 6px;">自定义头部 <span class="md-code">CUSTOM_HEADER</span></div>
+        <textarea id="custom-header-preview" rows="5"
+          style="resize:vertical; font-size:0.8rem; margin-bottom: 12px;"
+          placeholder="未配置或已关闭 — 将注入到 &lt;head&gt; 尾部"></textarea>
+          <div class="detail-label">自定义内容 <span class="md-code">CUSTOM_CONTENT</span></div>
+          <textarea id="custom-content-preview" rows="5"
+            style="resize:vertical; font-size:0.8rem; margin-bottom: 12px;"
+            placeholder="未配置或已关闭 — 将注入到 &lt;/body&gt; 之前"></textarea>
+          <div id="custom-action-row" style="display:none; gap:10px; margin-bottom:12px;">
+              <span class="md-code" style="cursor:pointer; flex:1; text-align:center;" onclick="previewCustomCode()">预览</span>
+              <span class="md-code" style="cursor:pointer; color:var(--accent); flex:1; text-align:center; display:none;" id="restore-custom-btn" onclick="restoreAllPreview()">还原</span>
+          </div>
+          <div class="settings-text" style="border-top: 1px dashed #333; padding-top: 10px;">
+            <strong>配置方式：</strong>在你的 Worker → 设置 → 变量和机密 中添加：<br>
+            <span class="md-code">CUSTOM_HEADER</span> — 注入到 <span class="md-code">&lt;head&gt;</span> 内（适合放 <span class="md-code">&lt;style&gt;</span>、外部 CSS、meta 标签等）<br>
+            <span class="md-code">CUSTOM_CONTENT</span> — 注入到 <span class="md-code">&lt;/body&gt;</span> 前（适合放 <span class="md-code">&lt;script&gt;</span>、HTML 片段等）
+          </div>
+      </div>
 
       <div class="detail-label">数据管理 (导入/导出 JSON)</div>
       <div class="settings-card">
@@ -1407,7 +1476,7 @@ function renderHTML(isAuthorized) {
 
       <div class="detail-label">关于 MOARA 待办事项</div>
       <div class="settings-card">
-          <p class="settings-text" style="margin-bottom: 5px;"><strong>当前版本:</strong> v2.6.2</p>
+          <p class="settings-text" style="margin-bottom: 5px;"><strong>当前版本:</strong> v2.6.4</p>
           <p class="settings-text" style="margin-bottom: 5px;"><strong>底层架构:</strong> Cloudflare Worker + D1 Database</p>
           <p class="settings-text"><strong>项目描述:</strong> 普通的待办事项管理</p>
       </div>
@@ -1475,7 +1544,7 @@ function renderHTML(isAuthorized) {
     <button onclick="selectSetting('sortAsc', 'false', '倒序')">倒序</button>
   </div>
 
-  <div id="modal-calendar" class="modal-overlay" onclick="if(event.target===this) document.getElementById('modal-calendar').classList.remove('active')">
+  <div id="modal-calendar" class="modal-overlay" style="z-index:250;" onclick="if(event.target===this){document.getElementById('modal-calendar').classList.remove('active');calendarMode='navigate';}">
     <div class="modal-content">
       <div class="calendar-header">
         <span style="cursor:pointer" onclick="calChange(-1)" id="cal-prev">&lt; 上月</span>
@@ -1506,6 +1575,41 @@ function renderHTML(isAuthorized) {
   </div>
 
   <script>
+    function _injectPreview(target, html) {
+      if (!html) return;
+      var temp = document.createElement('div');
+      temp.innerHTML = html;
+      var scripts = Array.prototype.slice.call(temp.querySelectorAll('script'));
+      var scriptData = scripts.map(function(s) {
+        return { src: s.src, text: s.textContent, type: s.type };
+      });
+      scripts.forEach(function(s) { if (s.parentNode) s.parentNode.removeChild(s); });
+      while (temp.firstChild) target.appendChild(temp.firstChild);
+      scriptData.forEach(function(s) {
+        var el = document.createElement('script');
+        if (s.src) el.src = s.src;
+        if (s.type) el.type = s.type;
+        el.textContent = s.text;
+        target.appendChild(el);
+      });
+    }
+    
+    (function(){
+      var ph = localStorage.getItem('preview_custom_header');
+      var pc = localStorage.getItem('preview_custom_content');
+      var hasPreview = ph !== null || pc !== null;
+      if (hasPreview && window.location.search.indexOf('preview=1') === -1) {
+        window.location.href = window.location.pathname + '?preview=1';
+        return;
+      }
+      if (hasPreview) {
+        if (ph !== null) { try { _injectPreview(document.head, ph); } catch(e){ console.error('Preview header inject error:', e); } }
+        if (pc !== null) { try { _injectPreview(document.body, pc); } catch(e){ console.error('Preview content inject error:', e); } }
+        var notice = document.getElementById('preview-notice');
+        if (notice) { notice.classList.remove('hidden'); document.body.style.paddingTop = '40px'; }
+      }
+    })();
+    
     async function generateSearchTerms(provider = 'auto') {
       try {
         const res = await fetch(\`/api/hot-search?provider=\${provider}\`);
@@ -1597,6 +1701,8 @@ function renderHTML(isAuthorized) {
     let tempPriority = 'low'; 
     let tempTime = ''; 
     let tempRepeatType = 'none';
+    let tempAddDate = '';
+    let calendarMode = 'navigate';
     
     let activeMode = ''; 
     let calDate = new Date(); 
@@ -1616,12 +1722,28 @@ function renderHTML(isAuthorized) {
     let tempSetProvider = 'auto';
     let tempSetSort = 'time';
     let tempSetSortAsc = true;
+    let customCodeEnabled = true;
     
     function hideAndRescuePopovers() {
       document.querySelectorAll('.popover-menu').forEach(p => {
         p.style.display = 'none';
         document.body.appendChild(p);
       });
+    }
+    
+    function toggleCustomCodeEnabled() {
+        customCodeEnabled = !customCodeEnabled;
+        document.getElementById('custom-code-enabled-box').classList.toggle('checked', customCodeEnabled);
+        updateCustomCodeUI();
+    }
+    
+    function updateCustomCodeUI() {
+        var headerEl = document.getElementById('custom-header-preview');
+        var contentEl = document.getElementById('custom-content-preview');
+        var actionRow = document.getElementById('custom-action-row');
+        if (headerEl) headerEl.disabled = !customCodeEnabled;
+        if (contentEl) contentEl.disabled = !customCodeEnabled;
+        if (actionRow) actionRow.style.display = customCodeEnabled ? 'flex' : 'none';
     }
     
     let chartInstanceBar = null;
@@ -1638,13 +1760,14 @@ function renderHTML(isAuthorized) {
           appSettings = {
             provider: saved.provider || 'auto',
             sortMethod: saved.sortMethod || 'time',
-            sortAsc: saved.sortAsc !== undefined ? (saved.sortAsc === 'true' || saved.sortAsc === true) : true
+            sortAsc: saved.sortAsc !== undefined ? (saved.sortAsc === 'true' || saved.sortAsc === true) : true,
+            customCodeEnabled: saved.customCodeEnabled !== undefined ? (saved.customCodeEnabled === 'true' || saved.customCodeEnabled === true) : false
           };
         } else {
           throw new Error('Failed to load DB settings');
         }
       } catch (e) {
-        appSettings = { provider: 'auto', sortMethod: 'time', sortAsc: true };
+        appSettings = { provider: 'auto', sortMethod: 'time', sortAsc: true, customCodeEnabled: false };
       }
       
       sortMethod = appSettings.sortMethod;
@@ -1994,14 +2117,28 @@ function renderHTML(isAuthorized) {
       tempSetProvider = appSettings.provider || 'auto';
       tempSetSort = appSettings.sortMethod || 'time';
       tempSetSortAsc = appSettings.sortAsc !== undefined ? appSettings.sortAsc : true;
-
+      
+      customCodeEnabled = appSettings.customCodeEnabled !== false;
+      document.getElementById('custom-code-enabled-box').classList.toggle('checked', customCodeEnabled);
+    
       const pMap = {'auto':'自动 (随机源)', 'bilibili':'哔哩哔哩', 'weibo':'微博热搜', 'zhihu':'知乎热榜', 'baidu':'百度热搜'};
       const sMap = {'time':'按时间', 'priority':'按优先级'};
       
-      document.getElementById('set-disp-provider').innerText = pMap[tempSetProvider] || pMap['auto'];
-      document.getElementById('set-disp-sort').innerText = sMap[tempSetSort] || sMap['time'];
+      document.getElementById('set-disp-provider').innerText = pMap[tempSetProvider];
+      document.getElementById('set-disp-sort').innerText = sMap[tempSetSort];
       document.getElementById('set-disp-sort-asc').innerText = tempSetSortAsc ? '正序' : '倒序';
-
+    
+      const headerEl = document.getElementById('custom-header-preview');
+      const contentEl = document.getElementById('custom-content-preview');
+      var _ph = localStorage.getItem('preview_custom_header');
+      var _pc = localStorage.getItem('preview_custom_content');
+      if (headerEl) headerEl.value = _ph !== null ? _ph : (window.__CUSTOM_HEADER__ || '');
+      if (contentEl) contentEl.value = _pc !== null ? _pc : (window.__CUSTOM_CONTENT__ || '');
+      var _hasPreview = _ph !== null || _pc !== null;
+      var _rcBtn = document.getElementById('restore-custom-btn');
+      if (_rcBtn) _rcBtn.style.display = _hasPreview ? '' : 'none';
+      updateCustomCodeUI();
+    
       const view = document.getElementById('settings-overlay');
       view.classList.remove('closing');
       view.classList.add('active');
@@ -2046,24 +2183,39 @@ function renderHTML(isAuthorized) {
       appSettings.provider = tempSetProvider;
       appSettings.sortMethod = tempSetSort;
       appSettings.sortAsc = tempSetSortAsc;
-
+      appSettings.customCodeEnabled = customCodeEnabled;
+    
       await fetch('/api/settings', {
         method: 'POST',
         body: JSON.stringify(appSettings),
         headers: { 'Content-Type': 'application/json' }
       });
-
+    
       sortMethod = appSettings.sortMethod;
       sortAsc = appSettings.sortAsc;
       tempSearchProvider = appSettings.provider;
-
+    
       const label = sortMethod === 'time' ? '时间' : '优先级';
       const orderLabel = sortAsc ? '正序 ▲' : '倒序 ▼';
       document.getElementById('btn-sort-trigger').innerText = '排序: ' + label + ' ▼';
       document.getElementById('btn-sort-order').innerText = '顺序: ' + orderLabel;
-
+    
       renderTodos();
-      closeSettings();
+      location.reload();
+    }
+    
+    function previewCustomCode() {
+      var headerContent = document.getElementById('custom-header-preview').value;
+      var contentContent = document.getElementById('custom-content-preview').value;
+      localStorage.setItem('preview_custom_header', headerContent);
+      localStorage.setItem('preview_custom_content', contentContent);
+      window.location.href = window.location.pathname + '?preview=1';
+    }
+    
+    function restoreAllPreview() {
+      localStorage.removeItem('preview_custom_header');
+      localStorage.removeItem('preview_custom_content');
+      window.location.href = window.location.pathname;
     }
 
     function exportData() {
@@ -3081,6 +3233,8 @@ function renderHTML(isAuthorized) {
       document.getElementById('add-url').value = ''; document.getElementById('add-copy').value = '';
       tempTime = ''; tempPriority = 'low';
       tempRepeatType = 'none';
+      tempAddDate = formatDate(currentDate);
+      document.getElementById('add-date-display').innerText = tempAddDate;
       document.getElementById('add-repeat-display').innerText = '重复: 不重复';
       
       tempSubtasks =[]; tempSearchTerms =[]; addSearchState = false; 
@@ -3122,7 +3276,7 @@ function renderHTML(isAuthorized) {
       closeAddModal();
       await fetch('/api/todo-action', {
         method: 'POST',
-        body: JSON.stringify({ action: 'CREATE', date: formatDate(currentDate), task: newTask }),
+        body: JSON.stringify({ action: 'CREATE', date: tempAddDate, task: newTask }),
         headers: { 'Content-Type': 'application/json' }
       });
       loadTodos(); 
@@ -3468,11 +3622,14 @@ function renderHTML(isAuthorized) {
       }
     }
 
-    function openCalendar() { calDate = new Date(currentDate); calMode = 'date'; renderCalendar(); document.getElementById('modal-calendar').classList.add('active'); }
+    function openCalendar() { calendarMode = 'navigate'; calDate = new Date(currentDate); calMode = 'date'; renderCalendar(); document.getElementById('modal-calendar').classList.add('active'); }
     function calChange(offset) {
       if (calMode === 'date') { calDate.setMonth(calDate.getMonth() + offset); renderCalendar(); } 
       else if (calMode === 'year') { yearPickerStart += offset * 12; openYearPicker(yearPickerStart); } 
       else if (calMode === 'month') { calDate.setFullYear(calDate.getFullYear() + offset); openMonthPicker(); }
+    }
+    
+    function openCalendarForAdd() { calendarMode = 'select'; calDate = new Date(tempAddDate || currentDate); renderCalendar(); document.getElementById('modal-calendar').classList.add('active');
     }
 
     function renderCalendar() {
@@ -3486,7 +3643,7 @@ function renderHTML(isAuthorized) {
       const grid = document.getElementById('cal-grid'); grid.style.gridTemplateColumns = 'repeat(7, 1fr)'; grid.innerHTML = '';
       const days = ['日','一','二','三','四','五','六']; days.forEach(d => grid.innerHTML += \`<div class="cal-day-name">\${d}</div>\`);
       const firstDay = new Date(year, month, 1).getDay(); const daysInMonth = new Date(year, month + 1, 0).getDate();
-      const todayStr = formatDate(new Date()); const selectedStr = formatDate(currentDate);
+      const todayStr = formatDate(new Date()); const selectedStr = calendarMode === 'select' ? formatDate(calDate) : formatDate(currentDate);
 
       for(let i=0; i<firstDay; i++) grid.innerHTML += \`<div class="cal-date empty"></div>\`;
       for(let i=1; i<=daysInMonth; i++) {
@@ -3494,7 +3651,19 @@ function renderHTML(isAuthorized) {
         let className = 'cal-date';
         if (dStr === todayStr) className += ' today'; if (dStr === selectedStr) className += ' selected';
         const el = document.createElement('div'); el.className = className; el.innerText = i;
-        el.onclick = () => { currentDate = new Date(year, month, i); document.getElementById('modal-calendar').classList.remove('active'); exitBatchMode(); loadTodos(); };
+        el.onclick = () => {
+          if (calendarMode === 'select') {
+            tempAddDate = formatDate(new Date(year, month, i));
+            document.getElementById('add-date-display').innerText = tempAddDate;
+            document.getElementById('modal-calendar').classList.remove('active');
+            calendarMode = 'navigate';
+          } else {
+            currentDate = new Date(year, month, i);
+            document.getElementById('modal-calendar').classList.remove('active');
+            exitBatchMode();
+            loadTodos();
+          }
+        };
         grid.appendChild(el);
       }
     }
@@ -3516,7 +3685,7 @@ function renderHTML(isAuthorized) {
       if (!startYear) startYear = calDate.getFullYear() - 4; yearPickerStart = startYear;
       const actionBtn = document.getElementById('cal-action-btn'); actionBtn.innerText = '返回'; actionBtn.onclick = renderCalendar;
       document.getElementById('cal-prev').innerText = '< 上页'; document.getElementById('cal-next').innerText = '下页 >';
-      document.getElementById('cal-title').innerHTML = \`<span class="cal-title-btn">选择年份</span>\`;
+      document.getElementById('cal-title').innerHTML = \`<span class="cal-title-btn">选择年份</span> <span class="cal-title-btn" onclick="openMonthPicker()">\${calDate.getMonth() + 1}月</span>\`;
       const grid = document.getElementById('cal-grid'); grid.style.gridTemplateColumns = 'repeat(4, 1fr)'; grid.innerHTML = '';
       for(let i=0; i<12; i++) {
         const y = startYear + i; const el = document.createElement('div');
@@ -3526,7 +3695,19 @@ function renderHTML(isAuthorized) {
     }
 
     function changeDate(offset) { exitBatchMode(); currentDate.setDate(currentDate.getDate() + offset); loadTodos(); }
-    function jumpToToday() { exitBatchMode(); currentDate = new Date(); document.getElementById('modal-calendar').classList.remove('active'); loadTodos(); }
+    function jumpToToday() {
+      if (calendarMode === 'select') {
+        tempAddDate = formatDate(new Date());
+        document.getElementById('add-date-display').innerText = tempAddDate;
+        document.getElementById('modal-calendar').classList.remove('active');
+        calendarMode = 'navigate';
+      } else {
+        exitBatchMode();
+        currentDate = new Date();
+        document.getElementById('modal-calendar').classList.remove('active');
+        loadTodos();
+      }
+    }
 
     async function bootstrap() {
       await initSettings();
@@ -3535,7 +3716,20 @@ function renderHTML(isAuthorized) {
     bootstrap();
 
   </script>
+  <script>/*CUSTOM_CONTENT_PLACEHOLDER*/</script>
 </body>
 </html>
   `;
+
+  html = html.replace(
+    '<script>/*CUSTOM_HEADER_PLACEHOLDER*/</script>',
+    customHeader || ''
+  );
+  html = html.replace(
+    '<script>/*CUSTOM_CONTENT_PLACEHOLDER*/</script>',
+    (customContent || '') +
+    `<script>window.__CUSTOM_HEADER__=${safeHeaderJSON};window.__CUSTOM_CONTENT__=${safeContentJSON};</script>`
+  );
+
+  return html;
 }
