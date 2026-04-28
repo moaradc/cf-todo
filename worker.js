@@ -1,5 +1,5 @@
 /*
- * Cloudflare Worker + D1 Todo App (v2.6.4: 支持前端定制注入)
+ * Cloudflare Worker + D1 Todo App (v2.6.5: 登录安全、性能与资源优化；将整个主 <script> 块用 IIFE 包裹，仅暴露 HTML onclick 及动态模板中需要调用的函数到 window)
  * Features: Filter, Trash Bin, Batch Manage, Sub-tasks, Selectable Search Provider, Statistics
  */
 
@@ -34,20 +34,36 @@ async function verify(data, signature, secret) {
   return expected === signature;
 }
 
-function cryptoTimingSafeEqual(a, b) {
+function generateSessionToken() {
+  const bytes = new Uint8Array(32);
+  crypto.getRandomValues(bytes);
+  return btoa(String.fromCharCode(...bytes)).replace(/[+/=]/g, c =>
+    c === '+' ? '-' : c === '/' ? '_' : ''
+  );
+}
+
+async function secureCompare(a, b, secret) {
   if (typeof a !== 'string' || typeof b !== 'string') return false;
-  if (a.length !== b.length) return false;
+  if (a.length === 0 || b.length === 0) return false;
   const encoder = new TextEncoder();
-  const aBuf = encoder.encode(a);
-  const bBuf = encoder.encode(b);
+  const key = await crypto.subtle.importKey(
+    "raw", encoder.encode(secret),
+    { name: "HMAC", hash: "SHA-256" }, false, ["sign"]
+  );
+  const [sigA, sigB] = await Promise.all([
+    crypto.subtle.sign("HMAC", key, encoder.encode(a)),
+    crypto.subtle.sign("HMAC", key, encoder.encode(b))
+  ]);
+  if (sigA.byteLength !== sigB.byteLength) return false;
+  const arrA = new Uint8Array(sigA);
+  const arrB = new Uint8Array(sigB);
   let result = 0;
-  for (let i = 0; i < aBuf.length; i++) {
-    result |= aBuf[i] ^ bBuf[i];
+  for (let i = 0; i < arrA.length; i++) {
+    result |= arrA[i] ^ arrB[i];
   }
   return result === 0;
 }
 
-// 解决时区偏移问题的严谨日历解析
 function getDayOfWeek(dateStr) {
   const parts = dateStr.split('-');
   if (parts.length < 3) return 0;
@@ -107,10 +123,16 @@ export default {
     const cookies = parseCookies(request);
     const clientIp = request.headers.get('cf-connecting-ip') || 'unknown';
     
-    const isAuthorized = async () => {
-      if (!cookies.auth_token || !cookies.auth_sig) return false;
-      return await verify(cookies.auth_token, cookies.auth_sig, env.JWT_SECRET);
-    };
+const isAuthorized = async () => {
+  if (!cookies.auth_token || !cookies.auth_sig) return false;
+  const sigValid = await verify(cookies.auth_token, cookies.auth_sig, env.JWT_SECRET);
+  if (!sigValid) return false;
+  const record = await env.DB.prepare(
+    "SELECT value FROM settings WHERE key = 'active_session_token'"
+  ).first();
+  if (!record || record.value !== cookies.auth_token) return false;
+  return true;
+};
 
     const initDb = async () => {
       if (isDbInitialized) return;
@@ -136,8 +158,10 @@ export default {
               repeat_custom TEXT DEFAULT ''
             )
           `),
-          env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_todos_date ON todos(date)`),
-          env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_todos_parent_id ON todos(parent_id)`),
+          env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_todos_date_del ON todos(date, deleted)`),
+          env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_todos_parent_date_del ON todos(parent_id, date, deleted)`),
+          env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_templates_repeat_type ON todo_templates(repeat_type)`),
+        
           env.DB.prepare(`
             CREATE TABLE IF NOT EXISTS todo_templates (
               parent_id TEXT PRIMARY KEY,
@@ -160,7 +184,7 @@ export default {
               key TEXT PRIMARY KEY,
               value TEXT
             )
-          `)
+          `),
         ]);
         
         try { await env.DB.prepare(`ALTER TABLE todos ADD COLUMN copy_text TEXT`).run(); } catch (e) {}
@@ -202,28 +226,51 @@ export default {
       }
 
       const { password } = await request.json();
-      const isAdmin = cryptoTimingSafeEqual(password, env.ADMIN_PASSWORD);
+      const isAdmin = await secureCompare(password, env.ADMIN_PASSWORD, env.JWT_SECRET);
 
       if (isAdmin) {
-        if (attemptRecord) {
-          await env.DB.prepare('UPDATE login_attempts SET attempts = 0, lock_until = 0 WHERE ip = ?').bind(clientIp).run();
-        }
-        const token = "admin_session";
+        await env.DB.prepare(`
+          INSERT INTO login_attempts (ip, attempts, lock_until) VALUES (?, 0, 0) 
+          ON CONFLICT(ip) DO UPDATE SET attempts = 0, lock_until = 0
+        `).bind(clientIp).run();
+    
+        const token = generateSessionToken();
         const sig = await sign(token, env.JWT_SECRET);
+        await env.DB.prepare(
+          "INSERT OR REPLACE INTO settings (key, value) VALUES ('active_session_token', ?)"
+        ).bind(token).run();
+    
         const headers = new Headers();
         headers.append('Set-Cookie', `auth_token=${token}; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=2592000`);
         headers.append('Set-Cookie', `auth_sig=${sig}; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=2592000`);
         return new Response(JSON.stringify({ success: true }), { headers });
       } else {
-        const newAttempts = (attemptRecord ? attemptRecord.attempts : 0) + 1;
-        const lockUntil = newAttempts >= 5 ? now + (15 * 60 * 1000) : 0; 
         await env.DB.prepare(`
-          INSERT INTO login_attempts (ip, attempts, lock_until) VALUES (?, ?, ?) 
-          ON CONFLICT(ip) DO UPDATE SET attempts = excluded.attempts, lock_until = excluded.lock_until
-        `).bind(clientIp, newAttempts, lockUntil).run();
+          INSERT INTO login_attempts (ip, attempts, lock_until) VALUES (?, 1, 0) 
+          ON CONFLICT(ip) DO UPDATE SET 
+            attempts = attempts + 1,
+            lock_until = CASE WHEN attempts + 1 >= 5 THEN ? ELSE 0 END
+        `).bind(clientIp, now + 15 * 60 * 1000).run();
         
         return new Response(JSON.stringify({ error: "ACCESS DENIED" }), { status: 401 });
       }
+    }
+    
+    if (url.pathname === '/api/logout' && request.method === 'POST') {
+      if (cookies.auth_token) {
+        const record = await env.DB.prepare(
+          "SELECT value FROM settings WHERE key = 'active_session_token'"
+        ).first();
+        if (record && record.value === cookies.auth_token) {
+          await env.DB.prepare(
+            "DELETE FROM settings WHERE key = 'active_session_token'"
+          ).run();
+        }
+      }
+      const headers = new Headers();
+      headers.append('Set-Cookie', `auth_token=; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=0`);
+      headers.append('Set-Cookie', `auth_sig=; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=0`);
+      return new Response(JSON.stringify({ success: true }), { headers });
     }
 
     if (url.pathname === '/' && request.method === 'GET') {
@@ -477,53 +524,48 @@ export default {
         'SELECT * FROM todos WHERE date = ? AND deleted = 0'
       ).bind(date).all();
       
-      const existingParentIds = new Set(results.map(r => r.parent_id));
-      const templatesReq = await env.DB.prepare('SELECT * FROM todo_templates').all();
-      
+      const targetDayOfWeek = String(getDayOfWeek(date));
+      const targetDayOfMonth = date.slice(8, 10);   // "01"~"31"
+      const targetMonthDay   = date.slice(5, 10);   // "01-01"~"12-31"
+    
+      const templatesReq = await env.DB.prepare(`
+        SELECT * FROM todo_templates t
+        WHERE t.repeat_type IN ('daily','weekly','monthly','yearly')
+        AND NOT EXISTS (
+          SELECT 1 FROM todos td
+          WHERE td.parent_id = t.parent_id
+            AND td.date = ?
+            AND td.deleted = 0
+        )
+        AND (
+          t.repeat_type = 'daily'
+          OR (t.repeat_type = 'weekly'  AND strftime('%w', t.anchor_date) = ?)
+          OR (t.repeat_type = 'monthly' AND substr(t.anchor_date, 9, 2) = ?)
+          OR (t.repeat_type = 'yearly'  AND substr(t.anchor_date, 6, 5) = ?)
+        )
+      `).bind(date, targetDayOfWeek, targetDayOfMonth, targetMonthDay).all();
+    
       const insertStmts = [];
       let newlyFetchedSearchTerms = null;
-
+    
       if (templatesReq.results && templatesReq.results.length > 0) {
         for (const tpl of templatesReq.results) {
-          if (existingParentIds.has(tpl.parent_id)) continue;
-          
-          let isMatch = false;
-          const rType = tpl.repeat_type || 'none';
-          if (rType === 'none') continue;
-          
-          if (rType === 'daily') {
-              isMatch = true;
-          } else {
-              const targetDayOfWeek = getDayOfWeek(date);
-              const anchorDayOfWeek = getDayOfWeek(tpl.anchor_date);
-
-              if (rType === 'weekly') {
-                  isMatch = targetDayOfWeek === anchorDayOfWeek;
-              } else if (rType === 'monthly') {
-                  isMatch = date.slice(8, 10) === tpl.anchor_date.slice(8, 10);
-              } else if (rType === 'yearly') {
-                  isMatch = date.slice(5, 10) === tpl.anchor_date.slice(5, 10);
-              }
-          }
-          if (!isMatch) continue;
-
-          // 拦截黑名单中被标记"仅此项删除"的日期
-          let parsedBlacklist =[];
+          let parsedBlacklist = [];
           try { if (tpl.blacklist) parsedBlacklist = JSON.parse(tpl.blacklist); } catch(e){}
           if (parsedBlacklist.includes(date)) continue;
-
+    
           const newId = Date.now().toString() + Math.random().toString().slice(2, 6);
-          
+    
           let parsedSubtasks = [];
-          if (tpl.subtasks) {
+          if (tpl.subtasks && tpl.subtasks !== '[]' && tpl.subtasks !== '') {
             try {
               parsedSubtasks = JSON.parse(tpl.subtasks);
-              parsedSubtasks.forEach(st => st.done = false); 
+              parsedSubtasks.forEach(st => st.done = false);
             } catch(e) {}
           }
-
+    
           let parsedSearchTerms = [];
-          if (tpl.search_terms) {
+          if (tpl.search_terms && tpl.search_terms !== '[]' && tpl.search_terms !== '') {
             try {
               const oldTerms = JSON.parse(tpl.search_terms);
               if (Array.isArray(oldTerms) && oldTerms.length > 0) {
@@ -543,35 +585,52 @@ export default {
               }
             } catch(e) {}
           }
-
-          const newRecord = { 
-            ...tpl, id: newId, date: date, parent_id: tpl.parent_id, 
-            done: 0, deleted: 0, repeat: 1, 
-            subtasks: JSON.stringify(parsedSubtasks), 
-            search_terms: JSON.stringify(parsedSearchTerms) 
-          };
-          results.push(newRecord); 
-          
-          insertStmts.push(env.DB.prepare(
-            'INSERT INTO todos (id, parent_id, date, text, time, priority, repeat, desc, url, copy_text, subtasks, search_terms, done, deleted, repeat_type, repeat_custom) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
-          ).bind(
-            newId, tpl.parent_id, date, tpl.text, tpl.time || '', tpl.priority || 'low', 1, 
-            tpl.desc || '', tpl.url || '', tpl.copy_text || '', 
-            JSON.stringify(parsedSubtasks), JSON.stringify(parsedSearchTerms), 
-            0, 0, tpl.repeat_type || 'none', tpl.repeat_custom || ''  
-          ));
-        }
-        if (insertStmts.length > 0) {
-            await env.DB.batch(insertStmts);
+    
+        const newRecord = { 
+          ...tpl, id: newId, date: date, parent_id: tpl.parent_id, 
+          done: 0, deleted: 0, repeat: 1, 
+          subtasks: parsedSubtasks,
+          search_terms: parsedSearchTerms
+        };
+        results.push(newRecord); 
+      
+        insertStmts.push(env.DB.prepare(
+          'INSERT INTO todos (id, parent_id, date, text, time, priority, repeat, desc, url, copy_text, subtasks, search_terms, done, deleted, repeat_type, repeat_custom) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+        ).bind(
+          newId, tpl.parent_id, date, tpl.text, tpl.time || '', tpl.priority || 'low', 1, 
+          tpl.desc || '', tpl.url || '', tpl.copy_text || '', 
+          JSON.stringify(parsedSubtasks), JSON.stringify(parsedSearchTerms),
+          0, 0, tpl.repeat_type || 'none', tpl.repeat_custom || ''  
+        ));
+      }
+      if (insertStmts.length > 0) {
+        for (let i = 0; i < insertStmts.length; i += 100) {
+          await env.DB.batch(insertStmts.slice(i, i + 100));
         }
       }
+    }
     
       const formatted = results.map(row => {
         let parsedSubtasks = [];
         let parsedSearchTerms = [];
-        try { if (row.subtasks) parsedSubtasks = JSON.parse(row.subtasks); } catch(e){}
-        try { if (row.search_terms) parsedSearchTerms = JSON.parse(row.search_terms); } catch(e){}
-        
+      
+        if (Array.isArray(row.subtasks)) {
+          parsedSubtasks = row.subtasks;
+        } else {
+          try { 
+            if (row.subtasks) parsedSubtasks = JSON.parse(row.subtasks); 
+          } catch(e) {
+          }
+        }
+
+        if (Array.isArray(row.search_terms)) {
+          parsedSearchTerms = row.search_terms;
+        } else {
+          try { 
+            if (row.search_terms) parsedSearchTerms = JSON.parse(row.search_terms); 
+          } catch(e) {}
+        }
+
         parsedSearchTerms = parsedSearchTerms.map(w => {
             if (typeof w === 'string' && w.trim()) return { text: w, done: false };
             if (w && typeof w === 'object' && w.text) return w;
@@ -622,7 +681,6 @@ export default {
         else if (action === 'BATCH_DELETE') {
           if (ids && ids.length > 0) {
             const placeholders = ids.map(() => '?').join(',');
-            // 【新增】批量删除加入黑名单
             const tasks = await env.DB.prepare(`SELECT parent_id, date, repeat FROM todos WHERE id IN (${placeholders})`).bind(...ids).all();
             await env.DB.prepare(`UPDATE todos SET deleted = 1 WHERE id IN (${placeholders})`).bind(...ids).run();
             
@@ -686,11 +744,21 @@ export default {
         
           if (scope === 'future' || scope === 'all') {
               if (rpt) {
+                  let existingBlacklist = '[]';
+                  try {
+                    const existingTpl = await env.DB.prepare(
+                      'SELECT blacklist FROM todo_templates WHERE parent_id = ?'
+                    ).bind(task.parentId).first();
+                    if (existingTpl && existingTpl.blacklist) {
+                      existingBlacklist = existingTpl.blacklist;
+                    }
+                  } catch(e) {}
+          
                   await env.DB.prepare(
                     'INSERT OR REPLACE INTO todo_templates (parent_id, text, time, priority, desc, url, copy_text, subtasks, search_terms, repeat_type, repeat_custom, anchor_date, blacklist) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
                   ).bind(
                     task.parentId, task.text, task.time || '', task.priority || 'low', task.desc || '', task.url || '', task.copyText || '', 
-                    subtasksStr, searchTermsStr, rptType, '', date, '[]' 
+                    subtasksStr, searchTermsStr, rptType, '', date, existingBlacklist
                   ).run();
               } else {
                   await env.DB.prepare('DELETE FROM todo_templates WHERE parent_id=?').bind(task.parentId).run();
@@ -1476,14 +1544,17 @@ function renderHTML(isAuthorized, customHeader, customContent) {
 
       <div class="detail-label">关于 MOARA 待办事项</div>
       <div class="settings-card">
-          <p class="settings-text" style="margin-bottom: 5px;"><strong>当前版本:</strong> v2.6.4</p>
+          <p class="settings-text" style="margin-bottom: 5px;"><strong>当前版本:</strong> v2.6.5</p>
           <p class="settings-text" style="margin-bottom: 5px;"><strong>底层架构:</strong> Cloudflare Worker + D1 Database</p>
           <p class="settings-text"><strong>项目描述:</strong> 普通的待办事项管理</p>
       </div>
 
       <div class="detail-label" style="color: var(--accent);">危险区域</div>
       <div class="settings-card danger">
-          <p class="settings-text" style="margin-bottom: 15px;">执行此操作将不可逆转地清空所有的系统记录、回收站数据并重置偏好设置。建议提前导出备份。</p>
+          <div class="settings-text" style="margin-bottom: 10px;">退出当前登录会话，需重新输入密钥接入系统。您的数据不会消失。</div>
+          <button class="btn-danger" style="width:100%" onclick="logout()">退出登录</button>
+          
+          <p class="settings-text" style="margin-bottom: 15px; margin-top: 20px; padding-top: 20px; border-top: 1px dashed var(--accent);">执行此操作将不可逆地清空所有的系统记录、回收站数据并重置偏好设置。建议提前导出备份。</p>
           <button class="btn-danger" style="width:100%" onclick="factoryReset()">恢复出厂设置</button>
       </div>
 
@@ -1544,7 +1615,7 @@ function renderHTML(isAuthorized, customHeader, customContent) {
     <button onclick="selectSetting('sortAsc', 'false', '倒序')">倒序</button>
   </div>
 
-  <div id="modal-calendar" class="modal-overlay" style="z-index:250;" onclick="if(event.target===this){document.getElementById('modal-calendar').classList.remove('active');calendarMode='navigate';}">
+  <div id="modal-calendar" class="modal-overlay" style="z-index:250;" onclick="if(event.target===this) closeCalendar()">
     <div class="modal-content">
       <div class="calendar-header">
         <span style="cursor:pointer" onclick="calChange(-1)" id="cal-prev">&lt; 上月</span>
@@ -1575,6 +1646,9 @@ function renderHTML(isAuthorized, customHeader, customContent) {
   </div>
 
   <script>
+  (function() {
+    'use strict';
+
     function _injectPreview(target, html) {
       if (!html) return;
       var temp = document.createElement('div');
@@ -1724,6 +1798,202 @@ function renderHTML(isAuthorized, customHeader, customContent) {
     let tempSetSortAsc = true;
     let customCodeEnabled = true;
     
+    let VS = {
+      ITEM_H: 80,
+      BUFFER: 5,
+      _el: null,
+      _top: null,
+      _mid: null,
+      _bot: null,
+      _items: [],
+      _lastStart: -1,
+      _lastEnd: -1,
+      _scrollFn: null,
+      _resizeFn: null,
+      _raf: null,
+      _active: false,
+      _vpH: 0,
+      _measured: false,
+
+      init() {
+        this._el = document.getElementById('todo-list');
+        if (!this._el || this._active) return;
+        this._el.innerHTML = '';
+        this._top = document.createElement('div');
+        this._mid = document.createElement('div');
+        this._bot = document.createElement('div');
+        this._el.appendChild(this._top);
+        this._el.appendChild(this._mid);
+        this._el.appendChild(this._bot);
+
+        var self = this;
+        this._scrollFn = function() {
+          if (self._raf) return;
+          self._raf = requestAnimationFrame(function() { self._raf = null; self._paint(); });
+        };
+        this._resizeFn = function() {
+          self._vpH = window.innerHeight;
+          self._invalidate();
+        };
+        window.addEventListener('scroll', this._scrollFn, { passive: true });
+        window.addEventListener('resize', this._resizeFn, { passive: true });
+        this._active = true;
+        this._vpH = window.innerHeight;
+        this._invalidate();
+      },
+
+      destroy() {
+        if (this._scrollFn) window.removeEventListener('scroll', this._scrollFn);
+        if (this._resizeFn) window.removeEventListener('resize', this._resizeFn);
+        if (this._raf) { cancelAnimationFrame(this._raf); this._raf = null; }
+        this._active = false;
+        this._lastStart = -1;
+        this._lastEnd = -1;
+        this._measured = false;
+      },
+
+      setItems(items) {
+        this._items = items;
+        if (!this._active) this.init();
+        this._invalidate();
+        this._paint();
+      },
+
+      renderEmpty(html) {
+        this.destroy();
+        var el = document.getElementById('todo-list');
+        if (el) el.innerHTML = html;
+      },
+
+      _invalidate() {
+        this._lastStart = -1;
+        this._lastEnd = -1;
+      },
+
+      _paint() {
+        if (!this._active || !this._mid) return;
+        var total = this._items.length;
+        if (total === 0) return;
+
+        var rect = this._el.getBoundingClientRect();
+        var viewTop = -rect.top;
+        var viewBottom = viewTop + this._vpH;
+
+        var s = Math.floor(viewTop / this.ITEM_H) - this.BUFFER;
+        var e = Math.ceil(viewBottom / this.ITEM_H) + this.BUFFER;
+        s = Math.max(0, s);
+        e = Math.min(total, e);
+
+        if (s === this._lastStart && e === this._lastEnd) return;
+        this._lastStart = s;
+        this._lastEnd = e;
+
+        this._top.style.height = (s * this.ITEM_H) + 'px';
+        this._bot.style.height = (Math.max(0, total - e) * this.ITEM_H) + 'px';
+
+        var frag = document.createDocumentFragment();
+        for (var i = s; i < e; i++) {
+          var todo = this._items[i];
+          var idx = todos.indexOf(todo);
+          frag.appendChild(createTodoElement(todo, idx));
+        }
+        this._mid.innerHTML = '';
+        this._mid.appendChild(frag);
+
+        if (!this._measured && this._mid.firstElementChild) {
+          var h = this._mid.firstElementChild.offsetHeight;
+          if (h > 0) {
+            var realH = h + 10;
+            if (Math.abs(realH - this.ITEM_H) > 3) {
+              this.ITEM_H = realH;
+            }
+            this._measured = true;
+            this._invalidate();
+            this._paint();
+          }
+        }
+      }
+    };
+
+    function createTodoElement(todo, index) {
+      var el = document.createElement('div');
+      el.className = 'todo-item ' + (todo.done ? 'done' : '');
+
+      var badges = '';
+      if (todo.priority === 'high') badges += '<span class="badge badge-high">高</span> ';
+      if (todo.priority === 'med')  badges += '<span class="badge badge-med">中</span> ';
+      if (todo.time) badges += '<span class="badge badge-time">' + todo.time + '</span> ';
+
+      if (todo.repeat_type && todo.repeat_type !== 'none') {
+        var repeatLabel = '';
+        if (todo.repeat_type === 'daily') {
+          repeatLabel = '每天';
+        } else if (todo.repeat_type === 'weekly') {
+          var days = ['日','一','二','三','四','五','六'];
+          var parts = todo.date.split('-');
+          var day = new Date(parts[0], parts[1]-1, parts[2]).getDay();
+          repeatLabel = '每周' + days[day];
+        } else if (todo.repeat_type === 'monthly') {
+          var parts2 = todo.date.split('-');
+          repeatLabel = '每月' + parseInt(parts2[2], 10) + '号';
+        } else if (todo.repeat_type === 'yearly') {
+          var parts3 = todo.date.split('-');
+          repeatLabel = '每年' + parseInt(parts3[1], 10) + '月' + parseInt(parts3[2], 10) + '日';
+        }
+        badges += '<span class="badge" style="background:transparent;border:1px solid var(--fg);color:var(--fg);">' + repeatLabel + '</span> ';
+      }
+
+      if (todo.subtasks && todo.subtasks.length > 0) {
+        var completed = todo.subtasks.filter(function(st){ return st.done; }).length;
+        badges += '<span class="badge" style="background:transparent;border:1px solid var(--fg);color:var(--fg);">' + completed + '/' + todo.subtasks.length + '</span> ';
+      }
+
+      var meta = document.createElement('div');
+      meta.className = 'item-meta';
+      meta.innerHTML = '<div class="item-title">' + todo.text + '</div><div class="item-info">' + badges + '</div>';
+
+      var checkbox = document.createElement('div');
+      checkbox.className = 'checkbox' + (isBatchMode && selectedTasks.has(index) ? ' batch-selected' : '');
+      checkbox.addEventListener('click', function(e) {
+        e.stopPropagation();
+        if (isBatchMode) toggleBatchSelect(index);
+        else toggleDone(index);
+      });
+
+      el.appendChild(checkbox);
+      el.appendChild(meta);
+
+      if (!isBatchMode) {
+        if (todo.url) {
+          var linkBtn = document.createElement('a');
+          linkBtn.href = todo.url;
+          linkBtn.target = '_blank';
+          linkBtn.className = 'btn-link';
+          linkBtn.innerText = '↗';
+          linkBtn.addEventListener('click', function(e){ e.stopPropagation(); });
+          el.appendChild(linkBtn);
+        }
+        if (todo.copy_text) {
+          var copyBtn = document.createElement('button');
+          copyBtn.className = 'btn-link';
+          copyBtn.innerText = '⎘';
+          var textToCopy = todo.copy_text;
+          copyBtn.addEventListener('click', function(e){
+            e.stopPropagation();
+            copyText(textToCopy);
+          });
+          el.appendChild(copyBtn);
+        }
+      }
+
+      el.addEventListener('click', function() {
+        if (isBatchMode) toggleBatchSelect(index);
+        else openDetail(index);
+      });
+
+      return el;
+    }
+    
     function hideAndRescuePopovers() {
       document.querySelectorAll('.popover-menu').forEach(p => {
         p.style.display = 'none';
@@ -1848,7 +2118,7 @@ function renderHTML(isAuthorized, customHeader, customContent) {
     async function loadTodos() {
       const dateStr = formatDate(currentDate);
       updateDateHeader(true);
-      document.getElementById('todo-list').innerHTML = '<div style="padding:20px;text-align:center;">数据拉取中...</div>';
+      VS.renderEmpty('<div style="padding:20px;text-align:center;">数据拉取中...</div>');
       try {
         const res = await fetch(\`/api/todos?date=\${dateStr}\`);
         if (res.ok) {
@@ -1919,97 +2189,27 @@ function renderHTML(isAuthorized, customHeader, customContent) {
 
     function renderTodos() {
       updateDateHeader(false);
-      const list = document.getElementById('todo-list');
-      list.innerHTML = '';
-      
-      let filteredTodos = todos;
-      if (filterMethod === 'todo') filteredTodos = todos.filter(t => !t.done);
-      else if (filterMethod === 'done') filteredTodos = todos.filter(t => t.done);
+
+      var filteredTodos = todos;
+      if (filterMethod === 'todo') filteredTodos = todos.filter(function(t){ return !t.done; });
+      else if (filterMethod === 'done') filteredTodos = todos.filter(function(t){ return t.done; });
 
       if (filteredTodos.length === 0) {
-        list.innerHTML = '<div style="padding:40px;text-align:center;border:1px dashed #666;">无数据 // NULL</div>';
+        VS.renderEmpty('<div style="padding:40px;text-align:center;border:1px dashed #666;">无数据 // NULL</div>');
         return;
       }
 
-      filteredTodos.sort((a, b) => {
+      filteredTodos.sort(function(a, b) {
         if (a.done !== b.done) return a.done ? 1 : -1;
-        let valA, valB;
-        if (sortMethod === 'time') { valA = a.time || '24:00'; valB = b.time || '24:00'; } 
-        else { const pMap = { high: 3, med: 2, low: 1 }; valA = pMap[a.priority] || 1; valB = pMap[b.priority] || 1; }
+        var valA, valB;
+        if (sortMethod === 'time') { valA = a.time || '24:00'; valB = b.time || '24:00'; }
+        else { var pMap = { high: 3, med: 2, low: 1 }; valA = pMap[a.priority] || 1; valB = pMap[b.priority] || 1; }
         if (valA < valB) return sortAsc ? -1 : 1;
         if (valA > valB) return sortAsc ? 1 : -1;
         return 0;
       });
 
-      filteredTodos.forEach((todo) => {
-        const index = todos.indexOf(todo);
-        const el = document.createElement('div');
-        el.className = \`todo-item \${todo.done ? 'done' : ''}\`;
-        
-        let badges = '';
-        if (todo.priority === 'high') badges += '<span class="badge badge-high">高</span> ';
-        if (todo.priority === 'med') badges += '<span class="badge badge-med">中</span> ';
-        if (todo.time) badges += \`<span class="badge badge-time">\${todo.time}</span> \`;
-
-        if (todo.repeat_type && todo.repeat_type !== 'none') {
-          if (todo.repeat_type === 'daily') {
-              badges += '<span class="badge" style="background:transparent;border:1px solid var(--fg);color:var(--fg);">每天</span> ';
-          } else if (todo.repeat_type === 'weekly') {
-              const days = ['日','一','二','三','四','五','六'];
-              const parts = todo.date.split('-');
-              const day = new Date(parts[0], parts[1]-1, parts[2]).getDay();
-              badges += \`<span class="badge" style="background:transparent;border:1px solid var(--fg);color:var(--fg);">每周\${days[day]}</span> \`;
-          } else if (todo.repeat_type === 'monthly') {
-              const parts = todo.date.split('-');
-              const d = parseInt(parts[2], 10);
-              badges += \`<span class="badge" style="background:transparent;border:1px solid var(--fg);color:var(--fg);">每月\${d}号</span> \`;
-          } else if (todo.repeat_type === 'yearly') {
-              const parts = todo.date.split('-');
-              const m = parseInt(parts[1], 10);
-              const d = parseInt(parts[2], 10);
-              badges += \`<span class="badge" style="background:transparent;border:1px solid var(--fg);color:var(--fg);">每年\${m}月\${d}日</span> \`;
-          }
-        }
-
-        if (todo.subtasks && todo.subtasks.length > 0) {
-          const completed = todo.subtasks.filter(st => st.done).length;
-          badges += \`<span class="badge" style="background:transparent;border:1px solid var(--fg);color:var(--fg);">\${completed}/\${todo.subtasks.length}</span> \`;
-        }
-
-        let linkBtn = '';
-        if (todo.url) linkBtn = \`<a href="\${todo.url}" target="_blank" class="btn-link" onclick="event.stopPropagation()">↗</a>\`;
-        
-        let copyBtn = '';
-        if (todo.copy_text) {
-          const safeText = encodeURIComponent(todo.copy_text).replace(/'/g, "%27");
-          copyBtn = \`<button class="btn-link" onclick="event.stopPropagation(); copyText(decodeURIComponent('\${safeText}'))">⎘</button>\`;
-        }
-
-        let checkboxHtml = '';
-        if (isBatchMode) {
-          const isSelected = selectedTasks.has(index);
-          checkboxHtml = \`<div class="checkbox \${isSelected ? 'batch-selected' : ''}" onclick="event.stopPropagation(); toggleBatchSelect(\${index})"></div>\`;
-        } else {
-          checkboxHtml = \`<div class="checkbox" onclick="event.stopPropagation(); toggleDone(\${index})"></div>\`;
-        }
-        
-        let actionsHtml = isBatchMode ? '' : \`\${copyBtn}\${linkBtn}\`;
-
-        el.innerHTML = \`
-          \${checkboxHtml}
-          <div class="item-meta">
-            <div class="item-title">\${todo.text}</div>
-            <div class="item-info">\${badges}</div>
-          </div>
-          \${actionsHtml}
-        \`;
-
-        el.onclick = () => {
-          if (isBatchMode) toggleBatchSelect(index);
-          else openDetail(index);
-        };
-        list.appendChild(el);
-      });
+      VS.setItems(filteredTodos);
     }
 
     async function toggleDone(index) {
@@ -3708,6 +3908,11 @@ function renderHTML(isAuthorized, customHeader, customContent) {
         loadTodos();
       }
     }
+    
+    function closeCalendar() {
+      document.getElementById('modal-calendar').classList.remove('active');
+      calendarMode = 'navigate';
+    }
 
     async function bootstrap() {
       await initSettings();
@@ -3715,6 +3920,100 @@ function renderHTML(isAuthorized, customHeader, customContent) {
     }
     bootstrap();
 
+    Object.assign(window, {
+      // 登录
+      login: login,
+      logout: async function() {
+        await fetch('/api/logout', { method: 'POST' });
+        location.reload();
+      },
+      // 主题
+      toggleTheme: toggleTheme,
+      // 日期导航
+      changeDate: changeDate,
+      openCalendar: openCalendar,
+      closeCalendar: closeCalendar,
+      jumpToToday: jumpToToday,
+      calChange: calChange,
+      openYearPicker: openYearPicker,
+      openMonthPicker: openMonthPicker,
+      // 新建事项
+      openAddModal: openAddModal,
+      closeAddModal: closeAddModal,
+      confirmAddTask: confirmAddTask,
+      openCalendarForAdd: openCalendarForAdd,
+      addTempSubtask: addTempSubtask,
+      removeTempSubtask: removeTempSubtask,
+      toggleAddSearch: toggleAddSearch,
+      regenerateAddSearchTerms: regenerateAddSearchTerms,
+      toggleTempSearchTerm: toggleTempSearchTerm,
+      copyTempSearchTerm: copyTempSearchTerm,
+      toggleProviderMenu: toggleProviderMenu,
+      selectProvider: selectProvider,
+      toggleRepeatMenu: toggleRepeatMenu,
+      selectRepeat: selectRepeat,
+      openTimePicker: openTimePicker,
+      confirmTime: confirmTime,
+      clearTime: clearTime,
+      closeTimePicker: closeTimePicker,
+      selectPriority: selectPriority,
+      togglePriorityMenu: togglePriorityMenu,
+      // 筛选/排序
+      setFilterMethod: setFilterMethod,
+      toggleFilterMenu: toggleFilterMenu,
+      toggleSortMenu: toggleSortMenu,
+      setSortMethod: setSortMethod,
+      toggleSortOrder: toggleSortOrder,
+      // 批量操作
+      toggleBatchMode: toggleBatchMode,
+      batchSelectAll: batchSelectAll,
+      batchToggleDone: batchToggleDone,
+      batchDelete: batchDelete,
+      exitBatchMode: exitBatchMode,
+      // 详情
+      openDetail: openDetail,
+      closeDetail: closeDetail,
+      toggleEditMode: toggleEditMode,
+      handleActionClick: handleActionClick,
+      confirmAction: confirmAction,
+      toggleSubtask: toggleSubtask,
+      toggleSearchTerm: toggleSearchTerm,
+      copySearchTerm: copySearchTerm,
+      copyText: copyText,
+      toggleEditSearch: toggleEditSearch,
+      regenerateEditSearchTerms: regenerateEditSearchTerms,
+      // 回收站
+      openTrash: openTrash,
+      closeTrash: closeTrash,
+      actionTrash: actionTrash,
+      clearTrash: clearTrash,
+      toggleTrashBatchMode: toggleTrashBatchMode,
+      exitTrashBatchMode: exitTrashBatchMode,
+      batchTrashSelectAll: batchTrashSelectAll,
+      batchTrashRestore: batchTrashRestore,
+      batchTrashDelete: batchTrashDelete,
+      toggleTrashBatchSelect: toggleTrashBatchSelect,
+      // 统计
+      openStats: openStats,
+      closeStats: closeStats,
+      switchStatsTab: switchStatsTab,
+      loadAnnualReport: loadAnnualReport,
+      // 设置
+      openSettings: openSettings,
+      closeSettings: closeSettings,
+      saveAndCloseSettings: saveAndCloseSettings,
+      toggleSettingPopover: toggleSettingPopover,
+      selectSetting: selectSetting,
+      toggleCustomCodeEnabled: toggleCustomCodeEnabled,
+      previewCustomCode: previewCustomCode,
+      restoreAllPreview: restoreAllPreview,
+      // 数据管理
+      exportData: exportData,
+      importData: importData,
+      factoryReset: factoryReset
+    });
+
+  })();
   </script>
   <script>/*CUSTOM_CONTENT_PLACEHOLDER*/</script>
 </body>
