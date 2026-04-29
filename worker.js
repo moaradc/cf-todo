@@ -1,5 +1,5 @@
 /*
- * Cloudflare Worker + D1 Todo App (v2.6.5: 登录安全、性能与资源优化；将整个主 <script> 块用 IIFE 包裹，仅暴露 HTML onclick 及动态模板中需要调用的函数到 window)
+ * Cloudflare Worker + D1 Todo App (v2.6.6: 修复新数据库无法登录、新增显示大小调整、最多支持3个浏览器UA同时登录)
  * Features: Filter, Trash Bin, Batch Manage, Sub-tasks, Selectable Search Provider, Statistics
  */
 
@@ -130,8 +130,17 @@ const isAuthorized = async () => {
   const record = await env.DB.prepare(
     "SELECT value FROM settings WHERE key = 'active_session_token'"
   ).first();
-  if (!record || record.value !== cookies.auth_token) return false;
-  return true;
+  if (!record || !record.value) return false;
+  if (!record.value.startsWith('[')) {
+    return record.value === cookies.auth_token;
+  }
+  try {
+    const sessions = JSON.parse(record.value);
+    if (!Array.isArray(sessions)) return false;
+    return sessions.some(s => s.token === cookies.auth_token);
+  } catch(e) {
+    return false;
+  }
 };
 
     const initDb = async () => {
@@ -160,8 +169,6 @@ const isAuthorized = async () => {
           `),
           env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_todos_date_del ON todos(date, deleted)`),
           env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_todos_parent_date_del ON todos(parent_id, date, deleted)`),
-          env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_templates_repeat_type ON todo_templates(repeat_type)`),
-        
           env.DB.prepare(`
             CREATE TABLE IF NOT EXISTS todo_templates (
               parent_id TEXT PRIMARY KEY,
@@ -172,6 +179,8 @@ const isAuthorized = async () => {
               blacklist TEXT DEFAULT '[]'
             )
           `),
+          env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_templates_repeat_type ON todo_templates(repeat_type)`),
+          
           env.DB.prepare(`
             CREATE TABLE IF NOT EXISTS login_attempts (
               ip TEXT PRIMARY KEY,
@@ -216,8 +225,9 @@ const isAuthorized = async () => {
       }
     };
 
+    await initDb();
+
     if (url.pathname === '/api/login' && request.method === 'POST') {
-      await initDb();
       const now = Date.now();
       
       const attemptRecord = await env.DB.prepare('SELECT * FROM login_attempts WHERE ip = ?').bind(clientIp).first();
@@ -234,12 +244,56 @@ const isAuthorized = async () => {
           ON CONFLICT(ip) DO UPDATE SET attempts = 0, lock_until = 0
         `).bind(clientIp).run();
     
+        const loginUA = request.headers.get('User-Agent') || '';
+        
+        let sessions = [];
+        const sessionRecord = await env.DB.prepare(
+          "SELECT value FROM settings WHERE key = 'active_session_token'"
+        ).first();
+        if (sessionRecord && sessionRecord.value) {
+          try {
+            const parsed = JSON.parse(sessionRecord.value);
+            if (Array.isArray(parsed)) sessions = parsed;
+          } catch(e) { sessions = []; }
+        }
+        
         const token = generateSessionToken();
         const sig = await sign(token, env.JWT_SECRET);
+        
+        sessions = sessions.filter(s => s.ua !== loginUA);
+        sessions.push({ token, ua: loginUA });
+        while (sessions.length > 3) sessions.shift();
+        
         await env.DB.prepare(
           "INSERT OR REPLACE INTO settings (key, value) VALUES ('active_session_token', ?)"
-        ).bind(token).run();
-    
+        ).bind(JSON.stringify(sessions)).run();
+        
+        if (loginUA) {
+          const appSettingsRecord = await env.DB.prepare("SELECT value FROM settings WHERE key = 'app_settings'").first();
+          let appSettingsObj = {};
+          if (appSettingsRecord && appSettingsRecord.value) {
+            try { appSettingsObj = JSON.parse(appSettingsRecord.value); } catch(e) {}
+          }
+          if (!Array.isArray(appSettingsObj.scaleByBrowser)) {
+            appSettingsObj.scaleByBrowser = [];
+          }
+          let uaExists = false;
+          for (let i = 0; i < appSettingsObj.scaleByBrowser.length; i++) {
+            if (appSettingsObj.scaleByBrowser[i].ua === loginUA) {
+              uaExists = true;
+              break;
+            }
+          }
+          if (!uaExists) {
+            appSettingsObj.scaleByBrowser.push({ ua: loginUA, scale: 1.0 });
+            while (appSettingsObj.scaleByBrowser.length > 3) {
+              appSettingsObj.scaleByBrowser.shift();
+            }
+            await env.DB.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('app_settings', ?)")
+              .bind(JSON.stringify(appSettingsObj)).run();
+          }
+        }
+
         const headers = new Headers();
         headers.append('Set-Cookie', `auth_token=${token}; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=2592000`);
         headers.append('Set-Cookie', `auth_sig=${sig}; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=2592000`);
@@ -261,10 +315,26 @@ const isAuthorized = async () => {
         const record = await env.DB.prepare(
           "SELECT value FROM settings WHERE key = 'active_session_token'"
         ).first();
-        if (record && record.value === cookies.auth_token) {
-          await env.DB.prepare(
-            "DELETE FROM settings WHERE key = 'active_session_token'"
-          ).run();
+        if (record && record.value) {
+          try {
+            let sessions = [];
+            try {
+              const parsed = JSON.parse(record.value);
+              if (Array.isArray(parsed)) sessions = parsed;
+            } catch(e) {}
+            if (sessions.length > 0) {
+              sessions = sessions.filter(s => s.token !== cookies.auth_token);
+              if (sessions.length > 0) {
+                await env.DB.prepare(
+                  "INSERT OR REPLACE INTO settings (key, value) VALUES ('active_session_token', ?)"
+                ).bind(JSON.stringify(sessions)).run();
+              } else {
+                await env.DB.prepare(
+                  "DELETE FROM settings WHERE key = 'active_session_token'"
+                ).run();
+              }
+            }
+          } catch(e) {}
         }
       }
       const headers = new Headers();
@@ -275,7 +345,6 @@ const isAuthorized = async () => {
 
     if (url.pathname === '/' && request.method === 'GET') {
       const authorized = await isAuthorized();
-      await initDb();
       
       let customHeader = env.CUSTOM_HEADER || '';
       let customContent = env.CUSTOM_CONTENT || '';
@@ -289,10 +358,13 @@ const isAuthorized = async () => {
         const record = await env.DB.prepare("SELECT value FROM settings WHERE key = 'app_settings'").first();
         if (record && record.value) {
           const settings = JSON.parse(record.value);
-          if (settings.customCodeEnabled === false) {
+          if (settings.customCodeEnabled !== true) {
             customHeader = '';
             customContent = '';
           }
+        } else {
+          customHeader = '';
+          customContent = '';
         }
       } catch (e) {}
     
@@ -305,8 +377,79 @@ const isAuthorized = async () => {
       return new Response("UNAUTHORIZED PROTOCOL", { status: 401 });
     }
 
-    await initDb();
 
+    if (url.pathname === '/api/sessions' && request.method === 'GET') {
+      const record = await env.DB.prepare(
+        "SELECT value FROM settings WHERE key = 'active_session_token'"
+      ).first();
+      let sessions = [];
+      if (record && record.value) {
+        try {
+          const parsed = JSON.parse(record.value);
+          if (Array.isArray(parsed)) sessions = parsed;
+        } catch(e) {}
+      }
+      const clientUA = request.headers.get('User-Agent') || '';
+      const safeSessions = sessions.map(s => ({
+        ua: s.ua,
+        disabled: s.disabled || false,
+        isCurrent: s.ua === clientUA
+      }));
+      return new Response(JSON.stringify(safeSessions), { headers: { 'Content-Type': 'application/json' } });
+    }
+
+    if (url.pathname === '/api/session-action' && request.method === 'POST') {
+      const { action, ua } = await request.json();
+      const record = await env.DB.prepare(
+        "SELECT value FROM settings WHERE key = 'active_session_token'"
+      ).first();
+      let sessions = [];
+      if (record && record.value) {
+        try {
+          const parsed = JSON.parse(record.value);
+          if (Array.isArray(parsed)) sessions = parsed;
+        } catch(e) {}
+      }
+
+      if (action === 'DELETE' && ua) {
+        sessions = sessions.filter(s => s.ua !== ua);
+      } else if (action === 'DELETE_ALL') {
+        sessions = [];
+      }
+
+      if (sessions.length > 0) {
+        await env.DB.prepare(
+          "INSERT OR REPLACE INTO settings (key, value) VALUES ('active_session_token', ?)"
+        ).bind(JSON.stringify(sessions)).run();
+      } else {
+        await env.DB.prepare(
+          "DELETE FROM settings WHERE key = 'active_session_token'"
+        ).run();
+      }
+
+      // 同步清理 scaleByBrowser 中被删除的 UA
+      if (action === 'DELETE' || action === 'DELETE_ALL') {
+        try {
+          const appSettingsRecord = await env.DB.prepare("SELECT value FROM settings WHERE key = 'app_settings'").first();
+          if (appSettingsRecord && appSettingsRecord.value) {
+            let appSettingsObj = JSON.parse(appSettingsRecord.value);
+            if (Array.isArray(appSettingsObj.scaleByBrowser)) {
+              const remainingUAs = sessions.map(s => s.ua);
+              if (action === 'DELETE_ALL') {
+                appSettingsObj.scaleByBrowser = [];
+              } else {
+                appSettingsObj.scaleByBrowser = appSettingsObj.scaleByBrowser.filter(item => remainingUAs.includes(item.ua));
+              }
+              await env.DB.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('app_settings', ?)")
+                .bind(JSON.stringify(appSettingsObj)).run();
+            }
+          }
+        } catch(e) {}
+      }
+
+      return new Response(JSON.stringify({ success: true }), { headers: { 'Content-Type': 'application/json' } });
+    }
+    
     if (url.pathname === '/api/hot-search' && request.method === 'GET') {
       const provider = url.searchParams.get('provider') || 'auto';
       const allWords = await fetchHotSearchData(provider);
@@ -821,6 +964,7 @@ function renderHTML(isAuthorized, customHeader, customContent) {
       --warn: #ffcc00;   
       --panel: #141414;
       --font-main: 'Courier New', Courier, monospace;
+      --app-scale: 1;
     }
 
     * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
@@ -835,6 +979,7 @@ function renderHTML(isAuthorized, customHeader, customContent) {
       flex-direction: column;
       align-items: center;
       padding-bottom: 120px;
+      zoom: var(--app-scale);
     }
 
     .scanlines {
@@ -845,7 +990,7 @@ function renderHTML(isAuthorized, customHeader, customContent) {
       z-index: 999;
     }
     
-    .container { width: 100%; max-width: 600px; padding: 15px; position: relative; z-index: 1; }
+    .container { width: 100%; max-width: calc(600px / var(--app-scale)); padding: 15px; position: relative; z-index: 1; }
 
     .top-actions { position: absolute; top: 15px; right: 15px; display: flex; gap: 8px; z-index: 10; }
     .top-actions-left { position: absolute; top: 15px; left: 15px; display: flex; gap: 8px; z-index: 10; }
@@ -1110,7 +1255,7 @@ function renderHTML(isAuthorized, customHeader, customContent) {
       box-shadow: 2px 2px 0 #1B1915; border-radius: 4px; font-weight: bold;
     }[data-theme="light"] button:active {
       transform: translate(2px, 2px); box-shadow: 0 0 0 #1B1915; background: #E5E5E5;
-    }[data-theme="light"] .btn-primary { background: #CE2424; color: #FEFEFE; }[data-theme="light"] .btn-primary:active { background: #1B1915; color: #CE2424; }[data-theme="light"] .btn-danger { background: #F0F0F0; color: #CE2424; border-color: #CE2424; }[data-theme="light"] .btn-ghost { background: transparent; border: 2px dashed #E5E5E5; box-shadow: none; color: #1B1915; }[data-theme="light"] input,[data-theme="light"] textarea,[data-theme="light"] select,[data-theme="light"] .fake-input {
+    }[data-theme="light"] .btn-primary { background: #CE2424; color: #FEFEFE; }[data-theme="light"] .btn-primary:active { background: #1B1915; color: #CE2424; }[data-theme="light"] .btn-danger { background: #FEFEFE; color: #CE2424; border: 2px solid #CE2424; box-shadow: 2px 2px 0 #CE2424; }[data-theme="light"] .btn-ghost { background: transparent; border: 2px dashed #E5E5E5; box-shadow: none; color: #1B1915; }[data-theme="light"] input,[data-theme="light"] textarea,[data-theme="light"] select,[data-theme="light"] .fake-input {
       background: #FEFEFE; color: #1B1915; border: 2px solid #1B1915;
       box-shadow: inset 2px 2px 0 #E5E5E5; border-radius: 4px;
     }[data-theme="light"] input:focus,[data-theme="light"] textarea:focus,[data-theme="light"] select:focus {
@@ -1280,6 +1425,93 @@ function renderHTML(isAuthorized, customHeader, customContent) {
     
     [data-theme="light"] #preview-notice { background: #E1AC07; color: #1B1915; border-bottom: 2px solid #1B1915; }
     [data-theme="light"] #preview-notice .md-code { background: #1B1915; color: #E1AC07; border: 1px solid #1B1915; }
+    
+    /* === 显示大小调整 === */
+    .scale-control { width: 100%; }
+    .scale-slider-row { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+    .scale-slider-row .scale-label-sm { font-size: 0.7rem; color: #666; flex-shrink: 0; }
+    .scale-slider-row .scale-label-lg { font-size: 1.15rem; color: #666; font-weight: bold; flex-shrink: 0; }
+    .scale-slider-row input[type="range"] {
+      flex: 1; -webkit-appearance: none; appearance: none;
+      height: 6px; background: #222; border-radius: 3px;
+      outline: none; margin-bottom: 0; border: none; padding: 0; width: auto;
+    }
+    .scale-slider-row input[type="range"]::-webkit-slider-thumb {
+      -webkit-appearance: none; appearance: none;
+      width: 22px; height: 22px; border-radius: 50%;
+      background: var(--crt); cursor: pointer;
+      border: 2px solid var(--fg);
+      box-shadow: 0 0 6px rgba(0,255,65,0.3);
+    }
+    .scale-slider-row input[type="range"]::-moz-range-thumb {
+      width: 22px; height: 22px; border-radius: 50%;
+      background: var(--crt); cursor: pointer;
+      border: 2px solid var(--fg);
+    }
+    .scale-slider-row input[type="range"]::-moz-range-track {
+      height: 6px; background: #222; border-radius: 3px; border: none;
+    }
+    .scale-value { 
+      font-size: 0.85rem; color: var(--crt); min-width: 44px; text-align: center;
+      font-weight: bold; flex-shrink: 0;
+    }
+    .scale-presets { display: flex; gap: 6px; margin-bottom: 12px; }
+    .scale-preset-btn {
+      flex: 1; padding: 8px 4px; font-size: 0.8rem;
+      text-align: center; cursor: pointer;
+      background: #222; border: 1px solid #444; color: var(--fg);
+      font-family: var(--font-main); transition: 0.2s;
+    }
+    .scale-preset-btn.active {
+      border-color: var(--crt); color: var(--crt);
+      background: rgba(0,255,65,0.08);
+    }
+    .scale-preset-btn:active { background: var(--crt); color: #000; }
+    .scale-preview-wrap {
+      border: 1px dashed #444; border-radius: 4px; padding: 10px;
+      background: var(--bg);
+    }
+    .scale-preview-wrap .todo-item { margin-bottom: 5px; pointer-events: none; }
+
+    /* Light 主题 - 显示大小调整 */
+    [data-theme="light"] .scale-slider-row input[type="range"] { background: #E5E5E5; }
+    [data-theme="light"] .scale-slider-row input[type="range"]::-webkit-slider-thumb {
+      background: #5C960B; border-color: #1B1915; box-shadow: 2px 2px 0 #1B1915;
+    }
+    [data-theme="light"] .scale-slider-row input[type="range"]::-moz-range-thumb {
+      background: #5C960B; border-color: #1B1915;
+    }
+    [data-theme="light"] .scale-slider-row input[type="range"]::-moz-range-track { background: #E5E5E5; }
+    [data-theme="light"] .scale-value { color: #5C960B; }
+    [data-theme="light"] .scale-preset-btn {
+      background: #FEFEFE; border: 2px solid #1B1915; color: #1B1915;
+      box-shadow: 2px 2px 0 #E5E5E5; border-radius: 4px; font-weight: bold;
+    }
+    [data-theme="light"] .scale-preset-btn.active {
+      border-color: #5C960B; color: #5C960B; background: rgba(92,150,11,0.08);
+      box-shadow: 2px 2px 0 #5C960B;
+    }
+    [data-theme="light"] .scale-preset-btn:active { background: #5C960B; color: #FEFEFE; }
+    [data-theme="light"] .scale-preview-wrap { background: #F0EEE2; border-color: #1B1915; }
+    [data-theme="light"] .scale-label-sm,
+    [data-theme="light"] .scale-label-lg { color: #1B1915; }
+    
+    .session-item {
+      display: flex; align-items: center; background: var(--panel);
+      border: 1px solid #333; margin-bottom: 8px; padding: 10px;
+      border-radius: 4px; gap: 10px; flex-wrap: wrap;
+    }
+    .session-item.current-session { border-color: var(--crt); }
+    .session-ua {
+      flex: 1; font-size: 0.72rem; color: var(--fg);
+      word-break: break-all; line-height: 1.4; min-width: 0;
+    }
+    .session-actions { display: flex; gap: 6px; flex-shrink: 0; }
+    .session-actions button { padding: 4px 8px; font-size: 0.75rem; }
+
+    [data-theme="light"] .session-item { background: #FEFEFE; border-color: #1B1915; box-shadow: 2px 2px 0 #E5E5E5; border-radius: 4px; }
+    [data-theme="light"] .session-item.current-session { border-color: #5C960B; }
+    [data-theme="light"] .session-ua { color: #1B1915; }
   </style>
   <script>/*CUSTOM_HEADER_PLACEHOLDER*/</script>
 </head>
@@ -1488,9 +1720,47 @@ function renderHTML(isAuthorized, customHeader, customContent) {
                   <span style="font-size:0.8rem; margin-right: 4px;">▼</span>
               </div>
           </div>
+          <div class="setting-item" style="flex-direction:column; align-items:stretch;">
+            <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;">
+              <span>显示大小</span>
+              <span class="md-code" style="cursor:pointer;margin-left:auto;" onclick="resetScaleBrowserData()">重置</span>
+            </div>
+            <div class="scale-control">
+              <div class="scale-slider-row">
+                <span class="scale-label-sm">A</span>
+                <input type="range" id="scale-slider" min="0.75" max="1.25" step="0.01" value="1" oninput="onScaleSliderChange(this.value)">
+                <span class="scale-label-lg">A</span>
+                <span class="scale-value" id="scale-value-display">100%</span>
+              </div>
+              <div class="scale-presets">
+                <button class="scale-preset-btn" data-scale="0.85" onclick="setScalePreset(0.85)">小</button>
+                <button class="scale-preset-btn active" data-scale="1.0" onclick="setScalePreset(1.0)">默认</button>
+                <button class="scale-preset-btn" data-scale="1.15" onclick="setScalePreset(1.15)">大</button>
+              </div>
+              <div class="scale-preview-wrap">
+                <div id="scale-preview" style="zoom:1;">
+                  <div class="todo-item" style="margin-bottom:5px;">
+                    <div class="checkbox"></div>
+                    <div class="item-meta">
+                      <div class="item-title">示例待办事项</div>
+                      <div class="item-info">
+                        <span class="badge badge-high">高</span>
+                        <span class="badge badge-time">09:00</span>
+                      </div>
+                    </div>
+                  </div>
+                  <div class="todo-item done">
+                    <div class="checkbox"></div>
+                    <div class="item-meta">
+                      <div class="item-title">已完成的任务</div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
       </div>
       
-       <div class="detail-label">前端定制</div>
       <div class="settings-card">
           <div class="setting-item" style="margin-bottom: 15px; border: none; padding: 0;">
               <span class="settings-text" style="margin:0;"><strong>启用前端定制注入</strong></span>
@@ -1542,9 +1812,16 @@ function renderHTML(isAuthorized, customHeader, customContent) {
           </div>
       </div>
 
+      <div class="detail-label">登录管理</div>
+      <div class="settings-card">
+          <p class="settings-text" style="margin-bottom: 12px;">最多支持 <strong>3</strong> 个浏览器UA同时登录。达到上限后新登录将自动替换最早登录的会话。</p>
+          <div id="sessions-list" style="margin-bottom: 12px;"></div>
+          <button class="btn-danger" style="width:100%" onclick="deleteAllSessions()">全部删除</button>
+      </div>
+
       <div class="detail-label">关于 MOARA 待办事项</div>
       <div class="settings-card">
-          <p class="settings-text" style="margin-bottom: 5px;"><strong>当前版本:</strong> v2.6.5</p>
+          <p class="settings-text" style="margin-bottom: 5px;"><strong>当前版本:</strong> v2.6.6</p>
           <p class="settings-text" style="margin-bottom: 5px;"><strong>底层架构:</strong> Cloudflare Worker + D1 Database</p>
           <p class="settings-text"><strong>项目描述:</strong> 普通的待办事项管理</p>
       </div>
@@ -1796,7 +2073,103 @@ function renderHTML(isAuthorized, customHeader, customContent) {
     let tempSetProvider = 'auto';
     let tempSetSort = 'time';
     let tempSetSortAsc = true;
-    let customCodeEnabled = true;
+    let customCodeEnabled = false;
+    
+    let sessionsList = [];
+
+    function escapeHtml(text) {
+      var div = document.createElement('div');
+      div.appendChild(document.createTextNode(text));
+      return div.innerHTML;
+    }
+
+    async function loadSessions() {
+      try {
+        const res = await fetch('/api/sessions');
+        if (res.ok) {
+          sessionsList = await res.json();
+          renderSessions();
+        }
+      } catch(e) { console.error('Load sessions error:', e); }
+    }
+
+    function renderSessions() {
+      const container = document.getElementById('sessions-list');
+      if (!container) return;
+      if (sessionsList.length === 0) {
+        container.innerHTML = '<div class="settings-text" style="text-align:center; padding: 10px;">暂无活跃会话</div>';
+        return;
+      }
+      container.innerHTML = sessionsList.map(function(s, i) {
+        var actions = '';
+        if (s.isCurrent) {
+          actions += '<span style="font-size:0.7rem;color:#666;">当前会话</span>';
+        } else {
+          actions += '<button class="btn-danger" onclick="deleteSessionByIndex(' + i + ')">删除</button>';
+        }
+        return '<div class="session-item' + (s.isCurrent ? ' current-session' : '') + '">' +
+          '<div class="session-ua">' + escapeHtml(s.ua) + '</div>' +
+          '<div class="session-actions">' + actions + '</div>' +
+        '</div>';
+      }).join('');
+    }
+
+    async function deleteSessionByIndex(index) {
+      var s = sessionsList[index];
+      if (!s || s.isCurrent) return;
+      if (!confirm('确认删除该会话？删除后需要重新登录。')) return;
+      await fetch('/api/session-action', {
+        method: 'POST',
+        body: JSON.stringify({ action: 'DELETE', ua: s.ua }),
+        headers: { 'Content-Type': 'application/json' }
+      });
+      loadSessions();
+    }
+
+    async function deleteAllSessions() {
+      if (!confirm('确认删除所有会话？所有会话都需要重新登录。')) return;
+      await fetch('/api/session-action', {
+        method: 'POST',
+        body: JSON.stringify({ action: 'DELETE_ALL' }),
+        headers: { 'Content-Type': 'application/json' }
+      });
+      location.reload();
+    }
+    
+    let tempAppScale = 1.0;
+
+    function applyAppScale(scale) {
+      document.documentElement.style.setProperty('--app-scale', scale);
+    }
+
+    function onScaleSliderChange(val) {
+      tempAppScale = parseFloat(val);
+      document.getElementById('scale-value-display').innerText = Math.round(tempAppScale * 100) + '%';
+      var preview = document.getElementById('scale-preview');
+      if (preview) preview.style.zoom = tempAppScale;
+      updateScalePresetButtons();
+    }
+
+    function setScalePreset(val) {
+      tempAppScale = val;
+      document.getElementById('scale-slider').value = val;
+      document.getElementById('scale-value-display').innerText = Math.round(val * 100) + '%';
+      var preview = document.getElementById('scale-preview');
+      if (preview) preview.style.zoom = tempAppScale;
+      updateScalePresetButtons();
+    }
+
+    function updateScalePresetButtons() {
+      var btns = document.querySelectorAll('.scale-preset-btn');
+      var presets = [0.85, 1.0, 1.15];
+      btns.forEach(function(btn, i) {
+        if (Math.abs(tempAppScale - presets[i]) < 0.02) {
+          btn.classList.add('active');
+        } else {
+          btn.classList.remove('active');
+        }
+      });
+    }
     
     let VS = {
       ITEM_H: 80,
@@ -2027,17 +2400,29 @@ function renderHTML(isAuthorized, customHeader, customContent) {
         const res = await fetch('/api/settings');
         if (res.ok) {
           const saved = await res.json();
+          var currentUA = navigator.userAgent || '';
+          var scaleByBrowser = Array.isArray(saved.scaleByBrowser) ? saved.scaleByBrowser : [];
+          var matchedScale = 1.0;
+          for (var i = 0; i < scaleByBrowser.length; i++) {
+            if (scaleByBrowser[i].ua === currentUA) {
+              matchedScale = parseFloat(scaleByBrowser[i].scale) || 1.0;
+              break;
+            }
+          }
           appSettings = {
             provider: saved.provider || 'auto',
             sortMethod: saved.sortMethod || 'time',
             sortAsc: saved.sortAsc !== undefined ? (saved.sortAsc === 'true' || saved.sortAsc === true) : true,
-            customCodeEnabled: saved.customCodeEnabled !== undefined ? (saved.customCodeEnabled === 'true' || saved.customCodeEnabled === true) : false
+            customCodeEnabled: saved.customCodeEnabled !== undefined ? (saved.customCodeEnabled === 'true' || saved.customCodeEnabled === true) : false,
+            scaleByBrowser: scaleByBrowser
           };
+          tempAppScale = matchedScale;
         } else {
           throw new Error('Failed to load DB settings');
         }
       } catch (e) {
-        appSettings = { provider: 'auto', sortMethod: 'time', sortAsc: true, customCodeEnabled: false };
+        appSettings = { provider: 'auto', sortMethod: 'time', sortAsc: true, customCodeEnabled: false, scaleByBrowser: [] };
+        tempAppScale = 1.0;
       }
       
       sortMethod = appSettings.sortMethod;
@@ -2050,6 +2435,7 @@ function renderHTML(isAuthorized, customHeader, customContent) {
       const btnSortOrder = document.getElementById('btn-sort-order');
       if(btnSortTrigger) btnSortTrigger.innerText = '排序: ' + label + ' ▼';
       if(btnSortOrder) btnSortOrder.innerText = '顺序: ' + orderLabel;
+      applyAppScale(tempAppScale);
     }
 
     async function login() {
@@ -2318,7 +2704,27 @@ function renderHTML(isAuthorized, customHeader, customContent) {
       tempSetSort = appSettings.sortMethod || 'time';
       tempSetSortAsc = appSettings.sortAsc !== undefined ? appSettings.sortAsc : true;
       
-      customCodeEnabled = appSettings.customCodeEnabled !== false;
+      customCodeEnabled = appSettings.customCodeEnabled === true;
+      
+      var currentUA = navigator.userAgent || '';
+      var currentScale = 1.0;
+      if (Array.isArray(appSettings.scaleByBrowser)) {
+        for (var i = 0; i < appSettings.scaleByBrowser.length; i++) {
+          if (appSettings.scaleByBrowser[i].ua === currentUA) {
+            currentScale = parseFloat(appSettings.scaleByBrowser[i].scale) || 1.0;
+            break;
+          }
+        }
+      }
+      tempAppScale = currentScale;
+      
+      var scaleSlider = document.getElementById('scale-slider');
+      var scaleDisplay = document.getElementById('scale-value-display');
+      var scalePreview = document.getElementById('scale-preview');
+      if (scaleSlider) scaleSlider.value = tempAppScale;
+      if (scaleDisplay) scaleDisplay.innerText = Math.round(tempAppScale * 100) + '%';
+      if (scalePreview) scalePreview.style.zoom = tempAppScale;
+      updateScalePresetButtons();
       document.getElementById('custom-code-enabled-box').classList.toggle('checked', customCodeEnabled);
     
       const pMap = {'auto':'自动 (随机源)', 'bilibili':'哔哩哔哩', 'weibo':'微博热搜', 'zhihu':'知乎热榜', 'baidu':'百度热搜'};
@@ -2342,6 +2748,7 @@ function renderHTML(isAuthorized, customHeader, customContent) {
       const view = document.getElementById('settings-overlay');
       view.classList.remove('closing');
       view.classList.add('active');
+      loadSessions();
     }
 
     function closeSettings() {
@@ -2384,6 +2791,16 @@ function renderHTML(isAuthorized, customHeader, customContent) {
       appSettings.sortMethod = tempSetSort;
       appSettings.sortAsc = tempSetSortAsc;
       appSettings.customCodeEnabled = customCodeEnabled;
+
+      var currentUA = navigator.userAgent || '';
+      if (Array.isArray(appSettings.scaleByBrowser)) {
+        for (var i = 0; i < appSettings.scaleByBrowser.length; i++) {
+          if (appSettings.scaleByBrowser[i].ua === currentUA) {
+            appSettings.scaleByBrowser[i].scale = tempAppScale;
+            break;
+          }
+        }
+      }
     
       await fetch('/api/settings', {
         method: 'POST',
@@ -3920,6 +4337,33 @@ function renderHTML(isAuthorized, customHeader, customContent) {
     }
     bootstrap();
 
+    async function resetScaleBrowserData() {
+      var currentUA = navigator.userAgent || '';
+      if (Array.isArray(appSettings.scaleByBrowser)) {
+        for (var i = 0; i < appSettings.scaleByBrowser.length; i++) {
+          if (appSettings.scaleByBrowser[i].ua === currentUA) {
+            appSettings.scaleByBrowser[i].scale = 1.0;
+            break;
+          }
+        }
+      }
+      tempAppScale = 1.0;
+      var scaleSlider = document.getElementById('scale-slider');
+      var scaleDisplay = document.getElementById('scale-value-display');
+      var scalePreview = document.getElementById('scale-preview');
+      if (scaleSlider) scaleSlider.value = 1.0;
+      if (scaleDisplay) scaleDisplay.innerText = '100%';
+      if (scalePreview) scalePreview.style.zoom = 1.0;
+      updateScalePresetButtons();
+      applyAppScale(1.0);
+    
+      await fetch('/api/settings', {
+        method: 'POST',
+        body: JSON.stringify(appSettings),
+        headers: { 'Content-Type': 'application/json' }
+      });
+    }
+
     Object.assign(window, {
       // 登录
       login: login,
@@ -4010,7 +4454,12 @@ function renderHTML(isAuthorized, customHeader, customContent) {
       // 数据管理
       exportData: exportData,
       importData: importData,
-      factoryReset: factoryReset
+      factoryReset: factoryReset,
+      deleteSessionByIndex: deleteSessionByIndex,
+      deleteAllSessions: deleteAllSessions,
+      onScaleSliderChange: onScaleSliderChange,
+      setScalePreset: setScalePreset,
+      resetScaleBrowserData: resetScaleBrowserData
     });
 
   })();
