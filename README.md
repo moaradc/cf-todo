@@ -64,6 +64,7 @@
 
 ## 截图
 
+> 截图已过时，以实际界面为准
 <div align="center">
   <img src="./Screenshots/Screenshots1.jpg" width="30%" />
   <img src="./Screenshots/Screenshots2.jpg" width="30%" />
@@ -78,3 +79,89 @@
   <img src="./Screenshots/Screenshots7.jpg" width="45%" />
   <img src="./Screenshots/Screenshots8.jpg" width="45%" />
 </div>
+
+---
+
+## Supabase 数据库配置
+
+使用 Supabase 作为云端数据库替代 Cloudflare D1<br>需使用 **worker_2.6.6_supabase_beta1.js**
+
+### 1. 注册与创建项目
+
+1. 访问：[Supabase](https://supabase.com)
+2. 注册/登录账号
+3. 点击 **New project** 创建新项目
+   - **Project name**：项目名称，随意填写
+   - **Database password**：数据库密码（本项目可能用不到，但请妥善保存）
+   - **Region**：选择距离你最近的服务器区域
+4. 点击 **Create new project**
+
+### 2. 初始化数据库表
+
+1. 进入刚创建的项目，在菜单栏点击 **SQL Editor**（图标像一个终端），将以下建表语句完整复制并粘贴到编辑器中：
+
+```sql
+CREATE TABLE IF NOT EXISTS todos (
+  id TEXT PRIMARY KEY,
+  parent_id TEXT NOT NULL,
+  date TEXT NOT NULL,
+  text TEXT NOT NULL,
+  time TEXT,
+  priority TEXT,
+  repeat INTEGER NOT NULL DEFAULT 0,
+  description TEXT DEFAULT '',
+  url TEXT,
+  copy_text TEXT,
+  subtasks JSONB DEFAULT '[]',
+  search_terms JSONB DEFAULT '[]',
+  done INTEGER NOT NULL DEFAULT 0,
+  deleted INTEGER NOT NULL DEFAULT 0,
+  repeat_type TEXT DEFAULT 'none',
+  repeat_custom TEXT DEFAULT ''
+);
+CREATE INDEX IF NOT EXISTS idx_todos_date_del ON todos(date, deleted);
+CREATE INDEX IF NOT EXISTS idx_todos_parent_date_del ON todos(parent_id, date, deleted);
+
+CREATE TABLE IF NOT EXISTS todo_templates (
+  parent_id TEXT PRIMARY KEY,
+  text TEXT, time TEXT, priority TEXT, description TEXT DEFAULT '', url TEXT, 
+  copy_text TEXT, subtasks JSONB DEFAULT '[]', search_terms JSONB DEFAULT '[]', 
+  repeat_type TEXT, repeat_custom TEXT,
+  anchor_date TEXT,
+  blacklist JSONB DEFAULT '[]'
+);
+CREATE INDEX IF NOT EXISTS idx_templates_repeat_type ON todo_templates(repeat_type);
+
+CREATE TABLE IF NOT EXISTS login_attempts (
+  ip TEXT PRIMARY KEY,
+  attempts INTEGER NOT NULL DEFAULT 0,
+  lock_until BIGINT NOT NULL DEFAULT 0
+);
+
+CREATE TABLE IF NOT EXISTS settings (
+  key TEXT PRIMARY KEY,
+  value JSONB
+);
+```
+
+2.点击右下角的 Run 执行
+
+### 3. 启用行级安全策略 (RLS)
+
+在 SQL Editor 中继续执行以下语句（完整复制并粘贴）：
+
+```sql
+ALTER TABLE public.todos ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.todo_templates ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.login_attempts ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.settings ENABLE ROW LEVEL SECURITY;
+```
+
+### 4. 配置 Worker 环境变量
+
+在 Cloudflare Dashboard 中，进入您的 Worker 项目 -> **设置** -> **变量和机密** 中添加以下变量。
+
+| 变量名 | 获取方式 |
+| :--- | :---: |
+| `SUPABASE_URL` | 回到 Supabase 在该项目的名称下方，例如：https://ju.supabase.co |
+| `SUPABASE_KEY` | 回到 Supabase 右上角三条杠 -> Project Settings -> API Keys -> Legacy anon, service_role API keys -> 找到 service_role 并复制 |
