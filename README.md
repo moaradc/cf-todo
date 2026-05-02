@@ -84,7 +84,7 @@
 
 ## Supabase 数据库配置
 
-使用 Supabase 作为云端数据库替代 Cloudflare D1<br>需使用 **worker_2.6.6_supabase_beta1.js**
+使用 Supabase 作为云端数据库替代 Cloudflare D1<br>需使用 **worker_2.6.6_supabase_beta2.js**
 
 ### 1. 注册与创建项目
 
