@@ -1,5 +1,5 @@
 /*
- * Cloudflare Worker + D1 Todo App (v2.6.6: 修复新数据库无法登录、新增显示大小调整、最多支持3个浏览器UA同时登录)
+ * Cloudflare Worker + D1 Todo App (v2.6.7: 增加检查更新功能)
  * Features: Filter, Trash Bin, Batch Manage, Sub-tasks, Selectable Search Provider, Statistics
  */
 
@@ -123,25 +123,33 @@ export default {
     const cookies = parseCookies(request);
     const clientIp = request.headers.get('cf-connecting-ip') || 'unknown';
     
-const isAuthorized = async () => {
-  if (!cookies.auth_token || !cookies.auth_sig) return false;
-  const sigValid = await verify(cookies.auth_token, cookies.auth_sig, env.JWT_SECRET);
-  if (!sigValid) return false;
-  const record = await env.DB.prepare(
-    "SELECT value FROM settings WHERE key = 'active_session_token'"
-  ).first();
-  if (!record || !record.value) return false;
-  if (!record.value.startsWith('[')) {
-    return record.value === cookies.auth_token;
-  }
-  try {
-    const sessions = JSON.parse(record.value);
-    if (!Array.isArray(sessions)) return false;
-    return sessions.some(s => s.token === cookies.auth_token);
-  } catch(e) {
-    return false;
-  }
-};
+    const isAuthorized = async () => {
+      if (!cookies.auth_token || !cookies.auth_sig) return { ok: false };
+    
+      const sigValid = await verify(cookies.auth_token, cookies.auth_sig, env.JWT_SECRET);
+      if (!sigValid) return { ok: false };
+    
+      const record = await env.DB.prepare(
+        "SELECT value FROM settings WHERE key = 'active_session_token'"
+      ).first();
+      if (!record || !record.value) return { ok: false };
+    
+      let sessions;
+      if (!record.value.startsWith('[')) {
+        if (record.value !== cookies.auth_token) return { ok: false };
+        sessions = [{ token: record.value, ua: '' }];
+      } else {
+        try {
+          sessions = JSON.parse(record.value);
+          if (!Array.isArray(sessions)) return { ok: false };
+        } catch(e) { return { ok: false }; }
+      }
+    
+      const matched = sessions.find(s => s.token === cookies.auth_token);
+      if (!matched) return { ok: false };
+    
+      return { ok: true, matchedSession: matched, sessions };
+    };
 
     const initDb = async () => {
       if (isDbInitialized) return;
@@ -344,21 +352,22 @@ const isAuthorized = async () => {
     }
 
     if (url.pathname === '/' && request.method === 'GET') {
-      const authorized = await isAuthorized();
-      
+      const { ok: authorized, matchedSession, sessions: authSessions } = await isAuthorized();
+    
       let customHeader = env.CUSTOM_HEADER || '';
       let customContent = env.CUSTOM_CONTENT || '';
-      
-    if (url.searchParams.get('preview') === '1') {
-      customHeader = '';
-      customContent = '';
-    }
-      
+    
+      if (url.searchParams.get('preview') === '1') {
+        customHeader = '';
+        customContent = '';
+      }
+    
+      let appSettingsObj = null;
       try {
         const record = await env.DB.prepare("SELECT value FROM settings WHERE key = 'app_settings'").first();
         if (record && record.value) {
-          const settings = JSON.parse(record.value);
-          if (settings.customCodeEnabled !== true) {
+          appSettingsObj = JSON.parse(record.value);
+          if (appSettingsObj.customCodeEnabled !== true) {
             customHeader = '';
             customContent = '';
           }
@@ -368,13 +377,67 @@ const isAuthorized = async () => {
         }
       } catch (e) {}
     
+      if (authorized && matchedSession) {
+        const currentUA = request.headers.get('User-Agent') || '';
+        if (currentUA && matchedSession.ua !== currentUA) {
+          const oldUA = matchedSession.ua;
+          
+          matchedSession.ua = currentUA;
+          const updatedSessions = authSessions.filter(s => 
+            s.token === matchedSession.token || s.ua !== currentUA
+          );
+    
+          const batchStmts = [
+            env.DB.prepare(
+              "INSERT OR REPLACE INTO settings (key, value) VALUES ('active_session_token', ?)"
+            ).bind(JSON.stringify(updatedSessions))
+          ];
+    
+          if (!appSettingsObj) appSettingsObj = {};
+          if (!Array.isArray(appSettingsObj.scaleByBrowser)) {
+            appSettingsObj.scaleByBrowser = [];
+          }
+          
+          let replaced = false;
+          for (let i = 0; i < appSettingsObj.scaleByBrowser.length; i++) {
+            if (appSettingsObj.scaleByBrowser[i].ua === oldUA) {
+              appSettingsObj.scaleByBrowser[i].ua = currentUA;
+              replaced = true;
+              break;
+            }
+          }
+          if (!replaced) {
+            appSettingsObj.scaleByBrowser.push({ ua: currentUA, scale: 1.0 });
+          }
+          
+          let foundCurrentUA = false;
+          appSettingsObj.scaleByBrowser = appSettingsObj.scaleByBrowser.filter(s => {
+            if (s.ua === currentUA) {
+              if (!foundCurrentUA) {
+                foundCurrentUA = true;
+                return true;
+              }
+              return false;
+            }
+            return true;
+          });
+    
+          while (appSettingsObj.scaleByBrowser.length > 3) {
+            appSettingsObj.scaleByBrowser.shift();
+          }
+    
+          batchStmts.push(
+            env.DB.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('app_settings', ?)")
+              .bind(JSON.stringify(appSettingsObj))
+          );
+    
+          await env.DB.batch(batchStmts);
+        }
+      }
+    
       return new Response(renderHTML(authorized, customHeader, customContent), {
         headers: { 'Content-Type': 'text/html;charset=UTF-8' },
       });
-    }
-
-    if (!(await isAuthorized())) {
-      return new Response("UNAUTHORIZED PROTOCOL", { status: 401 });
     }
 
 
@@ -933,6 +996,22 @@ const isAuthorized = async () => {
         return new Response(JSON.stringify({ success: true }), { headers: { 'Content-Type': 'application/json' } });
       } catch (e) {
         return new Response(JSON.stringify({ error: e.message }), { status: 500, headers: { 'Content-Type': 'application/json' } });
+      }
+    }
+    
+    if (url.pathname === '/api/check-update' && request.method === 'GET') {
+      try {
+        const res = await fetch('https://api.github.com/repos/moaradc/cf-todo/releases/latest', {
+          headers: { 'User-Agent': 'CF-Worker' }
+        });
+        const json = await res.json();
+        return new Response(JSON.stringify({
+          latest: json.tag_name || '',
+          url: json.html_url || '',
+          assets: (json.assets || []).map(a => ({ name: a.name, url: a.browser_download_url }))
+        }), { headers: { 'Content-Type': 'application/json' } });
+      } catch(e) {
+        return new Response(JSON.stringify({ error: true }), { headers: { 'Content-Type': 'application/json' } });
       }
     }
 
@@ -1814,14 +1893,14 @@ function renderHTML(isAuthorized, customHeader, customContent) {
 
       <div class="detail-label">登录管理</div>
       <div class="settings-card">
-          <p class="settings-text" style="margin-bottom: 12px;">最多支持 <strong>3</strong> 个浏览器UA同时登录。达到上限后新登录将自动替换最早登录的会话。</p>
+          <p class="settings-text" style="margin-bottom: 12px;">最多支持 <strong>3</strong> 个浏览器UA同时登录。达到上限后新登录将自动替换最早（靠上）登录的会话。</p>
           <div id="sessions-list" style="margin-bottom: 12px;"></div>
           <button class="btn-danger" style="width:100%" onclick="deleteAllSessions()">全部删除</button>
       </div>
 
       <div class="detail-label">关于 MOARA 待办事项</div>
       <div class="settings-card">
-          <p class="settings-text" style="margin-bottom: 5px;"><strong>当前版本:</strong> v2.6.6</p>
+          <p class="settings-text" style="margin-bottom:5px;display:flex;align-items:center;gap:6px;flex-wrap:wrap;"><strong>当前版本:</strong> <span id="app-version-display"></span> <span id="update-status"></span> <span class="md-code" style="cursor:pointer;font-size:0.75rem;" onclick="checkUpdate()">检查</span></p>
           <p class="settings-text" style="margin-bottom: 5px;"><strong>底层架构:</strong> Cloudflare Worker + D1 Database</p>
           <p class="settings-text"><strong>项目描述:</strong> 普通的待办事项管理</p>
       </div>
@@ -2076,6 +2155,32 @@ function renderHTML(isAuthorized, customHeader, customContent) {
     let customCodeEnabled = false;
     
     let sessionsList = [];
+    
+    var CURRENT_VERSION = 'v2.6.7';
+    
+    function initVersionDisplay() {
+      var el = document.getElementById('app-version-display');
+      if (el) el.textContent = CURRENT_VERSION;
+    }
+    
+    async function checkUpdate() {
+      var s = document.getElementById('update-status');
+      if (!s) return;
+      s.innerHTML = '<span style="color:#888;font-size:0.8rem;">检查中...</span>';
+      try {
+        var res = await fetch('/api/check-update');
+        var d = await res.json();
+        if (d.error || !d.latest) throw 0;
+        if (d.latest !== CURRENT_VERSION) {
+          var dl = d.assets && d.assets[0] ? ' | <a href="'+d.assets[0].url+'" style="color:var(--accent);font-size:0.8rem;text-decoration:none;">下载</a>' : '';
+          s.innerHTML = '<span style="font-size:0.8rem;font-weight:bold;">→ '+escapeHtml(d.latest)+'</span> <a href="'+d.url+'" target="_blank" style="color:var(--accent);font-size:0.8rem;text-decoration:none;">GitHub</a>'+dl;
+        } else {
+          s.innerHTML = '<span style="font-size:0.8rem;">已是最新</span>';
+        }
+      } catch(e) {
+        s.innerHTML = '<span style="color:var(--accent);font-size:0.8rem;">检查失败</span>';
+      }
+    }
 
     function escapeHtml(text) {
       var div = document.createElement('div');
@@ -2749,6 +2854,7 @@ function renderHTML(isAuthorized, customHeader, customContent) {
       view.classList.remove('closing');
       view.classList.add('active');
       loadSessions();
+      checkUpdate();
     }
 
     function closeSettings() {
@@ -4333,6 +4439,7 @@ function renderHTML(isAuthorized, customHeader, customContent) {
 
     async function bootstrap() {
       await initSettings();
+      initVersionDisplay();
       if (document.getElementById('login-view').classList.contains('hidden')) loadTodos();
     }
     bootstrap();
@@ -4459,7 +4566,8 @@ function renderHTML(isAuthorized, customHeader, customContent) {
       deleteAllSessions: deleteAllSessions,
       onScaleSliderChange: onScaleSliderChange,
       setScalePreset: setScalePreset,
-      resetScaleBrowserData: resetScaleBrowserData
+      resetScaleBrowserData: resetScaleBrowserData,
+      checkUpdate: checkUpdate
     });
 
   })();
