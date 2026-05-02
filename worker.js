@@ -1,5 +1,5 @@
 /*
- * Cloudflare Worker + D1 Todo App (v2.6.7: 增加检查更新功能)
+ * Cloudflare Worker + D1 Todo App (v2.6.7.1: 修复新增重复事项时过往日期也生成的问题)
  * Features: Filter, Trash Bin, Batch Manage, Sub-tasks, Selectable Search Provider, Statistics
  */
 
@@ -737,6 +737,7 @@ export default {
       const templatesReq = await env.DB.prepare(`
         SELECT * FROM todo_templates t
         WHERE t.repeat_type IN ('daily','weekly','monthly','yearly')
+        AND t.anchor_date <= ?
         AND NOT EXISTS (
           SELECT 1 FROM todos td
           WHERE td.parent_id = t.parent_id
@@ -749,7 +750,7 @@ export default {
           OR (t.repeat_type = 'monthly' AND substr(t.anchor_date, 9, 2) = ?)
           OR (t.repeat_type = 'yearly'  AND substr(t.anchor_date, 6, 5) = ?)
         )
-      `).bind(date, targetDayOfWeek, targetDayOfMonth, targetMonthDay).all();
+      `).bind(date, date, targetDayOfWeek, targetDayOfMonth, targetMonthDay).all();
     
       const insertStmts = [];
       let newlyFetchedSearchTerms = null;
@@ -2156,7 +2157,7 @@ function renderHTML(isAuthorized, customHeader, customContent) {
     
     let sessionsList = [];
     
-    var CURRENT_VERSION = 'v2.6.7';
+    var CURRENT_VERSION = 'v2.6.7.1';
     
     function initVersionDisplay() {
       var el = document.getElementById('app-version-display');
