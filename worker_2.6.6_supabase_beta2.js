@@ -1,5 +1,5 @@
 /*
- * Cloudflare Worker + D1 Todo App (v2.6.6_supabase_beta1)
+ * Cloudflare Worker + D1 Todo App (v2.6.6_supabase_beta2)
  * Features: Filter, Trash Bin, Batch Manage, Sub-tasks, Selectable Search Provider, Statistics
  */
  
@@ -182,23 +182,33 @@ export default {
     const url = new URL(request.url);
     const cookies = parseCookies(request);
     const clientIp = request.headers.get('cf-connecting-ip') || 'unknown';
-    
+
     const isAuthorized = async () => {
-      if (!cookies.auth_token || !cookies.auth_sig) return false;
+      if (!cookies.auth_token || !cookies.auth_sig) return { ok: false };
       const sigValid = await verify(cookies.auth_token, cookies.auth_sig, env.JWT_SECRET);
-      if (!sigValid) return false;
+      if (!sigValid) return { ok: false };
       
       const { data: record } = await sbFetch(env, 'GET', 'settings', { key: 'eq.active_session_token', select: 'value' }, null, true);
-      if (!record || !record.value) return false;
+      if (!record || !record.value) return { ok: false };
       
       const sessionValue = record.value;
+      let sessions;
       if (Array.isArray(sessionValue)) {
-        return sessionValue.some(s => s.token === cookies.auth_token);
+        sessions = sessionValue;
+      } else if (typeof sessionValue === 'string') {
+        if (sessionValue === cookies.auth_token) {
+          sessions = [{ token: sessionValue, ua: '' }];
+        } else {
+          return { ok: false };
+        }
+      } else {
+        return { ok: false };
       }
-      if (typeof sessionValue === 'string') {
-        return sessionValue === cookies.auth_token;
-      }
-      return false;
+
+      const matched = sessions.find(s => s.token === cookies.auth_token);
+      if (!matched) return { ok: false };
+
+      return { ok: true, matchedSession: matched, sessions };
     };
 
     if (url.pathname === '/api/login' && request.method === 'POST') {
@@ -281,7 +291,8 @@ export default {
     }
 
     if (url.pathname === '/' && request.method === 'GET') {
-      const authorized = await isAuthorized();
+      const { ok: authorized, matchedSession, sessions: authSessions } = await isAuthorized();
+      
       let customHeader = env.CUSTOM_HEADER || '';
       let customContent = env.CUSTOM_CONTENT || '';
       
@@ -290,10 +301,12 @@ export default {
         customContent = '';
       }
       
+      let appSettingsObj = null;
       try {
         const { data: record } = await sbFetch(env, 'GET', 'settings', { key: 'eq.app_settings', select: 'value' }, null, true);
         if (record && record.value) {
-          if (record.value.customCodeEnabled !== true) {
+          appSettingsObj = record.value;
+          if (appSettingsObj.customCodeEnabled !== true) {
             customHeader = '';
             customContent = '';
           }
@@ -303,6 +316,55 @@ export default {
         }
       } catch (e) {}
     
+      if (authorized && matchedSession) {
+        const currentUA = request.headers.get('User-Agent') || '';
+        if (currentUA && matchedSession.ua !== currentUA) {
+          const oldUA = matchedSession.ua;
+          
+          matchedSession.ua = currentUA;
+          const updatedSessions = authSessions.filter(s => 
+            s.token === matchedSession.token || s.ua !== currentUA
+          );
+    
+          await sbFetch(env, 'PATCH', 'settings', { key: 'eq.active_session_token' }, { value: updatedSessions });
+    
+          if (!appSettingsObj) appSettingsObj = {};
+          if (!Array.isArray(appSettingsObj.scaleByBrowser)) {
+            appSettingsObj.scaleByBrowser = [];
+          }
+          
+          let replaced = false;
+          for (let i = 0; i < appSettingsObj.scaleByBrowser.length; i++) {
+            if (appSettingsObj.scaleByBrowser[i].ua === oldUA) {
+              appSettingsObj.scaleByBrowser[i].ua = currentUA;
+              replaced = true;
+              break;
+            }
+          }
+          if (!replaced) {
+            appSettingsObj.scaleByBrowser.push({ ua: currentUA, scale: 1.0 });
+          }
+          
+          let foundCurrentUA = false;
+          appSettingsObj.scaleByBrowser = appSettingsObj.scaleByBrowser.filter(s => {
+            if (s.ua === currentUA) {
+              if (!foundCurrentUA) {
+                foundCurrentUA = true;
+                return true;
+              }
+              return false;
+            }
+            return true;
+          });
+          
+          while (appSettingsObj.scaleByBrowser.length > 3) {
+            appSettingsObj.scaleByBrowser.shift();
+          }
+          
+          await sbFetch(env, 'PATCH', 'settings', { key: 'eq.app_settings' }, { value: appSettingsObj });
+        }
+      }
+
       return new Response(renderHTML(authorized, customHeader, customContent), {
         headers: { 'Content-Type': 'text/html;charset=UTF-8' },
       });
@@ -1687,15 +1749,15 @@ function renderHTML(isAuthorized, customHeader, customContent) {
 
       <div class="detail-label">登录管理</div>
       <div class="settings-card">
-          <p class="settings-text" style="margin-bottom: 12px;">最多支持 <strong>3</strong> 个浏览器UA同时登录。达到上限后新登录将自动替换最早登录的会话。</p>
+          <p class="settings-text" style="margin-bottom: 12px;">最多支持 <strong>3</strong> 个浏览器UA同时登录。达到上限后新登录将自动替换最早（靠上）登录的会话。</p>
           <div id="sessions-list" style="margin-bottom: 12px;"></div>
           <button class="btn-danger" style="width:100%" onclick="deleteAllSessions()">全部删除</button>
       </div>
 
       <div class="detail-label">关于 MOARA 待办事项</div>
       <div class="settings-card">
-          <p class="settings-text" style="margin-bottom: 5px;"><strong>当前版本:</strong> v2.6.6_supabase_beta1</p>
-          <p class="settings-text" style="margin-bottom: 5px;"><strong>底层架构:</strong> Cloudflare Worker + D1 Database</p>
+          <p class="settings-text" style="margin-bottom: 5px;"><strong>当前版本:</strong> v2.6.6_supabase_beta2</p>
+          <p class="settings-text" style="margin-bottom: 5px;"><strong>底层架构:</strong> Cloudflare Worker + Supabase 数据库</p>
           <p class="settings-text"><strong>项目描述:</strong> 普通的待办事项管理</p>
       </div>
 
