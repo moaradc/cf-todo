@@ -652,6 +652,7 @@ export default {
     
       if (potentialTemplates && potentialTemplates.length > 0) {
         const matchingTemplates = potentialTemplates.filter(tpl => {
+          if (tpl.anchor_date && tpl.anchor_date > date) return false;
           if (tpl.repeat_type === 'daily') return true;
           if (tpl.repeat_type === 'weekly') return String(getDayOfWeek(tpl.anchor_date)) === targetDayOfWeek;
           if (tpl.repeat_type === 'monthly') return tpl.anchor_date?.slice(8, 10) === targetDayOfMonth;
