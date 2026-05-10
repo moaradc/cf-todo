@@ -50,7 +50,7 @@
 
 在网站的**设置**中添加。<br>默认**关闭**前端定制注入。需要在网站“设置 -> 前端定制”中启用前端定制注入并点击保存才会生效。
 
-示例 - 美观的半透明主题（双击主界面空白处切换背景图）
+示例 - 美观的半透明主题（双击主界面空白处切换背景图，≥3次下载当前背景图）
 
 <details>
 <summary><strong>查看自定义头部代码</strong></summary>
@@ -411,62 +411,44 @@ document.body.prepend(vignette,bgA,bgB,loader);
 
 var cur='a';
 var loading=false;
-var currentBrightness=-1;
+var currentBgUrl='';
 
-function getTimeBasedBrightness(){
-  var h=new Date().getHours();
-  return(h>=6&&h<18)?200:80;
-}
+var apiBase=window.innerWidth<768?'https://t.alcy.cc/json?mp':'https://t.alcy.cc/json?pc';
 
 function loadBg(){
   if(loading)return;
   loading=true;
   var ts=Date.now();
-  var url='https://t.alcy.cc/ycy?t='+ts;
+  var url=apiBase+'&t='+ts;
 
-  var img=new Image();
-  img.crossOrigin='anonymous';
-
-  img.onload=function(){
-    var brightness=200;
-    var src=url;
-    try{
-      var c=document.createElement('canvas');
-      var ctx=c.getContext('2d');
-      c.width=64;c.height=64;
-      ctx.drawImage(img,0,0,64,64);
-      var d=ctx.getImageData(0,0,64,64).data;
-      var sum=0;
-      for(var i=0;i<d.length;i+=4){
-        sum+=.299*d[i]+.587*d[i+1]+.114*d[i+2];
+  fetch(url)
+    .then(function(r){return r.json();})
+    .then(function(data){
+      if(data&&data.data&&data.data.link){
+        var imgUrl=data.data.link;
+        var img=new Image();
+        img.crossOrigin='anonymous';
+        img.onload=function(){
+          currentBgUrl=imgUrl;
+          applyBg(imgUrl);
+          loading=false;
+        };
+        img.onerror=function(){
+          currentBgUrl=imgUrl;
+          applyBg(imgUrl);
+          loading=false;
+        };
+        img.src=imgUrl;
+      }else{
+        loading=false;
       }
-      brightness=sum/(64*64);
-      c.width=img.naturalWidth;c.height=img.naturalHeight;
-      ctx.drawImage(img,0,0);
-      src=c.toDataURL('image/jpeg',.82);
-    }catch(e){}
-    applyBg(src,brightness);
-    loading=false;
-  };
-
-  img.onerror=function(){
-    var fallbackBrightness=getTimeBasedBrightness();
-    var img2=new Image();
-    img2.onload=function(){
-      applyBg(url,fallbackBrightness);
+    })
+    .catch(function(){
       loading=false;
-    };
-    img2.onerror=function(){loading=false;};
-    img2.src=url;
-  };
-
-  img.src=url;
+    });
 }
 
-function applyBg(src,brightness){
-  currentBrightness=brightness;
-  ycyApplyTheme();
-
+function applyBg(src){
   var next=cur==='a'?'b':'a';
   var nextEl=document.getElementById('bg-layer-'+next);
   var curEl=document.getElementById('bg-layer-'+cur);
@@ -480,9 +462,30 @@ function applyBg(src,brightness){
   setTimeout(function(){loader.style.display='none';},800);
 }
 
-document.addEventListener('dblclick',function(e){
+/* Click detection: double-click → switch bg, triple-click → download */
+var clickCount=0;
+var clickTimer=null;
+
+document.addEventListener('click',function(e){
   if(e.target.closest('button,input,textarea,select,a,.todo-item,.fake-input,.checkbox,.modal-content,.detail-overlay,.batch-bar,.popover-menu,.fab,.calendar-grid,.time-picker-container,.search-card,.setting-item,.settings-card,.subtask-view-item,.subtask-edit-item,.search-term-tag'))return;
-  loadBg();
+
+  clickCount++;
+
+  if(clickTimer)clearTimeout(clickTimer);
+
+  clickTimer=setTimeout(function(){
+    if(clickCount>=3&&currentBgUrl){
+      var a=document.createElement('a');
+      a.href=currentBgUrl;
+      a.download='';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+    }else if(clickCount===2){
+      loadBg();
+    }
+    clickCount=0;
+  },150);
 });
 
 loadBg();
@@ -493,14 +496,14 @@ loadBg();
 var ycyThemeMode=localStorage.getItem('ycyThemeMode')||'auto';
 var _themeGuard=false;
 var _ycySyncingDT=false;
+
 function ycyApplyTheme(){
   if(_themeGuard)return;
   _themeGuard=true;
 
   var isDark=false;
   if(ycyThemeMode==='auto'){
-    var b=currentBrightness>=0?currentBrightness:getTimeBasedBrightness();
-    isDark=b<115;
+    isDark=window.matchMedia('(prefers-color-scheme: dark)').matches;
   }else if(ycyThemeMode==='dark'){
     isDark=true;
   }
@@ -727,7 +730,7 @@ setTimeout(function() {
   restructureAddModal();
 }, 500);
 
-/* FORCE SYNC: 防止原版 applyTheme 与自定义主题打架 */
+/* FORCE SYNC */
 
 var _forceSyncing=false;
 var _ycyForceSync=new MutationObserver(function(){
