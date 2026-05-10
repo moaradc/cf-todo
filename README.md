@@ -411,6 +411,7 @@ document.body.prepend(vignette,bgA,bgB,loader);
 
 var cur='a';
 var loading=false;
+var customBgUrl=''; // 选填，自定义背景图地址，如 'https://t.alcy.cc/ycy'
 var currentBgUrl='';
 
 var apiBase=window.innerWidth<768?'https://t.alcy.cc/json?mp':'https://t.alcy.cc/json?pc';
@@ -419,33 +420,48 @@ function loadBg(){
   if(loading)return;
   loading=true;
   var ts=Date.now();
-  var url=apiBase+'&t='+ts;
 
-  fetch(url)
-    .then(function(r){return r.json();})
-    .then(function(data){
-      if(data&&data.data&&data.data.link){
-        var imgUrl=data.data.link;
-        var img=new Image();
-        img.crossOrigin='anonymous';
-        img.onload=function(){
-          currentBgUrl=imgUrl;
-          applyBg(imgUrl);
-          loading=false;
-        };
-        img.onerror=function(){
-          currentBgUrl=imgUrl;
-          applyBg(imgUrl);
-          loading=false;
-        };
-        img.src=imgUrl;
-      }else{
-        loading=false;
-      }
-    })
-    .catch(function(){
+  if(customBgUrl){
+    var imgUrl=customBgUrl+(customBgUrl.indexOf('?')>-1?'&':'?')+'t='+ts;
+    var img=new Image();
+    img.onload=function(){
+      currentBgUrl=imgUrl;
+      applyBg(imgUrl);
       loading=false;
-    });
+    };
+    img.onerror=function(){
+      currentBgUrl=customBgUrl;
+      applyBg(customBgUrl);
+      loading=false;
+    };
+    img.src=imgUrl;
+  }else{
+    var url=apiBase+'&t='+ts;
+    fetch(url)
+      .then(function(r){return r.json();})
+      .then(function(data){
+        if(data&&data.data&&data.data.link){
+          var imgUrl=data.data.link;
+          var img=new Image();
+          img.onload=function(){
+            currentBgUrl=imgUrl;
+            applyBg(imgUrl);
+            loading=false;
+          };
+          img.onerror=function(){
+            currentBgUrl=imgUrl;
+            applyBg(imgUrl);
+            loading=false;
+          };
+          img.src=imgUrl;
+        }else{
+          loading=false;
+        }
+      })
+      .catch(function(){
+        loading=false;
+      });
+  }
 }
 
 function applyBg(src){
@@ -474,7 +490,7 @@ document.addEventListener('click',function(e){
   if(clickTimer)clearTimeout(clickTimer);
 
   clickTimer=setTimeout(function(){
-    if(clickCount>=3&&currentBgUrl){
+    if(clickCount>=3&&currentBgUrl&&!customBgUrl){
       var a=document.createElement('a');
       a.href=currentBgUrl;
       a.download='';
