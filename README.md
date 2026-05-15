@@ -352,6 +352,24 @@ html.bg-dark #modal-add .modal-content{box-shadow: 0 16px 56px rgba(0,0,0,.32), 
 /* ── custom textarea ── */
 #custom-header-preview,#custom-content-preview{background:var(--ycy-panel-s)!important;color:var(--ycy-t)!important;border:1px solid var(--ycy-bd)!important;border-radius:var(--ycy-r-xs)!important;box-shadow:none!important}
 
+/* ── import/export modal ── */
+.io-overlay{background:rgba(0,0,0,.22)!important;backdrop-filter:none!important;-webkit-backdrop-filter:none!important}
+html.bg-dark .io-overlay{background:rgba(0,0,0,.42)!important}
+.io-dialog{background:var(--ycy-panel-s)!important;border:1px solid var(--ycy-bd)!important;border-radius:var(--ycy-r)!important;box-shadow:var(--ycy-sh-lg)!important;padding:25px 35px!important;text-align:center!important;font-family:var(--font-main)!important;max-width:90vw!important;min-width:280px!important;color:var(--ycy-t)!important}
+.io-title{font-size:1.05rem!important;font-weight:700!important;margin-bottom:8px!important;color:var(--ycy-t)!important}
+.io-sub{font-size:.85rem!important;color:var(--ycy-t2)!important;margin-bottom:10px!important}
+.io-sub-block{margin-bottom:20px!important;white-space:pre-line!important}
+.io-msg{font-size:.95rem!important;font-weight:700!important;margin-bottom:20px!important;color:var(--ycy-ac)!important;white-space:pre-line!important}
+.io-bar-bg{height:4px!important;background:var(--ycy-panel)!important;border:1px solid var(--ycy-bd)!important;border-radius:2px!important}
+.io-bar-fill{height:100%!important;width:0%!important;background:var(--ycy-ac)!important;border-radius:2px!important;transition:width .3s!important}
+.io-btn-row{display:flex!important;gap:10px!important;justify-content:center!important}
+.io-btn{padding:8px 25px!important;cursor:pointer!important;font-family:var(--font-main)!important;font-weight:500!important;background:var(--ycy-panel)!important;color:var(--ycy-t)!important;border:1px solid var(--ycy-bd)!important;border-radius:var(--ycy-r-xs)!important;box-shadow:var(--ycy-sh)!important;transition:all .2s!important}
+.io-btn:active{transform:scale(.97)!important;background:var(--ycy-panel-s)!important}
+.io-btn-primary{background:var(--ycy-ac)!important;color:#fff!important;border-color:var(--ycy-ac)!important;box-shadow:0 2px 12px rgba(232,69,60,.25)!important}
+.io-btn-primary:active{opacity:1!important;background:var(--ycy-panel-s)!important;color:var(--ycy-t)!important}
+.io-btn-secondary{background:var(--ycy-panel)!important;color:var(--ycy-t2)!important;border:1px solid var(--ycy-bd)!important;box-shadow:none!important}
+.io-btn-secondary:hover{background:var(--ycy-panel-s)!important;color:var(--ycy-t)!important}
+
 /* ── smooth transitions on bg-dark toggle ── */
 .todo-item,.date-bar,.batch-bar,.modal-content,.fake-input,.setting-item,.settings-card,.subtask-view-item,.search-card,.search-term-tag,.chart-container,.annual-hero,.annual-stat-card,.annual-narrative,.session-item,.detail-value,.badge-time,.btn-link,button,input,textarea,select,.checkbox{
   transition:background-color .45s ease,color .45s ease,border-color .45s ease,opacity .25s,transform .25s,box-shadow .25s!important;
@@ -802,7 +820,7 @@ _ycyForceSync.observe(document.documentElement,{
 
 ## Supabase 数据库配置
 
-使用 Supabase 作为云端数据库替代 Cloudflare D1<br>需使用 **worker_2.6.6_supabase_beta2.js**
+使用 Supabase 作为云端数据库替代 Cloudflare D1<br>需使用 **worker_0.0.4_supabase_beta.js**
 
 ### 1. 注册与创建项目
 
