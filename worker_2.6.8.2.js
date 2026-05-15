@@ -1,5 +1,5 @@
 /*
- * Cloudflare Worker + D1 Todo App (v2.6.8.2：流式导出/导入支持超大文件；后端 ReadableStream 逐页输出 JSON；前端 File System Access API 直接写磁盘 + Safari 兼容回退；流式 JSON 解析器增量提取数组元素；导出会话表支持断点续传；修复 totalTodos=0 时流输出缺少头部的问题)
+ * Cloudflare Worker + D1 Todo App (v2.6.8.2：修复了进入预览模式时因页面重定向引发并发请求，导致当天待办事项可能被重复生成的问题；移除虚拟滚动机制；优化导入/导出逻辑)
  * Features: Filter, Trash Bin, Batch Manage, Sub-tasks, Selectable Search Provider, Statistics
  */
 
@@ -2937,7 +2937,7 @@ function renderHTML(isAuthorized, customHeader, customContent) {
     
     let sessionsList = [];
     
-    var CURRENT_VERSION = 'v2.6.8.1';
+    var CURRENT_VERSION = 'v2.6.8.2';
     
     function initVersionDisplay() {
       var el = document.getElementById('app-version-display');
@@ -3760,7 +3760,7 @@ function renderHTML(isAuthorized, customHeader, customContent) {
           var br=document.createElement('div'); br.className='io-btn-row';
           var by=document.createElement('button'); by.className='io-btn io-btn-primary'; by.textContent=btnYesLabel||'确定';
           var bn=document.createElement('button'); bn.className='io-btn io-btn-secondary'; bn.textContent=btnNoLabel||'取消';
-          br.appendChild(by); br.appendChild(bn); cb.appendChild(ct); cb.appendChild(cm); cb.appendChild(br); co.appendChild(cb); document.body.appendChild(co);
+          br.appendChild(bn); br.appendChild(by); cb.appendChild(ct); cb.appendChild(cm); cb.appendChild(br); co.appendChild(cb); document.body.appendChild(co);
           by.onclick=function(){ if(co.parentNode) co.parentNode.removeChild(co); resolve(true); };
           bn.onclick=function(){ if(co.parentNode) co.parentNode.removeChild(co); resolve(false); };
         });
@@ -3895,7 +3895,7 @@ function renderHTML(isAuthorized, customHeader, customContent) {
         } catch(e) {}
 
         showProgress('导出完成', (totalTodos || todosReceived) + ' 条待办 + ' + (totalTemplates || templatesReceived) + ' 条模板', 100);
-        setTimeout(closeProgress, 1500);
+        setTimeout(closeProgress, 5000);
       } catch (e) {
         try {
           await fetch('/api/export?mode=session&action=abort&sessionId=' + sessionId);
@@ -3941,7 +3941,7 @@ function renderHTML(isAuthorized, customHeader, customContent) {
           var br=document.createElement('div'); br.className='io-btn-row';
           var by=document.createElement('button'); by.className='io-btn io-btn-primary'; by.textContent=btnYesLabel||'确定';
           var bn=document.createElement('button'); bn.className='io-btn io-btn-secondary'; bn.textContent=btnNoLabel||'取消';
-          br.appendChild(by); br.appendChild(bn); cb.appendChild(ct); cb.appendChild(cm); cb.appendChild(br); co.appendChild(cb); document.body.appendChild(co);
+          br.appendChild(bn); br.appendChild(by); cb.appendChild(ct); cb.appendChild(cm); cb.appendChild(br); co.appendChild(cb); document.body.appendChild(co);
           by.onclick=function(){ if(co.parentNode) co.parentNode.removeChild(co); resolve(true); };
           bn.onclick=function(){ if(co.parentNode) co.parentNode.removeChild(co); resolve(false); };
         });
