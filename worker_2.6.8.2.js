@@ -1,5 +1,5 @@
 /*
- * Cloudflare Worker + D1 Todo App (v2.6.8.1：修复了进入预览模式时因页面重定向引发并发请求，导致当天待办事项可能被重复生成的问题；移除了虚拟滚动机制；增加统一 API 鉴权拦截；优化导入导出逻辑)
+ * Cloudflare Worker + D1 Todo App (v2.6.8.2：流式导出/导入支持超大文件；后端 ReadableStream 逐页输出 JSON；前端 File System Access API 直接写磁盘 + Safari 兼容回退；流式 JSON 解析器增量提取数组元素；导出会话表支持断点续传；修复 totalTodos=0 时流输出缺少头部的问题)
  * Features: Filter, Trash Bin, Batch Manage, Sub-tasks, Selectable Search Provider, Statistics
  */
 
@@ -208,6 +208,21 @@ export default {
               mode TEXT NOT NULL,
               status TEXT NOT NULL DEFAULT 'active',
               started_at INTEGER NOT NULL,
+              updated_at INTEGER NOT NULL
+            )
+          `),
+          env.DB.prepare(`
+            CREATE TABLE IF NOT EXISTS export_sessions (
+              id TEXT PRIMARY KEY,
+              status TEXT NOT NULL DEFAULT 'active',
+              inc_todos INTEGER NOT NULL DEFAULT 0,
+              inc_trash INTEGER NOT NULL DEFAULT 0,
+              inc_settings INTEGER NOT NULL DEFAULT 0,
+              total_todos INTEGER NOT NULL DEFAULT 0,
+              total_templates INTEGER NOT NULL DEFAULT 0,
+              todos_offset INTEGER NOT NULL DEFAULT 0,
+              templates_offset INTEGER NOT NULL DEFAULT 0,
+              created_at INTEGER NOT NULL,
               updated_at INTEGER NOT NULL
             )
           `),
@@ -654,7 +669,246 @@ export default {
         }), { headers: { 'Content-Type': 'application/json' } });
       }
 
-      return new Response(JSON.stringify({ error: "Unknown mode. Use mode=meta or mode=page" }), {
+      if (mode === 'session') {
+        const action = url.searchParams.get('action') || 'create';
+        const sessionId = url.searchParams.get('sessionId');
+
+        if (action === 'create') {
+          const incTodos = url.searchParams.get('todos') === 'true' ? 1 : 0;
+          const incTrash = url.searchParams.get('trash') === 'true' ? 1 : 0;
+          const incSettings = url.searchParams.get('settings') === 'true' ? 1 : 0;
+          const id = sessionId || crypto.randomUUID();
+          const now = Date.now();
+
+          let todoCondition = "1=0";
+          if (incTodos && incTrash) todoCondition = "1=1";
+          else if (incTodos) todoCondition = "deleted = 0";
+          else if (incTrash) todoCondition = "deleted = 1";
+
+          const [todoCountRes, tplCountRes] = await Promise.all([
+            env.DB.prepare(`SELECT COUNT(*) as c FROM todos WHERE ${todoCondition}`).first(),
+            incTodos
+              ? env.DB.prepare('SELECT COUNT(*) as c FROM todo_templates').first()
+              : Promise.resolve({ c: 0 })
+          ]);
+
+          const EXPORT_TIMEOUT = 10 * 60 * 1000;
+          const oldSession = await env.DB.prepare('SELECT * FROM export_sessions WHERE status = ?').bind('active').first();
+          if (oldSession) {
+            if ((now - oldSession.updated_at) < EXPORT_TIMEOUT) {
+              return new Response(JSON.stringify({
+                error: '存在进行中的导出会话',
+                conflict: true,
+                sessionId: oldSession.id
+              }), { status: 409, headers: { 'Content-Type': 'application/json' } });
+            }
+            await env.DB.prepare('DELETE FROM export_sessions WHERE id = ?').bind(oldSession.id).run();
+          }
+
+          const staleSessions = await env.DB.prepare('SELECT id FROM export_sessions WHERE updated_at < ?').bind(now - EXPORT_TIMEOUT).all();
+          if (staleSessions.results && staleSessions.results.length > 0) {
+            await env.DB.prepare('DELETE FROM export_sessions WHERE updated_at < ?').bind(now - EXPORT_TIMEOUT).run();
+          }
+
+          await env.DB.prepare(
+            'INSERT INTO export_sessions (id, status, inc_todos, inc_trash, inc_settings, total_todos, total_templates, todos_offset, templates_offset, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+          ).bind(id, 'active', incTodos, incTrash, incSettings, todoCountRes?.c || 0, tplCountRes?.c || 0, 0, 0, now, now).run();
+
+          return new Response(JSON.stringify({
+            sessionId: id,
+            totalTodos: todoCountRes?.c || 0,
+            totalTemplates: tplCountRes?.c || 0
+          }), { headers: { 'Content-Type': 'application/json' } });
+        }
+
+        if (action === 'status' && sessionId) {
+          const session = await env.DB.prepare('SELECT * FROM export_sessions WHERE id = ?').bind(sessionId).first();
+          if (!session) {
+            return new Response(JSON.stringify({ error: 'Session not found' }), { status: 404, headers: { 'Content-Type': 'application/json' } });
+          }
+          return new Response(JSON.stringify({
+            sessionId: session.id,
+            status: session.status,
+            totalTodos: session.total_todos,
+            totalTemplates: session.total_templates,
+            todosOffset: session.todos_offset,
+            templatesOffset: session.templates_offset
+          }), { headers: { 'Content-Type': 'application/json' } });
+        }
+
+        if (action === 'done' && sessionId) {
+          await env.DB.prepare('DELETE FROM export_sessions WHERE id = ?').bind(sessionId).run();
+          return new Response(JSON.stringify({ success: true }), { headers: { 'Content-Type': 'application/json' } });
+        }
+
+        if (action === 'abort' && sessionId) {
+          await env.DB.prepare('DELETE FROM export_sessions WHERE id = ?').bind(sessionId).run();
+          return new Response(JSON.stringify({ success: true }), { headers: { 'Content-Type': 'application/json' } });
+        }
+
+        return new Response(JSON.stringify({ error: "Invalid session action" }), {
+          status: 400, headers: { 'Content-Type': 'application/json' }
+        });
+      }
+
+      if (mode === 'stream') {
+        const sessionId = url.searchParams.get('sessionId');
+        let resumeTodosOffset = parseInt(url.searchParams.get('resumeTodosOffset') || '0', 10);
+        let resumeTemplatesOffset = parseInt(url.searchParams.get('resumeTemplatesOffset') || '0', 10);
+        const incTodos = url.searchParams.get('todos') === 'true';
+        const incTrash = url.searchParams.get('trash') === 'true';
+        const incSettings = url.searchParams.get('settings') === 'true';
+        const STREAM_PAGE_SIZE = 500;
+
+        let todoCondition = "1=0";
+        if (incTodos && incTrash) todoCondition = "1=1";
+        else if (incTodos) todoCondition = "deleted = 0";
+        else if (incTrash) todoCondition = "deleted = 1";
+
+        const [todoCountRes, tplCountRes] = await Promise.all([
+          env.DB.prepare(`SELECT COUNT(*) as c FROM todos WHERE ${todoCondition}`).first(),
+          incTodos
+            ? env.DB.prepare('SELECT COUNT(*) as c FROM todo_templates').first()
+            : Promise.resolve({ c: 0 })
+        ]);
+        const totalTodos = todoCountRes?.c || 0;
+        const totalTemplates = incTodos ? (tplCountRes?.c || 0) : 0;
+
+        const encoder = new TextEncoder();
+        let firstInArray = true;
+
+        const stream = new ReadableStream({
+          async pull(controller) {
+            try {
+              if (resumeTodosOffset < totalTodos) {
+                const offset = resumeTodosOffset;
+                const dataRes = await env.DB.prepare(
+                  `SELECT * FROM todos WHERE ${todoCondition} LIMIT ? OFFSET ?`
+                ).bind(STREAM_PAGE_SIZE, offset).all();
+                const rows = dataRes.results || [];
+
+                if (offset === 0 && resumeTemplatesOffset === 0) {
+                  let header = '{';
+                  if (incSettings) {
+                    const settingsRecord = await env.DB.prepare("SELECT value FROM settings WHERE key = 'app_settings'").first();
+                    let settingsObj = {};
+                    try { settingsObj = settingsRecord?.value ? JSON.parse(settingsRecord.value) : {}; } catch(e) {}
+                    header += '"settings":' + JSON.stringify(settingsObj) + ',';
+                    const headerRecord = await env.DB.prepare("SELECT value FROM settings WHERE key = 'custom_header'").first();
+                    header += '"custom_header":' + JSON.stringify(headerRecord?.value || '') + ',';
+                    const contentRecord = await env.DB.prepare("SELECT value FROM settings WHERE key = 'custom_content'").first();
+                    header += '"custom_content":' + JSON.stringify(contentRecord?.value || '') + ',';
+                  }
+                  header += '"todos":[';
+                  controller.enqueue(encoder.encode(header));
+                }
+
+                for (let i = 0; i < rows.length; i++) {
+                  const prefix = (offset === 0 && i === 0 && firstInArray) ? '' : ',';
+                  controller.enqueue(encoder.encode(prefix + JSON.stringify(rows[i])));
+                  firstInArray = false;
+                }
+
+                resumeTodosOffset += rows.length;
+                if (sessionId) {
+                  await env.DB.prepare('UPDATE export_sessions SET todos_offset = ?, updated_at = ? WHERE id = ?')
+                    .bind(resumeTodosOffset, Date.now(), sessionId).run();
+                }
+
+                if (rows.length === STREAM_PAGE_SIZE) {
+                  controller.enqueue(encoder.encode(''));
+                  return;
+                }
+              }
+
+              if (resumeTodosOffset >= totalTodos && resumeTemplatesOffset < totalTemplates) {
+                if (resumeTemplatesOffset === 0) {
+                  if (totalTodos === 0 && resumeTodosOffset === 0) {
+                    let header = '{';
+                    if (incSettings) {
+                      const settingsRecord = await env.DB.prepare("SELECT value FROM settings WHERE key = 'app_settings'").first();
+                      let settingsObj = {};
+                      try { settingsObj = settingsRecord?.value ? JSON.parse(settingsRecord.value) : {}; } catch(e) {}
+                      header += '"settings":' + JSON.stringify(settingsObj) + ',';
+                      const headerRecord = await env.DB.prepare("SELECT value FROM settings WHERE key = 'custom_header'").first();
+                      header += '"custom_header":' + JSON.stringify(headerRecord?.value || '') + ',';
+                      const contentRecord = await env.DB.prepare("SELECT value FROM settings WHERE key = 'custom_content'").first();
+                      header += '"custom_content":' + JSON.stringify(contentRecord?.value || '') + ',';
+                    }
+                    header += '"todos":[';
+                    controller.enqueue(encoder.encode(header));
+                  }
+                  controller.enqueue(encoder.encode('],"todo_templates":['));
+                  firstInArray = true;
+                }
+
+                const offset = resumeTemplatesOffset;
+                const dataRes = await env.DB.prepare(
+                  'SELECT * FROM todo_templates LIMIT ? OFFSET ?'
+                ).bind(STREAM_PAGE_SIZE, offset).all();
+                const rows = dataRes.results || [];
+
+                for (let i = 0; i < rows.length; i++) {
+                  const prefix = (offset === 0 && i === 0 && firstInArray) ? '' : ',';
+                  controller.enqueue(encoder.encode(prefix + JSON.stringify(rows[i])));
+                  firstInArray = false;
+                }
+
+                resumeTemplatesOffset += rows.length;
+                if (sessionId) {
+                  await env.DB.prepare('UPDATE export_sessions SET templates_offset = ?, updated_at = ? WHERE id = ?')
+                    .bind(resumeTemplatesOffset, Date.now(), sessionId).run();
+                }
+
+                if (rows.length === STREAM_PAGE_SIZE) {
+                  controller.enqueue(encoder.encode(''));
+                  return;
+                }
+              }
+
+              if (totalTodos === 0 && totalTemplates === 0) {
+                let header = '{';
+                if (incSettings) {
+                  const settingsRecord = await env.DB.prepare("SELECT value FROM settings WHERE key = 'app_settings'").first();
+                  let settingsObj = {};
+                  try { settingsObj = settingsRecord?.value ? JSON.parse(settingsRecord.value) : {}; } catch(e) {}
+                  header += '"settings":' + JSON.stringify(settingsObj) + ',';
+                  const headerRecord = await env.DB.prepare("SELECT value FROM settings WHERE key = 'custom_header'").first();
+                  header += '"custom_header":' + JSON.stringify(headerRecord?.value || '') + ',';
+                  const contentRecord = await env.DB.prepare("SELECT value FROM settings WHERE key = 'custom_content'").first();
+                  header += '"custom_content":' + JSON.stringify(contentRecord?.value || '') + ',';
+                }
+                header += '"todos":[],"todo_templates":[]}';
+                controller.enqueue(encoder.encode(header));
+              } else {
+                if (totalTemplates === 0 && resumeTemplatesOffset === 0) {
+                  controller.enqueue(encoder.encode('],"todo_templates":[]'));
+                } else {
+                  controller.enqueue(encoder.encode(']'));
+                }
+                controller.enqueue(encoder.encode('}'));
+              }
+
+              if (sessionId) {
+                await env.DB.prepare('DELETE FROM export_sessions WHERE id = ?').bind(sessionId).run();
+              }
+              controller.close();
+            } catch (err) {
+              controller.error(err);
+            }
+          }
+        });
+
+        return new Response(stream, {
+          headers: {
+            'Content-Type': 'application/json',
+            'X-Export-Total-Todos': String(totalTodos),
+            'X-Export-Total-Templates': String(totalTemplates)
+          }
+        });
+      }
+
+      return new Response(JSON.stringify({ error: "Unknown mode. Use mode=meta, mode=page, mode=stream, or mode=session" }), {
         status: 400, headers: { 'Content-Type': 'application/json' }
       });
     }
@@ -2017,6 +2271,91 @@ function renderHTML(isAuthorized, customHeader, customContent) {
     .modal-overlay.active,
     .detail-overlay.active {
       overscroll-behavior: contain;
+    }
+    .io-overlay {
+      position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+      background: rgba(0,0,0,0.85); backdrop-filter: blur(4px);
+      display: flex; align-items: center; justify-content: center;
+      z-index: 99999;
+    }
+    .io-overlay-high { z-index: 100000; }
+    .io-dialog {
+      background: #0a0a0a; border: 1px solid #ff3300;
+      padding: 25px 35px; text-align: center;
+      font-family: Courier New, monospace;
+      max-width: 90vw; min-width: 280px;
+    }
+    .io-title {
+      font-size: 1.05rem; font-weight: bold;
+      margin-bottom: 8px; color: #fff;
+    }
+    .io-sub {
+      font-size: 0.85rem; color: #888;
+      margin-bottom: 10px;
+    }
+    .io-sub-block {
+      margin-bottom: 20px; white-space: pre-line;
+    }
+    .io-msg {
+      font-size: 0.95rem; font-weight: bold;
+      margin-bottom: 20px; color: #ff3300;
+      white-space: pre-line;
+    }
+    .io-bar-bg {
+      height: 4px; background: #222; border: 1px solid #333;
+    }
+    .io-bar-fill {
+      height: 100%; width: 0%; background: #ff3300;
+      transition: width 0.3s;
+    }
+    .io-btn-row {
+      display: flex; gap: 10px; justify-content: center;
+    }
+    .io-btn {
+      padding: 8px 25px; cursor: pointer;
+      font-family: inherit; font-weight: bold;
+      background: transparent;
+    }
+    .io-btn-primary {
+      border: 1px solid #ff3300; color: #ff3300;
+    }
+    .io-btn-secondary {
+      border: 1px solid #555; color: #888;
+    }
+    [data-theme="light"] .io-overlay {
+      background: rgba(27,25,21,0.85);
+    }
+    [data-theme="light"] .io-dialog {
+      background: #F0F0F0; border: 4px solid #1B1915;
+      box-shadow: 8px 8px 0 #1B1915; border-radius: 8px;
+    }
+    [data-theme="light"] .io-title {
+      color: #1B1915;
+    }
+    [data-theme="light"] .io-sub {
+      color: #666;
+    }
+    [data-theme="light"] .io-msg {
+      color: #CE2424;
+    }
+    [data-theme="light"] .io-bar-bg {
+      background: #E5E5E5; border: 2px solid #1B1915;
+    }
+    [data-theme="light"] .io-bar-fill {
+      background: #CE2424;
+    }
+    [data-theme="light"] .io-btn-primary {
+      border: 3px solid #1B1915; color: #1B1915;
+      box-shadow: 2px 2px 0 #1B1915;
+    }
+    [data-theme="light"] .io-btn-primary:hover {
+      background: #1B1915; color: #FEFEFE;
+    }
+    [data-theme="light"] .io-btn-secondary {
+      border: 2px solid #999; color: #666;
+    }
+    [data-theme="light"] .io-btn-secondary:hover {
+      background: #E5E5E5;
     }
   </style>
   <script>/*CUSTOM_HEADER_PLACEHOLDER*/</script>
@@ -3383,17 +3722,17 @@ function renderHTML(isAuthorized, customHeader, customContent) {
       if (!incTodos && !incTrash && !incSettings) return alert('请至少选择一项需要导出的内容。');
 
       var overlay = document.createElement('div');
-      overlay.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.85);display:flex;align-items:center;justify-content:center;z-index:99999;';
+      overlay.className = 'io-overlay';
       var box = document.createElement('div');
-      box.style.cssText = 'background:#0a0a0a;border:1px solid #ff3300;padding:25px 35px;text-align:center;font-family:Courier New,monospace;max-width:90vw;min-width:280px;';
+      box.className = 'io-dialog';
       var titleEl = document.createElement('div');
-      titleEl.style.cssText = 'font-size:1.05rem;font-weight:bold;margin-bottom:8px;color:#fff;';
+      titleEl.className = 'io-title';
       var subEl = document.createElement('div');
-      subEl.style.cssText = 'font-size:0.85rem;color:#888;margin-bottom:10px;';
+      subEl.className = 'io-sub';
       var barBg = document.createElement('div');
-      barBg.style.cssText = 'height:4px;background:#222;border:1px solid #333;';
+      barBg.className = 'io-bar-bg';
       var barFill = document.createElement('div');
-      barFill.style.cssText = 'height:100%;width:0%;background:#ff3300;transition:width 0.3s;';
+      barFill.className = 'io-bar-fill';
       barBg.appendChild(barFill); box.appendChild(titleEl); box.appendChild(subEl); box.appendChild(barBg);
       overlay.appendChild(box); document.body.appendChild(overlay);
 
@@ -3404,77 +3743,163 @@ function renderHTML(isAuthorized, customHeader, customContent) {
       function closeProgress() { clearInterval(spinTimer); if(overlay.parentNode) overlay.parentNode.removeChild(overlay); }
       function showAlert(msg) {
         return new Promise(function(resolve) {
-          var ao=document.createElement('div'); ao.style.cssText='position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.85);display:flex;align-items:center;justify-content:center;z-index:100000;';
-          var ab=document.createElement('div'); ab.style.cssText='background:#0a0a0a;border:1px solid #ff3300;padding:25px 35px;text-align:center;font-family:Courier New,monospace;max-width:90vw;min-width:280px;';
-          var am=document.createElement('div'); am.style.cssText='font-size:0.95rem;font-weight:bold;margin-bottom:20px;color:#ff3300;white-space:pre-line;'; am.textContent=msg;
-          var bo=document.createElement('button'); bo.style.cssText='padding:8px 25px;border:1px solid #ff3300;background:transparent;color:#ff3300;cursor:pointer;font-family:inherit;font-weight:bold;'; bo.textContent='确定';
+          var ao=document.createElement('div'); ao.className='io-overlay';
+          var ab=document.createElement('div'); ab.className='io-dialog';
+          var am=document.createElement('div'); am.className='io-msg'; am.textContent=msg;
+          var bo=document.createElement('button'); bo.className='io-btn io-btn-primary'; bo.textContent='确定';
           ab.appendChild(am); ab.appendChild(bo); ao.appendChild(ab); document.body.appendChild(ao);
           bo.onclick=function(){ if(ao.parentNode) ao.parentNode.removeChild(ao); resolve(); };
         });
       }
+      function showConfirm(title, msg, btnYesLabel, btnNoLabel) {
+        return new Promise(function(resolve) {
+          var co=document.createElement('div'); co.className='io-overlay';
+          var cb=document.createElement('div'); cb.className='io-dialog';
+          var ct=document.createElement('div'); ct.className='io-title'; ct.textContent=title;
+          var cm=document.createElement('div'); cm.className='io-sub'; cm.textContent=msg;
+          var br=document.createElement('div'); br.className='io-btn-row';
+          var by=document.createElement('button'); by.className='io-btn io-btn-primary'; by.textContent=btnYesLabel||'确定';
+          var bn=document.createElement('button'); bn.className='io-btn io-btn-secondary'; bn.textContent=btnNoLabel||'取消';
+          br.appendChild(by); br.appendChild(bn); cb.appendChild(ct); cb.appendChild(cm); cb.appendChild(br); co.appendChild(cb); document.body.appendChild(co);
+          by.onclick=function(){ if(co.parentNode) co.parentNode.removeChild(co); resolve(true); };
+          bn.onclick=function(){ if(co.parentNode) co.parentNode.removeChild(co); resolve(false); };
+        });
+      }
 
-      var PAGE_SIZE = 150;
+      var sessionId = crypto.randomUUID();
+      var totalTodos = 0;
+      var totalTemplates = 0;
+      var todosReceived = 0;
+      var templatesReceived = 0;
+
       try {
-        showProgress('拉取元数据', '获取数据概览...', 5);
-        var metaRes = await fetch(\`/api/export?mode=meta&todos=\${incTodos}&trash=\${incTrash}&settings=\${incSettings}\`);
-        if (!metaRes.ok) throw new Error('元数据获取失败');
-        var meta = await metaRes.json();
-        var totalTodos = meta.counts.todos;
-        var totalTemplates = incTodos ? meta.counts.templates : 0;
+        showProgress('初始化导出会话', '创建会话...', 3);
+        var sessionRes = await fetch('/api/export?mode=session&action=create&todos=' + incTodos + '&trash=' + incTrash + '&settings=' + incSettings + '&sessionId=' + sessionId);
+        if (!sessionRes.ok) {
+          if (sessionRes.status === 409) {
+            var conflictData = {};
+            try { conflictData = await sessionRes.json(); } catch(ee) {}
+            var doAbortExport = await showConfirm("导出会话冲突", '检测到未完成的导出会话 (' + (conflictData.sessionId || '') + ')。\\n可能是上次导出异常中断导致。\\n点击「确定」中止旧会话并重新导出。', "确定", "取消");
+            if (doAbortExport) {
+              if (conflictData.sessionId) {
+                await fetch('/api/export?mode=session&action=abort&sessionId=' + conflictData.sessionId);
+              }
+              sessionRes = await fetch('/api/export?mode=session&action=create&todos=' + incTodos + '&trash=' + incTrash + '&settings=' + incSettings + '&sessionId=' + sessionId);
+              if (!sessionRes.ok) throw new Error('重试创建导出会话失败');
+            } else {
+              closeProgress();
+              return;
+            }
+          } else {
+            throw new Error('创建导出会话失败');
+          }
+        }
+        var sessionData = await sessionRes.json();
+        totalTodos = sessionData.totalTodos;
+        totalTemplates = sessionData.totalTemplates;
         var totalItems = totalTodos + totalTemplates;
 
         if (totalItems === 0 && !incSettings) { closeProgress(); await showAlert('没有可导出的数据。'); return; }
-        showProgress('拉取数据', \`共 \${totalItems} 条记录待导出\`, 10);
+        showProgress('准备流式导出', '共 ' + totalItems + ' 条记录，开始下载...', 8);
 
-        var allTodos = [];
-        if (totalTodos > 0) {
-          var offset = 0;
-          while (offset < totalTodos) {
-            var pct = 10 + Math.round((offset / Math.max(totalTodos,1)) * 55);
-            showProgress('拉取待办事项', \`\${Math.min(offset+PAGE_SIZE,totalTodos)} / \${totalTodos}\`, pct);
-            var res = await fetch(\`/api/export?mode=page&type=todos&offset=\${offset}&limit=\${PAGE_SIZE}&todos=\${incTodos}&trash=\${incTrash}\`);
-            if (!res.ok) throw new Error('待办数据获取失败 (offset='+offset+')');
-            var page = await res.json();
-            allTodos = allTodos.concat(page.data || []);
-            offset += PAGE_SIZE;
-            if (!page.hasMore) break;
+        var useFileSystemAPI = false;
+        var writableStream = null;
+        var fileHandle = null;
+        var fileName = 'todo_export_' + formatDate(new Date()) + '.json';
+
+        if (window.showSaveFilePicker) {
+          try {
+            fileHandle = await window.showSaveFilePicker({
+              suggestedName: fileName,
+              types: [{ description: 'JSON', accept: { 'application/json': ['.json'] } }]
+            });
+            writableStream = await fileHandle.createWritable();
+            useFileSystemAPI = true;
+          } catch (pickErr) {
+            if (pickErr.name === 'AbortError') { closeProgress(); return; }
+            useFileSystemAPI = false;
           }
         }
 
-        var allTemplates = [];
-        if (totalTemplates > 0) {
-          var offset2 = 0;
-          while (offset2 < totalTemplates) {
-            var pct2 = 65 + Math.round((offset2 / Math.max(totalTemplates,1)) * 25);
-            showProgress('拉取重复事项模板', \`\${Math.min(offset2+PAGE_SIZE,totalTemplates)} / \${totalTemplates}\`, pct2);
-            var res2 = await fetch(\`/api/export?mode=page&type=templates&offset=\${offset2}&limit=\${PAGE_SIZE}\`);
-            if (!res2.ok) throw new Error('模板数据获取失败 (offset='+offset2+')');
-            var page2 = await res2.json();
-            allTemplates = allTemplates.concat(page2.data || []);
-            offset2 += PAGE_SIZE;
-            if (!page2.hasMore) break;
+        var chunks = [];
+        var streamUrl = '/api/export?mode=stream&todos=' + incTodos + '&trash=' + incTrash + '&settings=' + incSettings + '&sessionId=' + sessionId;
+        var res = await fetch(streamUrl);
+        if (!res.ok) throw new Error('流式导出请求失败');
+
+        var totalFromHeader = parseInt(res.headers.get('X-Export-Total-Todos') || '0', 10) + parseInt(res.headers.get('X-Export-Total-Templates') || '0', 10);
+        var reader = res.body.getReader();
+        var decoder = new TextDecoder();
+        var jsonBuffer = '';
+        var estimatedBytes = 0;
+
+        while (true) {
+          var _ref = await reader.read();
+          var done = _ref.done;
+          var value = _ref.value;
+          if (done) break;
+
+          if (useFileSystemAPI) {
+            await writableStream.write(value);
+          } else {
+            chunks.push(value);
+          }
+
+          var textChunk = decoder.decode(value, { stream: true });
+          jsonBuffer += textChunk;
+          estimatedBytes += value.byteLength;
+
+          var todoMatches = jsonBuffer.match(/"id"\\s*:/g);
+          if (todoMatches) {
+            var currentReceived = todoMatches.length;
+            if (currentReceived > todosReceived + templatesReceived) {
+              var diff = currentReceived - todosReceived - templatesReceived;
+              if (todosReceived < totalTodos) {
+                todosReceived = Math.min(todosReceived + diff, totalTodos);
+              } else {
+                templatesReceived += diff;
+              }
+            }
+          }
+
+          var processedItems = todosReceived + templatesReceived;
+          var pct = 8 + Math.round((processedItems / Math.max(totalFromHeader, 1)) * 87);
+          if (todosReceived < totalTodos) {
+            showProgress('流式导出待办', todosReceived + ' / ' + totalTodos + ' 条', pct);
+          } else if (templatesReceived < totalTemplates) {
+            showProgress('流式导出模板', templatesReceived + ' / ' + totalTemplates + ' 条', pct);
+          } else {
+            showProgress('流式导出', '已传输 ' + (estimatedBytes / 1024 / 1024).toFixed(1) + ' MB', pct);
+          }
+
+          if (jsonBuffer.length > 5 * 1024 * 1024) {
+            jsonBuffer = jsonBuffer.slice(-1024 * 512);
           }
         }
 
-        showProgress('生成文件', '组装导出数据...', 95);
-        var exportObj = {};
-        if (incSettings && meta.settings) exportObj.settings = meta.settings;
-        if (incSettings) { exportObj.custom_header = meta.custom_header || ''; exportObj.custom_content = meta.custom_content || ''; }
-        exportObj.todos = allTodos;
-        exportObj.todo_templates = allTemplates;
+        if (useFileSystemAPI) {
+          await writableStream.close();
+        } else {
+          showProgress('生成文件', '组装下载文件...', 96);
+          var blob = new Blob(chunks, { type: 'application/json' });
+          var blobUrl = URL.createObjectURL(blob);
+          var a = document.createElement('a');
+          a.href = blobUrl;
+          a.download = fileName;
+          document.body.appendChild(a); a.click(); document.body.removeChild(a);
+          setTimeout(function() { URL.revokeObjectURL(blobUrl); }, 30000);
+          chunks = null;
+        }
 
-        var jsonStr = JSON.stringify(exportObj);
-        var blob = new Blob([jsonStr], { type: 'application/json' });
-        var blobUrl = URL.createObjectURL(blob);
-        var a = document.createElement('a');
-        a.href = blobUrl;
-        a.download = \`todo_export_\${formatDate(new Date())}.json\`;
-        document.body.appendChild(a); a.click(); document.body.removeChild(a);
-        URL.revokeObjectURL(blobUrl);
+        try {
+          await fetch('/api/export?mode=session&action=done&sessionId=' + sessionId);
+        } catch(e) {}
 
-        showProgress('导出完成', \`\${allTodos.length} 条待办 + \${allTemplates.length} 条模板\`, 100);
+        showProgress('导出完成', (totalTodos || todosReceived) + ' 条待办 + ' + (totalTemplates || templatesReceived) + ' 条模板', 100);
         setTimeout(closeProgress, 1500);
       } catch (e) {
+        try {
+          await fetch('/api/export?mode=session&action=abort&sessionId=' + sessionId);
+        } catch(ee) {}
         closeProgress();
         await showAlert('导出失败：' + e.message);
       }
@@ -3484,21 +3909,21 @@ function renderHTML(isAuthorized, customHeader, customContent) {
       var file = event.target.files[0];
       if (!file) return;
 
-      var CHUNK_SIZE = 100;
+      var UPLOAD_CHUNK_SIZE = 100;
       var importId = crypto.randomUUID();
 
       var overlay = document.createElement('div');
-      overlay.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.85);display:flex;align-items:center;justify-content:center;z-index:99999;';
+      overlay.className = 'io-overlay';
       var box = document.createElement('div');
-      box.style.cssText = 'background:#0a0a0a;border:1px solid #ff3300;padding:25px 35px;text-align:center;font-family:Courier New,monospace;max-width:90vw;min-width:280px;';
+      box.className = 'io-dialog';
       var titleEl = document.createElement('div');
-      titleEl.style.cssText = 'font-size:1.05rem;font-weight:bold;margin-bottom:8px;color:#fff;';
+      titleEl.className = 'io-title';
       var subEl = document.createElement('div');
-      subEl.style.cssText = 'font-size:0.85rem;color:#888;margin-bottom:10px;';
+      subEl.className = 'io-sub';
       var barBg = document.createElement('div');
-      barBg.style.cssText = 'height:4px;background:#222;border:1px solid #333;';
+      barBg.className = 'io-bar-bg';
       var barFill = document.createElement('div');
-      barFill.style.cssText = 'height:100%;width:0%;background:#ff3300;transition:width 0.3s;';
+      barFill.className = 'io-bar-fill';
       barBg.appendChild(barFill); box.appendChild(titleEl); box.appendChild(subEl); box.appendChild(barBg);
       overlay.appendChild(box); document.body.appendChild(overlay);
 
@@ -3509,13 +3934,13 @@ function renderHTML(isAuthorized, customHeader, customContent) {
       function closeProgress() { clearInterval(spinTimer); if(overlay.parentNode) overlay.parentNode.removeChild(overlay); }
       function showConfirm(title, msg, btnYesLabel, btnNoLabel) {
         return new Promise(function(resolve) {
-          var co=document.createElement('div'); co.style.cssText='position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.85);display:flex;align-items:center;justify-content:center;z-index:100000;';
-          var cb=document.createElement('div'); cb.style.cssText='background:#0a0a0a;border:1px solid #ff3300;padding:25px 35px;text-align:center;font-family:Courier New,monospace;max-width:90vw;min-width:280px;';
-          var ct=document.createElement('div'); ct.style.cssText='font-size:1.05rem;font-weight:bold;margin-bottom:15px;color:#fff;'; ct.textContent=title;
-          var cm=document.createElement('div'); cm.style.cssText='font-size:0.85rem;color:#888;margin-bottom:20px;white-space:pre-line;'; cm.textContent=msg;
-          var br=document.createElement('div'); br.style.cssText='display:flex;gap:10px;justify-content:center;';
-          var by=document.createElement('button'); by.style.cssText='flex:1;padding:8px;border:1px solid #ff3300;background:transparent;color:#ff3300;cursor:pointer;font-family:inherit;font-weight:bold;'; by.textContent=btnYesLabel||'确定';
-          var bn=document.createElement('button'); bn.style.cssText='flex:1;padding:8px;border:1px solid #555;background:transparent;color:#888;cursor:pointer;font-family:inherit;'; bn.textContent=btnNoLabel||'取消';
+          var co=document.createElement('div'); co.className='io-overlay io-overlay-high';
+          var cb=document.createElement('div'); cb.className='io-dialog';
+          var ct=document.createElement('div'); ct.className='io-title'; ct.textContent=title;
+          var cm=document.createElement('div'); cm.className='io-sub io-sub-block'; cm.textContent=msg;
+          var br=document.createElement('div'); br.className='io-btn-row';
+          var by=document.createElement('button'); by.className='io-btn io-btn-primary'; by.textContent=btnYesLabel||'确定';
+          var bn=document.createElement('button'); bn.className='io-btn io-btn-secondary'; bn.textContent=btnNoLabel||'取消';
           br.appendChild(by); br.appendChild(bn); cb.appendChild(ct); cb.appendChild(cm); cb.appendChild(br); co.appendChild(cb); document.body.appendChild(co);
           by.onclick=function(){ if(co.parentNode) co.parentNode.removeChild(co); resolve(true); };
           bn.onclick=function(){ if(co.parentNode) co.parentNode.removeChild(co); resolve(false); };
@@ -3523,44 +3948,283 @@ function renderHTML(isAuthorized, customHeader, customContent) {
       }
       function showAlert(msg) {
         return new Promise(function(resolve) {
-          var ao=document.createElement('div'); ao.style.cssText='position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.85);display:flex;align-items:center;justify-content:center;z-index:100000;';
-          var ab=document.createElement('div'); ab.style.cssText='background:#0a0a0a;border:1px solid #ff3300;padding:25px 35px;text-align:center;font-family:Courier New,monospace;max-width:90vw;min-width:280px;';
-          var am=document.createElement('div'); am.style.cssText='font-size:0.95rem;font-weight:bold;margin-bottom:20px;color:#ff3300;white-space:pre-line;'; am.textContent=msg;
-          var bo=document.createElement('button'); bo.style.cssText='padding:8px 25px;border:1px solid #ff3300;background:transparent;color:#ff3300;cursor:pointer;font-family:inherit;font-weight:bold;'; bo.textContent='确定';
+          var ao=document.createElement('div'); ao.className='io-overlay io-overlay-high';
+          var ab=document.createElement('div'); ab.className='io-dialog';
+          var am=document.createElement('div'); am.className='io-msg'; am.textContent=msg;
+          var bo=document.createElement('button'); bo.className='io-btn io-btn-primary'; bo.textContent='确定';
           ab.appendChild(am); ab.appendChild(bo); ao.appendChild(ab); document.body.appendChild(ao);
           bo.onclick=function(){ if(ao.parentNode) ao.parentNode.removeChild(ao); resolve(); };
         });
       }
 
-      var reader = new FileReader();
-      reader.onloadstart = function() { showProgress('准备数据', '正在读取文件...', 3); };
-      reader.onload = async function(e) {
+      (async function() {
+        var buffer = '';
+        var currentArrayType = null;
+        var braceDepth = 0;
+        var inString = false;
+        var escapeNext = false;
+        var objStart = -1;
+        var pendingTodos = [];
+        var pendingTemplates = [];
+        var headerData = {};
+        var headerParsed = false;
+        var totalTodosFound = 0;
+        var totalTemplatesFound = 0;
+        var parseErrors = 0;
+        var mode = 'merge';
+        var sessionInitialized = false;
+        var bytesRead = 0;
+        var fileSize = file.size;
+
+        function extractHeader() {
+          if (headerParsed) return;
+          var todosKeyIdx = buffer.indexOf('"todos"');
+          if (todosKeyIdx < 0) return;
+
+          var headerStr = '{' + buffer.substring(0, todosKeyIdx).trim().replace(/,$/, '') + '}';
+          try {
+            var hObj = JSON.parse(headerStr);
+            if (hObj.settings) headerData.settings = hObj.settings;
+            if (hObj.custom_header !== undefined) headerData.custom_header = hObj.custom_header;
+            if (hObj.custom_content !== undefined) headerData.custom_content = hObj.custom_content;
+          } catch(e) {}
+
+          headerParsed = true;
+        }
+
+        function scanForArrayKeys() {
+          if (currentArrayType) return;
+
+          var patterns = [
+            { key: '"todos"', type: 'todos' },
+            { key: '"trash"', type: 'todos' },
+            { key: '"todo_templates"', type: 'templates' }
+          ];
+
+          var bestIdx = -1;
+          var bestBracketIdx = -1;
+          var bestPattern = null;
+
+          for (var p = 0; p < patterns.length; p++) {
+            var idx = buffer.indexOf(patterns[p].key);
+            if (idx >= 0 && (bestIdx < 0 || idx < bestIdx)) {
+              var colonIdx = buffer.indexOf(':', idx + patterns[p].key.length);
+              if (colonIdx >= 0) {
+                var bracketIdx = buffer.indexOf('[', colonIdx);
+                if (bracketIdx >= 0 && bracketIdx - colonIdx < 20) {
+                  bestIdx = idx;
+                  bestBracketIdx = bracketIdx;
+                  bestPattern = patterns[p];
+                }
+              }
+            }
+          }
+
+          if (bestPattern) {
+            currentArrayType = bestPattern.type;
+            buffer = buffer.substring(bestBracketIdx + 1);
+            braceDepth = 0;
+            objStart = -1;
+            inString = false;
+            escapeNext = false;
+          }
+        }
+
+        function extractObjects() {
+          var i = 0;
+          while (i < buffer.length) {
+            var ch = buffer[i];
+
+            if (escapeNext) { escapeNext = false; i++; continue; }
+            if (ch === '\\\\' && inString) { escapeNext = true; i++; continue; }
+            if (ch === '"' && !inString) { inString = true; i++; continue; }
+            if (ch === '"' && inString) { inString = false; i++; continue; }
+            if (inString) { i++; continue; }
+
+            if (currentArrayType === 'todos' || currentArrayType === 'templates') {
+              if (ch === '{') {
+                if (braceDepth === 0) objStart = i;
+                braceDepth++;
+                i++;
+                continue;
+              }
+              if (ch === '}') {
+                braceDepth--;
+                if (braceDepth < 0) {
+                  braceDepth = 0;
+                  objStart = -1;
+                  parseErrors++;
+                } else if (braceDepth === 0 && objStart >= 0) {
+                  var objStr = buffer.substring(objStart, i + 1);
+                  try {
+                    var obj = JSON.parse(objStr);
+                    if (currentArrayType === 'todos') {
+                      pendingTodos.push(obj);
+                      totalTodosFound++;
+                    } else {
+                      pendingTemplates.push(obj);
+                      totalTemplatesFound++;
+                    }
+                  } catch(e) { parseErrors++; }
+                  objStart = -1;
+                }
+                i++;
+                continue;
+              }
+              if (ch === ']' && braceDepth === 0) {
+                currentArrayType = null;
+                i++;
+                continue;
+              }
+            }
+
+            i++;
+          }
+
+          if (objStart >= 0) {
+            buffer = buffer.substring(objStart);
+            objStart = 0;
+          } else {
+            var keepLen = Math.min(buffer.length, 1024);
+            buffer = buffer.substring(buffer.length - keepLen);
+          }
+        }
+
+        async function uploadPending() {
+          if (pendingTodos.length >= UPLOAD_CHUNK_SIZE) {
+            var chunks = [];
+            while (pendingTodos.length > 0) {
+              chunks.push(pendingTodos.splice(0, UPLOAD_CHUNK_SIZE));
+            }
+            for (var c = 0; c < chunks.length; c++) {
+              var pctTodo = 25 + Math.round((totalTodosFound > 0 ? (totalTodosFound - pendingTodos.length) / totalTodosFound : 0) * 45);
+              showProgress('上传待办事项', totalTodosFound + ' 条已提取', Math.min(pctTodo, 69));
+              var chunkRes = await fetch('/api/import', {
+                method: 'POST',
+                body: JSON.stringify({ phase: 'chunk', type: 'todos', data: chunks[c], importId: importId }),
+                headers: { 'Content-Type': 'application/json' }
+              });
+              if (!chunkRes.ok) {
+                var errMsg = '上传待办分片失败';
+                try { var ed = await chunkRes.json(); if(ed.error) errMsg+='：'+ed.error; } catch(ee){}
+                throw new Error(errMsg);
+              }
+            }
+          }
+
+          if (pendingTemplates.length >= UPLOAD_CHUNK_SIZE) {
+            var tplChunks = [];
+            while (pendingTemplates.length > 0) {
+              tplChunks.push(pendingTemplates.splice(0, UPLOAD_CHUNK_SIZE));
+            }
+            for (var tc = 0; tc < tplChunks.length; tc++) {
+              showProgress('上传模板', totalTemplatesFound + ' 条已提取', 70 + Math.round((totalTemplatesFound > 0 ? (totalTemplatesFound - pendingTemplates.length) / totalTemplatesFound : 0) * 15));
+              var tplRes = await fetch('/api/import', {
+                method: 'POST',
+                body: JSON.stringify({ phase: 'chunk', type: 'templates', data: tplChunks[tc], importId: importId }),
+                headers: { 'Content-Type': 'application/json' }
+              });
+              if (!tplRes.ok) {
+                var errMsg2 = '上传模板分片失败';
+                try { var ed2 = await tplRes.json(); if(ed2.error) errMsg2+='：'+ed2.error; } catch(ee){}
+                throw new Error(errMsg2);
+              }
+            }
+          }
+        }
+
         try {
-          showProgress('数据解析', '解析 JSON 中...', 15);
-          await new Promise(function(r){ setTimeout(r,30); });
+          showProgress('准备数据', '正在流式读取文件...', 3);
 
-          var data = JSON.parse(e.target.result);
-          var toImport = [];
-          if (data.todos) toImport = toImport.concat(data.todos);
-          if (data.trash) toImport = toImport.concat(data.trash);
-          if (!data.todos && !data.trash && Array.isArray(data)) toImport = data;
-          var toImportTemplates = data.todo_templates || [];
+          var useStream = typeof file.stream === 'function';
+          var reader;
 
-          showProgress('数据解析完成', '待办: '+toImport.length+' 条 | 模板: '+toImportTemplates.length+' 条', 18);
+          if (useStream) {
+            reader = file.stream().getReader();
+          }
 
-          var mode = 'merge';
-          if (toImport.length > 0 || toImportTemplates.length > 0) {
+          var decoder = new TextDecoder();
+          var headerReadDone = false;
+
+          if (useStream) {
+            while (true) {
+              var _ref = await reader.read();
+              var done = _ref.done;
+              var value = _ref.value;
+              if (done) break;
+
+              buffer += decoder.decode(value, { stream: true });
+              bytesRead += value.byteLength;
+
+              if (!headerParsed) {
+                extractHeader();
+                if (headerParsed) headerReadDone = true;
+              }
+
+              scanForArrayKeys();
+              if (currentArrayType) {
+                extractObjects();
+              }
+
+              var readPct = 3 + Math.round((bytesRead / Math.max(fileSize, 1)) * 17);
+              showProgress('流式读取', (bytesRead / 1024 / 1024).toFixed(1) + ' MB / ' + (fileSize / 1024 / 1024).toFixed(1) + ' MB', readPct);
+
+              if (buffer.length > 8 * 1024 * 1024) {
+                buffer = buffer.slice(-2 * 1024 * 1024);
+              }
+            }
+          } else {
+            showProgress('读取文件', 'Safari 兼容模式...', 5);
+            var fileReader = new FileReader();
+            var fileText = await new Promise(function(resolve, reject) {
+              fileReader.onload = function(e) { resolve(e.target.result); };
+              fileReader.onerror = function() { reject(new Error('文件读取失败')); };
+              fileReader.readAsText(file);
+            });
+            buffer = fileText;
+            fileText = null;
+
+            extractHeader();
+            scanForArrayKeys();
+            if (currentArrayType) {
+              extractObjects();
+            }
+            while (!currentArrayType && buffer.length > 0) {
+              scanForArrayKeys();
+              if (currentArrayType) {
+                extractObjects();
+              } else {
+                break;
+              }
+            }
+          }
+
+          if (currentArrayType) {
+            extractObjects();
+          }
+
+          while (!currentArrayType && buffer.length > 0) {
+            scanForArrayKeys();
+            if (currentArrayType) {
+              extractObjects();
+            } else {
+              break;
+            }
+          }
+
+          showProgress('数据解析完成', '待办: ' + totalTodosFound + ' 条 | 模板: ' + totalTemplatesFound + ' 条', 18);
+
+          if (totalTodosFound > 0 || totalTemplatesFound > 0) {
             var isOverwrite = await showConfirm("是否使用【覆盖模式】？", "点击确定将清空云端的所有数据，然后完全替换为导入的新数据。\\n请确保导出数据时一定要全部勾选，否则执行时对于可能出现的问题后果自负。\\n点击取消将进入【合并模式】或取消导入操作。");
             if (isOverwrite) { mode = 'overwrite'; }
             else {
               var isMerge = await showConfirm("是否继续使用【合并模式】进行导入？", "将保留现有云端的所有数据，新增并覆盖更新 ID 相同的重叠事项。\\n请确保导出数据时一定要全部勾选，否则执行时对于可能出现的问题后果自负。\\n过程中出现异常将无法恢复。");
               if (!isMerge) { closeProgress(); event.target.value=''; return; }
             }
-          } else if (!data.settings && data.custom_header === undefined && data.custom_content === undefined) {
+          } else if (!headerData.settings && headerData.custom_header === undefined && headerData.custom_content === undefined) {
             throw new Error("未在文件中找到有效的待办或设置数据。");
           }
 
-          // ── 阶段一：init ──
           showProgress('初始化导入会话', mode === 'overwrite' ? '备份并清空云端数据...' : '创建合并会话...', 22);
           await new Promise(function(r){ setTimeout(r,30); });
           var initRes = await fetch('/api/import', {
@@ -3573,7 +4237,6 @@ function renderHTML(isAuthorized, customHeader, customContent) {
             var errData1 = {};
             try { errData1 = await initRes.json(); } catch(ee){}
 
-            // 处理会话冲突 (409)
             if (initRes.status === 409 && errData1.conflict && errData1.importId) {
               var conflictMsg = '检测到未完成的导入会话 (' + errData1.importId + ')\\n\\n';
               if (errData1.mode === 'overwrite') {
@@ -3582,7 +4245,7 @@ function renderHTML(isAuthorized, customHeader, customContent) {
                 conflictMsg += '点击「恢复」将清除旧会话记录。\\n';
               }
               conflictMsg += '点击「确定」中止旧会话并继续当前导入。';
-            
+
               var doAbortOld = await showConfirm("会话冲突", conflictMsg, "确定", "恢复");
               if (doAbortOld) {
                 var abortOldRes = await fetch('/api/import', {
@@ -3634,14 +4297,15 @@ function renderHTML(isAuthorized, customHeader, customContent) {
             }
           }
 
-          // ── 阶段二：分片上传待办事项 ──
-          if (toImport.length > 0) {
-            var totalChunks = Math.ceil(toImport.length / CHUNK_SIZE);
-            for (var i = 0; i < toImport.length; i += CHUNK_SIZE) {
-              var chunkIdx = Math.floor(i / CHUNK_SIZE);
-              var chunk = toImport.slice(i, i + CHUNK_SIZE);
-              var pctTodo = 25 + Math.round((i / toImport.length) * 45);
-              showProgress('上传待办事项', \`分片 \${chunkIdx+1}/\${totalChunks} (\${Math.min(i+CHUNK_SIZE,toImport.length)}/\${toImport.length})\`, pctTodo);
+          sessionInitialized = true;
+
+          if (pendingTodos.length > 0) {
+            var totalTodoChunks = Math.ceil(pendingTodos.length / UPLOAD_CHUNK_SIZE);
+            for (var i = 0; i < pendingTodos.length; i += UPLOAD_CHUNK_SIZE) {
+              var chunkIdx = Math.floor(i / UPLOAD_CHUNK_SIZE);
+              var chunk = pendingTodos.slice(i, i + UPLOAD_CHUNK_SIZE);
+              var pctTodo = 25 + Math.round((i / pendingTodos.length) * 45);
+              showProgress('上传待办事项', '分片 ' + (chunkIdx+1) + '/' + totalTodoChunks + ' (' + Math.min(i+UPLOAD_CHUNK_SIZE, pendingTodos.length) + '/' + pendingTodos.length + ')', pctTodo);
               await new Promise(function(r){ setTimeout(r,10); });
               var chunkRes = await fetch('/api/import', {
                 method: 'POST',
@@ -3671,16 +4335,16 @@ function renderHTML(isAuthorized, customHeader, customContent) {
                 throw new Error(errMsg2);
               }
             }
+            pendingTodos = [];
           }
 
-          // ── 阶段二续：分片上传模板 ──
-          if (toImportTemplates.length > 0) {
-            var totalTplChunks = Math.ceil(toImportTemplates.length / CHUNK_SIZE);
-            for (var j = 0; j < toImportTemplates.length; j += CHUNK_SIZE) {
-              var tplChunkIdx = Math.floor(j / CHUNK_SIZE);
-              var tplChunk = toImportTemplates.slice(j, j + CHUNK_SIZE);
-              var pctTpl = 70 + Math.round((j / toImportTemplates.length) * 15);
-              showProgress('上传重复事项模板', \`分片 \${tplChunkIdx+1}/\${totalTplChunks} (\${Math.min(j+CHUNK_SIZE,toImportTemplates.length)}/\${toImportTemplates.length})\`, pctTpl);
+          if (pendingTemplates.length > 0) {
+            var totalTplChunks = Math.ceil(pendingTemplates.length / UPLOAD_CHUNK_SIZE);
+            for (var j = 0; j < pendingTemplates.length; j += UPLOAD_CHUNK_SIZE) {
+              var tplChunkIdx = Math.floor(j / UPLOAD_CHUNK_SIZE);
+              var tplChunk = pendingTemplates.slice(j, j + UPLOAD_CHUNK_SIZE);
+              var pctTpl = 70 + Math.round((j / pendingTemplates.length) * 15);
+              showProgress('上传重复事项模板', '分片 ' + (tplChunkIdx+1) + '/' + totalTplChunks + ' (' + Math.min(j+UPLOAD_CHUNK_SIZE, pendingTemplates.length) + '/' + pendingTemplates.length + ')', pctTpl);
               await new Promise(function(r){ setTimeout(r,10); });
               var tplChunkRes = await fetch('/api/import', {
                 method: 'POST',
@@ -3710,25 +4374,24 @@ function renderHTML(isAuthorized, customHeader, customContent) {
                 throw new Error(errMsg3);
               }
             }
+            pendingTemplates = [];
           }
 
-          // ── 应用偏好设置 ──
-          if (data.settings && document.getElementById('export-settings').checked) {
+          if (headerData.settings && document.getElementById('export-settings').checked) {
             showProgress('应用偏好设置', '', 88);
             await new Promise(function(r){ setTimeout(r,30); });
             await fetch('/api/settings', {
               method: 'POST',
-              body: JSON.stringify(data.settings),
+              body: JSON.stringify(headerData.settings),
               headers: { 'Content-Type': 'application/json' }
             });
           }
 
-          // ── 阶段三：finalize ──
           showProgress('收尾处理', '清理并完成导入...', 92);
           await new Promise(function(r){ setTimeout(r,30); });
           var finalBody = { phase: 'finalize', mode: mode, importId: importId };
-          if (data.custom_header !== undefined && document.getElementById('export-settings').checked) finalBody.custom_header = data.custom_header;
-          if (data.custom_content !== undefined && document.getElementById('export-settings').checked) finalBody.custom_content = data.custom_content;
+          if (headerData.custom_header !== undefined && document.getElementById('export-settings').checked) finalBody.custom_header = headerData.custom_header;
+          if (headerData.custom_content !== undefined && document.getElementById('export-settings').checked) finalBody.custom_content = headerData.custom_content;
           var finalRes = await fetch('/api/import', {
             method: 'POST',
             body: JSON.stringify(finalBody),
@@ -3740,8 +4403,12 @@ function renderHTML(isAuthorized, customHeader, customContent) {
             throw new Error(errMsg4);
           }
 
-          showProgress('导入完成', '界面即将重载...', 100);
-          await new Promise(function(r){ setTimeout(r,1000); });
+          var doneMsg = '界面即将重载...';
+          if (parseErrors > 0) {
+            doneMsg = '有 ' + parseErrors + ' 条记录解析失败已跳过，界面即将重载...';
+          }
+          showProgress('导入完成', doneMsg, 100);
+          await new Promise(function(r){ setTimeout(r, parseErrors > 0 ? 3000 : 1000); });
           closeProgress();
           location.reload();
         } catch (err) {
@@ -3749,8 +4416,7 @@ function renderHTML(isAuthorized, customHeader, customContent) {
           await showAlert('导入失败：' + err.message);
         }
         event.target.value = '';
-      };
-      reader.readAsText(file);
+      })();
     }
 
     async function factoryReset() {
