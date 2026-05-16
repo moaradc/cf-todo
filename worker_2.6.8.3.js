@@ -1,5 +1,5 @@
 /*
- * Cloudflare Worker + D1 Todo App (v2.6.8.2：修复了进入预览模式时因页面重定向引发并发请求，导致当天待办事项可能被重复生成的问题；移除虚拟滚动机制；优化导入/导出逻辑)
+ * Cloudflare Worker + D1 Todo App (v2.6.8.3：getScaleForUA / setScaleForUA — 消除 4 处重复的 UA scale 查找/设置逻辑；showPopover — 消除 3 处重复的弹出层逻辑，并增加 checkTriggerChildren 参数使行为更灵活；每日搜索函数合并 — 将 add/edit 两套几乎相同的函数合并为带 mode 参数的通用函数)
  * Features: Filter, Trash Bin, Batch Manage, Sub-tasks, Selectable Search Provider, Statistics
  */
 
