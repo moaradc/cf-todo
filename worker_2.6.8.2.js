@@ -2284,7 +2284,7 @@ function renderHTML(isAuthorized, customHeader, customContent) {
     .io-bar-bg { height: 4px; background: #222; border: 1px solid #333; }
     .io-bar-fill { height: 100%; width: 0%; background: #ff3300; transition: width 0.3s; }
     .io-btn-row { display: flex; gap: 10px; justify-content: center; }
-    .io-btn {.padding: 8px 25px; cursor: pointer; font-family: inherit; font-weight: bold; background: transparent; }
+    .io-btn { padding: 8px 25px; cursor: pointer; font-family: inherit; font-weight: bold; background: transparent; }
     .io-btn-primary { border: 1px solid #ff3300; color: #ff3300; }
     .io-btn-secondary { border: 1px solid #555; color: #888; }
     [data-theme="light"] .io-overlay { background: rgba(27,25,21,0.85); }
@@ -2292,10 +2292,10 @@ function renderHTML(isAuthorized, customHeader, customContent) {
     [data-theme="light"] .io-title { color: #1B1915; }
     [data-theme="light"] .io-sub { color: #666; }
     [data-theme="light"] .io-msg { color: #CE2424; }
-    [data-theme="light"] .io-bar-bg { background: #E5E5E5; border: 2px solid #1B1915; }
+    [data-theme="light"] .io-bar-bg { height: 8px; background: #E5E5E5; border: 2px solid #1B1915; }
     [data-theme="light"] .io-bar-fill { background: #CE2424; }
     [data-theme="light"] .io-btn-primary { border: 3px solid #1B1915; color: #1B1915; box-shadow: 2px 2px 0 #1B1915; }
-    [data-theme="light"] .io-btn-primary:hover {.background: #1B1915; color: #FEFEFE; }
+    [data-theme="light"] .io-btn-primary:hover { background: #1B1915; color: #FEFEFE; }
     [data-theme="light"] .io-btn-secondary { border: 2px solid #999; color: #666; }
     [data-theme="light"] .io-btn-secondary:hover { background: #E5E5E5; }
   </style>
@@ -3899,262 +3899,63 @@ function renderHTML(isAuthorized, customHeader, customContent) {
       }
 
       (async function() {
-        var buffer = '';
-        var currentArrayType = null;
-        var braceDepth = 0;
-        var inString = false;
-        var escapeNext = false;
-        var objStart = -1;
-        var pendingTodos = [];
-        var pendingTemplates = [];
-        var headerData = {};
-        var headerParsed = false;
-        var totalTodosFound = 0;
-        var totalTemplatesFound = 0;
-        var parseErrors = 0;
-        var mode = 'merge';
-        var sessionInitialized = false;
-        var bytesRead = 0;
         var fileSize = file.size;
-
-        function extractHeader() {
-          if (headerParsed) return;
-          var todosKeyIdx = buffer.indexOf('"todos"');
-          if (todosKeyIdx < 0) return;
-
-          var headerStr = '{' + buffer.substring(0, todosKeyIdx).trim().replace(/,$/, '') + '}';
-          try {
-            var hObj = JSON.parse(headerStr);
-            if (hObj.settings) headerData.settings = hObj.settings;
-            if (hObj.custom_header !== undefined) headerData.custom_header = hObj.custom_header;
-            if (hObj.custom_content !== undefined) headerData.custom_content = hObj.custom_content;
-          } catch(e) {}
-
-          headerParsed = true;
-        }
-
-        function scanForArrayKeys() {
-          if (currentArrayType) return;
-
-          var patterns = [
-            { key: '"todos"', type: 'todos' },
-            { key: '"trash"', type: 'todos' },
-            { key: '"todo_templates"', type: 'templates' }
-          ];
-
-          var bestIdx = -1;
-          var bestBracketIdx = -1;
-          var bestPattern = null;
-
-          for (var p = 0; p < patterns.length; p++) {
-            var idx = buffer.indexOf(patterns[p].key);
-            if (idx >= 0 && (bestIdx < 0 || idx < bestIdx)) {
-              var colonIdx = buffer.indexOf(':', idx + patterns[p].key.length);
-              if (colonIdx >= 0) {
-                var bracketIdx = buffer.indexOf('[', colonIdx);
-                if (bracketIdx >= 0 && bracketIdx - colonIdx < 20) {
-                  bestIdx = idx;
-                  bestBracketIdx = bracketIdx;
-                  bestPattern = patterns[p];
-                }
-              }
-            }
-          }
-
-          if (bestPattern) {
-            currentArrayType = bestPattern.type;
-            buffer = buffer.substring(bestBracketIdx + 1);
-            braceDepth = 0;
-            objStart = -1;
-            inString = false;
-            escapeNext = false;
-          }
-        }
-
-        function extractObjects() {
-          var i = 0;
-          while (i < buffer.length) {
-            var ch = buffer[i];
-
-            if (escapeNext) { escapeNext = false; i++; continue; }
-            if (ch === '\\\\' && inString) { escapeNext = true; i++; continue; }
-            if (ch === '"' && !inString) { inString = true; i++; continue; }
-            if (ch === '"' && inString) { inString = false; i++; continue; }
-            if (inString) { i++; continue; }
-
-            if (currentArrayType === 'todos' || currentArrayType === 'templates') {
-              if (ch === '{') {
-                if (braceDepth === 0) objStart = i;
-                braceDepth++;
-                i++;
-                continue;
-              }
-              if (ch === '}') {
-                braceDepth--;
-                if (braceDepth < 0) {
-                  braceDepth = 0;
-                  objStart = -1;
-                  parseErrors++;
-                } else if (braceDepth === 0 && objStart >= 0) {
-                  var objStr = buffer.substring(objStart, i + 1);
-                  try {
-                    var obj = JSON.parse(objStr);
-                    if (currentArrayType === 'todos') {
-                      pendingTodos.push(obj);
-                      totalTodosFound++;
-                    } else {
-                      pendingTemplates.push(obj);
-                      totalTemplatesFound++;
-                    }
-                  } catch(e) { parseErrors++; }
-                  buffer = buffer.substring(i + 1);
-                  i = 0;
-                  objStart = -1;
-                  continue;
-                }
-                i++;
-                continue;
-              }
-              if (ch === ']' && braceDepth === 0) {
-                currentArrayType = null;
-                buffer = buffer.substring(i + 1);
-                i = 0;
-                continue;
-              }
-            }
-
-            i++;
-          }
-        }
-
-        async function uploadPending() {
-          if (pendingTodos.length >= UPLOAD_CHUNK_SIZE) {
-            var chunks = [];
-            while (pendingTodos.length > 0) {
-              chunks.push(pendingTodos.splice(0, UPLOAD_CHUNK_SIZE));
-            }
-            for (var c = 0; c < chunks.length; c++) {
-              var pctTodo = 25 + Math.round((totalTodosFound > 0 ? (totalTodosFound - pendingTodos.length) / totalTodosFound : 0) * 45);
-              showProgress('上传待办事项', totalTodosFound + ' 条已提取', Math.min(pctTodo, 69));
-              var chunkRes = await fetch('/api/import', {
-                method: 'POST',
-                body: JSON.stringify({ phase: 'chunk', type: 'todos', data: chunks[c], importId: importId }),
-                headers: { 'Content-Type': 'application/json' }
-              });
-              if (!chunkRes.ok) {
-                var errMsg = '上传待办分片失败';
-                try { var ed = await chunkRes.json(); if(ed.error) errMsg+='：'+ed.error; } catch(ee){}
-                throw new Error(errMsg);
-              }
-            }
-          }
-
-          if (pendingTemplates.length >= UPLOAD_CHUNK_SIZE) {
-            var tplChunks = [];
-            while (pendingTemplates.length > 0) {
-              tplChunks.push(pendingTemplates.splice(0, UPLOAD_CHUNK_SIZE));
-            }
-            for (var tc = 0; tc < tplChunks.length; tc++) {
-              showProgress('上传模板', totalTemplatesFound + ' 条已提取', 70 + Math.round((totalTemplatesFound > 0 ? (totalTemplatesFound - pendingTemplates.length) / totalTemplatesFound : 0) * 15));
-              var tplRes = await fetch('/api/import', {
-                method: 'POST',
-                body: JSON.stringify({ phase: 'chunk', type: 'templates', data: tplChunks[tc], importId: importId }),
-                headers: { 'Content-Type': 'application/json' }
-              });
-              if (!tplRes.ok) {
-                var errMsg2 = '上传模板分片失败';
-                try { var ed2 = await tplRes.json(); if(ed2.error) errMsg2+='：'+ed2.error; } catch(ee){}
-                throw new Error(errMsg2);
-              }
-            }
-          }
-        }
+        var bytesRead = 0;
+        var chunks = [];
+        var useStream = typeof file.stream === 'function';
 
         try {
-          showProgress('准备数据', '正在流式读取文件...', 3);
-
-          var useStream = typeof file.stream === 'function';
-          var reader;
+          showProgress('准备数据', '正在读取文件...', 3);
 
           if (useStream) {
-            reader = file.stream().getReader();
-          }
-
-          var decoder = new TextDecoder();
-          var headerReadDone = false;
-
-          if (useStream) {
+            var streamReader = file.stream().getReader();
+            var decoder = new TextDecoder();
             while (true) {
-              var _ref = await reader.read();
-              var done = _ref.done;
-              var value = _ref.value;
-              if (done) break;
-
-              buffer += decoder.decode(value, { stream: true });
-              bytesRead += value.byteLength;
-
-              if (!headerParsed) {
-                extractHeader();
-                if (headerParsed) headerReadDone = true;
-              }
-
-              scanForArrayKeys();
-              if (currentArrayType) {
-                extractObjects();
-              }
-
-              var readPct = 3 + Math.round((bytesRead / Math.max(fileSize, 1)) * 17);
-              showProgress('流式读取', (bytesRead / 1024 / 1024).toFixed(1) + ' MB / ' + (fileSize / 1024 / 1024).toFixed(1) + ' MB', readPct);
+              var _ref = await streamReader.read();
+              if (_ref.done) break;
+              chunks.push(decoder.decode(_ref.value, { stream: true }));
+              bytesRead += _ref.value.byteLength;
+              var readPct = 3 + Math.round((bytesRead / Math.max(fileSize, 1)) * 12);
+              showProgress('读取文件', (bytesRead / 1024 / 1024).toFixed(1) + ' MB / ' + (fileSize / 1024 / 1024).toFixed(1) + ' MB', readPct);
             }
           } else {
-            showProgress('读取文件', 'Safari 兼容模式...', 5);
+            showProgress('读取文件', '兼容模式...', 5);
             var fileReader = new FileReader();
             var fileText = await new Promise(function(resolve, reject) {
               fileReader.onload = function(e) { resolve(e.target.result); };
               fileReader.onerror = function() { reject(new Error('文件读取失败')); };
               fileReader.readAsText(file);
             });
-            buffer = fileText;
+            chunks.push(fileText);
             fileText = null;
-
-            extractHeader();
-            scanForArrayKeys();
-            if (currentArrayType) {
-              extractObjects();
-            }
-            while (!currentArrayType && buffer.length > 0) {
-              scanForArrayKeys();
-              if (currentArrayType) {
-                extractObjects();
-              } else {
-                break;
-              }
-            }
           }
 
-          if (currentArrayType) {
-            extractObjects();
-          }
+          showProgress('数据解析', '解析 JSON 中...', 16);
+          await new Promise(function(r){ setTimeout(r,30); });
 
-          while (!currentArrayType && buffer.length > 0) {
-            scanForArrayKeys();
-            if (currentArrayType) {
-              extractObjects();
-            } else {
-              break;
-            }
-          }
+          var rawText = chunks.join('');
+          chunks = null;
 
-          showProgress('数据解析完成', '待办: ' + totalTodosFound + ' 条 | 模板: ' + totalTemplatesFound + ' 条', 18);
+          var data = JSON.parse(rawText);
+          rawText = null;
 
-          if (totalTodosFound > 0 || totalTemplatesFound > 0) {
+          var toImport = [];
+          if (data.todos) toImport = toImport.concat(data.todos);
+          if (data.trash) toImport = toImport.concat(data.trash);
+          if (!data.todos && !data.trash && Array.isArray(data)) toImport = data;
+          var toImportTemplates = data.todo_templates || [];
+
+          showProgress('数据解析完成', '待办: ' + toImport.length + ' 条 | 模板: ' + toImportTemplates.length + ' 条', 18);
+
+          var mode = 'merge';
+          if (toImport.length > 0 || toImportTemplates.length > 0) {
             var isOverwrite = await showConfirm("是否使用【覆盖模式】？", "点击确定将清空云端的所有数据，然后完全替换为导入的新数据。\\n请确保导出数据时一定要全部勾选，否则执行时对于可能出现的问题后果自负。\\n点击取消将进入【合并模式】或取消导入操作。");
             if (isOverwrite) { mode = 'overwrite'; }
             else {
               var isMerge = await showConfirm("是否继续使用【合并模式】进行导入？", "将保留现有云端的所有数据，新增并覆盖更新 ID 相同的重叠事项。\\n请确保导出数据时一定要全部勾选，否则执行时对于可能出现的问题后果自负。\\n过程中出现异常将无法恢复。");
               if (!isMerge) { closeProgress(); event.target.value=''; return; }
             }
-          } else if (!headerData.settings && headerData.custom_header === undefined && headerData.custom_content === undefined) {
+          } else if (!data.settings && data.custom_header === undefined && data.custom_content === undefined) {
             throw new Error("未在文件中找到有效的待办或设置数据。");
           }
 
@@ -4230,15 +4031,13 @@ function renderHTML(isAuthorized, customHeader, customContent) {
             }
           }
 
-          sessionInitialized = true;
-
-          if (pendingTodos.length > 0) {
-            var totalTodoChunks = Math.ceil(pendingTodos.length / UPLOAD_CHUNK_SIZE);
-            for (var i = 0; i < pendingTodos.length; i += UPLOAD_CHUNK_SIZE) {
+          if (toImport.length > 0) {
+            var totalTodoChunks = Math.ceil(toImport.length / UPLOAD_CHUNK_SIZE);
+            for (var i = 0; i < toImport.length; i += UPLOAD_CHUNK_SIZE) {
               var chunkIdx = Math.floor(i / UPLOAD_CHUNK_SIZE);
-              var chunk = pendingTodos.slice(i, i + UPLOAD_CHUNK_SIZE);
-              var pctTodo = 25 + Math.round((i / pendingTodos.length) * 45);
-              showProgress('上传待办事项', '分片 ' + (chunkIdx+1) + '/' + totalTodoChunks + ' (' + Math.min(i+UPLOAD_CHUNK_SIZE, pendingTodos.length) + '/' + pendingTodos.length + ')', pctTodo);
+              var chunk = toImport.slice(i, i + UPLOAD_CHUNK_SIZE);
+              var pctTodo = 25 + Math.round((i / toImport.length) * 45);
+              showProgress('上传待办事项', '分片 ' + (chunkIdx+1) + '/' + totalTodoChunks + ' (' + Math.min(i+UPLOAD_CHUNK_SIZE, toImport.length) + '/' + toImport.length + ')', pctTodo);
               await new Promise(function(r){ setTimeout(r,10); });
               var chunkRes = await fetch('/api/import', {
                 method: 'POST',
@@ -4268,16 +4067,16 @@ function renderHTML(isAuthorized, customHeader, customContent) {
                 throw new Error(errMsg2);
               }
             }
-            pendingTodos = [];
+            toImport = null;
           }
 
-          if (pendingTemplates.length > 0) {
-            var totalTplChunks = Math.ceil(pendingTemplates.length / UPLOAD_CHUNK_SIZE);
-            for (var j = 0; j < pendingTemplates.length; j += UPLOAD_CHUNK_SIZE) {
+          if (toImportTemplates.length > 0) {
+            var totalTplChunks = Math.ceil(toImportTemplates.length / UPLOAD_CHUNK_SIZE);
+            for (var j = 0; j < toImportTemplates.length; j += UPLOAD_CHUNK_SIZE) {
               var tplChunkIdx = Math.floor(j / UPLOAD_CHUNK_SIZE);
-              var tplChunk = pendingTemplates.slice(j, j + UPLOAD_CHUNK_SIZE);
-              var pctTpl = 70 + Math.round((j / pendingTemplates.length) * 15);
-              showProgress('上传重复事项模板', '分片 ' + (tplChunkIdx+1) + '/' + totalTplChunks + ' (' + Math.min(j+UPLOAD_CHUNK_SIZE, pendingTemplates.length) + '/' + pendingTemplates.length + ')', pctTpl);
+              var tplChunk = toImportTemplates.slice(j, j + UPLOAD_CHUNK_SIZE);
+              var pctTpl = 70 + Math.round((j / toImportTemplates.length) * 15);
+              showProgress('上传重复事项模板', '分片 ' + (tplChunkIdx+1) + '/' + totalTplChunks + ' (' + Math.min(j+UPLOAD_CHUNK_SIZE, toImportTemplates.length) + '/' + toImportTemplates.length + ')', pctTpl);
               await new Promise(function(r){ setTimeout(r,10); });
               var tplChunkRes = await fetch('/api/import', {
                 method: 'POST',
@@ -4307,15 +4106,15 @@ function renderHTML(isAuthorized, customHeader, customContent) {
                 throw new Error(errMsg3);
               }
             }
-            pendingTemplates = [];
+            toImportTemplates = null;
           }
 
-          if (headerData.settings && document.getElementById('export-settings').checked) {
+          if (data.settings && document.getElementById('export-settings').checked) {
             showProgress('应用偏好设置', '', 88);
             await new Promise(function(r){ setTimeout(r,30); });
             await fetch('/api/settings', {
               method: 'POST',
-              body: JSON.stringify(headerData.settings),
+              body: JSON.stringify(data.settings),
               headers: { 'Content-Type': 'application/json' }
             });
           }
@@ -4323,8 +4122,8 @@ function renderHTML(isAuthorized, customHeader, customContent) {
           showProgress('收尾处理', '清理并完成导入...', 92);
           await new Promise(function(r){ setTimeout(r,30); });
           var finalBody = { phase: 'finalize', mode: mode, importId: importId };
-          if (headerData.custom_header !== undefined && document.getElementById('export-settings').checked) finalBody.custom_header = headerData.custom_header;
-          if (headerData.custom_content !== undefined && document.getElementById('export-settings').checked) finalBody.custom_content = headerData.custom_content;
+          if (data.custom_header !== undefined && document.getElementById('export-settings').checked) finalBody.custom_header = data.custom_header;
+          if (data.custom_content !== undefined && document.getElementById('export-settings').checked) finalBody.custom_content = data.custom_content;
           var finalRes = await fetch('/api/import', {
             method: 'POST',
             body: JSON.stringify(finalBody),
@@ -4336,12 +4135,8 @@ function renderHTML(isAuthorized, customHeader, customContent) {
             throw new Error(errMsg4);
           }
 
-          var doneMsg = '界面即将重载...';
-          if (parseErrors > 0) {
-            doneMsg = '有 ' + parseErrors + ' 条记录解析失败已跳过，界面即将重载...';
-          }
-          showProgress('导入完成', doneMsg, 100);
-          await new Promise(function(r){ setTimeout(r, parseErrors > 0 ? 3000 : 1000); });
+          showProgress('导入完成', '界面即将重载...', 100);
+          await new Promise(function(r){ setTimeout(r,1000); });
           closeProgress();
           location.reload();
         } catch (err) {
