@@ -1,5 +1,5 @@
 /*
- * Cloudflare Worker + D1 Todo App (v2.6.8.2：修复了进入预览模式时因页面重定向引发并发请求，导致当天待办事项可能被重复生成的问题；移除虚拟滚动机制；优化导入/导出逻辑)
+ * Cloudflare Worker + D1 Todo App (v2.6.8.2：修复了进入预览模式时因页面重定向引发并发请求，导致当天待办事项可能被重复生成的问题；移除虚拟滚动机制；优化导入/导出逻辑；getScaleForUA / setScaleForUA — 消除 4 处重复的 UA scale 查找/设置逻辑；showPopover — 消除 3 处重复的弹出层逻辑，并增加 checkTriggerChildren 参数使行为更灵活；每日搜索函数合并 — 将 add/edit 两套几乎相同的函数合并为带 mode 参数的通用函数；z-index 层级修改)
  * Features: Filter, Trash Bin, Batch Manage, Sub-tasks, Selectable Search Provider, Statistics
  */
 
@@ -1752,9 +1752,9 @@ function renderHTML(isAuthorized, customHeader, customContent) {
       background: linear-gradient(to bottom, rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.25) 50%);
       background-size: 100% 2px;
       pointer-events: none;
-      z-index: 999;
+      z-index: 100;
     }
-    
+
     .container { width: 100%; max-width: calc(600px / var(--app-scale)); padding: 15px; position: relative; z-index: 1; }
 
     .top-actions { position: absolute; top: 15px; right: 15px; display: flex; gap: 8px; z-index: 10; }
@@ -1856,7 +1856,7 @@ function renderHTML(isAuthorized, customHeader, customContent) {
       position: fixed; bottom: 30px; right: 30px; width: 60px; height: 60px;
       background: var(--accent); color: #000; font-size: 2.5rem;
       display: flex; align-items: center; justify-content: center;
-      border: 2px solid #fff; box-shadow: 4px 4px 0 #000; z-index: 100; cursor: pointer;
+      border: 2px solid #fff; box-shadow: 4px 4px 0 #000; z-index: 20; cursor: pointer;
     }
 
     .batch-bar {
@@ -1867,7 +1867,7 @@ function renderHTML(isAuthorized, customHeader, customContent) {
       background: var(--panel); border: 2px solid var(--accent);
       padding: 10px; border-radius: 8px;
       display: flex; justify-content: space-between; gap: 8px;
-      z-index: 150; animation: popupSlide 0.3s forwards;
+      z-index: 30; animation: popupSlide 0.3s forwards;
       box-shadow: 0 10px 25px rgba(0,0,0,0.8);
     }
     .batch-bar.closing { animation: popupSlideDown 0.3s forwards; }
@@ -1884,7 +1884,7 @@ function renderHTML(isAuthorized, customHeader, customContent) {
     .modal-overlay {
       position: fixed; top: 0; left: 0; width: 100%; height: 100%;
       background: rgba(0,0,0,0.9); backdrop-filter: blur(4px);
-      z-index: 200; display: none; justify-content: center; align-items: center;
+      z-index: 40; display: none; justify-content: center; align-items: center;
     }
     .modal-overlay.active { display: flex; animation: fadeIn 0.2s; }
     .modal-content {
@@ -1892,7 +1892,7 @@ function renderHTML(isAuthorized, customHeader, customContent) {
       padding: 20px; box-shadow: 0 0 30px rgba(0,255,65,0.1); position: relative;
     }
 
-    #modal-time { z-index: 500; }
+    #modal-time { z-index: 90; }
 
     .calendar-header { display: flex; justify-content: space-between; margin-bottom: 15px; color: var(--accent); font-weight: bold; align-items: center; }
     .calendar-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 5px; text-align: center; }
@@ -1913,7 +1913,7 @@ function renderHTML(isAuthorized, customHeader, customContent) {
 
     .detail-overlay {
       position: fixed; top: 0; left: 0; width: 100%; height: 100%;
-      background: #080808; z-index: 300; display: none; flex-direction: column;
+      background: #080808; z-index: 60; display: none; flex-direction: column;
       padding: 20px; overflow-y: auto;
     }
     .detail-overlay.active { display: flex; animation: slideUp 0.3s cubic-bezier(0.16, 1, 0.3, 1); }
@@ -1931,7 +1931,7 @@ function renderHTML(isAuthorized, customHeader, customContent) {
 
     .popover-menu {
       position: absolute; background: #000; border: 2px solid var(--accent);
-      padding: 5px; z-index: 400; display: none; flex-direction: column; gap: 5px;
+      padding: 5px; z-index: 80; display: none; flex-direction: column; gap: 5px;
       box-shadow: 4px 4px 0 rgba(255, 62, 0, 0.5); width: max-content; min-width: auto; max-width: 280px; }
     .popover-menu button { text-align: left; border: none; background: transparent; color: var(--fg); padding: 10px; font-size: 0.9rem; letter-spacing: normal; white-space: nowrap; }
     .popover-menu button:hover { background: var(--accent); color: #000; }
@@ -2274,8 +2274,8 @@ function renderHTML(isAuthorized, customHeader, customContent) {
     body:has(.modal-overlay.active, .detail-overlay.active) { overflow: hidden !important; touch-action: none; }
     .modal-overlay.active,
     .detail-overlay.active { overscroll-behavior: contain; }
-    .io-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.85); backdrop-filter: blur(4px); display: flex; align-items: center; justify-content: center; z-index: 99000; }
-    .io-overlay-high { z-index: 99001; }
+    .io-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.85); backdrop-filter: blur(4px); display: flex; align-items: center; justify-content: center; z-index: 120; }
+    .io-overlay-high { z-index: 130; }
     .io-dialog { background: #0a0a0a; border: 1px solid #ff3300; padding: 25px 35px; text-align: center; font-family: Courier New, monospace; max-width: 90vw; min-width: 280px; }
     .io-title { font-size: 1.05rem; font-weight: bold; margin-bottom: 8px; color: #fff; }
     .io-sub { font-size: 0.85rem; color: #888; margin-bottom: 10px; }
@@ -2304,7 +2304,7 @@ function renderHTML(isAuthorized, customHeader, customContent) {
 <body>
   <div class="scanlines"></div>
   
-  <div id="preview-notice" class="hidden" style="background:var(--warn);color:#000;padding:8px 15px;text-align:center;font-weight:bold;font-size:0.85rem;position:fixed;top:0;left:0;right:0;z-index:1000;">⚠ 前端定制预览状态 — 自定义仅在本地生效 <span class="md-code" style="cursor:pointer;margin-left:8px;background:#000;color:var(--warn);" onclick="restoreAllPreview()">还原</span></div>
+  <div id="preview-notice" class="hidden" style="background:var(--warn);color:#000;padding:8px 15px;text-align:center;font-weight:bold;font-size:0.85rem;position:fixed;top:0;left:0;right:0;z-index:110;">⚠ 前端定制预览状态 — 自定义仅在本地生效 <span class="md-code" style="cursor:pointer;margin-left:8px;background:#000;color:var(--warn);" onclick="restoreAllPreview()">还原</span></div>
 
   <div class="container">
     <div class="top-actions-left ${isAuthorized ? '' : 'hidden'}">
@@ -2440,7 +2440,7 @@ function renderHTML(isAuthorized, customHeader, customContent) {
     </div>
     <div id="trash-list" style="flex:1; overflow-y:auto; padding-bottom: 20px;"></div>
     
-    <div id="trash-batch-bar" class="batch-bar hidden" style="z-index: 350;">
+    <div id="trash-batch-bar" class="batch-bar hidden" style="z-index: 70;">
       <button onclick="batchTrashSelectAll()">全选</button>
       <button onclick="batchTrashRestore()">恢复选中</button>
       <button class="btn-danger" onclick="batchTrashDelete()">彻底删除</button>
@@ -2685,7 +2685,7 @@ function renderHTML(isAuthorized, customHeader, customContent) {
     <button onclick="selectSetting('sortAsc', 'false', '倒序')">倒序</button>
   </div>
 
-  <div id="modal-calendar" class="modal-overlay" style="z-index:250;" onclick="if(event.target===this) closeCalendar()">
+  <div id="modal-calendar" class="modal-overlay" style="z-index:50;" onclick="if(event.target===this) closeCalendar()">
     <div class="modal-content">
       <div class="calendar-header">
         <span style="cursor:pointer" onclick="calChange(-1)" id="cal-prev">&lt; 上月</span>
@@ -3155,6 +3155,24 @@ function renderHTML(isAuthorized, customHeader, customContent) {
     let currentStatsTab = 'weekly';
     let annualYear = null;
 
+    function getScaleForUA(arr, ua) {
+      if (!Array.isArray(arr)) return 1.0;
+      for (var i = 0; i < arr.length; i++) {
+        if (arr[i].ua === ua) return parseFloat(arr[i].scale) || 1.0;
+      }
+      return 1.0;
+    }
+
+    function setScaleForUA(ua, scale) {
+      if (!Array.isArray(appSettings.scaleByBrowser)) return;
+      for (var i = 0; i < appSettings.scaleByBrowser.length; i++) {
+        if (appSettings.scaleByBrowser[i].ua === ua) {
+          appSettings.scaleByBrowser[i].scale = scale;
+          return;
+        }
+      }
+    }
+
     async function initSettings() {
       try {
         const res = await fetch('/api/settings');
@@ -3162,13 +3180,7 @@ function renderHTML(isAuthorized, customHeader, customContent) {
           const saved = await res.json();
           var currentUA = navigator.userAgent || '';
           var scaleByBrowser = Array.isArray(saved.scaleByBrowser) ? saved.scaleByBrowser : [];
-          var matchedScale = 1.0;
-          for (var i = 0; i < scaleByBrowser.length; i++) {
-            if (scaleByBrowser[i].ua === currentUA) {
-              matchedScale = parseFloat(scaleByBrowser[i].scale) || 1.0;
-              break;
-            }
-          }
+          var matchedScale = getScaleForUA(scaleByBrowser, currentUA);
           appSettings = {
             provider: saved.provider || 'auto',
             sortMethod: saved.sortMethod || 'time',
@@ -3476,16 +3488,7 @@ function renderHTML(isAuthorized, customHeader, customContent) {
       customCodeEnabled = appSettings.customCodeEnabled === true;
       
       var currentUA = navigator.userAgent || '';
-      var currentScale = 1.0;
-      if (Array.isArray(appSettings.scaleByBrowser)) {
-        for (var i = 0; i < appSettings.scaleByBrowser.length; i++) {
-          if (appSettings.scaleByBrowser[i].ua === currentUA) {
-            currentScale = parseFloat(appSettings.scaleByBrowser[i].scale) || 1.0;
-            break;
-          }
-        }
-      }
-      tempAppScale = currentScale;
+      tempAppScale = getScaleForUA(appSettings.scaleByBrowser, currentUA);
       
       var scaleSlider = document.getElementById('scale-slider');
       var scaleDisplay = document.getElementById('scale-value-display');
@@ -3542,22 +3545,28 @@ function renderHTML(isAuthorized, customHeader, customContent) {
       });
     }
 
-    function toggleSettingPopover(type, triggerEl) {
-      const popover = document.getElementById(\`popover-set-\${type}\`);
+    function showPopover(popoverId, triggerEl, checkTriggerChildren) {
+      const popover = document.getElementById(popoverId);
       triggerEl.parentNode.style.position = 'relative';
       triggerEl.parentNode.appendChild(popover);
       popover.style.display = 'flex';
       popover.style.top = (triggerEl.offsetTop + triggerEl.offsetHeight + 5) + 'px';
       popover.style.left = triggerEl.offsetLeft + 'px';
       popover.style.right = 'auto';
-
       const closeHandler = (e) => {
-        if(!popover.contains(e.target) && e.target !== triggerEl && !triggerEl.contains(e.target)) {
+        const outsidePopover = !popover.contains(e.target);
+        const isTrigger = e.target === triggerEl;
+        const insideTrigger = checkTriggerChildren && triggerEl.contains(e.target);
+        if (outsidePopover && !isTrigger && !insideTrigger) {
           popover.style.display = 'none';
           document.removeEventListener('click', closeHandler);
         }
       };
       setTimeout(() => document.addEventListener('click', closeHandler), 0);
+    }
+
+    function toggleSettingPopover(type, triggerEl) {
+      showPopover(\`popover-set-\${type}\`, triggerEl, true);
     }
 
     function selectSetting(type, value, label) {
@@ -3574,14 +3583,7 @@ function renderHTML(isAuthorized, customHeader, customContent) {
       appSettings.customCodeEnabled = customCodeEnabled;
 
       var currentUA = navigator.userAgent || '';
-      if (Array.isArray(appSettings.scaleByBrowser)) {
-        for (var i = 0; i < appSettings.scaleByBrowser.length; i++) {
-          if (appSettings.scaleByBrowser[i].ua === currentUA) {
-            appSettings.scaleByBrowser[i].scale = tempAppScale;
-            break;
-          }
-        }
-      }
+      setScaleForUA(currentUA, tempAppScale);
     
       await fetch('/api/settings', {
         method: 'POST',
@@ -4992,146 +4994,73 @@ function renderHTML(isAuthorized, customHeader, customContent) {
       \`).join('');
     }
 
-    async function toggleAddSearch() {
-      addSearchState = !addSearchState;
-      document.getElementById('add-search-box').classList.toggle('checked', addSearchState);
-      const actions = document.getElementById('add-search-actions');
-      const preview = document.getElementById('add-search-preview');
-      const btn = document.getElementById('add-search-regenerate-btn');
-      const provider = tempSearchProvider;
-      
-      if (addSearchState) {
-        actions.classList.remove('hidden');
-        preview.innerHTML = '<div style="color:#666; width:100%; text-align:center; padding: 10px 0;">[系统请求中] 正在通过 CF Worker 拉取全网热点...</div>';
-        btn.disabled = true;
-        tempSearchTerms = await generateSearchTerms(provider);
-        btn.disabled = false;
-        if(tempSearchTerms.length === 0) {
-          preview.innerHTML = '<div style="color:var(--warn); width:100%; text-align:center;">[数据拉取失败] 请重试或稍后再试</div>';
-        } else {
-          renderAddSearchTerms();
-        }
+    function renderSearchTerms(mode) {
+      const preview = document.getElementById(mode + '-search-preview');
+      if (!preview) return;
+      preview.innerHTML = tempSearchTerms.map((termObj, i) => {
+        const text = termObj.text;
+        const safeText = encodeURIComponent(text).replace(/'/g, "%27");
+        return \`<div class="search-term-tag \${termObj.done ? 'done' : ''}">
+          <div class="search-term-checkbox" onclick="toggleTempSearchTerm('\${mode}', \${i})"></div>
+          <span>\${text}</span>
+          <button onclick="copyTempSearchTerm('\${mode}', \${i}, '\${safeText}')">⎘</button>
+        </div>\`;
+      }).join('');
+    }
+
+    async function regenerateSearchTerms(mode, isRefresh) {
+      const preview = document.getElementById(mode + '-search-preview');
+      const btn = document.getElementById(mode + '-search-regenerate-btn');
+      if (!preview) return;
+      const msg = isRefresh ? '重新拉取热点' : '拉取全网热点';
+      preview.innerHTML = '<div style="color:#666; width:100%; text-align:center; padding: 10px 0;">[系统请求中] 正在通过 CF Worker ' + msg + '...</div>';
+      if (btn) btn.disabled = true;
+      tempSearchTerms = await generateSearchTerms(tempSearchProvider);
+      if (btn) btn.disabled = false;
+      if (tempSearchTerms.length === 0) {
+        preview.innerHTML = '<div style="color:var(--warn); width:100%; text-align:center;">[数据拉取失败] 请重试或稍后再试</div>';
       } else {
-        tempSearchTerms =[];
-        actions.classList.add('hidden');
+        renderSearchTerms(mode);
       }
     }
 
-    async function regenerateAddSearchTerms() {
-      const preview = document.getElementById('add-search-preview');
-      const btn = document.getElementById('add-search-regenerate-btn');
-      const provider = tempSearchProvider;
-      preview.innerHTML = '<div style="color:#666; width:100%; text-align:center; padding: 10px 0;">[系统请求中] 正在通过 CF Worker 重新拉取热点...</div>';
-      btn.disabled = true;
-      tempSearchTerms = await generateSearchTerms(provider);
-      btn.disabled = false;
-      if(tempSearchTerms.length === 0) {
-        preview.innerHTML = '<div style="color:var(--warn); width:100%; text-align:center;">[数据拉取失败] 请重试或稍后再试</div>';
+    async function toggleSearch(mode) {
+      const box = document.getElementById(mode + '-search-box');
+      const actions = document.getElementById(mode + '-search-actions');
+      const isOn = box.classList.contains('checked');
+
+      if (isOn) {
+        box.classList.remove('checked');
+        tempSearchTerms = [];
+        actions.classList.add('hidden');
+        if (mode === 'add') addSearchState = false;
       } else {
-        renderAddSearchTerms();
+        box.classList.add('checked');
+        actions.classList.remove('hidden');
+        if (mode === 'add') addSearchState = true;
+        await regenerateSearchTerms(mode, false);
       }
     }
+
+    function toggleAddSearch() { toggleSearch('add'); }
+    function toggleEditSearch() { toggleSearch('edit'); }
+    function regenerateAddSearchTerms() { regenerateSearchTerms('add', true); }
+    function regenerateEditSearchTerms() { regenerateSearchTerms('edit', true); }
 
     function toggleTempSearchTerm(mode, index) {
       tempSearchTerms[index].done = !tempSearchTerms[index].done;
-      if (mode === 'add') renderAddSearchTerms();
-      else renderEditSearchTerms();
+      renderSearchTerms(mode);
     }
 
     function copyTempSearchTerm(mode, index, safeText) {
       copyText(decodeURIComponent(safeText));
       tempSearchTerms[index].done = true;
-      if (mode === 'add') renderAddSearchTerms();
-      else renderEditSearchTerms();
-    }
-
-    function renderAddSearchTerms() {
-      const preview = document.getElementById('add-search-preview');
-      preview.innerHTML = tempSearchTerms.map((termObj, i) => {
-        const text = termObj.text;
-        const safeText = encodeURIComponent(text).replace(/'/g, "%27");
-        return \`<div class="search-term-tag \${termObj.done ? 'done' : ''}">
-          <div class="search-term-checkbox" onclick="toggleTempSearchTerm('add', \${i})"></div>
-          <span>\${text}</span>
-          <button onclick="copyTempSearchTerm('add', \${i}, '\${safeText}')">⎘</button>
-        </div>\`;
-      }).join('');
-    }
-
-    async function toggleEditSearch() {
-      const box = document.getElementById('edit-search-box');
-      const isOn = box.classList.contains('checked');
-      const preview = document.getElementById('edit-search-preview');
-      const btn = document.getElementById('edit-search-regenerate-btn');
-      const provider = tempSearchProvider;
-
-      if (isOn) {
-        box.classList.remove('checked');
-        tempSearchTerms =[];
-        document.getElementById('edit-search-actions').classList.add('hidden');
-      } else {
-        box.classList.add('checked');
-        document.getElementById('edit-search-actions').classList.remove('hidden');
-        preview.innerHTML = '<div style="color:#666; width:100%; text-align:center; padding: 10px 0;">[系统请求中] 正在通过 CF Worker 拉取全网热点...</div>';
-        if (btn) btn.disabled = true;
-        tempSearchTerms = await generateSearchTerms(provider);
-        if (btn) btn.disabled = false;
-        if(tempSearchTerms.length === 0) {
-          preview.innerHTML = '<div style="color:var(--warn); width:100%; text-align:center;">[数据拉取失败] 请重试或稍后再试</div>';
-        } else {
-          renderEditSearchTerms();
-        }
-      }
-    }
-
-    async function regenerateEditSearchTerms() {
-      const preview = document.getElementById('edit-search-preview');
-      const btn = document.getElementById('edit-search-regenerate-btn');
-      const provider = tempSearchProvider;
-
-      if (preview) {
-        preview.innerHTML = '<div style="color:#666; width:100%; text-align:center; padding: 10px 0;">[系统请求中] 正在通过 CF Worker 重新拉取热点...</div>';
-        if (btn) btn.disabled = true;
-        tempSearchTerms = await generateSearchTerms(provider);
-        if (btn) btn.disabled = false;
-        if(tempSearchTerms.length === 0) {
-          preview.innerHTML = '<div style="color:var(--warn); width:100%; text-align:center;">[数据拉取失败] 请重试或稍后再试</div>';
-        } else {
-          renderEditSearchTerms();
-        }
-      }
-    }
-
-    function renderEditSearchTerms() {
-      const preview = document.getElementById('edit-search-preview');
-      if (preview) {
-        preview.innerHTML = tempSearchTerms.map((termObj, i) => {
-          const text = termObj.text;
-          const safeText = encodeURIComponent(text).replace(/'/g, "%27");
-          return \`<div class="search-term-tag \${termObj.done ? 'done' : ''}">
-            <div class="search-term-checkbox" onclick="toggleTempSearchTerm('edit', \${i})"></div>
-            <span>\${text}</span>
-            <button onclick="copyTempSearchTerm('edit', \${i}, '\${safeText}')">⎘</button>
-          </div>\`;
-        }).join('');
-      }
+      renderSearchTerms(mode);
     }
 
     function toggleRepeatMenu(mode, triggerEl) {
       activeMode = mode; 
-      const popover = document.getElementById('popover-repeat'); 
-      triggerEl.parentNode.style.position = 'relative';
-      triggerEl.parentNode.appendChild(popover);
-      popover.style.display = 'flex'; 
-      popover.style.top = (triggerEl.offsetTop + triggerEl.offsetHeight + 5) + 'px'; 
-      popover.style.left = triggerEl.offsetLeft + 'px';
-      const closeHandler = (e) => { 
-        if(!popover.contains(e.target) && e.target !== triggerEl && !triggerEl.contains(e.target)) { 
-          popover.style.display = 'none'; 
-          document.removeEventListener('click', closeHandler); 
-        } 
-      };
-      setTimeout(() => document.addEventListener('click', closeHandler), 0);
+      showPopover('popover-repeat', triggerEl, true);
     }
 
     function selectRepeat(val, label) {
@@ -5400,7 +5329,7 @@ function renderHTML(isAuthorized, customHeader, customContent) {
           <div class="detail-label">备注</div><textarea id="edit-desc" rows="5" class="detail-value editable">\${task.desc || ''}</textarea>
         \`;
         renderTempSubtasks('edit');
-        if (tempSearchTerms.length > 0) renderEditSearchTerms();
+        if (tempSearchTerms.length > 0) renderSearchTerms('edit');
       }
     }
 
@@ -5429,19 +5358,7 @@ function renderHTML(isAuthorized, customHeader, customContent) {
 
     function toggleProviderMenu(mode, triggerEl) {
       activeMode = mode; 
-      const popover = document.getElementById('popover-provider'); 
-      triggerEl.parentNode.style.position = 'relative';
-      triggerEl.parentNode.appendChild(popover);
-      popover.style.display = 'flex'; 
-      popover.style.top = (triggerEl.offsetTop + triggerEl.offsetHeight + 5) + 'px'; 
-      popover.style.left = triggerEl.offsetLeft + 'px';
-      const closeHandler = (e) => { 
-        if(!popover.contains(e.target) && e.target !== triggerEl && !triggerEl.contains(e.target)) { 
-          popover.style.display = 'none'; 
-          document.removeEventListener('click', closeHandler); 
-        } 
-      };
-      setTimeout(() => document.addEventListener('click', closeHandler), 0);
+      showPopover('popover-provider', triggerEl, true);
     }
 
     function selectProvider(val) {
@@ -5501,19 +5418,7 @@ function renderHTML(isAuthorized, customHeader, customContent) {
 
     function togglePriorityMenu(mode, triggerEl) {
       activeMode = mode; 
-      const popover = document.getElementById('popover-priority'); 
-      triggerEl.parentNode.style.position = 'relative';
-      triggerEl.parentNode.appendChild(popover);
-      popover.style.display = 'flex'; 
-      popover.style.top = (triggerEl.offsetTop + triggerEl.offsetHeight + 5) + 'px'; 
-      popover.style.left = triggerEl.offsetLeft + 'px';
-      const closeHandler = (e) => { 
-        if(!popover.contains(e.target) && e.target !== triggerEl) { 
-          popover.style.display = 'none'; 
-          document.removeEventListener('click', closeHandler); 
-        } 
-      };
-      setTimeout(() => document.addEventListener('click', closeHandler), 0);
+      showPopover('popover-priority', triggerEl, false);
     }
 
     function selectPriority(val) {
@@ -5687,14 +5592,7 @@ function renderHTML(isAuthorized, customHeader, customContent) {
 
     async function resetScaleBrowserData() {
       var currentUA = navigator.userAgent || '';
-      if (Array.isArray(appSettings.scaleByBrowser)) {
-        for (var i = 0; i < appSettings.scaleByBrowser.length; i++) {
-          if (appSettings.scaleByBrowser[i].ua === currentUA) {
-            appSettings.scaleByBrowser[i].scale = 1.0;
-            break;
-          }
-        }
-      }
+      setScaleForUA(currentUA, 1.0);
       tempAppScale = 1.0;
       var scaleSlider = document.getElementById('scale-slider');
       var scaleDisplay = document.getElementById('scale-value-display');
