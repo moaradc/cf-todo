@@ -2582,11 +2582,11 @@ function renderHTML(isAuthorized, customHeader, customContent) {
           <div class="settings-text" style="margin-bottom: 10px;">即将导出的内容包括：</div>
           <label style="display:flex; align-items:center; gap:10px; margin-bottom:8px; cursor:pointer;">
             <input type="checkbox" id="export-todos" checked style="width:16px; height:16px; margin:0;"> 
-            <span class="settings-text" style="margin:0;">活动与历史待办事项（含重复事项模板）</span>
+            <span class="settings-text" style="margin:0;">活动与历史待办事项（含重复模板）</span>
           </label>
           <label style="display:flex; align-items:center; gap:10px; margin-bottom:8px; cursor:pointer;">
             <input type="checkbox" id="export-trash" checked style="width:16px; height:16px; margin:0;"> 
-            <span class="settings-text" style="margin:0;">仅回收站中的数据（相关的黑名单在重复事项模板中）</span>
+            <span class="settings-text" style="margin:0;">仅回收站中的数据（相关的黑名单在重复模板中）</span>
           </label>
           <label style="display:flex; align-items:center; gap:10px; margin-bottom:15px; cursor:pointer;">
             <input type="checkbox" id="export-settings" checked style="width:16px; height:16px; margin:0;"> 
@@ -2598,10 +2598,10 @@ function renderHTML(isAuthorized, customHeader, customContent) {
               <input type="file" id="import-file" style="display:none" accept=".json" onchange="importData(event)">
           </div>
           <div class="settings-text" style="border-top: 1px dashed #333; padding-top: 10px; margin-top: 15px;">
-           <strong>/api/import-backup: </strong>执行覆盖模式导入时，系统会通过 RENAME 将当前 <span class="md-code">todos、todo_templates</span> 表直接重命名为备份表（零拷贝，毫秒级完成），然后创建空表接收新数据。导入成功则删除备份表，导入异常将自动把备份表 RENAME 回主表恢复原数据。若自动恢复也失败（极端情况）或存在残留，可在浏览器地址栏访问以下接口手动处理。<br>
-           <span class="md-code">?action=query</span> — 查询是否存在未清除的覆写备份<br>
-           <span class="md-code">?action=restore</span> — 手动恢复备份数据（当前数据将被覆盖）<br>
-           <span class="md-code">?action=clear</span> — 仅清空残留备份表数据（不恢复数据）
+           <strong>/api/import-backup: </strong>执行覆盖模式导入时，系统会将当前 <span class="md-code">todos、todo_templates</span> 表直接重命名为备份表，然后创建空表接收新数据。导入成功则删除备份表，导入异常将自动把备份表重命名回主表恢复原数据。若自动恢复也失败（极端情况）或存在残留，可在浏览器地址栏访问以下接口手动处理。<br>
+           <span class="md-code">?action=query</span> — 查询是否存在备份表<br>
+           <span class="md-code">?action=restore</span> — 恢复备份表（当前数据将被覆盖）<br>
+           <span class="md-code">?action=clear</span> — 清空备份表
           </div>
       </div>
 
@@ -2977,7 +2977,7 @@ function renderHTML(isAuthorized, customHeader, customContent) {
     }
 
     async function deleteAllSessions() {
-      if (!confirm('确认删除所有会话？删除后需要重新登录。')) return;
+      if (!confirm('确认删除全部会话？删除后需要重新登录。')) return;
       await fetch('/api/session-action', {
         method: 'POST',
         body: JSON.stringify({ action: 'DELETE_ALL' }),
@@ -3805,7 +3805,7 @@ function renderHTML(isAuthorized, customHeader, customContent) {
           var processedItems = todosReceived + templatesReceived;
           var pct = 8 + Math.round((processedItems / Math.max(totalFromHeader, 1)) * 87);
           if (todosReceived < totalTodos) {
-            showProgress('流式导出待办', todosReceived + ' / ' + totalTodos + ' 条', pct);
+            showProgress('流式导出事项', todosReceived + ' / ' + totalTodos + ' 条', pct);
           } else if (templatesReceived < totalTemplates) {
             showProgress('流式导出模板', templatesReceived + ' / ' + totalTemplates + ' 条', pct);
           } else {
@@ -3835,8 +3835,8 @@ function renderHTML(isAuthorized, customHeader, customContent) {
           await fetch('/api/export?mode=session&action=done&sessionId=' + sessionId);
         } catch(e) {}
 
-        showProgress('导出完成', (totalTodos || todosReceived) + ' 条待办 + ' + (totalTemplates || templatesReceived) + ' 条模板', 100);
-        setTimeout(closeProgress, 5000);
+        showProgress('导出完成', (totalTodos || todosReceived) + ' 条事项 ，其中 ' + (totalTemplates || templatesReceived) + ' 条模板', 100);
+        setTimeout(closeProgress, 4000);
       } catch (e) {
         try {
           await fetch('/api/export?mode=session&action=abort&sessionId=' + sessionId);
@@ -3945,7 +3945,7 @@ function renderHTML(isAuthorized, customHeader, customContent) {
           if (!data.todos && !data.trash && Array.isArray(data)) toImport = data;
           var toImportTemplates = data.todo_templates || [];
 
-          showProgress('数据解析完成', '待办: ' + toImport.length + ' 条 | 模板: ' + toImportTemplates.length + ' 条', 18);
+          showProgress('数据解析完成', '事项: ' + toImport.length + ' 条 | 其中模板: ' + toImportTemplates.length + ' 条', 18);
 
           var mode = 'merge';
           if (toImport.length > 0 || toImportTemplates.length > 0) {
