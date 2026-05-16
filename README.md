@@ -236,10 +236,10 @@ html.bg-dark #modal-add .modal-content{box-shadow: 0 16px 56px rgba(0,0,0,.32), 
 .modal-content h3{color:var(--ycy-t)!important;border-bottom:1px solid var(--ycy-bd2)!important;padding-bottom:8px!important}
 
 /* ── FULL-SCREEN OVERLAYS ── */
-.detail-overlay{background:transparent!important;z-index:300!important}
-.detail-header{border-bottom:1px solid var(--ycy-bd2)!important}
+.detail-overlay{background:transparent!important;z-index:60!important}
+.detail-header{border-bottom:1px solid var(--ycy-bd2)!important;margin-bottom:12px!important}
 .detail-header span{color:var(--ycy-t)!important;background:none!important;padding:0!important;border-radius:0!important}
-.detail-label{color:var(--ycy-t3)!important;font-size:.75rem!important;text-transform:uppercase!important;letter-spacing:.5px!important;margin-top:18px!important}
+.detail-label{color:var(--ycy-t3)!important;font-size:.75rem!important;text-transform:uppercase!important;letter-spacing:.5px!important;margin-top:6px!important}
 .detail-value{color:var(--ycy-t)!important;border-left:3px solid var(--ycy-ac)!important;background:var(--ycy-panel)!important;border-radius:0 var(--ycy-r-xs) var(--ycy-r-xs) 0!important;box-shadow:var(--ycy-sh)!important;padding:12px 14px!important}
 .detail-value.editable{border-left-color:var(--ycy-ac)!important;box-shadow:0 0 0 3px var(--ycy-ac-l)!important;background:var(--ycy-panel-s)!important}
 .detail-value a{color:var(--ycy-ac)!important;border-bottom:1px dashed var(--ycy-ac)!important}
@@ -361,7 +361,7 @@ html.bg-dark .io-overlay{background:rgba(0,0,0,.42)!important}
 .io-sub-block{margin-bottom:20px!important;white-space:pre-line!important}
 .io-msg{font-size:.95rem!important;font-weight:700!important;margin-bottom:20px!important;color:var(--ycy-ac)!important;white-space:pre-line!important}
 .io-bar-bg{height:4px!important;background:var(--ycy-panel)!important;border:1px solid var(--ycy-bd)!important;border-radius:2px!important}
-.io-bar-fill{height:100%!important;width:0%!important;background:var(--ycy-ac)!important;border-radius:2px!important;transition:width .3s!important}
+.io-bar-fill{height:100%!important;background:var(--ycy-ac)!important;border-radius:2px!important;transition:width .3s!important}
 .io-btn-row{display:flex!important;gap:10px!important;justify-content:center!important}
 .io-btn{padding:8px 25px!important;cursor:pointer!important;font-family:var(--font-main)!important;font-weight:500!important;background:var(--ycy-panel)!important;color:var(--ycy-t)!important;border:1px solid var(--ycy-bd)!important;border-radius:var(--ycy-r-xs)!important;box-shadow:var(--ycy-sh)!important;transition:all .2s!important}
 .io-btn:active{transform:scale(.97)!important;background:var(--ycy-panel-s)!important}
@@ -405,7 +405,7 @@ html.bg-dark .date-display .sub{color:var(--ycy-t2)!important;font-weight:400!im
 [data-theme="light"] .date-display .sub{color:var(--ycy-t2)!important;font-weight:400!important;margin-top:0!important}
 
 /* ── 亮色模式覆盖层遮罩（淡入淡出） ── */
-#ycy-light-overlay{position:fixed;top:0;left:0;width:100%;height:100%;z-index:250;pointer-events:none;background:rgba(0,0,0,.12);opacity:0;transition:opacity .35s ease}
+#ycy-light-overlay{position:fixed;top:0;left:0;width:100%;height:100%;z-index:55;pointer-events:none;background:rgba(0,0,0,.12);opacity:0;transition:opacity .35s ease}
 #ycy-light-overlay.vis{opacity:1}
 html.bg-dark #ycy-light-overlay{display:none!important}
 </style>
