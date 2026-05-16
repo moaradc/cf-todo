@@ -74,9 +74,9 @@ function getDayOfWeek(dateStr) {
 async function fetchHotSearchData(providerName = 'auto') {
   const fetchers = {
     'bilibili': async () => { 
-      const res = await fetch('https://api.bilibili.com/x/web-interface/search/square?limit=50', { headers: {'User-Agent': 'Mozilla/5.0'} });
+      const res = await fetch('https://uapis.cn/api/v1/misc/hotboard?type=bilibili');
       const json = await res.json();
-      return json?.data?.trending?.list?.map(i => i?.keyword).filter(Boolean) ||[];
+      return json?.list?.map(i => i?.title).filter(Boolean) ||[];
     },
     'weibo': async () => { 
       const res = await fetch('https://uapis.cn/api/v1/misc/hotboard?type=weibo');
@@ -89,7 +89,7 @@ async function fetchHotSearchData(providerName = 'auto') {
       return json?.list?.map(i => i?.title).filter(Boolean) ||[];
     },
     'baidu': async () => { 
-      const res = await fetch('https://top.baidu.com/api/board?platform=pc&tab=realtime', { headers: {'User-Agent': 'Mozilla/5.0'} });
+      const res = await fetch('https://top.baidu.com/api/board?platform=pc&tab=realtime');
       const json = await res.json();
       return json?.data?.cards?.[0]?.content?.map(i => i?.word).filter(Boolean) ||[];
     }
