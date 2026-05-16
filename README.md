@@ -820,7 +820,7 @@ _ycyForceSync.observe(document.documentElement,{
 
 ## Supabase 数据库配置
 
-使用 Supabase 作为云端数据库替代 Cloudflare D1<br>需使用 **worker_0.0.4_supabase_beta.js**
+使用 Supabase 作为云端数据库替代 Cloudflare D1<br>需使用 **worker_0.0.4_supabase_beta.js** 或 **worker_0.0.5_supabase_beta.js**
 
 ### 1. 注册与创建项目
 
@@ -835,6 +835,9 @@ _ycyForceSync.observe(document.documentElement,{
 ### 2. 初始化数据库表
 
 1. 进入刚创建的项目，在菜单栏点击 **SQL Editor**（图标像一个终端），将以下建表语句完整复制并粘贴到编辑器中：
+
+<details>
+<summary><strong>0.0.4_supabase_beta</strong></summary>
 
 ```sql
 CREATE TABLE IF NOT EXISTS todos (
@@ -879,6 +882,105 @@ CREATE TABLE IF NOT EXISTS settings (
   value JSONB
 );
 ```
+</details>
+
+<details>
+<summary><strong>0.0.5_supabase_beta</strong></summary>
+
+```sql
+CREATE TABLE IF NOT EXISTS todos (
+  id TEXT PRIMARY KEY,
+  parent_id TEXT NOT NULL,
+  date TEXT NOT NULL,
+  text TEXT NOT NULL,
+  time TEXT,
+  priority TEXT,
+  repeat INTEGER NOT NULL DEFAULT 0,
+  description TEXT DEFAULT '',
+  url TEXT,
+  copy_text TEXT,
+  subtasks JSONB DEFAULT '[]',
+  search_terms JSONB DEFAULT '[]',
+  done INTEGER NOT NULL DEFAULT 0,
+  deleted INTEGER NOT NULL DEFAULT 0,
+  repeat_type TEXT DEFAULT 'none',
+  repeat_custom TEXT DEFAULT ''
+);
+CREATE INDEX IF NOT EXISTS idx_todos_date_del ON todos(date, deleted);
+CREATE INDEX IF NOT EXISTS idx_todos_parent_date_del ON todos(parent_id, date, deleted);
+
+CREATE TABLE IF NOT EXISTS todo_templates (
+  parent_id TEXT PRIMARY KEY,
+  text TEXT, time TEXT, priority TEXT, description TEXT DEFAULT '', url TEXT, 
+  copy_text TEXT, subtasks JSONB DEFAULT '[]', search_terms JSONB DEFAULT '[]', 
+  repeat_type TEXT, repeat_custom TEXT,
+  anchor_date TEXT,
+  blacklist JSONB DEFAULT '[]'
+);
+CREATE INDEX IF NOT EXISTS idx_templates_repeat_type ON todo_templates(repeat_type);
+
+CREATE TABLE IF NOT EXISTS login_attempts (
+  ip TEXT PRIMARY KEY,
+  attempts INTEGER NOT NULL DEFAULT 0,
+  lock_until BIGINT NOT NULL DEFAULT 0
+);
+
+CREATE TABLE IF NOT EXISTS settings (
+  key TEXT PRIMARY KEY,
+  value JSONB
+);
+
+CREATE TABLE IF NOT EXISTS export_sessions (
+  id TEXT PRIMARY KEY,
+  status TEXT NOT NULL DEFAULT 'active',
+  inc_todos INTEGER NOT NULL DEFAULT 0,
+  inc_trash INTEGER NOT NULL DEFAULT 0,
+  inc_settings INTEGER NOT NULL DEFAULT 0,
+  total_todos INTEGER NOT NULL DEFAULT 0,
+  total_templates INTEGER NOT NULL DEFAULT 0,
+  todos_offset INTEGER NOT NULL DEFAULT 0,
+  templates_offset INTEGER NOT NULL DEFAULT 0,
+  created_at BIGINT NOT NULL DEFAULT 0,
+  updated_at BIGINT NOT NULL DEFAULT 0
+);
+
+CREATE TABLE IF NOT EXISTS import_sessions (
+  id TEXT PRIMARY KEY,
+  mode TEXT NOT NULL DEFAULT 'merge',
+  status TEXT NOT NULL DEFAULT 'active',
+  started_at BIGINT NOT NULL DEFAULT 0,
+  updated_at BIGINT NOT NULL DEFAULT 0
+);
+
+CREATE TABLE IF NOT EXISTS todos_backup (
+  id TEXT PRIMARY KEY,
+  parent_id TEXT NOT NULL,
+  date TEXT NOT NULL,
+  text TEXT NOT NULL,
+  time TEXT,
+  priority TEXT,
+  repeat INTEGER NOT NULL DEFAULT 0,
+  description TEXT DEFAULT '',
+  url TEXT,
+  copy_text TEXT,
+  subtasks JSONB DEFAULT '[]',
+  search_terms JSONB DEFAULT '[]',
+  done INTEGER NOT NULL DEFAULT 0,
+  deleted INTEGER NOT NULL DEFAULT 0,
+  repeat_type TEXT DEFAULT 'none',
+  repeat_custom TEXT DEFAULT ''
+);
+
+CREATE TABLE IF NOT EXISTS todo_templates_backup (
+  parent_id TEXT PRIMARY KEY,
+  text TEXT, time TEXT, priority TEXT, description TEXT DEFAULT '', url TEXT, 
+  copy_text TEXT, subtasks JSONB DEFAULT '[]', search_terms JSONB DEFAULT '[]', 
+  repeat_type TEXT, repeat_custom TEXT,
+  anchor_date TEXT,
+  blacklist JSONB DEFAULT '[]'
+);
+```
+</details>
 
 2.点击右下角的 Run 执行
 
@@ -886,12 +988,31 @@ CREATE TABLE IF NOT EXISTS settings (
 
 在 SQL Editor 中继续执行以下语句（完整复制并粘贴）：
 
+<details>
+<summary><strong>0.0.4_supabase_beta</strong></summary>
+
 ```sql
 ALTER TABLE public.todos ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.todo_templates ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.login_attempts ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.settings ENABLE ROW LEVEL SECURITY;
 ```
+</details>
+
+<details>
+<summary><strong>0.0.5_supabase_beta</strong></summary>
+
+```sql
+ALTER TABLE public.todos ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.todo_templates ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.login_attempts ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.settings ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.export_sessions ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.import_sessions ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.todos_backup ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.todo_templates_backup ENABLE ROW LEVEL SECURITY;
+```
+</details>
 
 ### 4. 配置 Worker 环境变量
 
