@@ -3876,6 +3876,10 @@ function renderHTML(isAuthorized, customHeader, customContent) {
         }
 
         var chunks = [];
+        if (!useFileSystemAPI) {
+          showProgress('准备导出', '当前浏览器不支持流式写入，大数据量时可能较慢，建议使用 Chrome/Edge 浏览器', 8);
+          await new Promise(function(r) { setTimeout(r, 1500); });
+        }
         var streamUrl = '/api/export?mode=stream&todos=' + incTodos + '&trash=' + incTrash + '&settings=' + incSettings + '&categories=' + incCategories + '&sessionId=' + sessionId;
         var res = await fetch(streamUrl);
         if (!res.ok) throw new Error('流式导出请求失败');
@@ -3929,7 +3933,7 @@ function renderHTML(isAuthorized, customHeader, customContent) {
             }
           } else {
             nonFsPct = Math.min(nonFsPct + (90 - nonFsPct) * 0.06, 90);
-            showProgress('导出数据', '已接收 ' + (estimatedBytes / 1024 / 1024).toFixed(1) + ' MB', Math.round(nonFsPct));
+            showProgress('导出数据', '正在接收数据...', Math.round(nonFsPct));
           }
 
           if (jsonBuffer.length > 5 * 1024 * 1024) {
