@@ -3907,15 +3907,17 @@ function renderHTML(isAuthorized, customHeader, customContent) {
           jsonBuffer += textChunk;
           estimatedBytes += value.byteLength;
 
-          var todoMatches = jsonBuffer.match(/"id"\\s*:/g);
-          if (todoMatches) {
-            var currentReceived = todoMatches.length;
-            if (currentReceived > todosReceived + templatesReceived) {
-              var diff = currentReceived - todosReceived - templatesReceived;
-              if (todosReceived < totalTodos) {
-                todosReceived = Math.min(todosReceived + diff, totalTodos);
-              } else {
-                templatesReceived += diff;
+          if (totalTodos + totalTemplates > 0) {
+            var todoMatches = jsonBuffer.match(/"id"\\s*:/g);
+            if (todoMatches) {
+              var currentReceived = todoMatches.length;
+              if (currentReceived > todosReceived + templatesReceived) {
+                var diff = currentReceived - todosReceived - templatesReceived;
+                if (todosReceived < totalTodos) {
+                  todosReceived = Math.min(todosReceived + diff, totalTodos);
+                } else {
+                  templatesReceived += diff;
+                }
               }
             }
           }
@@ -3953,7 +3955,15 @@ function renderHTML(isAuthorized, customHeader, customContent) {
           await fetch('/api/export?mode=session&action=done&sessionId=' + sessionId);
         } catch(e) {}
 
-        showProgress('导出完成', (totalTodos || todosReceived) + ' 条事项 ，其中 ' + (totalTemplates || templatesReceived) + ' 条模板', 100);
+        var exportMsg = '';
+        var actualTodos = totalTodos || todosReceived;
+        var actualTemplates = totalTemplates || templatesReceived;
+        if (actualTodos > 0) exportMsg += actualTodos + ' 条事项';
+        if (actualTemplates > 0) exportMsg += (exportMsg ? '，' : '') + actualTemplates + ' 条模板';
+        if (incSettings) exportMsg += (exportMsg ? '，' : '') + '偏好设置';
+        if (incCategories) exportMsg += (exportMsg ? '，' : '') + '分类数据';
+        if (!exportMsg) exportMsg = '导出完成';
+        showProgress('导出完成', exportMsg, 100);
         setTimeout(closeProgress, 4000);
       } catch (e) {
         try {
