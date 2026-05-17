@@ -3907,15 +3907,17 @@ function renderHTML(isAuthorized, customHeader, customContent) {
           jsonBuffer += textChunk;
           estimatedBytes += value.byteLength;
 
-          var todoMatches = jsonBuffer.match(/"id"\\s*:/g);
-          if (todoMatches) {
-            var currentReceived = todoMatches.length;
-            if (currentReceived > todosReceived + templatesReceived) {
-              var diff = currentReceived - todosReceived - templatesReceived;
-              if (todosReceived < totalTodos) {
-                todosReceived = Math.min(todosReceived + diff, totalTodos);
-              } else {
-                templatesReceived += diff;
+          if (totalTodos + totalTemplates > 0) {
+            var todoMatches = jsonBuffer.match(/"id"\\s*:/g);
+            if (todoMatches) {
+              var currentReceived = todoMatches.length;
+              if (currentReceived > todosReceived + templatesReceived) {
+                var diff = currentReceived - todosReceived - templatesReceived;
+                if (todosReceived < totalTodos) {
+                  todosReceived = Math.min(todosReceived + diff, totalTodos);
+                } else {
+                  templatesReceived += diff;
+                }
               }
             }
           }
