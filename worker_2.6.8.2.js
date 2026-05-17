@@ -1,6 +1,6 @@
 /*
- * Cloudflare Worker + D1 Todo App (v2.6.8.2：修复了进入预览模式时因页面重定向引发并发请求，导致当天待办事项可能被重复生成的问题；移除虚拟滚动机制；优化导入/导出逻辑；getScaleForUA / setScaleForUA — 消除 4 处重复的 UA scale 查找/设置逻辑；showPopover — 消除 3 处重复的弹出层逻辑，并增加 checkTriggerChildren 参数使行为更灵活；每日搜索函数合并 — 将 add/edit 两套几乎相同的函数合并为带 mode 参数的通用函数；z-index 层级修改)
- * Features: Filter, Trash Bin, Batch Manage, Sub-tasks, Selectable Search Provider, Statistics
+ * Cloudflare Worker + D1 Todo App (v2.6.8.3：为待办事项添加分类功能，支持新建/选择分类，待办列表和详情页显示分类标签，导入/导出兼容分类数据)
+ * Features: Filter, Trash Bin, Batch Manage, Sub-tasks, Selectable Search Provider, Statistics, Categories
  */
 
 let isDbInitialized = false;
@@ -172,7 +172,8 @@ export default {
               done INTEGER NOT NULL DEFAULT 0,
               deleted INTEGER NOT NULL DEFAULT 0,
               repeat_type TEXT DEFAULT 'none',
-              repeat_custom TEXT DEFAULT ''
+              repeat_custom TEXT DEFAULT '',
+              category_id TEXT DEFAULT ''
             )
           `),
           env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_todos_date_del ON todos(date, deleted)`),
@@ -184,7 +185,8 @@ export default {
               copy_text TEXT, subtasks TEXT, search_terms TEXT, 
               repeat_type TEXT, repeat_custom TEXT,
               anchor_date TEXT,
-              blacklist TEXT DEFAULT '[]'
+              blacklist TEXT DEFAULT '[]',
+              category_id TEXT DEFAULT ''
             )
           `),
           env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_templates_repeat_type ON todo_templates(repeat_type)`),
@@ -234,6 +236,8 @@ export default {
         try { await env.DB.prepare(`ALTER TABLE todos ADD COLUMN repeat_type TEXT DEFAULT 'none'`).run(); } catch (e) {}
         try { await env.DB.prepare(`ALTER TABLE todos ADD COLUMN repeat_custom TEXT DEFAULT ''`).run(); } catch (e) {}
         try { await env.DB.prepare(`ALTER TABLE todo_templates ADD COLUMN blacklist TEXT DEFAULT '[]'`).run(); } catch (e) {}
+        try { await env.DB.prepare(`ALTER TABLE todos ADD COLUMN category_id TEXT DEFAULT ''`).run(); } catch (e) {}
+        try { await env.DB.prepare(`ALTER TABLE todo_templates ADD COLUMN category_id TEXT DEFAULT ''`).run(); } catch (e) {}
         
         // 自动迁移老版本
         try {
@@ -629,6 +633,8 @@ export default {
           result.custom_header = headerRecord?.value || '';
           const contentRecord = await env.DB.prepare("SELECT value FROM settings WHERE key = 'custom_content'").first();
           result.custom_content = contentRecord?.value || '';
+          const categoriesRecord = await env.DB.prepare("SELECT value FROM settings WHERE key = 'categories'").first();
+          try { result.categories = categoriesRecord?.value ? JSON.parse(categoriesRecord.value) : []; } catch(e) { result.categories = []; }
         }
 
         return new Response(JSON.stringify(result), { headers: { 'Content-Type': 'application/json' } });
@@ -800,6 +806,10 @@ export default {
                     header += '"custom_header":' + JSON.stringify(headerRecord?.value || '') + ',';
                     const contentRecord = await env.DB.prepare("SELECT value FROM settings WHERE key = 'custom_content'").first();
                     header += '"custom_content":' + JSON.stringify(contentRecord?.value || '') + ',';
+                    const categoriesRecord = await env.DB.prepare("SELECT value FROM settings WHERE key = 'categories'").first();
+                    let categoriesArr = [];
+                    try { categoriesArr = categoriesRecord?.value ? JSON.parse(categoriesRecord.value) : []; } catch(e) {}
+                    header += '"categories":' + JSON.stringify(categoriesArr) + ',';
                   }
                   header += '"todos":[';
                   controller.enqueue(encoder.encode(header));
@@ -850,6 +860,10 @@ export default {
                       header += '"custom_header":' + JSON.stringify(headerRecord?.value || '') + ',';
                       const contentRecord = await env.DB.prepare("SELECT value FROM settings WHERE key = 'custom_content'").first();
                       header += '"custom_content":' + JSON.stringify(contentRecord?.value || '') + ',';
+                      const categoriesRecord = await env.DB.prepare("SELECT value FROM settings WHERE key = 'categories'").first();
+                      let categoriesArr = [];
+                      try { categoriesArr = categoriesRecord?.value ? JSON.parse(categoriesRecord.value) : []; } catch(e) {}
+                      header += '"categories":' + JSON.stringify(categoriesArr) + ',';
                     }
                     header += '"todos":[';
                     controller.enqueue(encoder.encode(header));
@@ -907,6 +921,10 @@ export default {
                   header += '"custom_header":' + JSON.stringify(headerRecord?.value || '') + ',';
                   const contentRecord = await env.DB.prepare("SELECT value FROM settings WHERE key = 'custom_content'").first();
                   header += '"custom_content":' + JSON.stringify(contentRecord?.value || '') + ',';
+                  const categoriesRecord = await env.DB.prepare("SELECT value FROM settings WHERE key = 'categories'").first();
+                  let categoriesArr = [];
+                  try { categoriesArr = categoriesRecord?.value ? JSON.parse(categoriesRecord.value) : []; } catch(e) {}
+                  header += '"categories":' + JSON.stringify(categoriesArr) + ',';
                 }
                 header += '"todos":[],"todo_templates":[]}';
                 controller.enqueue(encoder.encode(header));
@@ -963,14 +981,14 @@ export default {
         if (!t.text) throw new Error(`事项 id:${t.id} 缺少必填字段 text`);
         return env.DB.prepare(
           `INSERT OR REPLACE INTO todos
-          (id, parent_id, date, text, time, priority, repeat, desc, url, copy_text, subtasks, search_terms, done, deleted, repeat_type, repeat_custom)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+          (id, parent_id, date, text, time, priority, repeat, desc, url, copy_text, subtasks, search_terms, done, deleted, repeat_type, repeat_custom, category_id)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
         ).bind(
           t.id, t.parent_id, t.date, t.text, t.time || '', t.priority || 'low',
           t.repeat !== undefined ? t.repeat : ((t.repeat_type && t.repeat_type !== 'none') ? 1 : 0),
           t.desc || '', t.url || '', t.copy_text || '',
           safeStringify(t.subtasks), safeStringify(t.search_terms), t.done || 0, t.deleted || 0,
-          t.repeat_type || 'none', t.repeat_custom || ''
+          t.repeat_type || 'none', t.repeat_custom || '', t.category_id || ''
         );
       });
 
@@ -979,11 +997,11 @@ export default {
         if (!t.parent_id) throw new Error(`模板 "${label}" 缺少必填字段 parent_id`);
         return env.DB.prepare(
           `INSERT OR REPLACE INTO todo_templates
-          (parent_id, text, time, priority, desc, url, copy_text, subtasks, search_terms, repeat_type, repeat_custom, anchor_date, blacklist)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+          (parent_id, text, time, priority, desc, url, copy_text, subtasks, search_terms, repeat_type, repeat_custom, anchor_date, blacklist, category_id)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
         ).bind(
           t.parent_id, t.text || '', t.time || '', t.priority || 'low', t.desc || '', t.url || '', t.copy_text || '',
-          safeStringify(t.subtasks), safeStringify(t.search_terms), t.repeat_type || 'none', t.repeat_custom || '', t.anchor_date || '', t.blacklist || '[]'
+          safeStringify(t.subtasks), safeStringify(t.search_terms), t.repeat_type || 'none', t.repeat_custom || '', t.anchor_date || '', t.blacklist || '[]', t.category_id || ''
         );
       });
 
@@ -1238,6 +1256,10 @@ export default {
             if (customStmts.length > 0) await env.DB.batch(customStmts);
           }
 
+          if (body.categories && Array.isArray(body.categories)) {
+            await env.DB.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('categories', ?)").bind(JSON.stringify(body.categories)).run();
+          }
+
           // 删除会话记录
           await env.DB.prepare('DELETE FROM import_sessions WHERE id = ?').bind(importId).run();
 
@@ -1361,6 +1383,55 @@ export default {
       const data = await request.json();
       await env.DB.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('app_settings', ?)").bind(JSON.stringify(data)).run();
       return new Response(JSON.stringify({ success: true }), { headers: { 'Content-Type': 'application/json' } });
+    }
+
+    if (url.pathname === '/api/categories' && request.method === 'GET') {
+      const record = await env.DB.prepare("SELECT value FROM settings WHERE key = 'categories'").first();
+      let categories = [];
+      if (record && record.value) {
+        try { categories = JSON.parse(record.value); } catch(e) {}
+      }
+      return new Response(JSON.stringify(categories), { headers: { 'Content-Type': 'application/json' } });
+    }
+
+    if (url.pathname === '/api/category-action' && request.method === 'POST') {
+      const { action, id, name } = await request.json();
+      const record = await env.DB.prepare("SELECT value FROM settings WHERE key = 'categories'").first();
+      let categories = [];
+      if (record && record.value) {
+        try { categories = JSON.parse(record.value); } catch(e) {}
+      }
+
+      if (action === 'CREATE') {
+        if (!name || !name.trim()) {
+          return new Response(JSON.stringify({ error: '分类名称不能为空' }), { status: 400, headers: { 'Content-Type': 'application/json' } });
+        }
+        const newId = Date.now().toString() + Math.random().toString().slice(2, 6);
+        categories.push({ id: newId, name: name.trim() });
+        await env.DB.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('categories', ?)").bind(JSON.stringify(categories)).run();
+        return new Response(JSON.stringify({ success: true, id: newId, categories: categories }), { headers: { 'Content-Type': 'application/json' } });
+      }
+      else if (action === 'UPDATE') {
+        if (!id) {
+          return new Response(JSON.stringify({ error: '缺少分类ID' }), { status: 400, headers: { 'Content-Type': 'application/json' } });
+        }
+        const cat = categories.find(c => c.id === id);
+        if (cat && name && name.trim()) {
+          cat.name = name.trim();
+          await env.DB.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('categories', ?)").bind(JSON.stringify(categories)).run();
+        }
+        return new Response(JSON.stringify({ success: true, categories: categories }), { headers: { 'Content-Type': 'application/json' } });
+      }
+      else if (action === 'DELETE') {
+        if (!id) {
+          return new Response(JSON.stringify({ error: '缺少分类ID' }), { status: 400, headers: { 'Content-Type': 'application/json' } });
+        }
+        categories = categories.filter(c => c.id !== id);
+        await env.DB.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('categories', ?)").bind(JSON.stringify(categories)).run();
+        return new Response(JSON.stringify({ success: true, categories: categories }), { headers: { 'Content-Type': 'application/json' } });
+      }
+
+      return new Response(JSON.stringify({ error: '未知操作' }), { status: 400, headers: { 'Content-Type': 'application/json' } });
     }
 
     if (url.pathname === '/api/trash' && request.method === 'GET') {
@@ -1505,12 +1576,12 @@ export default {
         results.push(newRecord); 
       
         insertStmts.push(env.DB.prepare(
-          'INSERT INTO todos (id, parent_id, date, text, time, priority, repeat, desc, url, copy_text, subtasks, search_terms, done, deleted, repeat_type, repeat_custom) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+          'INSERT INTO todos (id, parent_id, date, text, time, priority, repeat, desc, url, copy_text, subtasks, search_terms, done, deleted, repeat_type, repeat_custom, category_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
         ).bind(
           newId, tpl.parent_id, date, tpl.text, tpl.time || '', tpl.priority || 'low', 1, 
           tpl.desc || '', tpl.url || '', tpl.copy_text || '', 
           JSON.stringify(parsedSubtasks), JSON.stringify(parsedSearchTerms),
-          0, 0, tpl.repeat_type || 'none', tpl.repeat_custom || ''  
+          0, 0, tpl.repeat_type || 'none', tpl.repeat_custom || '', tpl.category_id || ''
         ));
       }
       if (insertStmts.length > 0) {
@@ -1615,20 +1686,21 @@ export default {
         else if (action === 'CREATE') {
           const rptType = task.repeat_type || 'none';
           const rpt = rptType !== 'none' ? 1 : 0;
+          const categoryId = task.category_id || '';
           await env.DB.prepare(
-            'INSERT INTO todos (id, parent_id, date, text, time, priority, repeat, desc, url, copy_text, subtasks, search_terms, done, deleted, repeat_type, repeat_custom) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+            'INSERT INTO todos (id, parent_id, date, text, time, priority, repeat, desc, url, copy_text, subtasks, search_terms, done, deleted, repeat_type, repeat_custom, category_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
           ).bind(
             task.id, task.parentId || task.id, date, task.text, task.time || '', task.priority || 'low', 
             rpt, task.desc || '', task.url || '', task.copyText || '', JSON.stringify(task.subtasks||[]), JSON.stringify(task.search_terms||[]), 
-            0, 0, rptType, ''
+            0, 0, rptType, '', categoryId
           ).run();
           
           if (rpt) {
               await env.DB.prepare(
-                'INSERT INTO todo_templates (parent_id, text, time, priority, desc, url, copy_text, subtasks, search_terms, repeat_type, repeat_custom, anchor_date, blacklist) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+                'INSERT INTO todo_templates (parent_id, text, time, priority, desc, url, copy_text, subtasks, search_terms, repeat_type, repeat_custom, anchor_date, blacklist, category_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
               ).bind(
                 task.parentId || task.id, task.text, task.time || '', task.priority || 'low', task.desc || '', task.url || '', task.copyText || '', 
-                JSON.stringify(task.subtasks||[]), JSON.stringify(task.search_terms||[]), rptType, '', date, '[]'
+                JSON.stringify(task.subtasks||[]), JSON.stringify(task.search_terms||[]), rptType, '', date, '[]', categoryId
               ).run();
           }
         }
@@ -1637,19 +1709,20 @@ export default {
           const rpt = rptType !== 'none' ? 1 : 0;
           const subtasksStr = JSON.stringify(task.subtasks ||[]);
           const searchTermsStr = JSON.stringify(task.search_terms ||[]);
+          const categoryId = task.category_id || '';
         
           if (scope === 'single' || rptType === 'none') {
             await env.DB.prepare(
-              'UPDATE todos SET text=?, time=?, priority=?, repeat=?, desc=?, url=?, copy_text=?, subtasks=?, search_terms=?, repeat_type=?, repeat_custom=? WHERE id=?'
-            ).bind(task.text, task.time || '', task.priority || 'low', rpt, task.desc || '', task.url || '', task.copyText || '', subtasksStr, searchTermsStr, rptType, '', task.id).run();
+              'UPDATE todos SET text=?, time=?, priority=?, repeat=?, desc=?, url=?, copy_text=?, subtasks=?, search_terms=?, repeat_type=?, repeat_custom=?, category_id=? WHERE id=?'
+            ).bind(task.text, task.time || '', task.priority || 'low', rpt, task.desc || '', task.url || '', task.copyText || '', subtasksStr, searchTermsStr, rptType, '', categoryId, task.id).run();
           } else if (scope === 'future') {
             await env.DB.prepare(
-              'UPDATE todos SET text=?, time=?, priority=?, repeat=?, desc=?, url=?, copy_text=?, subtasks=?, search_terms=?, repeat_type=?, repeat_custom=? WHERE parent_id=? AND date >= ?'
-            ).bind(task.text, task.time || '', task.priority || 'low', rpt, task.desc || '', task.url || '', task.copyText || '', subtasksStr, searchTermsStr, rptType, '', task.parentId, date).run();
+              'UPDATE todos SET text=?, time=?, priority=?, repeat=?, desc=?, url=?, copy_text=?, subtasks=?, search_terms=?, repeat_type=?, repeat_custom=?, category_id=? WHERE parent_id=? AND date >= ?'
+            ).bind(task.text, task.time || '', task.priority || 'low', rpt, task.desc || '', task.url || '', task.copyText || '', subtasksStr, searchTermsStr, rptType, '', categoryId, task.parentId, date).run();
           } else if (scope === 'all') {
             await env.DB.prepare(
-              'UPDATE todos SET text=?, time=?, priority=?, repeat=?, desc=?, url=?, copy_text=?, subtasks=?, search_terms=?, repeat_type=?, repeat_custom=? WHERE parent_id=?'
-            ).bind(task.text, task.time || '', task.priority || 'low', rpt, task.desc || '', task.url || '', task.copyText || '', subtasksStr, searchTermsStr, rptType, '', task.parentId).run();
+              'UPDATE todos SET text=?, time=?, priority=?, repeat=?, desc=?, url=?, copy_text=?, subtasks=?, search_terms=?, repeat_type=?, repeat_custom=?, category_id=? WHERE parent_id=?'
+            ).bind(task.text, task.time || '', task.priority || 'low', rpt, task.desc || '', task.url || '', task.copyText || '', subtasksStr, searchTermsStr, rptType, '', categoryId, task.parentId).run();
           }
         
           if (scope === 'future' || scope === 'all') {
@@ -1665,10 +1738,10 @@ export default {
                   } catch(e) {}
           
                   await env.DB.prepare(
-                    'INSERT OR REPLACE INTO todo_templates (parent_id, text, time, priority, desc, url, copy_text, subtasks, search_terms, repeat_type, repeat_custom, anchor_date, blacklist) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+                    'INSERT OR REPLACE INTO todo_templates (parent_id, text, time, priority, desc, url, copy_text, subtasks, search_terms, repeat_type, repeat_custom, anchor_date, blacklist, category_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
                   ).bind(
                     task.parentId, task.text, task.time || '', task.priority || 'low', task.desc || '', task.url || '', task.copyText || '', 
-                    subtasksStr, searchTermsStr, rptType, '', date, existingBlacklist
+                    subtasksStr, searchTermsStr, rptType, '', date, existingBlacklist, categoryId
                   ).run();
               } else {
                   await env.DB.prepare('DELETE FROM todo_templates WHERE parent_id=?').bind(task.parentId).run();
@@ -1844,6 +1917,10 @@ function renderHTML(isAuthorized, customHeader, customContent) {
     .badge-med { background: var(--warn); }
     .badge-low { background: #888; }
     .badge-time { background: #333; color: var(--crt); border: 1px solid #444; }
+    .badge-category { background: #333; color: #888; border: 1px solid #555; display: inline-flex; align-items: center; gap: 3px; }
+    .badge-category-icon { width: 8px; height: 8px; border-radius: 2px; background: #888; display: inline-block; }
+    .category-new-input { width: 100%; background: #000; border: 1px solid var(--crt); color: var(--crt); padding: 8px; font-family: var(--font-main); font-size: 0.85rem; outline: none; margin: 4px 0; }
+    .category-new-input:focus { box-shadow: 0 0 5px rgba(0,255,65,0.3); }
 
     .btn-link {
       background: #222; border: 1px solid #444; color: var(--crt);
@@ -2041,7 +2118,7 @@ function renderHTML(isAuthorized, customHeader, customContent) {
     }[data-theme="light"] .todo-item.done .item-title { color: #888; text-decoration: line-through 2px #AAA; }[data-theme="light"] .todo-item.done .checkbox { background: #DDD; border-color: #AAA; box-shadow: none; }[data-theme="light"] .todo-item.done .checkbox::after { color: #888; }[data-theme="light"] .checkbox {
       background: #FEFEFE; border: 2px solid #1B1915;
       box-shadow: inset 2px 2px 0 #E5E5E5; border-radius: 4px;
-    }[data-theme="light"] .todo-item .checkbox.batch-selected { background: #5C960B !important; border-color: #1B1915 !important; box-shadow: none !important; }[data-theme="light"] .todo-item .checkbox.batch-selected::after { color: #FEFEFE !important; }[data-theme="light"] .item-info { color: #1B1915; font-weight: bold; }[data-theme="light"] .badge-high { background: #CE2424; color: #FEFEFE; border: 1px solid #1B1915; }[data-theme="light"] .badge-med { background: #E1AC07; color: #1B1915; border: 1px solid #1B1915; }[data-theme="light"] .badge-low { background: #E5E5E5; color: #1B1915; border: 1px solid #1B1915; }[data-theme="light"] .badge-time { background: #1B1915; color: #5C960B; border: 1px solid #1B1915; }[data-theme="light"] .btn-link {
+    }[data-theme="light"] .todo-item .checkbox.batch-selected { background: #5C960B !important; border-color: #1B1915 !important; box-shadow: none !important; }[data-theme="light"] .todo-item .checkbox.batch-selected::after { color: #FEFEFE !important; }[data-theme="light"] .item-info { color: #1B1915; font-weight: bold; }[data-theme="light"] .badge-high { background: #CE2424; color: #FEFEFE; border: 1px solid #1B1915; }[data-theme="light"] .badge-med { background: #E1AC07; color: #1B1915; border: 1px solid #1B1915; }[data-theme="light"] .badge-low { background: #E5E5E5; color: #1B1915; border: 1px solid #1B1915; }[data-theme="light"] .badge-time { background: #1B1915; color: #5C960B; border: 1px solid #1B1915; }[data-theme="light"] .badge-category { background: #E5E5E5; color: #1B1915; border: 1px solid #1B1915; }[data-theme="light"] .badge-category-icon { background: #888; }[data-theme="light"] .category-new-input { background: #FEFEFE; border-color: #1B1915; color: #1B1915; }[data-theme="light"] .btn-link {
       background: #E5E5E5; color: #1B1915; border: 2px solid #1B1915;
       box-shadow: 2px 2px 0 #1B1915; border-radius: 4px;
     }[data-theme="light"] .btn-link:hover { background: #1B1915; color: #F0EEE2; }
@@ -2393,6 +2470,10 @@ function renderHTML(isAuthorized, customHeader, customContent) {
           <span style="font-size:0.8rem">▼</span>
         </div>
       </div>
+      <div class="fake-input" id="add-category-trigger" onclick="toggleCategoryMenu('add', this)" style="margin-bottom:10px;">
+        <span id="add-category-display">分类: 无</span>
+        <span style="font-size:0.8rem; margin-right: 8px;">▼</span>
+      </div>
       <input type="url" id="add-url" placeholder="URL / APP Scheme (可选)">
       <input type="text" id="add-copy" placeholder="快捷复制内容（可选）">
       
@@ -2669,6 +2750,15 @@ function renderHTML(isAuthorized, customHeader, customContent) {
     <button onclick="selectRepeat('yearly', '每年')">每年</button>
   </div>
 
+  <div id="popover-category" class="popover-menu">
+    <button onclick="selectCategory('')">无分类</button>
+    <div id="popover-category-list"></div>
+    <div style="padding:4px 8px; border-top:1px solid #333;">
+      <input type="text" id="category-new-name" class="category-new-input" placeholder="新建分类名称..." style="margin-bottom:4px;" onkeydown="if(event.key==='Enter')createCategoryFromPopover()">
+      <button onclick="createCategoryFromPopover()" style="width:100%;font-size:0.8rem;padding:6px;">新建分类</button>
+    </div>
+  </div>
+
   <div id="popover-set-provider" class="popover-menu">
     <button onclick="selectSetting('provider', 'auto', '自动 (随机源)')">自动 (随机源)</button>
     <button onclick="selectSetting('provider', 'bilibili', '哔哩哔哩')">哔哩哔哩</button>
@@ -2854,6 +2944,8 @@ function renderHTML(isAuthorized, customHeader, customContent) {
     let tempTime = ''; 
     let tempRepeatType = 'none';
     let tempAddDate = '';
+    let tempCategoryId = '';
+    let categoriesList = [];
     let calendarMode = 'navigate';
     
     let activeMode = ''; 
@@ -2878,7 +2970,7 @@ function renderHTML(isAuthorized, customHeader, customContent) {
     
     let sessionsList = [];
     
-    var CURRENT_VERSION = 'v2.6.8.2';
+    var CURRENT_VERSION = 'v2.6.8.3';
     
     function initVersionDisplay() {
       var el = document.getElementById('app-version-display');
@@ -3054,6 +3146,13 @@ function renderHTML(isAuthorized, customHeader, customContent) {
         badges += '<span class="badge" style="background:transparent;border:1px solid var(--fg);color:var(--fg);">' + completed + '/' + todo.subtasks.length + '</span> ';
       }
 
+      if (todo.category_id) {
+        var catName = getCategoryName(todo.category_id);
+        if (catName) {
+          badges += '<span class="badge badge-category"><span class="badge-category-icon"></span>' + escapeHtml(catName) + '</span> ';
+        }
+      }
+
       var meta = document.createElement('div');
       meta.className = 'item-meta';
       meta.innerHTML = '<div class="item-title">' + todo.text + '</div><div class="item-info">' + badges + '</div>';
@@ -3208,6 +3307,7 @@ function renderHTML(isAuthorized, customHeader, customContent) {
       if(btnSortTrigger) btnSortTrigger.innerText = '排序: ' + label + ' ▼';
       if(btnSortOrder) btnSortOrder.innerText = '顺序: ' + orderLabel;
       applyAppScale(tempAppScale);
+      loadCategories();
     }
 
     async function login() {
@@ -4126,6 +4226,7 @@ function renderHTML(isAuthorized, customHeader, customContent) {
           var finalBody = { phase: 'finalize', mode: mode, importId: importId };
           if (data.custom_header !== undefined && document.getElementById('export-settings').checked) finalBody.custom_header = data.custom_header;
           if (data.custom_content !== undefined && document.getElementById('export-settings').checked) finalBody.custom_content = data.custom_content;
+          if (data.categories && Array.isArray(data.categories) && document.getElementById('export-settings').checked) finalBody.categories = data.categories;
           var finalRes = await fetch('/api/import', {
             method: 'POST',
             body: JSON.stringify(finalBody),
@@ -5073,6 +5174,70 @@ function renderHTML(isAuthorized, customHeader, customContent) {
       document.getElementById('popover-repeat').style.display = 'none';
     }
 
+    async function loadCategories() {
+      try {
+        const res = await fetch('/api/categories');
+        if (res.ok) {
+          categoriesList = await res.json();
+        }
+      } catch(e) { categoriesList = []; }
+    }
+
+    function getCategoryName(catId) {
+      if (!catId) return '';
+      const cat = categoriesList.find(c => c.id === catId);
+      return cat ? cat.name : '';
+    }
+
+    function renderCategoryPopoverList() {
+      const listEl = document.getElementById('popover-category-list');
+      if (!listEl) return;
+      listEl.innerHTML = '';
+      for (const cat of categoriesList) {
+        const btn = document.createElement('button');
+        btn.innerHTML = '<span class="badge-category-icon" style="margin-right:6px;"></span>' + escapeHtml(cat.name);
+        btn.onclick = function() { selectCategory(cat.id); };
+        listEl.appendChild(btn);
+      }
+    }
+
+    function toggleCategoryMenu(mode, triggerEl) {
+      activeMode = mode;
+      renderCategoryPopoverList();
+      showPopover('popover-category', triggerEl, true);
+    }
+
+    function selectCategory(catId) {
+      tempCategoryId = catId || '';
+      const displayName = catId ? getCategoryName(catId) : '无';
+      if (activeMode === 'add') {
+        document.getElementById('add-category-display').innerText = '分类: ' + displayName;
+      } else if (activeMode === 'edit') {
+        document.getElementById('edit-category-display').innerText = '分类: ' + displayName;
+      }
+      document.getElementById('popover-category').style.display = 'none';
+    }
+
+    async function createCategoryFromPopover() {
+      const input = document.getElementById('category-new-name');
+      const name = input.value.trim();
+      if (!name) return;
+      try {
+        const res = await fetch('/api/category-action', {
+          method: 'POST',
+          body: JSON.stringify({ action: 'CREATE', name: name }),
+          headers: { 'Content-Type': 'application/json' }
+        });
+        if (res.ok) {
+          const data = await res.json();
+          categoriesList = data.categories || [];
+          input.value = '';
+          renderCategoryPopoverList();
+          selectCategory(data.id);
+        }
+      } catch(e) {}
+    }
+
     function openAddModal() {
       activeMode = 'add';
       document.getElementById('modal-add').classList.add('active');
@@ -5080,9 +5245,11 @@ function renderHTML(isAuthorized, customHeader, customContent) {
       document.getElementById('add-url').value = ''; document.getElementById('add-copy').value = '';
       tempTime = ''; tempPriority = 'low';
       tempRepeatType = 'none';
+      tempCategoryId = '';
       tempAddDate = formatDate(currentDate);
       document.getElementById('add-date-display').innerText = tempAddDate;
       document.getElementById('add-repeat-display').innerText = '重复: 不重复';
+      document.getElementById('add-category-display').innerText = '分类: 无';
       
       tempSubtasks =[]; tempSearchTerms =[]; addSearchState = false; 
       tempSearchProvider = appSettings.provider || 'auto';
@@ -5150,6 +5317,7 @@ function renderHTML(isAuthorized, customHeader, customContent) {
         priority: tempPriority, 
         repeat_type: tempRepeatType,
         repeat_custom: '',
+        category_id: tempCategoryId,
         desc: document.getElementById('add-desc').value, url: document.getElementById('add-url').value,
         copyText: document.getElementById('add-copy').value, done: false,
         subtasks: tempSubtasks, search_terms: tempSearchTerms
@@ -5193,6 +5361,7 @@ function renderHTML(isAuthorized, customHeader, customContent) {
     function openDetail(index) {
       currentDetailIndex = index; isEditMode = false;
       const task = todos[index]; tempTime = task.time || ''; tempPriority = task.priority || 'low';
+      tempCategoryId = task.category_id || '';
       renderDetailContent();
       
       const btnSave = document.getElementById('btn-save-task'); const btnDel = document.getElementById('btn-delete-task');
@@ -5273,6 +5442,14 @@ function renderHTML(isAuthorized, customHeader, customContent) {
             rText = '已停用未来的系列事项';
         }
 
+        let catSection = '';
+        if (task.category_id) {
+          var catName = getCategoryName(task.category_id);
+          if (catName) {
+            catSection = \`<div class="detail-label">分类</div><div class="detail-value"><span class="badge badge-category" style="font-size:0.85rem;padding:3px 8px;"><span class="badge-category-icon"></span>\${escapeHtml(catName)}</span></div>\`;
+          }
+        }
+
         container.innerHTML = \`
           <div class="detail-label">事项内容</div><div class="detail-value">\${task.text}</div>
           \${subtasksSection}
@@ -5282,6 +5459,7 @@ function renderHTML(isAuthorized, customHeader, customContent) {
             <div class="flex-1"><div class="detail-label">优先级</div><div class="detail-value">\${pMap[task.priority]}</div></div>
           </div>
           \${urlSection}\${copySection}
+          \${catSection}
           <div class="detail-label">属性</div><div class="detail-value">\${rText}</div>
           \${descSection}
         \`;
@@ -5316,6 +5494,11 @@ function renderHTML(isAuthorized, customHeader, customContent) {
           <div class="row">
             <div class="flex-1"><div class="detail-label">时间点</div><div class="fake-input detail-value editable" onclick="openTimePicker('edit')"><span id="edit-time-display">\${tempTime || '--:--'}</span></div></div>
             <div class="flex-1"><div class="detail-label">优先级</div><div class="fake-input detail-value editable" onclick="togglePriorityMenu('edit', this)"><span id="edit-priority-display">\${pMap[tempPriority]}</span></div></div>
+          </div>
+          <div class="detail-label">分类</div>
+          <div class="fake-input detail-value editable" id="edit-category-trigger" onclick="toggleCategoryMenu('edit', this)" style="display:flex; justify-content:space-between;">
+            <span id="edit-category-display">分类: \${getCategoryName(tempCategoryId) || '无'}</span>
+            <span style="font-size:0.8rem">▼</span>
           </div>
           <div class="detail-label">链接 (URL)</div><input type="url" id="edit-url" value="\${task.url || ''}" class="detail-value editable" placeholder="https://...">
           <div class="detail-label">快捷复制内容</div><input type="text" id="edit-copy" value="\${task.copy_text || ''}" class="detail-value editable" placeholder="需复制的文本...">
@@ -5470,6 +5653,7 @@ function renderHTML(isAuthorized, customHeader, customContent) {
         task.copyText = document.getElementById('edit-copy').value; task.copy_text = task.copyText; 
         task.subtasks = tempSubtasks; task.search_terms = tempSearchTerms;
         task.repeat_type = tempRepeatType; task.repeat_custom = '';
+        task.category_id = tempCategoryId;
         
         toggleEditMode();
         await fetch('/api/todo-action', { method: 'POST', body: JSON.stringify({ action: 'UPDATE', date: formatDate(currentDate), task: task, scope: scope }), headers: { 'Content-Type': 'application/json' } });
@@ -5648,6 +5832,10 @@ function renderHTML(isAuthorized, customHeader, customContent) {
       closeTimePicker: closeTimePicker,
       selectPriority: selectPriority,
       togglePriorityMenu: togglePriorityMenu,
+      // 分类
+      toggleCategoryMenu: toggleCategoryMenu,
+      selectCategory: selectCategory,
+      createCategoryFromPopover: createCategoryFromPopover,
       // 筛选/排序
       setFilterMethod: setFilterMethod,
       toggleFilterMenu: toggleFilterMenu,
