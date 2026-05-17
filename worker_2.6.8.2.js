@@ -5405,6 +5405,7 @@ function renderHTML(isAuthorized, customHeader, customContent) {
         \`;
       } else {
         activeMode = 'edit';
+        var editCatName = (categoriesList.find(function(c){ return c.id === tempCategory; }) || {}).name || '无';
         container.innerHTML = \`
           <div class="detail-label">事项内容</div><input type="text" id="edit-text" value="\${task.text}" class="detail-value editable">
           
@@ -5436,7 +5437,7 @@ function renderHTML(isAuthorized, customHeader, customContent) {
             <div class="flex-1"><div class="detail-label">优先级</div><div class="fake-input detail-value editable" onclick="togglePriorityMenu('edit', this)"><span id="edit-priority-display">\${pMap[tempPriority]}</span></div></div>
           </div>
           <div class="row" style="margin-top:10px;">
-            <div class="flex-1"><div class="detail-label">分类</div><div class="fake-input detail-value editable" id="edit-category-trigger" onclick="toggleCategoryMenu('edit', this)"><span id="edit-category-display">\${(() => { const c = categoriesList.find(c => c.id === tempCategory); return c ? c.name : '无'; })()}</span></div></div>
+            <div class="flex-1"><div class="detail-label">分类</div><div class="fake-input detail-value editable" id="edit-category-trigger" onclick="toggleCategoryMenu('edit', this)"><span id="edit-category-display">\${editCatName}</span></div></div>
           </div>
           <div class="detail-label">链接 (URL)</div><input type="url" id="edit-url" value="\${task.url || ''}" class="detail-value editable" placeholder="https://...">
           <div class="detail-label">快捷复制内容</div><input type="text" id="edit-copy" value="\${task.copy_text || ''}" class="detail-value editable" placeholder="需复制的文本...">
@@ -5557,9 +5558,9 @@ function renderHTML(isAuthorized, customHeader, customContent) {
 
     function rebuildCategoryPopover() {
       const popover = document.getElementById('popover-category');
-      let html = '<button onclick="selectCategory(\'\')">无分类</button>';
+      let html = '<button onclick="selectCategory(\\'\\')">无分类</button>';
       for (const cat of categoriesList) {
-        html += '<button onclick="selectCategory(\'' + cat.id + '\')">' + cat.name + '</button>';
+        html += '<button onclick="selectCategory(\\'' + cat.id + '\\')">' + cat.name + '</button>';
       }
       popover.innerHTML = html;
     }
@@ -5595,9 +5596,9 @@ function renderHTML(isAuthorized, customHeader, customContent) {
 
     function rebuildFilterCategoryPopover() {
       const popover = document.getElementById('popover-filter-category');
-      let html = '<button onclick="setFilterCategory(\'\')">全部分类</button>';
+      let html = '<button onclick="setFilterCategory(\\'\\')">全部分类</button>';
       for (const cat of categoriesList) {
-        html += '<button onclick="setFilterCategory(\'' + cat.id + '\')">' + cat.name + '</button>';
+        html += '<button onclick="setFilterCategory(\\'' + cat.id + '\\')">' + cat.name + '</button>';
       }
       popover.innerHTML = html;
     }
@@ -5623,7 +5624,7 @@ function renderHTML(isAuthorized, customHeader, customContent) {
         html += '<div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid #222;">'
           + '<span style="width:14px;height:14px;border-radius:3px;background:' + cat.color + ';flex-shrink:0;"></span>'
           + '<span style="flex:1;font-size:0.85rem;">' + cat.name + '</span>'
-          + '<span class="md-code" style="cursor:pointer;font-size:0.75rem;" onclick="removeCategory(\'' + cat.id + '\')">删除</span>'
+          + '<span class="md-code" style="cursor:pointer;font-size:0.75rem;" onclick="removeCategory(\\'' + cat.id + '\\')">删除</span>'
           + '</div>';
       }
       container.innerHTML = html;
