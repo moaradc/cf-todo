@@ -3854,7 +3854,7 @@ function renderHTML(isAuthorized, customHeader, customContent) {
         var totalItems = totalTodos + totalTemplates;
 
         if (totalItems === 0 && !incSettings && !incCategories) { closeProgress(); await showAlert('没有可导出的数据。'); return; }
-        showProgress('准备流式导出', '共 ' + totalItems + ' 条记录，开始下载...', 8);
+        showProgress('准备导出', '开始下载...', 8);
 
         var useFileSystemAPI = false;
         var writableStream = null;
@@ -3886,9 +3886,8 @@ function renderHTML(isAuthorized, customHeader, customContent) {
 
         var totalFromHeader = parseInt(res.headers.get('X-Export-Total-Todos') || '0', 10) + parseInt(res.headers.get('X-Export-Total-Templates') || '0', 10);
         var reader = res.body.getReader();
-        var decoder = new TextDecoder();
-        var jsonBuffer = '';
         var estimatedBytes = 0;
+        var fsPct = 8;
         var nonFsPct = 8;
 
         while (true) {
@@ -3899,35 +3898,9 @@ function renderHTML(isAuthorized, customHeader, customContent) {
 
           if (useFileSystemAPI) {
             await writableStream.write(value);
-            var textChunk = decoder.decode(value, { stream: true });
-            jsonBuffer += textChunk;
             estimatedBytes += value.byteLength;
-            if (totalTodos + totalTemplates > 0) {
-              var todoMatches = jsonBuffer.match(/"id"\\s*:/g);
-              if (todoMatches) {
-                var currentReceived = todoMatches.length;
-                if (currentReceived > todosReceived + templatesReceived) {
-                  var diff = currentReceived - todosReceived - templatesReceived;
-                  if (todosReceived < totalTodos) {
-                    todosReceived = Math.min(todosReceived + diff, totalTodos);
-                  } else {
-                    templatesReceived += diff;
-                  }
-                }
-              }
-            }
-            var processedItems = todosReceived + templatesReceived;
-            var pct = 8 + Math.round((processedItems / Math.max(totalFromHeader, 1)) * 87);
-            if (todosReceived < totalTodos) {
-              showProgress('流式导出事项', todosReceived + ' / ' + totalTodos + ' 条', pct);
-            } else if (templatesReceived < totalTemplates) {
-              showProgress('流式导出模板', templatesReceived + ' / ' + totalTemplates + ' 条', pct);
-            } else {
-              showProgress('流式导出', '已传输 ' + (estimatedBytes / 1024 / 1024).toFixed(1) + ' MB', pct);
-            }
-            if (jsonBuffer.length > 5 * 1024 * 1024) {
-              jsonBuffer = jsonBuffer.slice(-1024 * 512);
-            }
+            fsPct = Math.min(fsPct + (90 - fsPct) * 0.06, 90);
+            showProgress('流式导出', '已传输 ' + (estimatedBytes / 1024 / 1024).toFixed(1) + ' MB', Math.round(fsPct));
           } else {
             chunks.push(value);
             nonFsPct = Math.min(nonFsPct + (90 - nonFsPct) * 0.06, 90);
@@ -3953,11 +3926,7 @@ function renderHTML(isAuthorized, customHeader, customContent) {
           await fetch('/api/export?mode=session&action=done&sessionId=' + sessionId);
         } catch(e) {}
 
-        if (useFileSystemAPI) {
-          showProgress('导出完成', (totalTodos || todosReceived) + ' 条事项 ，其中 ' + (totalTemplates || templatesReceived) + ' 条模板', 100);
-        } else {
-          showProgress('导出完成', '文件已下载', 100);
-        }
+        showProgress('导出完成', '文件已保存', 100);
         setTimeout(closeProgress, 4000);
       } catch (e) {
         try {
