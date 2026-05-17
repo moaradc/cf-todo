@@ -3890,6 +3890,8 @@ function renderHTML(isAuthorized, customHeader, customContent) {
         var jsonBuffer = '';
         var estimatedBytes = 0;
         var nonFsPct = 8;
+        var avgBytesPerItem = 0;
+        var calibrated = false;
 
         while (true) {
           var _ref = await reader.read();
@@ -3899,10 +3901,10 @@ function renderHTML(isAuthorized, customHeader, customContent) {
 
           if (useFileSystemAPI) {
             await writableStream.write(value);
-            var textChunk = decoder.decode(value, { stream: true });
-            jsonBuffer += textChunk;
             estimatedBytes += value.byteLength;
-            if (totalTodos + totalTemplates > 0) {
+            if (!calibrated && totalTodos + totalTemplates > 0) {
+              var textChunk = decoder.decode(value, { stream: true });
+              jsonBuffer += textChunk;
               var todoMatches = jsonBuffer.match(/"id"\\s*:/g);
               if (todoMatches) {
                 var currentReceived = todoMatches.length;
@@ -3915,18 +3917,28 @@ function renderHTML(isAuthorized, customHeader, customContent) {
                   }
                 }
               }
+              var processedItems = todosReceived + templatesReceived;
+              if (processedItems >= Math.min(totalFromHeader, 20)) {
+                avgBytesPerItem = estimatedBytes / processedItems;
+                calibrated = true;
+                jsonBuffer = '';
+              }
             }
-            var processedItems = todosReceived + templatesReceived;
-            var pct = 8 + Math.round((processedItems / Math.max(totalFromHeader, 1)) * 87);
+            var pct;
+            if (calibrated) {
+              var estimatedTotal = totalFromHeader * avgBytesPerItem;
+              pct = 8 + Math.round((estimatedBytes / Math.max(estimatedTotal, 1)) * 87);
+              pct = Math.min(pct, 95);
+            } else {
+              var processedItems2 = todosReceived + templatesReceived;
+              pct = 8 + Math.round((processedItems2 / Math.max(totalFromHeader, 1)) * 87);
+            }
             if (todosReceived < totalTodos) {
               showProgress('流式导出事项', todosReceived + ' / ' + totalTodos + ' 条', pct);
             } else if (templatesReceived < totalTemplates) {
               showProgress('流式导出模板', templatesReceived + ' / ' + totalTemplates + ' 条', pct);
             } else {
               showProgress('流式导出', '已传输 ' + (estimatedBytes / 1024 / 1024).toFixed(1) + ' MB', pct);
-            }
-            if (jsonBuffer.length > 5 * 1024 * 1024) {
-              jsonBuffer = jsonBuffer.slice(-1024 * 512);
             }
           } else {
             chunks.push(value);
