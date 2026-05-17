@@ -3899,15 +3899,9 @@ function renderHTML(isAuthorized, customHeader, customContent) {
 
           if (useFileSystemAPI) {
             await writableStream.write(value);
-          } else {
-            chunks.push(value);
-          }
-
-          var textChunk = decoder.decode(value, { stream: true });
-          jsonBuffer += textChunk;
-          estimatedBytes += value.byteLength;
-
-          if (useFileSystemAPI) {
+            var textChunk = decoder.decode(value, { stream: true });
+            jsonBuffer += textChunk;
+            estimatedBytes += value.byteLength;
             if (totalTodos + totalTemplates > 0) {
               var todoMatches = jsonBuffer.match(/"id"\\s*:/g);
               if (todoMatches) {
@@ -3931,13 +3925,13 @@ function renderHTML(isAuthorized, customHeader, customContent) {
             } else {
               showProgress('流式导出', '已传输 ' + (estimatedBytes / 1024 / 1024).toFixed(1) + ' MB', pct);
             }
+            if (jsonBuffer.length > 5 * 1024 * 1024) {
+              jsonBuffer = jsonBuffer.slice(-1024 * 512);
+            }
           } else {
+            chunks.push(value);
             nonFsPct = Math.min(nonFsPct + (90 - nonFsPct) * 0.06, 90);
             showProgress('导出数据', '正在接收数据...', Math.round(nonFsPct));
-          }
-
-          if (jsonBuffer.length > 5 * 1024 * 1024) {
-            jsonBuffer = jsonBuffer.slice(-1024 * 512);
           }
         }
 
@@ -3959,7 +3953,11 @@ function renderHTML(isAuthorized, customHeader, customContent) {
           await fetch('/api/export?mode=session&action=done&sessionId=' + sessionId);
         } catch(e) {}
 
-        showProgress('导出完成', (totalTodos || todosReceived) + ' 条事项 ，其中 ' + (totalTemplates || templatesReceived) + ' 条模板', 100);
+        if (useFileSystemAPI) {
+          showProgress('导出完成', (totalTodos || todosReceived) + ' 条事项 ，其中 ' + (totalTemplates || templatesReceived) + ' 条模板', 100);
+        } else {
+          showProgress('导出完成', '文件已下载', 100);
+        }
         setTimeout(closeProgress, 4000);
       } catch (e) {
         try {
