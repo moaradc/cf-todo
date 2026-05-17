@@ -3907,17 +3907,15 @@ function renderHTML(isAuthorized, customHeader, customContent) {
           jsonBuffer += textChunk;
           estimatedBytes += value.byteLength;
 
-          if (totalTodos + totalTemplates > 0) {
-            var todoMatches = jsonBuffer.match(/"id"\\s*:/g);
-            if (todoMatches) {
-              var currentReceived = todoMatches.length;
-              if (currentReceived > todosReceived + templatesReceived) {
-                var diff = currentReceived - todosReceived - templatesReceived;
-                if (todosReceived < totalTodos) {
-                  todosReceived = Math.min(todosReceived + diff, totalTodos);
-                } else {
-                  templatesReceived += diff;
-                }
+          var todoMatches = jsonBuffer.match(/"id"\\s*:/g);
+          if (todoMatches) {
+            var currentReceived = todoMatches.length;
+            if (currentReceived > todosReceived + templatesReceived) {
+              var diff = currentReceived - todosReceived - templatesReceived;
+              if (todosReceived < totalTodos) {
+                todosReceived = Math.min(todosReceived + diff, totalTodos);
+              } else {
+                templatesReceived += diff;
               }
             }
           }
@@ -3955,10 +3953,7 @@ function renderHTML(isAuthorized, customHeader, customContent) {
           await fetch('/api/export?mode=session&action=done&sessionId=' + sessionId);
         } catch(e) {}
 
-        var exportMsg = (totalTodos || todosReceived) + ' 条事项，其中 ' + (totalTemplates || templatesReceived) + ' 条模板';
-        if (incSettings) exportMsg += '，偏好设置';
-        if (incCategories) exportMsg += '，分类数据';
-        showProgress('导出完成', exportMsg, 100);
+        showProgress('导出完成', (totalTodos || todosReceived) + ' 条事项 ，其中 ' + (totalTemplates || templatesReceived) + ' 条模板', 100);
         setTimeout(closeProgress, 4000);
       } catch (e) {
         try {
