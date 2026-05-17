@@ -3902,22 +3902,21 @@ function renderHTML(isAuthorized, customHeader, customContent) {
           jsonBuffer += textChunk;
           estimatedBytes += value.byteLength;
 
-          if (useFileSystemAPI && totalTodos + totalTemplates > 0) {
-            var todoMatches = jsonBuffer.match(/"id"\\s*:/g);
-            if (todoMatches) {
-              var currentReceived = todoMatches.length;
-              if (currentReceived > todosReceived + templatesReceived) {
-                var diff = currentReceived - todosReceived - templatesReceived;
-                if (todosReceived < totalTodos) {
-                  todosReceived = Math.min(todosReceived + diff, totalTodos);
-                } else {
-                  templatesReceived += diff;
+          if (useFileSystemAPI) {
+            if (totalTodos + totalTemplates > 0) {
+              var todoMatches = jsonBuffer.match(/"id"\\s*:/g);
+              if (todoMatches) {
+                var currentReceived = todoMatches.length;
+                if (currentReceived > todosReceived + templatesReceived) {
+                  var diff = currentReceived - todosReceived - templatesReceived;
+                  if (todosReceived < totalTodos) {
+                    todosReceived = Math.min(todosReceived + diff, totalTodos);
+                  } else {
+                    templatesReceived += diff;
+                  }
                 }
               }
             }
-          }
-
-          if (useFileSystemAPI) {
             var processedItems = todosReceived + templatesReceived;
             var pct = 8 + Math.round((processedItems / Math.max(totalFromHeader, 1)) * 87);
             if (todosReceived < totalTodos) {
@@ -3928,8 +3927,7 @@ function renderHTML(isAuthorized, customHeader, customContent) {
               showProgress('流式导出', '已传输 ' + (estimatedBytes / 1024 / 1024).toFixed(1) + ' MB', pct);
             }
           } else {
-            var pct2 = 8 + Math.round((estimatedBytes / Math.max(totalFromHeader, 1)) * 87);
-            showProgress('导出数据', '已接收 ' + (estimatedBytes / 1024 / 1024).toFixed(1) + ' MB', pct2);
+            showProgress('导出数据', '已接收 ' + (estimatedBytes / 1024 / 1024).toFixed(1) + ' MB', 50);
           }
 
           if (jsonBuffer.length > 5 * 1024 * 1024) {
