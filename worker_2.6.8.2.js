@@ -633,6 +633,10 @@ export default {
           result.custom_header = headerRecord?.value || '';
           const contentRecord = await env.DB.prepare("SELECT value FROM settings WHERE key = 'custom_content'").first();
           result.custom_content = contentRecord?.value || '';
+        }
+
+        const incCategories = url.searchParams.get('categories') === 'true';
+        if (incCategories) {
           const categoriesRecord = await env.DB.prepare("SELECT value FROM settings WHERE key = 'categories'").first();
           try { result.categories = categoriesRecord?.value ? JSON.parse(categoriesRecord.value) : []; } catch(e) { result.categories = []; }
         }
@@ -764,6 +768,7 @@ export default {
         const incTodos = url.searchParams.get('todos') === 'true';
         const incTrash = url.searchParams.get('trash') === 'true';
         const incSettings = url.searchParams.get('settings') === 'true';
+        const incCategories = url.searchParams.get('categories') === 'true';
         const STREAM_PAGE_SIZE = 600;
         const SESSION_UPDATE_INTERVAL = 5;
 
@@ -806,6 +811,8 @@ export default {
                     header += '"custom_header":' + JSON.stringify(headerRecord?.value || '') + ',';
                     const contentRecord = await env.DB.prepare("SELECT value FROM settings WHERE key = 'custom_content'").first();
                     header += '"custom_content":' + JSON.stringify(contentRecord?.value || '') + ',';
+                  }
+                  if (incCategories) {
                     const categoriesRecord = await env.DB.prepare("SELECT value FROM settings WHERE key = 'categories'").first();
                     let categoriesArr = [];
                     try { categoriesArr = categoriesRecord?.value ? JSON.parse(categoriesRecord.value) : []; } catch(e) {}
@@ -860,6 +867,8 @@ export default {
                       header += '"custom_header":' + JSON.stringify(headerRecord?.value || '') + ',';
                       const contentRecord = await env.DB.prepare("SELECT value FROM settings WHERE key = 'custom_content'").first();
                       header += '"custom_content":' + JSON.stringify(contentRecord?.value || '') + ',';
+                    }
+                    if (incCategories) {
                       const categoriesRecord = await env.DB.prepare("SELECT value FROM settings WHERE key = 'categories'").first();
                       let categoriesArr = [];
                       try { categoriesArr = categoriesRecord?.value ? JSON.parse(categoriesRecord.value) : []; } catch(e) {}
@@ -921,6 +930,8 @@ export default {
                   header += '"custom_header":' + JSON.stringify(headerRecord?.value || '') + ',';
                   const contentRecord = await env.DB.prepare("SELECT value FROM settings WHERE key = 'custom_content'").first();
                   header += '"custom_content":' + JSON.stringify(contentRecord?.value || '') + ',';
+                }
+                if (incCategories) {
                   const categoriesRecord = await env.DB.prepare("SELECT value FROM settings WHERE key = 'categories'").first();
                   let categoriesArr = [];
                   try { categoriesArr = categoriesRecord?.value ? JSON.parse(categoriesRecord.value) : []; } catch(e) {}
@@ -2669,9 +2680,13 @@ function renderHTML(isAuthorized, customHeader, customContent) {
             <input type="checkbox" id="export-trash" checked style="width:16px; height:16px; margin:0;"> 
             <span class="settings-text" style="margin:0;">仅回收站中的数据（相关的黑名单在重复模板中）</span>
           </label>
-          <label style="display:flex; align-items:center; gap:10px; margin-bottom:15px; cursor:pointer;">
+          <label style="display:flex; align-items:center; gap:10px; margin-bottom:8px; cursor:pointer;">
             <input type="checkbox" id="export-settings" checked style="width:16px; height:16px; margin:0;"> 
             <span class="settings-text" style="margin:0;">偏好设置与自定义代码</span>
+          </label>
+          <label style="display:flex; align-items:center; gap:10px; margin-bottom:15px; cursor:pointer;">
+            <input type="checkbox" id="export-categories" checked style="width:16px; height:16px; margin:0;"> 
+            <span class="settings-text" style="margin:0;">分类数据</span>
           </label>
           <div class="row">
               <button class="flex-1" onclick="exportData()">导出数据</button>
@@ -3761,8 +3776,9 @@ function renderHTML(isAuthorized, customHeader, customContent) {
       var incTodos = document.getElementById('export-todos').checked;
       var incTrash = document.getElementById('export-trash').checked;
       var incSettings = document.getElementById('export-settings').checked;
+      var incCategories = document.getElementById('export-categories').checked;
 
-      if (!incTodos && !incTrash && !incSettings) return alert('请至少选择一项需要导出的内容。');
+      if (!incTodos && !incTrash && !incSettings && !incCategories) return alert('请至少选择一项需要导出的内容。');
 
       var overlay = document.createElement('div');
       overlay.className = 'io-overlay';
@@ -3817,7 +3833,7 @@ function renderHTML(isAuthorized, customHeader, customContent) {
 
       try {
         showProgress('初始化导出会话', '创建会话...', 3);
-        var sessionRes = await fetch('/api/export?mode=session&action=create&todos=' + incTodos + '&trash=' + incTrash + '&settings=' + incSettings + '&sessionId=' + sessionId);
+        var sessionRes = await fetch('/api/export?mode=session&action=create&todos=' + incTodos + '&trash=' + incTrash + '&settings=' + incSettings + '&categories=' + incCategories + '&sessionId=' + sessionId);
         if (!sessionRes.ok) {
           if (sessionRes.status === 409) {
             var conflictData = {};
@@ -3827,7 +3843,7 @@ function renderHTML(isAuthorized, customHeader, customContent) {
               if (conflictData.sessionId) {
                 await fetch('/api/export?mode=session&action=abort&sessionId=' + conflictData.sessionId);
               }
-              sessionRes = await fetch('/api/export?mode=session&action=create&todos=' + incTodos + '&trash=' + incTrash + '&settings=' + incSettings + '&sessionId=' + sessionId);
+              sessionRes = await fetch('/api/export?mode=session&action=create&todos=' + incTodos + '&trash=' + incTrash + '&settings=' + incSettings + '&categories=' + incCategories + '&sessionId=' + sessionId);
               if (!sessionRes.ok) throw new Error('重试创建导出会话失败');
             } else {
               closeProgress();
@@ -3842,7 +3858,7 @@ function renderHTML(isAuthorized, customHeader, customContent) {
         totalTemplates = sessionData.totalTemplates;
         var totalItems = totalTodos + totalTemplates;
 
-        if (totalItems === 0 && !incSettings) { closeProgress(); await showAlert('没有可导出的数据。'); return; }
+        if (totalItems === 0 && !incSettings && !incCategories) { closeProgress(); await showAlert('没有可导出的数据。'); return; }
         showProgress('准备流式导出', '共 ' + totalItems + ' 条记录，开始下载...', 8);
 
         var useFileSystemAPI = false;
@@ -3865,7 +3881,7 @@ function renderHTML(isAuthorized, customHeader, customContent) {
         }
 
         var chunks = [];
-        var streamUrl = '/api/export?mode=stream&todos=' + incTodos + '&trash=' + incTrash + '&settings=' + incSettings + '&sessionId=' + sessionId;
+        var streamUrl = '/api/export?mode=stream&todos=' + incTodos + '&trash=' + incTrash + '&settings=' + incSettings + '&categories=' + incCategories + '&sessionId=' + sessionId;
         var res = await fetch(streamUrl);
         if (!res.ok) throw new Error('流式导出请求失败');
 
@@ -4057,7 +4073,7 @@ function renderHTML(isAuthorized, customHeader, customContent) {
               var isMerge = await showConfirm("是否继续使用【合并模式】进行导入？", "将保留现有云端的所有数据，新增并覆盖更新 ID 相同的重叠事项。\\n请确保导出数据时一定要全部勾选，否则执行时对于可能出现的问题后果自负。\\n过程中出现异常将无法恢复。");
               if (!isMerge) { closeProgress(); event.target.value=''; return; }
             }
-          } else if (!data.settings && data.custom_header === undefined && data.custom_content === undefined) {
+          } else if (!data.settings && data.custom_header === undefined && data.custom_content === undefined && !data.categories) {
             throw new Error("未在文件中找到有效的待办或设置数据。");
           }
 
@@ -4226,7 +4242,7 @@ function renderHTML(isAuthorized, customHeader, customContent) {
           var finalBody = { phase: 'finalize', mode: mode, importId: importId };
           if (data.custom_header !== undefined && document.getElementById('export-settings').checked) finalBody.custom_header = data.custom_header;
           if (data.custom_content !== undefined && document.getElementById('export-settings').checked) finalBody.custom_content = data.custom_content;
-          if (data.categories && Array.isArray(data.categories) && document.getElementById('export-settings').checked) finalBody.categories = data.categories;
+          if (data.categories && Array.isArray(data.categories) && document.getElementById('export-categories').checked) finalBody.categories = data.categories;
           var finalRes = await fetch('/api/import', {
             method: 'POST',
             body: JSON.stringify(finalBody),
