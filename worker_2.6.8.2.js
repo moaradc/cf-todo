@@ -3955,14 +3955,9 @@ function renderHTML(isAuthorized, customHeader, customContent) {
           await fetch('/api/export?mode=session&action=done&sessionId=' + sessionId);
         } catch(e) {}
 
-        var exportMsg = '';
-        var actualTodos = totalTodos || todosReceived;
-        var actualTemplates = totalTemplates || templatesReceived;
-        if (actualTodos > 0) exportMsg += actualTodos + ' 条事项';
-        if (actualTemplates > 0) exportMsg += (exportMsg ? '，' : '') + actualTemplates + ' 条模板';
-        if (incSettings) exportMsg += (exportMsg ? '，' : '') + '偏好设置';
-        if (incCategories) exportMsg += (exportMsg ? '，' : '') + '分类数据';
-        if (!exportMsg) exportMsg = '导出完成';
+        var exportMsg = (totalTodos || todosReceived) + ' 条事项，其中 ' + (totalTemplates || templatesReceived) + ' 条模板';
+        if (incSettings) exportMsg += '，偏好设置';
+        if (incCategories) exportMsg += '，分类数据';
         showProgress('导出完成', exportMsg, 100);
         setTimeout(closeProgress, 4000);
       } catch (e) {
