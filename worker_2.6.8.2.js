@@ -3829,8 +3829,7 @@ function renderHTML(isAuthorized, customHeader, customContent) {
       var totalTodos = 0;
       var totalTemplates = 0;
       var todosReceived = 0;
-        var templatesReceived = 0;
-        var parsingSection = '';
+      var templatesReceived = 0;
 
       try {
         showProgress('初始化导出会话', '创建会话...', 3);
@@ -3908,27 +3907,15 @@ function renderHTML(isAuthorized, customHeader, customContent) {
           jsonBuffer += textChunk;
           estimatedBytes += value.byteLength;
 
-          if (/"categories"\\s*:/.test(jsonBuffer) && !parsingSection) {
-            parsingSection = 'categories';
-          }
-          if (/"todos"\\s*:\\s*\\[/.test(jsonBuffer) && parsingSection !== 'todos') {
-            parsingSection = 'todos';
-          }
-          if (/"todo_templates"\\s*:\\s*\\[/.test(jsonBuffer) && parsingSection !== 'todo_templates') {
-            parsingSection = 'todo_templates';
-          }
-
-          if (parsingSection === 'todos' || parsingSection === 'todo_templates') {
-            var todoMatches = jsonBuffer.match(/"id"\\s*:/g);
-            if (todoMatches) {
-              var currentReceived = todoMatches.length;
-              if (currentReceived > todosReceived + templatesReceived) {
-                var diff = currentReceived - todosReceived - templatesReceived;
-                if (todosReceived < totalTodos) {
-                  todosReceived = Math.min(todosReceived + diff, totalTodos);
-                } else {
-                  templatesReceived += diff;
-                }
+          var todoMatches = jsonBuffer.match(/"id"\\s*:/g);
+          if (todoMatches) {
+            var currentReceived = todoMatches.length;
+            if (currentReceived > todosReceived + templatesReceived) {
+              var diff = currentReceived - todosReceived - templatesReceived;
+              if (todosReceived < totalTodos) {
+                todosReceived = Math.min(todosReceived + diff, totalTodos);
+              } else {
+                templatesReceived += diff;
               }
             }
           }
