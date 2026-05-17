@@ -3959,10 +3959,8 @@ function renderHTML(isAuthorized, customHeader, customContent) {
         var actualTodos = totalTodos || todosReceived;
         var actualTemplates = totalTemplates || templatesReceived;
         if (actualTodos > 0) exportMsg += actualTodos + ' 条事项';
-        if (actualTemplates > 0) exportMsg += (exportMsg ? '，' : '') + actualTemplates + ' 条模板';
-        if (incSettings) exportMsg += (exportMsg ? '，' : '') + '偏好设置';
-        if (incCategories) exportMsg += (exportMsg ? '，' : '') + '分类数据';
-        if (!exportMsg) exportMsg = '导出完成';
+          if (actualTemplates > 0) exportMsg += (exportMsg ? '，' : '') + actualTemplates + ' 条模板';
+          if (!exportMsg) exportMsg = '导出完成';
         showProgress('导出完成', exportMsg, 100);
         setTimeout(closeProgress, 4000);
       } catch (e) {
