@@ -3953,7 +3953,21 @@ function renderHTML(isAuthorized, customHeader, customContent) {
           await fetch('/api/export?mode=session&action=done&sessionId=' + sessionId);
         } catch(e) {}
 
-        showProgress('导出完成', (totalTodos || todosReceived) + ' 条事项 ，其中 ' + (totalTemplates || templatesReceived) + ' 条模板', 100);
+        var exportMsg = '';
+        var exportTodoCount = totalTodos || todosReceived;
+        var exportTplCount = totalTemplates || templatesReceived;
+        if (exportTodoCount > 0) {
+          exportMsg += exportTodoCount + ' 条事项';
+          if (exportTplCount > 0) exportMsg += ' ，其中 ' + exportTplCount + ' 条模板';
+        }
+        if (incCategories) {
+          exportMsg += (exportMsg ? '，' : '') + '分类数据';
+        }
+        if (incSettings && !exportTodoCount) {
+          exportMsg += (exportMsg ? '，' : '') + '偏好设置';
+        }
+        if (!exportMsg) exportMsg = '导出完成';
+        showProgress('导出完成', exportMsg, 100);
         setTimeout(closeProgress, 4000);
       } catch (e) {
         try {
