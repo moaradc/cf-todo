@@ -2364,7 +2364,7 @@ function renderHTML(isAuthorized, customHeader, customContent) {
     .detail-overlay.active { overscroll-behavior: contain; }
     .io-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.85); backdrop-filter: blur(4px); display: flex; align-items: center; justify-content: center; z-index: 120; }
     .io-overlay-high { z-index: 130; }
-    .io-dialog { background: #0a0a0a; border: 1px solid #ff3300; padding: 25px 35px; text-align: center; font-family: Courier New, monospace; max-width: 90vw; max-height: 80vh; overflow-y: auto; min-width: 280px; }
+    .io-dialog { background: #0a0a0a; border: 1px solid #ff3300; padding: 25px 35px; text-align: center; font-family: Courier New, monospace; max-width: 90vw; min-width: 280px; }
     .io-title { font-size: 1.05rem; font-weight: bold; margin-bottom: 8px; color: #fff; }
     .io-sub { font-size: 0.85rem; color: #888; margin-bottom: 10px; }
     .io-sub-block { margin-bottom: 20px; white-space: pre-line; }
@@ -3859,11 +3859,7 @@ function renderHTML(isAuthorized, customHeader, customContent) {
         var totalItems = totalTodos + totalTemplates;
 
         if (totalItems === 0 && !incSettings && !incCategories) { closeProgress(); await showAlert('没有可导出的数据。'); return; }
-        if (totalItems === 0) {
-          showProgress('准备导出', '正在导出分类数据...', 8);
-        } else {
-          showProgress('准备流式导出', '共 ' + totalItems + ' 条记录，开始下载...', 8);
-        }
+        showProgress('准备流式导出', '共 ' + totalItems + ' 条记录，开始下载...', 8);
 
         var useFileSystemAPI = false;
         var writableStream = null;
@@ -3894,7 +3890,6 @@ function renderHTML(isAuthorized, customHeader, customContent) {
         var decoder = new TextDecoder();
         var jsonBuffer = '';
         var estimatedBytes = 0;
-        var smallDataPct = 8;
 
         while (true) {
           var _ref = await reader.read();
@@ -3913,7 +3908,7 @@ function renderHTML(isAuthorized, customHeader, customContent) {
           estimatedBytes += value.byteLength;
 
           var todoMatches = jsonBuffer.match(/"id"\\s*:/g);
-          if (todoMatches && totalFromHeader > 0) {
+          if (todoMatches) {
             var currentReceived = todoMatches.length;
             if (currentReceived > todosReceived + templatesReceived) {
               var diff = currentReceived - todosReceived - templatesReceived;
@@ -3926,20 +3921,13 @@ function renderHTML(isAuthorized, customHeader, customContent) {
           }
 
           var processedItems = todosReceived + templatesReceived;
-          var pct;
-          if (totalFromHeader > 0) {
-            pct = 8 + Math.round((processedItems / totalFromHeader) * 87);
-          } else {
-            pct = Math.min(95, 8 + Math.round(estimatedBytes / 200));
-          }
+          var pct = 8 + Math.round((processedItems / Math.max(totalFromHeader, 1)) * 87);
           if (todosReceived < totalTodos) {
             showProgress('流式导出事项', todosReceived + ' / ' + totalTodos + ' 条', pct);
           } else if (templatesReceived < totalTemplates) {
             showProgress('流式导出模板', templatesReceived + ' / ' + totalTemplates + ' 条', pct);
-          } else if (totalFromHeader > 0) {
-            showProgress('流式导出', '已传输 ' + (estimatedBytes / 1024 / 1024).toFixed(1) + ' MB', pct);
           } else {
-            showProgress('导出分类数据', '正在写入...', pct);
+            showProgress('流式导出', '已传输 ' + (estimatedBytes / 1024 / 1024).toFixed(1) + ' MB', pct);
           }
 
           if (jsonBuffer.length > 5 * 1024 * 1024) {
@@ -3965,17 +3953,7 @@ function renderHTML(isAuthorized, customHeader, customContent) {
           await fetch('/api/export?mode=session&action=done&sessionId=' + sessionId);
         } catch(e) {}
 
-        var completionParts = [];
-        if (totalTodos > 0) {
-          completionParts.push(totalTodos + ' 条事项');
-        }
-        if (totalTemplates > 0) {
-          completionParts.push('其中 ' + totalTemplates + ' 条模板');
-        }
-        if (incCategories && totalTodos === 0 && totalTemplates === 0) {
-          completionParts.push('分类数据');
-        }
-        showProgress('导出完成', completionParts.join(' ，') || '完成', 100);
+        showProgress('导出完成', (totalTodos || todosReceived) + ' 条事项 ，其中 ' + (totalTemplates || templatesReceived) + ' 条模板', 100);
         setTimeout(closeProgress, 4000);
       } catch (e) {
         try {
