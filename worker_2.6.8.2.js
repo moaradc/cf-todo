@@ -3921,7 +3921,8 @@ function renderHTML(isAuthorized, customHeader, customContent) {
           }
 
           var processedItems = todosReceived + templatesReceived;
-          var pct = 8 + Math.round((processedItems / Math.max(totalFromHeader, 1)) * 87);
+          var pct = totalFromHeader > 0 ? (8 + Math.round((processedItems / totalFromHeader) * 87)) : (incCategories ? 50 : 8);
+          pct = Math.min(pct, 95);
           if (todosReceived < totalTodos) {
             showProgress('流式导出事项', todosReceived + ' / ' + totalTodos + ' 条', pct);
           } else if (templatesReceived < totalTemplates) {
@@ -3953,7 +3954,12 @@ function renderHTML(isAuthorized, customHeader, customContent) {
           await fetch('/api/export?mode=session&action=done&sessionId=' + sessionId);
         } catch(e) {}
 
-        showProgress('导出完成', (totalTodos || todosReceived) + ' 条事项 ，其中 ' + (totalTemplates || templatesReceived) + ' 条模板', 100);
+        var exportSummaryParts = [];
+        if ((totalTodos || todosReceived) > 0) exportSummaryParts.push((totalTodos || todosReceived) + ' 条事项');
+        if ((totalTemplates || templatesReceived) > 0) exportSummaryParts.push((totalTemplates || templatesReceived) + ' 条模板');
+        if (incCategories) exportSummaryParts.push('分类数据');
+        if (incSettings) exportSummaryParts.push('偏好设置');
+        showProgress('导出完成', exportSummaryParts.join(' ，'), 100);
         setTimeout(closeProgress, 4000);
       } catch (e) {
         try {
