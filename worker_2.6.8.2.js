@@ -3161,12 +3161,7 @@ function renderHTML(isAuthorized, customHeader, customContent) {
         badges += '<span class="badge" style="background:transparent;border:1px solid var(--fg);color:var(--fg);">' + completed + '/' + todo.subtasks.length + '</span> ';
       }
 
-      if (todo.category_id) {
-        var catName = getCategoryName(todo.category_id);
-        if (catName) {
-          badges += '<span class="badge badge-category"><span class="badge-category-icon"></span>' + escapeHtml(catName) + '</span> ';
-        }
-      }
+
 
       var meta = document.createElement('div');
       meta.className = 'item-meta';
@@ -3907,7 +3902,7 @@ function renderHTML(isAuthorized, customHeader, customContent) {
           jsonBuffer += textChunk;
           estimatedBytes += value.byteLength;
 
-          if (totalTodos + totalTemplates > 0) {
+          if (useFileSystemAPI && totalTodos + totalTemplates > 0) {
             var todoMatches = jsonBuffer.match(/"id"\\s*:/g);
             if (todoMatches) {
               var currentReceived = todoMatches.length;
@@ -3922,14 +3917,19 @@ function renderHTML(isAuthorized, customHeader, customContent) {
             }
           }
 
-          var processedItems = todosReceived + templatesReceived;
-          var pct = 8 + Math.round((processedItems / Math.max(totalFromHeader, 1)) * 87);
-          if (todosReceived < totalTodos) {
-            showProgress('流式导出事项', todosReceived + ' / ' + totalTodos + ' 条', pct);
-          } else if (templatesReceived < totalTemplates) {
-            showProgress('流式导出模板', templatesReceived + ' / ' + totalTemplates + ' 条', pct);
+          if (useFileSystemAPI) {
+            var processedItems = todosReceived + templatesReceived;
+            var pct = 8 + Math.round((processedItems / Math.max(totalFromHeader, 1)) * 87);
+            if (todosReceived < totalTodos) {
+              showProgress('流式导出事项', todosReceived + ' / ' + totalTodos + ' 条', pct);
+            } else if (templatesReceived < totalTemplates) {
+              showProgress('流式导出模板', templatesReceived + ' / ' + totalTemplates + ' 条', pct);
+            } else {
+              showProgress('流式导出', '已传输 ' + (estimatedBytes / 1024 / 1024).toFixed(1) + ' MB', pct);
+            }
           } else {
-            showProgress('流式导出', '已传输 ' + (estimatedBytes / 1024 / 1024).toFixed(1) + ' MB', pct);
+            var pct2 = 8 + Math.round((estimatedBytes / Math.max(totalFromHeader, 1)) * 87);
+            showProgress('导出数据', '已接收 ' + (estimatedBytes / 1024 / 1024).toFixed(1) + ' MB', pct2);
           }
 
           if (jsonBuffer.length > 5 * 1024 * 1024) {
