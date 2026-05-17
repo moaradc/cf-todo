@@ -3885,6 +3885,7 @@ function renderHTML(isAuthorized, customHeader, customContent) {
         var decoder = new TextDecoder();
         var jsonBuffer = '';
         var estimatedBytes = 0;
+        var nonFsPct = 8;
 
         while (true) {
           var _ref = await reader.read();
@@ -3927,7 +3928,8 @@ function renderHTML(isAuthorized, customHeader, customContent) {
               showProgress('流式导出', '已传输 ' + (estimatedBytes / 1024 / 1024).toFixed(1) + ' MB', pct);
             }
           } else {
-            showProgress('导出数据', '已接收 ' + (estimatedBytes / 1024 / 1024).toFixed(1) + ' MB', 50);
+            nonFsPct = Math.min(nonFsPct + (90 - nonFsPct) * 0.06, 90);
+            showProgress('导出数据', '已接收 ' + (estimatedBytes / 1024 / 1024).toFixed(1) + ' MB', Math.round(nonFsPct));
           }
 
           if (jsonBuffer.length > 5 * 1024 * 1024) {
