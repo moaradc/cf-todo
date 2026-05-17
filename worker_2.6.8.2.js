@@ -1,68 +1,9 @@
 /*
- * Cloudflare Worker + D1 Todo App (v2.6.8.2：修复了进入预览模式时因页面重定向引发并发请求，导致当天待办事项可能被重复生成的问题；移除虚拟滚动机制；优化导入/导出逻辑；getScaleForUA / setScaleForUA — 消除 4 处重复的 UA scale 查找/设置逻辑；showPopover — 消除 3 处重复的弹出层逻辑，并增加 checkTriggerChildren 参数使行为更灵活；每日搜索函数合并 — 将 add/edit 两套几乎相同的函数合并为带 mode 参数的通用函数；z-index 层级修改)
+ * Cloudflare Worker + D1 Todo App (v2.6.8.2-demo：Demo 版本，移除 API 鉴权与登录，数据不设防)
  * Features: Filter, Trash Bin, Batch Manage, Sub-tasks, Selectable Search Provider, Statistics
  */
 
 let isDbInitialized = false;
-
-// 工具函数
-function parseCookies(request) {
-  const cookieHeader = request.headers.get('Cookie') || '';
-  const list = {};
-  cookieHeader.split(';').forEach(function(cookie) {
-    let[name, ...rest] = cookie.split('=');
-    name = name?.trim();
-    if (!name) return;
-    const value = rest.join('=').trim();
-    if (!value) return;
-    list[name] = decodeURIComponent(value);
-  });
-  return list;
-}
-
-async function sign(data, secret) {
-  const encoder = new TextEncoder();
-  const key = await crypto.subtle.importKey(
-    "raw", encoder.encode(secret), { name: "HMAC", hash: "SHA-256" }, false,["sign"]
-  );
-  const signature = await crypto.subtle.sign("HMAC", key, encoder.encode(data));
-  return btoa(String.fromCharCode(...new Uint8Array(signature)));
-}
-
-async function verify(data, signature, secret) {
-  const expected = await sign(data, secret);
-  return expected === signature;
-}
-
-function generateSessionToken() {
-  const bytes = new Uint8Array(32);
-  crypto.getRandomValues(bytes);
-  return btoa(String.fromCharCode(...bytes)).replace(/[+/=]/g, c =>
-    c === '+' ? '-' : c === '/' ? '_' : ''
-  );
-}
-
-async function secureCompare(a, b, secret) {
-  if (typeof a !== 'string' || typeof b !== 'string') return false;
-  if (a.length === 0 || b.length === 0) return false;
-  const encoder = new TextEncoder();
-  const key = await crypto.subtle.importKey(
-    "raw", encoder.encode(secret),
-    { name: "HMAC", hash: "SHA-256" }, false, ["sign"]
-  );
-  const [sigA, sigB] = await Promise.all([
-    crypto.subtle.sign("HMAC", key, encoder.encode(a)),
-    crypto.subtle.sign("HMAC", key, encoder.encode(b))
-  ]);
-  if (sigA.byteLength !== sigB.byteLength) return false;
-  const arrA = new Uint8Array(sigA);
-  const arrB = new Uint8Array(sigB);
-  let result = 0;
-  for (let i = 0; i < arrA.length; i++) {
-    result |= arrA[i] ^ arrB[i];
-  }
-  return result === 0;
-}
 
 function getDayOfWeek(dateStr) {
   const parts = dateStr.split('-');
@@ -120,37 +61,7 @@ async function fetchHotSearchData(providerName = 'auto') {
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
-    const cookies = parseCookies(request);
-    const clientIp = request.headers.get('cf-connecting-ip') || 'unknown';
     
-    const isAuthorized = async () => {
-      if (!cookies.auth_token || !cookies.auth_sig) return { ok: false };
-    
-      const sigValid = await verify(cookies.auth_token, cookies.auth_sig, env.JWT_SECRET);
-      if (!sigValid) return { ok: false };
-    
-      const record = await env.DB.prepare(
-        "SELECT value FROM settings WHERE key = 'active_session_token'"
-      ).first();
-      if (!record || !record.value) return { ok: false };
-    
-      let sessions;
-      if (!record.value.startsWith('[')) {
-        if (record.value !== cookies.auth_token) return { ok: false };
-        sessions = [{ token: record.value, ua: '' }];
-      } else {
-        try {
-          sessions = JSON.parse(record.value);
-          if (!Array.isArray(sessions)) return { ok: false };
-        } catch(e) { return { ok: false }; }
-      }
-    
-      const matched = sessions.find(s => s.token === cookies.auth_token);
-      if (!matched) return { ok: false };
-    
-      return { ok: true, matchedSession: matched, sessions };
-    };
-
     const initDb = async () => {
       if (isDbInitialized) return;
       try {
@@ -189,13 +100,6 @@ export default {
           `),
           env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_templates_repeat_type ON todo_templates(repeat_type)`),
           
-          env.DB.prepare(`
-            CREATE TABLE IF NOT EXISTS login_attempts (
-              ip TEXT PRIMARY KEY,
-              attempts INTEGER NOT NULL DEFAULT 0,
-              lock_until INTEGER NOT NULL DEFAULT 0
-            )
-          `),
           env.DB.prepare(`
             CREATE TABLE IF NOT EXISTS settings (
               key TEXT PRIMARY KEY,
@@ -259,138 +163,10 @@ export default {
 
     await initDb();
 
-    //  统一 API 鉴权拦截
-    const publicApiPaths = ['/api/login', '/api/logout', '/api/hot-search'];
-    const isApiRequest = url.pathname.startsWith('/api/');
-    if (isApiRequest && !publicApiPaths.includes(url.pathname)) {
-      const { ok: apiAuthed } = await isAuthorized();
-      if (!apiAuthed) {
-        return new Response(JSON.stringify({ error: "UNAUTHORIZED" }), {
-          status: 401,
-          headers: { 'Content-Type': 'application/json' }
-        });
-      }
-    }
+
+
     
-    if (url.pathname === '/api/login' && request.method === 'POST') {
-      const now = Date.now();
-      
-      const attemptRecord = await env.DB.prepare('SELECT * FROM login_attempts WHERE ip = ?').bind(clientIp).first();
-      if (attemptRecord && attemptRecord.lock_until > now) {
-        return new Response(JSON.stringify({ error: "ACCOUNT LOCKED" }), { status: 429 });
-      }
-
-      const { password } = await request.json();
-      const isAdmin = await secureCompare(password, env.ADMIN_PASSWORD, env.JWT_SECRET);
-
-      if (isAdmin) {
-        await env.DB.prepare(`
-          INSERT INTO login_attempts (ip, attempts, lock_until) VALUES (?, 0, 0) 
-          ON CONFLICT(ip) DO UPDATE SET attempts = 0, lock_until = 0
-        `).bind(clientIp).run();
-    
-        const loginUA = request.headers.get('User-Agent') || '';
-        
-        let sessions = [];
-        const sessionRecord = await env.DB.prepare(
-          "SELECT value FROM settings WHERE key = 'active_session_token'"
-        ).first();
-        if (sessionRecord && sessionRecord.value) {
-          try {
-            const parsed = JSON.parse(sessionRecord.value);
-            if (Array.isArray(parsed)) sessions = parsed;
-          } catch(e) { sessions = []; }
-        }
-        
-        const token = generateSessionToken();
-        const sig = await sign(token, env.JWT_SECRET);
-        
-        sessions = sessions.filter(s => s.ua !== loginUA);
-        sessions.push({ token, ua: loginUA });
-        while (sessions.length > 3) sessions.shift();
-        
-        await env.DB.prepare(
-          "INSERT OR REPLACE INTO settings (key, value) VALUES ('active_session_token', ?)"
-        ).bind(JSON.stringify(sessions)).run();
-        
-        if (loginUA) {
-          const appSettingsRecord = await env.DB.prepare("SELECT value FROM settings WHERE key = 'app_settings'").first();
-          let appSettingsObj = {};
-          if (appSettingsRecord && appSettingsRecord.value) {
-            try { appSettingsObj = JSON.parse(appSettingsRecord.value); } catch(e) {}
-          }
-          if (!Array.isArray(appSettingsObj.scaleByBrowser)) {
-            appSettingsObj.scaleByBrowser = [];
-          }
-          let uaExists = false;
-          for (let i = 0; i < appSettingsObj.scaleByBrowser.length; i++) {
-            if (appSettingsObj.scaleByBrowser[i].ua === loginUA) {
-              uaExists = true;
-              break;
-            }
-          }
-          if (!uaExists) {
-            appSettingsObj.scaleByBrowser.push({ ua: loginUA, scale: 1.0 });
-            while (appSettingsObj.scaleByBrowser.length > 3) {
-              appSettingsObj.scaleByBrowser.shift();
-            }
-            await env.DB.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('app_settings', ?)")
-              .bind(JSON.stringify(appSettingsObj)).run();
-          }
-        }
-
-        const headers = new Headers();
-        headers.append('Set-Cookie', `auth_token=${token}; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=2592000`);
-        headers.append('Set-Cookie', `auth_sig=${sig}; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=2592000`);
-        return new Response(JSON.stringify({ success: true }), { headers });
-      } else {
-        await env.DB.prepare(`
-          INSERT INTO login_attempts (ip, attempts, lock_until) VALUES (?, 1, 0) 
-          ON CONFLICT(ip) DO UPDATE SET 
-            attempts = attempts + 1,
-            lock_until = CASE WHEN attempts + 1 >= 5 THEN ? ELSE 0 END
-        `).bind(clientIp, now + 15 * 60 * 1000).run();
-        
-        return new Response(JSON.stringify({ error: "ACCESS DENIED" }), { status: 401 });
-      }
-    }
-    
-    if (url.pathname === '/api/logout' && request.method === 'POST') {
-      if (cookies.auth_token) {
-        const record = await env.DB.prepare(
-          "SELECT value FROM settings WHERE key = 'active_session_token'"
-        ).first();
-        if (record && record.value) {
-          try {
-            let sessions = [];
-            try {
-              const parsed = JSON.parse(record.value);
-              if (Array.isArray(parsed)) sessions = parsed;
-            } catch(e) {}
-            if (sessions.length > 0) {
-              sessions = sessions.filter(s => s.token !== cookies.auth_token);
-              if (sessions.length > 0) {
-                await env.DB.prepare(
-                  "INSERT OR REPLACE INTO settings (key, value) VALUES ('active_session_token', ?)"
-                ).bind(JSON.stringify(sessions)).run();
-              } else {
-                await env.DB.prepare(
-                  "DELETE FROM settings WHERE key = 'active_session_token'"
-                ).run();
-              }
-            }
-          } catch(e) {}
-        }
-      }
-      const headers = new Headers();
-      headers.append('Set-Cookie', `auth_token=; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=0`);
-      headers.append('Set-Cookie', `auth_sig=; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=0`);
-      return new Response(JSON.stringify({ success: true }), { headers });
-    }
-
     if (url.pathname === '/' && request.method === 'GET') {
-      const { ok: authorized, matchedSession, sessions: authSessions } = await isAuthorized();
-    
       let customHeader = '';
       let customContent = '';
         
@@ -416,142 +192,12 @@ export default {
         } catch (e) {}
       }
     
-      if (authorized && matchedSession) {
-        const currentUA = request.headers.get('User-Agent') || '';
-        if (currentUA && matchedSession.ua !== currentUA) {
-          const oldUA = matchedSession.ua;
-          
-          matchedSession.ua = currentUA;
-          const updatedSessions = authSessions.filter(s => 
-            s.token === matchedSession.token || s.ua !== currentUA
-          );
-    
-          const batchStmts = [
-            env.DB.prepare(
-              "INSERT OR REPLACE INTO settings (key, value) VALUES ('active_session_token', ?)"
-            ).bind(JSON.stringify(updatedSessions))
-          ];
-    
-          if (!appSettingsObj) appSettingsObj = {};
-          if (!Array.isArray(appSettingsObj.scaleByBrowser)) {
-            appSettingsObj.scaleByBrowser = [];
-          }
-          
-          let replaced = false;
-          for (let i = 0; i < appSettingsObj.scaleByBrowser.length; i++) {
-            if (appSettingsObj.scaleByBrowser[i].ua === oldUA) {
-              appSettingsObj.scaleByBrowser[i].ua = currentUA;
-              replaced = true;
-              break;
-            }
-          }
-          if (!replaced) {
-            appSettingsObj.scaleByBrowser.push({ ua: currentUA, scale: 1.0 });
-          }
-          
-          let foundCurrentUA = false;
-          appSettingsObj.scaleByBrowser = appSettingsObj.scaleByBrowser.filter(s => {
-            if (s.ua === currentUA) {
-              if (!foundCurrentUA) {
-                foundCurrentUA = true;
-                return true;
-              }
-              return false;
-            }
-            return true;
-          });
-    
-          while (appSettingsObj.scaleByBrowser.length > 3) {
-            appSettingsObj.scaleByBrowser.shift();
-          }
-    
-          batchStmts.push(
-            env.DB.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('app_settings', ?)")
-              .bind(JSON.stringify(appSettingsObj))
-          );
-    
-          await env.DB.batch(batchStmts);
-        }
-      }
-    
-      return new Response(renderHTML(authorized, customHeader, customContent), {
+      return new Response(renderHTML(customHeader, customContent), {
         headers: { 'Content-Type': 'text/html;charset=UTF-8' },
       });
     }
 
 
-    if (url.pathname === '/api/sessions' && request.method === 'GET') {
-      const record = await env.DB.prepare(
-        "SELECT value FROM settings WHERE key = 'active_session_token'"
-      ).first();
-      let sessions = [];
-      if (record && record.value) {
-        try {
-          const parsed = JSON.parse(record.value);
-          if (Array.isArray(parsed)) sessions = parsed;
-        } catch(e) {}
-      }
-      const clientUA = request.headers.get('User-Agent') || '';
-      const safeSessions = sessions.map(s => ({
-        ua: s.ua,
-        disabled: s.disabled || false,
-        isCurrent: s.ua === clientUA
-      }));
-      return new Response(JSON.stringify(safeSessions), { headers: { 'Content-Type': 'application/json' } });
-    }
-
-    if (url.pathname === '/api/session-action' && request.method === 'POST') {
-      const { action, ua } = await request.json();
-      const record = await env.DB.prepare(
-        "SELECT value FROM settings WHERE key = 'active_session_token'"
-      ).first();
-      let sessions = [];
-      if (record && record.value) {
-        try {
-          const parsed = JSON.parse(record.value);
-          if (Array.isArray(parsed)) sessions = parsed;
-        } catch(e) {}
-      }
-
-      if (action === 'DELETE' && ua) {
-        sessions = sessions.filter(s => s.ua !== ua);
-      } else if (action === 'DELETE_ALL') {
-        sessions = [];
-      }
-
-      if (sessions.length > 0) {
-        await env.DB.prepare(
-          "INSERT OR REPLACE INTO settings (key, value) VALUES ('active_session_token', ?)"
-        ).bind(JSON.stringify(sessions)).run();
-      } else {
-        await env.DB.prepare(
-          "DELETE FROM settings WHERE key = 'active_session_token'"
-        ).run();
-      }
-
-      // 同步清理 scaleByBrowser 中被删除的 UA
-      if (action === 'DELETE' || action === 'DELETE_ALL') {
-        try {
-          const appSettingsRecord = await env.DB.prepare("SELECT value FROM settings WHERE key = 'app_settings'").first();
-          if (appSettingsRecord && appSettingsRecord.value) {
-            let appSettingsObj = JSON.parse(appSettingsRecord.value);
-            if (Array.isArray(appSettingsObj.scaleByBrowser)) {
-              const remainingUAs = sessions.map(s => s.ua);
-              if (action === 'DELETE_ALL') {
-                appSettingsObj.scaleByBrowser = [];
-              } else {
-                appSettingsObj.scaleByBrowser = appSettingsObj.scaleByBrowser.filter(item => remainingUAs.includes(item.ua));
-              }
-              await env.DB.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('app_settings', ?)")
-                .bind(JSON.stringify(appSettingsObj)).run();
-            }
-          }
-        } catch(e) {}
-      }
-
-      return new Response(JSON.stringify({ success: true }), { headers: { 'Content-Type': 'application/json' } });
-    }
-    
     if (url.pathname === '/api/custom-code' && request.method === 'GET') {
       const headerRecord = await env.DB.prepare("SELECT value FROM settings WHERE key = 'custom_header'").first();
       const contentRecord = await env.DB.prepare("SELECT value FROM settings WHERE key = 'custom_content'").first();
@@ -1707,7 +1353,7 @@ export default {
 };
 
 // 前端页面
-function renderHTML(isAuthorized, customHeader, customContent) {
+function renderHTML(customHeader, customContent) {
   let html = `
 <!DOCTYPE html>
 <html lang="zh-CN">
@@ -1743,6 +1389,7 @@ function renderHTML(isAuthorized, customHeader, customContent) {
       display: flex;
       flex-direction: column;
       align-items: center;
+      padding-top: 40px;
       padding-bottom: 120px;
       zoom: var(--app-scale);
     }
@@ -2188,8 +1835,7 @@ function renderHTML(isAuthorized, customHeader, customContent) {
       box-shadow: inset 2px 2px 0 #E5E5E5; border-radius: 4px;
     }
     
-    [data-theme="light"] #preview-notice { background: #E1AC07; color: #1B1915; border-bottom: 2px solid #1B1915; }
-    [data-theme="light"] #preview-notice .md-code { background: #1B1915; color: #E1AC07; border: 1px solid #1B1915; }
+    [data-theme="light"] #demo-notice { background: #E1AC07; color: #1B1915; border-bottom: 2px solid #1B1915; }
     
     /* === 显示大小调整 === */
     .scale-control { width: 100%; }
@@ -2304,28 +1950,20 @@ function renderHTML(isAuthorized, customHeader, customContent) {
 <body>
   <div class="scanlines"></div>
   
-  <div id="preview-notice" class="hidden" style="background:var(--warn);color:#000;padding:8px 15px;text-align:center;font-weight:bold;font-size:0.85rem;position:fixed;top:0;left:0;right:0;z-index:110;">⚠ 前端定制预览状态 — 自定义仅在本地生效 <span class="md-code" style="cursor:pointer;margin-left:8px;background:#000;color:var(--warn);" onclick="restoreAllPreview()">还原</span></div>
+  <div id="demo-notice" style="background:var(--warn);color:#000;padding:8px 15px;text-align:center;font-weight:bold;font-size:0.85rem;position:fixed;top:0;left:0;right:0;z-index:110;">⚠ Demo 模式 — 无需登录，API 鉴权已移除，数据不设防</div>
 
   <div class="container">
-    <div class="top-actions-left ${isAuthorized ? '' : 'hidden'}">
+    <div class="top-actions-left">
       <button class="theme-toggle-btn" onclick="openTrash()">回收站</button>
       <button class="theme-toggle-btn" onclick="openStats()">统计</button>
     </div>
-    <div class="top-actions ${isAuthorized ? '' : 'hidden'}">
+    <div class="top-actions">
       <button class="theme-toggle-btn" onclick="openSettings()">设置</button>
       <button id="theme-toggle-btn" class="theme-toggle-btn" onclick="toggleTheme()">自动</button>
     </div>
     <h1>待办事项</h1>
 
-    <div id="login-view" class="${isAuthorized ? 'hidden' : ''}">
-      <div style="border: 1px solid var(--accent); padding: 20px; text-align: center;">
-        <p style="color:var(--accent); margin-bottom:15px;">[ 身份验证请求 ]</p>
-        <input type="password" id="password-input" placeholder="输入密钥..." onkeydown="if(event.key==='Enter')login()">
-        <button class="btn-primary" style="width:100%" onclick="login()">接入系统</button>
-      </div>
-    </div>
-
-    <div id="app-view" class="${isAuthorized ? '' : 'hidden'}">
+    <div id="app-view">
       
       <div class="date-bar">
         <button onclick="changeDate(-1)">&lt;</button>
@@ -2605,13 +2243,6 @@ function renderHTML(isAuthorized, customHeader, customContent) {
           </div>
       </div>
 
-      <div class="detail-label">登录管理</div>
-      <div class="settings-card">
-          <p class="settings-text" style="margin-bottom: 12px;">最多支持 <strong>3</strong> 个浏览器UA同时登录。达到上限后新登录将自动替换最早（靠上）登录的会话。</p>
-          <div id="sessions-list" style="margin-bottom: 12px;"></div>
-          <button class="btn-danger" style="width:100%" onclick="deleteAllSessions()">全部删除</button>
-      </div>
-
       <div class="detail-label">关于 MOARA 待办事项</div>
       <div class="settings-card">
           <p class="settings-text" style="margin-bottom:5px;display:flex;align-items:center;gap:6px;flex-wrap:wrap;"><strong>当前版本:</strong> <span id="app-version-display"></span> <span id="update-status"></span> <span class="md-code" style="cursor:pointer;font-size:0.75rem;" onclick="checkUpdate()">检查</span></p>
@@ -2621,10 +2252,7 @@ function renderHTML(isAuthorized, customHeader, customContent) {
 
       <div class="detail-label" style="color: var(--accent);">危险区域</div>
       <div class="settings-card danger">
-          <div class="settings-text" style="margin-bottom: 10px;">退出当前登录会话，需重新输入密钥接入系统。您的数据不会消失。</div>
-          <button class="btn-danger" style="width:100%" onclick="logout()">退出登录</button>
-          
-          <p class="settings-text" style="margin-bottom: 15px; margin-top: 20px; padding-top: 20px; border-top: 1px dashed var(--accent);">执行此操作将不可逆地清空所有的系统记录、回收站数据并重置偏好设置。建议提前导出备份。</p>
+          <p class="settings-text" style="margin-bottom: 15px;">执行此操作将不可逆地清空所有的系统记录、回收站数据并重置偏好设置。建议提前导出备份。</p>
           <button class="btn-danger" style="width:100%" onclick="factoryReset()">恢复出厂设置</button>
       </div>
 
@@ -2757,8 +2385,6 @@ function renderHTML(isAuthorized, customHeader, customContent) {
       if (hasPreview) {
         if (ph !== null) { try { _injectPreview(document.head, ph); } catch(e){ console.error('Preview header inject error:', e); } }
         if (pc !== null) { try { _injectPreview(document.body, pc); } catch(e){ console.error('Preview content inject error:', e); } }
-        var notice = document.getElementById('preview-notice');
-        if (notice) { notice.classList.remove('hidden'); document.body.style.paddingTop = '40px'; }
       }
     })();
     
@@ -2876,9 +2502,7 @@ function renderHTML(isAuthorized, customHeader, customContent) {
     let tempSetSortAsc = true;
     let customCodeEnabled = false;
     
-    let sessionsList = [];
-    
-    var CURRENT_VERSION = 'v2.6.8.2';
+    var CURRENT_VERSION = 'v2.6.8.2-demo';
     
     function initVersionDisplay() {
       var el = document.getElementById('app-version-display');
@@ -2933,59 +2557,6 @@ function renderHTML(isAuthorized, customHeader, customContent) {
       return div.innerHTML;
     }
 
-    async function loadSessions() {
-      try {
-        const res = await fetch('/api/sessions');
-        if (res.ok) {
-          sessionsList = await res.json();
-          renderSessions();
-        }
-      } catch(e) { console.error('Load sessions error:', e); }
-    }
-
-    function renderSessions() {
-      const container = document.getElementById('sessions-list');
-      if (!container) return;
-      if (sessionsList.length === 0) {
-        container.innerHTML = '<div class="settings-text" style="text-align:center; padding: 10px;">暂无活跃会话</div>';
-        return;
-      }
-      container.innerHTML = sessionsList.map(function(s, i) {
-        var actions = '';
-        if (s.isCurrent) {
-          actions += '<span style="font-size:0.7rem;color:#666;">当前会话</span>';
-        } else {
-          actions += '<button class="btn-danger" onclick="deleteSessionByIndex(' + i + ')">删除</button>';
-        }
-        return '<div class="session-item' + (s.isCurrent ? ' current-session' : '') + '">' +
-          '<div class="session-ua">' + escapeHtml(s.ua) + '</div>' +
-          '<div class="session-actions">' + actions + '</div>' +
-        '</div>';
-      }).join('');
-    }
-
-    async function deleteSessionByIndex(index) {
-      var s = sessionsList[index];
-      if (!s || s.isCurrent) return;
-      if (!confirm('确认删除该会话？删除后需要重新登录。')) return;
-      await fetch('/api/session-action', {
-        method: 'POST',
-        body: JSON.stringify({ action: 'DELETE', ua: s.ua }),
-        headers: { 'Content-Type': 'application/json' }
-      });
-      loadSessions();
-    }
-
-    async function deleteAllSessions() {
-      if (!confirm('确认删除全部会话？删除后需要重新登录。')) return;
-      await fetch('/api/session-action', {
-        method: 'POST',
-        body: JSON.stringify({ action: 'DELETE_ALL' }),
-        headers: { 'Content-Type': 'application/json' }
-      });
-      location.reload();
-    }
-    
     let tempAppScale = 1.0;
 
     function applyAppScale(scale) {
@@ -3208,20 +2779,6 @@ function renderHTML(isAuthorized, customHeader, customContent) {
       if(btnSortTrigger) btnSortTrigger.innerText = '排序: ' + label + ' ▼';
       if(btnSortOrder) btnSortOrder.innerText = '顺序: ' + orderLabel;
       applyAppScale(tempAppScale);
-    }
-
-    async function login() {
-      const pwd = document.getElementById('password-input').value;
-      try {
-        const res = await fetch('/api/login', {
-          method: 'POST',
-          body: JSON.stringify({ password: pwd }),
-          headers: { 'Content-Type': 'application/json' }
-        });
-        if (res.ok) { location.reload(); } 
-        else if (res.status === 429) { alert("连续尝试错误次数过多，IP已被锁定，请 15 分钟后再试！"); } 
-        else { alert("密钥验证失败 / 访问被拒绝"); }
-      } catch (e) { alert("网络连接失败"); }
     }
 
     function copyText(text) {
@@ -3531,7 +3088,6 @@ function renderHTML(isAuthorized, customHeader, customContent) {
       const view = document.getElementById('settings-overlay');
       view.classList.remove('closing');
       view.classList.add('active');
-      loadSessions();
       checkUpdate();
     }
 
@@ -5583,10 +5139,8 @@ function renderHTML(isAuthorized, customHeader, customContent) {
       if (_previewRedirecting) return;
       await initSettings();
       initVersionDisplay();
-      if (document.getElementById('login-view').classList.contains('hidden')) {
-        loadTodos();
-        checkInterruptedImport();
-      }
+      loadTodos();
+      checkInterruptedImport();
     }
     bootstrap();
 
@@ -5611,12 +5165,6 @@ function renderHTML(isAuthorized, customHeader, customContent) {
     }
 
     Object.assign(window, {
-      // 登录
-      login: login,
-      logout: async function() {
-        await fetch('/api/logout', { method: 'POST' });
-        location.reload();
-      },
       // 主题
       toggleTheme: toggleTheme,
       // 日期导航
@@ -5702,8 +5250,6 @@ function renderHTML(isAuthorized, customHeader, customContent) {
       exportData: exportData,
       importData: importData,
       factoryReset: factoryReset,
-      deleteSessionByIndex: deleteSessionByIndex,
-      deleteAllSessions: deleteAllSessions,
       onScaleSliderChange: onScaleSliderChange,
       setScalePreset: setScalePreset,
       resetScaleBrowserData: resetScaleBrowserData,
