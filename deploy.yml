@@ -1,0 +1,112 @@
+name: Deploy to Cloudflare Workers
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - run: npm install
+
+      - name: Create D1 Database
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          echo "检查并创建 D1 数据库..."
+          DATABASE_ID=""
+
+          # 1. 先尝试从已有列表中查找
+          DATABASE_ID=$(npx wrangler d1 list --json 2>/dev/null | python3 -c "
+          import sys, json
+          try:
+              text = sys.stdin.read()
+              start = text.find('[')
+              if start >= 0:
+                  data = json.loads(text[start:])
+                  for d in data:
+                      if d.get('name') == 'todo-db':
+                          print(d['uuid'])
+                          break
+          except: pass
+          " 2>/dev/null || true)
+
+          # 2. 如果不存在，尝试创建
+          if [ -z "$DATABASE_ID" ]; then
+            echo "数据库不存在，正在创建..."
+            CREATE_OUTPUT=$(npx wrangler d1 create todo-db 2>&1) || true
+            echo "$CREATE_OUTPUT"
+            DATABASE_ID=$(echo "$CREATE_OUTPUT" | grep -oP 'database_id\s*=\s*"\K[^"]+' || true)
+            if [ -z "$DATABASE_ID" ]; then
+              DATABASE_ID=$(echo "$CREATE_OUTPUT" | grep -oP '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}' | head -1 || true)
+            fi
+          fi
+
+          # 3. 如果创建也失败（可能已存在但列表没查到），再查一次列表
+          if [ -z "$DATABASE_ID" ]; then
+            sleep 3
+            DATABASE_ID=$(npx wrangler d1 list --json 2>/dev/null | python3 -c "
+            import sys, json
+            try:
+                text = sys.stdin.read()
+                start = text.find('[')
+                if start >= 0:
+                    data = json.loads(text[start:])
+                    for d in data:
+                        if d.get('name') == 'todo-db':
+                            print(d['uuid'])
+                            break
+            except: pass
+            " 2>/dev/null || true)
+          fi
+
+          if [ -z "$DATABASE_ID" ]; then
+            echo "无法创建或找到 D1 数据库，请确认 API Token 包含 D1 编辑权限"
+            exit 1
+          fi
+
+          echo "D1 数据库 ID: $DATABASE_ID"
+          sed -i -E "s/(database_id = \")[^\"]*\"/\1${DATABASE_ID}\"/" wrangler.toml
+          echo "database_id=$DATABASE_ID" >> $GITHUB_ENV
+
+      - name: Set Worker Secrets
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          # 仅在 Secret 尚未设置时写入，避免每次覆盖
+          SECRET_LIST=$(npx wrangler secret list 2>&1 || true)
+          if ! echo "$SECRET_LIST" | grep -q "ADMIN_PASSWORD"; then
+            echo "${{ secrets.ADMIN_PASSWORD }}" | npx wrangler secret put ADMIN_PASSWORD
+          fi
+          if ! echo "$SECRET_LIST" | grep -q "JWT_SECRET"; then
+            echo "${{ secrets.JWT_SECRET }}" | npx wrangler secret put JWT_SECRET
+          fi
+
+      - name: Deploy to Cloudflare Workers
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: npx wrangler deploy
+
+      - name: Display Result
+        if: always()
+        run: |
+          if [ "${{ job.status }}" == "success" ]; then
+            echo "========================================"
+            echo "部署成功！"
+            echo "D1 数据库 ID: ${{ env.database_id }}"
+            echo "首次访问 Worker URL 会自动建表"
+            echo "========================================"
+          else
+            echo "部署失败，请检查 Actions 日志"
+          fi
