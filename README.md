@@ -14,10 +14,7 @@
 
 ---
 
-## 部署方式
-
-
-### GitHub Actions 自动部署
+## GitHub Actions 部署
 
 第1步：Fork 仓库
 
