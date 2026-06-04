@@ -1,0 +1,8 @@
+name = "cf-todo"
+main = "worker.js"
+compatibility_date = "2024-12-01"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "todo-db"
+database_id = ""
