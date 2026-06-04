@@ -1,0 +1,8 @@
+{
+  "name": "cf-todo",
+  "private": true,
+  "version": "1.0.0",
+  "dependencies": {
+    "rrule": "^2.8.1"
+  }
+}
