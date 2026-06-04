@@ -19,15 +19,15 @@
 
 ### GitHub Actions 自动部署
 
-#### 第1步：Fork 仓库
+第1步：Fork 仓库
 
 打开本项目的 GitHub 页面 → 右上角 **Fork** → 确认。
 
-#### 第2步：获取 Cloudflare API Token 和 Account ID
+第2步：获取 Cloudflare API Token 和 Account ID
 
 1. 登录 [Cloudflare Dashboard](https://dash.cloudflare.com)
 2. 右上角头像 → **我的个人资料** → **API 令牌** → **创建令牌**
-3. 选择 **编辑 Cloudflare Workers** 模板 → 确认权限包含 **Account - D1 - Edit** → **继续显示摘要** → **创建令牌**
+3. 选择 **编辑 Cloudflare Workers** 模板 → 添加权限 **Account - D1 - Edit** → **继续显示摘要** → **创建令牌**
 4. **复制令牌**（只显示一次）
 5. 浏览器地址栏可看到 **账户 ID**，记下来
 
@@ -40,7 +40,7 @@
 | `CLOUDFLARE_API_TOKEN` | **是** | 上一步获取的 API 令牌 |
 | `CLOUDFLARE_ACCOUNT_ID` | **是** | 上一步获取的账户 ID |
 | `ADMIN_PASSWORD` | **是** | 登录密码，建议强密码 |
-| `JWT_SECRET` | **是** | JWT 签名密钥，随机字符串即可，可到 [jwtsecrets.com](https://jwtsecrets.com/#generator) 生成 |
+| `JWT_SECRET` | **是** | JWT 签名密钥，随机字符串即可，可到 [jwtsecrets](https://jwtsecrets.com/#generator) 生成 |
 
 #### 第4步：一键部署
 
