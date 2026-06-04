@@ -8,8 +8,8 @@
 - 增删改、标记完成
 - 创建子任务拆分步骤，逐个勾掉
 - 自动拉取B站/微博/知乎/百度热点共20个，当任务或灵感池用
-- 每日重复事项，勾了明天还有
-- 回收站防手滑
+- 重复事项（支持间隔：每2周、每3月等），对齐 Google Calendar 三选项删除/编辑
+- 回收站防手滑（30天自动清理）
 - 批量操作、筛选排序、导入导出
 
 ---
@@ -26,11 +26,53 @@
 
 ---
 
-## 配置指南
+## 部署方式
 
-### 1. 创建 Worker 项目，选择从 Hello world 开始
+> 项目使用 `rrule` 库处理重复规则，需要构建打包后部署，不能像旧版那样直接粘贴单文件。`wrangler.toml` 中不包含数据库 ID，由 GitHub Actions 自动创建并注入，公开仓库也无泄露风险。
 
-### 2. 数据库绑定
+### 方式一：GitHub Actions 一键自动部署（推荐）
+
+> 全程网页操作，Fork 后只需配置 4 个 Secret，点一下 Run 即可自动完成所有操作。
+
+#### 第1步：Fork 仓库
+
+打开本项目的 GitHub 页面 → 右上角 **Fork** → 确认。
+
+#### 第2步：获取 Cloudflare API Token 和 Account ID
+
+1. 登录 [Cloudflare Dashboard](https://dash.cloudflare.com)
+2. 右上角头像 → **我的个人资料** → **API 令牌** → **创建令牌**
+3. 选择 **编辑 Cloudflare Workers** 模板 → 确认权限包含 **Account - D1 - Edit** → **继续显示摘要** → **创建令牌**
+4. **立即复制令牌**（只显示一次！）
+5. Dashboard 首页右侧栏可看到 **账户 ID**，记下来
+
+#### 第3步：在 GitHub 仓库中配置 Secrets
+
+进入你 Fork 的仓库 → **Settings** → **Secrets and variables** → **Actions** → **New repository secret**，添加以下 4 个：
+
+| Secret 名称 | 必填 | 说明 |
+| :--- | :---: | :--- |
+| `CLOUDFLARE_API_TOKEN` | **是** | 上一步获取的 API 令牌 |
+| `CLOUDFLARE_ACCOUNT_ID` | **是** | 上一步获取的账户 ID |
+| `ADMIN_PASSWORD` | **是** | 登录密码，建议强密码 |
+| `JWT_SECRET` | **是** | JWT 签名密钥，随机字符串即可，可到 [jwtsecrets.com](https://jwtsecrets.com/#generator) 生成 |
+
+#### 第4步：一键部署
+
+1. 进入仓库的 **Actions** 选项卡
+2. 左侧选择 **Deploy to Cloudflare Workers**
+3. 点击右侧 **Run workflow** → 选择 `main` 分支 → **Run workflow**
+4. 等待运行完成，出现绿色 ✓ 即部署成功
+
+> 首次访问 Worker URL 会自动建表，无需手动操作数据库。
+
+---
+
+### 方式二：手动部署
+
+#### 1. 创建 Worker 项目，选择从 Hello world 开始
+
+#### 2. 数据库绑定
 
 这是运行该项目的基础，配置步骤：
 
@@ -40,16 +82,28 @@
 4. **变量名称** 必须填入：`DB`
 5. 选择刚刚创建的 D1 数据库 -> 添加绑定。
 
-### 3. 核心密钥配置
+#### 3. 核心密钥配置
 
 1. 在 Worker 项目的 **设置** -> **变量和机密** 中。
 2. 点击 **添加变量**。
 3. 类型选文本或秘钥，添加变量名称 `ADMIN_PASSWORD` 和 `JWT_SECRET`。
 4. 建议填写强密码/密钥串。
 
-### 4. 前端定制注入
+#### 4. 本地构建部署
 
-在网站的**设置**中添加。<br>默认**关闭**前端定制注入。需要在网站“设置 -> 前端定制”中启用前端定制注入并点击保存才会生效。
+```bash
+# 安装依赖
+npm install
+
+# 使用 wrangler 部署（需先登录 wrangler）
+npx wrangler deploy
+```
+
+---
+
+## 前端定制注入
+
+在网站的**设置**中添加。<br>默认**关闭**前端定制注入。需要在网站"设置 -> 前端定制"中启用前端定制注入并点击保存才会生效。
 
 示例 - 美观的半透明主题（双击主界面空白处切换背景图，≥3次下载当前背景图）
 
@@ -756,24 +810,24 @@ setTimeout(function(){
 function restructureAddModal() {
   var mc = document.querySelector('#modal-add .modal-content');
   if (!mc) return;
-  
+
   if (mc.classList.contains('ycy-sheet-ready')) {
     fixAddModalChildren();
     return;
   }
-  
+
   mc.classList.add('ycy-sheet-ready');
-  
+
   var handle = document.createElement('div');
   handle.className = 'ycy-drag-handle';
   mc.prepend(handle);
-  
+
   var body = document.createElement('div');
   body.className = 'ycy-sheet-body';
   mc.appendChild(body);
-  
+
   fixAddModalChildren();
-  
+
   handle.addEventListener('click', function() {
     var overlay = document.getElementById('modal-add');
     if (overlay) {
@@ -784,7 +838,7 @@ function restructureAddModal() {
         overlay.classList.add('closing-overlay');
         var mcInner = overlay.querySelector('.modal-content');
         if(mcInner) mcInner.classList.add('closing');
-        
+
         setTimeout(function() {
           overlay.classList.remove('active', 'closing-overlay');
           if(mcInner) mcInner.classList.remove('closing');
@@ -801,7 +855,7 @@ function fixAddModalChildren() {
   var body = mc.querySelector('.ycy-sheet-body');
   var handle = mc.querySelector('.ycy-drag-handle');
   if (!body || !handle) return;
-  
+
   var nodesToMove = [];
   for (var i = 0; i < mc.childNodes.length; i++) {
     var node = mc.childNodes[i];
