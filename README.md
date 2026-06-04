@@ -43,8 +43,9 @@
 
 1. 进入仓库的 **Actions** 选项卡
 2. 左侧选择 **Deploy to Cloudflare Workers**
-3. 点击右侧 **Run workflow** → 选择 `main` 分支 → **Run workflow**
+3. 点击右侧 **Run workflow** → 选择分支 → **Run workflow**
 4. 等待运行完成，出现绿色 ✓ 即部署成功
+访问你的 URL 开始使用
 
 ---
 
