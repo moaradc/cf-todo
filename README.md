@@ -8,31 +8,16 @@
 - 增删改、标记完成
 - 创建子任务拆分步骤，逐个勾掉
 - 自动拉取B站/微博/知乎/百度热点共20个，当任务或灵感池用
-- 重复事项（支持间隔：每2周、每3月等），对齐 Google Calendar 三选项删除/编辑
-- 回收站防手滑（30天自动清理）
+- 每日重复事项，勾了明天还有
+- 回收站防手滑
 - 批量操作、筛选排序、导入导出
-
----
-
-## 环境变量配置
-
-在 Cloudflare Dashboard 中，进入您的 Worker 项目 -> **设置** -> **变量和机密** 中添加以下变量。
-
-| 变量名 | 必填 | 类型 | 说明 |
-| :--- | :---: | :--- | :--- |
-| `DB` | **是** | D1 数据库绑定 | D1 数据库的绑定名称。Worker 依赖此数据库存储数据 |
-| `ADMIN_PASSWORD` | **是** | 文本或秘钥 | 登录密码。连续错误 5 次会锁定该 IP 15 分钟 |
-| `JWT_SECRET` | **是** | 文本或秘钥 | 用于签名和验证用户登录态 Token 的密钥。随机字符串即可 |
 
 ---
 
 ## 部署方式
 
-> 项目使用 `rrule` 库处理重复规则，需要构建打包后部署，不能像旧版那样直接粘贴单文件。`wrangler.toml` 中不包含数据库 ID，由 GitHub Actions 自动创建并注入，公开仓库也无泄露风险。
 
-### 方式一：GitHub Actions 一键自动部署（推荐）
-
-> 全程网页操作，Fork 后只需配置 4 个 Secret，点一下 Run 即可自动完成所有操作。
+### GitHub Actions 自动部署
 
 #### 第1步：Fork 仓库
 
@@ -43,12 +28,12 @@
 1. 登录 [Cloudflare Dashboard](https://dash.cloudflare.com)
 2. 右上角头像 → **我的个人资料** → **API 令牌** → **创建令牌**
 3. 选择 **编辑 Cloudflare Workers** 模板 → 确认权限包含 **Account - D1 - Edit** → **继续显示摘要** → **创建令牌**
-4. **立即复制令牌**（只显示一次！）
-5. Dashboard 首页右侧栏可看到 **账户 ID**，记下来
+4. **复制令牌**（只显示一次）
+5. 浏览器地址栏可看到 **账户 ID**，记下来
 
 #### 第3步：在 GitHub 仓库中配置 Secrets
 
-进入你 Fork 的仓库 → **Settings** → **Secrets and variables** → **Actions** → **New repository secret**，添加以下 4 个：
+进入仓库 → **Settings** → **Secrets and variables** → **Actions** → **New repository secret**，添加以下 4 个：
 
 | Secret 名称 | 必填 | 说明 |
 | :--- | :---: | :--- |
@@ -63,41 +48,6 @@
 2. 左侧选择 **Deploy to Cloudflare Workers**
 3. 点击右侧 **Run workflow** → 选择 `main` 分支 → **Run workflow**
 4. 等待运行完成，出现绿色 ✓ 即部署成功
-
-> 首次访问 Worker URL 会自动建表，无需手动操作数据库。
-
----
-
-### 方式二：手动部署
-
-#### 1. 创建 Worker 项目，选择从 Hello world 开始
-
-#### 2. 数据库绑定
-
-这是运行该项目的基础，配置步骤：
-
-1. 在 Cloudflare Dashboard 左侧菜单选择 **存储和数据库 > D1 SQL 数据库**，创建一个数据库。
-2. 进入您的 Worker 项目，选择 绑定
-3. 点击 **添加绑定**，选择 **D1 数据库**。
-4. **变量名称** 必须填入：`DB`
-5. 选择刚刚创建的 D1 数据库 -> 添加绑定。
-
-#### 3. 核心密钥配置
-
-1. 在 Worker 项目的 **设置** -> **变量和机密** 中。
-2. 点击 **添加变量**。
-3. 类型选文本或秘钥，添加变量名称 `ADMIN_PASSWORD` 和 `JWT_SECRET`。
-4. 建议填写强密码/密钥串。
-
-#### 4. 本地构建部署
-
-```bash
-# 安装依赖
-npm install
-
-# 使用 wrangler 部署（需先登录 wrangler）
-npx wrangler deploy
-```
 
 ---
 
