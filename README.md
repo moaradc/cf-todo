@@ -28,7 +28,7 @@
 4. **复制令牌**（只显示一次）
 5. 浏览器地址栏可看到 **账户 ID**，记下来
 
-#### 第3步：在 GitHub 仓库中配置 Secrets
+第3步：在 GitHub 仓库中配置 Secrets
 
 进入仓库 → **Settings** → **Secrets and variables** → **Actions** → **New repository secret**，添加以下 4 个：
 
@@ -39,7 +39,7 @@
 | `ADMIN_PASSWORD` | **是** | 登录密码，建议强密码 |
 | `JWT_SECRET` | **是** | JWT 签名密钥，随机字符串即可，可到 [jwtsecrets](https://jwtsecrets.com/#generator) 生成 |
 
-#### 第4步：一键部署
+第4步：一键部署
 
 1. 进入仓库的 **Actions** 选项卡
 2. 左侧选择 **Deploy to Cloudflare Workers**
