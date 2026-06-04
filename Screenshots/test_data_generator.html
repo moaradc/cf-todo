@@ -1,0 +1,466 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>测试数据生成器</title>
+<style>
+:root{
+  --ycy-panel:rgba(255,255,255,.78);
+  --ycy-panel-s:rgba(255,255,255,.92);
+  --ycy-panel-w:rgba(255,255,255,.52);
+  --ycy-bd:rgba(0,0,0,.08);
+  --ycy-bd2:rgba(0,0,0,.05);
+  --ycy-sh:0 2px 16px rgba(0,0,0,.06);
+  --ycy-sh-lg:0 6px 28px rgba(0,0,0,.10);
+  --ycy-r:14px;--ycy-r-s:10px;--ycy-r-xs:6px;
+  --ycy-t:#1a1a1a;--ycy-t2:#444;--ycy-t3:#666;
+  --ycy-ac:#e8453c;--ycy-ac-l:rgba(232,69,60,.10);
+  --ycy-gn:#2d8f5e;--ycy-wn:#d4940a;--ycy-bl:#3a7bd5;
+  --font-main:'Courier New',Courier,monospace;
+}
+html.bg-dark{
+  --ycy-panel:rgba(30,30,30,.78);
+  --ycy-panel-s:rgba(42,42,42,.92);
+  --ycy-panel-w:rgba(20,20,20,.48);
+  --ycy-bd:rgba(255,255,255,.12);
+  --ycy-bd2:rgba(255,255,255,.06);
+  --ycy-sh:0 2px 16px rgba(0,0,0,.22);
+  --ycy-sh-lg:0 6px 28px rgba(0,0,0,.32);
+  --ycy-t:#eee;--ycy-t2:#ccc;--ycy-t3:#aaa;
+  --ycy-ac:#ff6b5e;--ycy-ac-l:rgba(255,107,94,.16);
+  --ycy-gn:#4ade80;--ycy-wn:#fbbf24;--ycy-bl:#60a5fa;
+}
+#bg-layer-a,#bg-layer-b{position:fixed;top:0;left:0;width:100%;height:100%;background-size:cover;background-position:center;z-index:0;opacity:0;transition:opacity 1.6s ease;pointer-events:none}
+#bg-layer-a.vis,#bg-layer-b.vis{opacity:1}
+#bg-loading{position:fixed;top:0;left:0;width:100%;height:100%;z-index:0;pointer-events:none;background:linear-gradient(110deg,#eee 8%,#f7f7f7 18%,#eee 33%);background-size:200% 100%;animation:shimmer 1.6s linear infinite;transition:opacity .8s ease}
+html.bg-dark #bg-loading{background:linear-gradient(110deg,#1a1a1a 8%,#282828 18%,#1a1a1a 33%);background-size:200% 100%}
+@keyframes shimmer{0%{background-position:200% 0}100%{background-position:-200% 0}}
+#bg-vignette{position:fixed;top:0;left:0;width:100%;height:100%;z-index:0;pointer-events:none;background:radial-gradient(ellipse at center,transparent 35%,rgba(0,0,0,.10) 100%)}
+html.bg-dark #bg-vignette{background:radial-gradient(ellipse at center,transparent 35%,rgba(0,0,0,.18) 100%)}
+html.bg-dark #bg-layer-a,html.bg-dark #bg-layer-b{filter:brightness(.58) saturate(.72);transition:filter .8s ease,opacity 1.6s ease}
+html.bg-dark #bg-vignette{background:radial-gradient(ellipse at center,transparent 28%,rgba(0,0,0,.32) 100%)!important}
+*{backdrop-filter:none!important;-webkit-backdrop-filter:none!important;margin:0;padding:0;box-sizing:border-box}
+body{background:transparent!important;color:var(--ycy-t)!important;font-family:var(--font-main)!important;overflow-x:hidden;min-height:100vh;padding:16px}
+::selection{background:var(--ycy-ac);color:#fff}
+::-webkit-scrollbar{width:4px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:var(--ycy-t3);border-radius:4px}
+.container{position:relative;z-index:1;max-width:640px;margin:0 auto}
+@media(min-width:900px){.container{max-width:860px;display:grid;grid-template-columns:1fr 1fr;gap:12px;align-items:start}
+.container>h1{grid-column:1/-1}.container>.btn-primary{grid-column:1/-1}.container>.progress-wrap{grid-column:1/-1}.container>.stats{grid-column:1/-1}.container>.log{grid-column:1/-1}}
+h1{color:var(--ycy-t)!important;font-weight:700!important;font-size:1.2rem!important;letter-spacing:.5px;text-shadow:0 1px 8px rgba(255,255,255,.5);text-align:center;margin-bottom:20px;padding-bottom:10px;border-bottom:2px solid var(--ycy-ac)}
+html.bg-dark h1{text-shadow:0 1px 8px rgba(0,0,0,.6)}
+h1 span{color:var(--ycy-ac)!important}
+.card{background:var(--ycy-panel)!important;border:1px solid var(--ycy-bd)!important;border-radius:var(--ycy-r)!important;box-shadow:var(--ycy-sh-lg)!important;padding:18px 20px;margin-bottom:12px;transition:background-color .45s ease,color .45s ease,border-color .45s ease}
+.card-title{font-size:.9rem;font-weight:700;margin-bottom:14px;color:var(--ycy-t)!important;letter-spacing:.5px;cursor:pointer;display:flex;align-items:center;gap:8px;transition:color .45s ease}
+.card-title .ct-icon{display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;border-radius:4px;background:var(--ycy-ac-l);color:var(--ycy-ac);font-size:.7rem;font-weight:700;flex-shrink:0}
+.card-title .ct-right{margin-left:auto;font-size:.7rem;color:var(--ycy-t3);font-weight:400;letter-spacing:0}
+.card-title::after{content:'▾';margin-left:auto;transition:transform .2s;font-size:.75rem;color:var(--ycy-t3)}
+.card-title.collapsed::after{transform:rotate(-90deg)}
+.card-body{overflow:hidden;transition:max-height .3s}
+.card-body.collapsed{max-height:0!important}
+.section-label{font-size:.75rem;font-weight:600;color:var(--ycy-t2);margin:12px 0 8px;padding-left:2px;letter-spacing:.5px;border-left:3px solid var(--ycy-ac);padding-left:8px}
+.section-label:first-child{margin-top:0}
+.row{display:flex;gap:10px;align-items:center;margin-bottom:10px;flex-wrap:wrap}
+.row-2col{display:grid;grid-template-columns:1fr;gap:10px;margin-bottom:10px}
+@media(min-width:600px){.row-2col{grid-template-columns:1fr 1fr}}
+.row-2col .row{margin-bottom:0}
+label{font-size:.82rem;color:var(--ycy-t2);min-width:72px;transition:color .45s ease}
+input[type=number],input[type=text],select{background:var(--ycy-panel-s)!important;color:var(--ycy-t)!important;border:1px solid var(--ycy-bd)!important;border-radius:var(--ycy-r-xs)!important;font-family:var(--font-main)!important;box-shadow:var(--ycy-sh)!important;padding:7px 10px;font-size:.85rem;outline:none;transition:border-color .2s,box-shadow .2s,background-color .15s ease,color .15s ease!important}
+input[type=number]:focus,input[type=text]:focus,select:focus{border-color:var(--ycy-ac)!important;box-shadow:0 0 0 3px var(--ycy-ac-l)!important;outline:none!important}
+input[type=number]{width:110px}
+input[type=text]{width:150px}
+input[type=date]{background:var(--ycy-panel-s)!important;color:var(--ycy-t)!important;border:1px solid var(--ycy-bd)!important;border-radius:var(--ycy-r-xs)!important;font-family:var(--font-main)!important;box-shadow:var(--ycy-sh)!important;padding:7px 10px;font-size:.85rem;outline:none;transition:border-color .2s,box-shadow .2s}
+input[type=date]:focus{border-color:var(--ycy-ac)!important;box-shadow:0 0 0 3px var(--ycy-ac-l)!important}
+input[type=date]::-webkit-calendar-picker-indicator{filter:invert(0)}
+html.bg-dark input[type=date]::-webkit-calendar-picker-indicator{filter:invert(1)}
+select{min-width:90px}
+.toggle-row{display:flex;align-items:center;gap:10px;margin-bottom:8px}
+.toggle-row input[type=checkbox]{width:18px;height:18px;accent-color:var(--ycy-ac);cursor:pointer}
+.toggle-row span{font-size:.85rem;color:var(--ycy-t2);transition:color .45s ease}
+.btn{display:inline-flex;align-items:center;justify-content:center;padding:12px 24px;border:none;border-radius:var(--ycy-r-s)!important;font-size:.95rem;font-weight:700;cursor:pointer;transition:all .2s;font-family:var(--font-main)!important;letter-spacing:1px}
+.btn-primary{background:var(--ycy-ac)!important;color:#fff!important;border:1px solid var(--ycy-ac)!important;box-shadow:0 2px 12px rgba(232,69,60,.25)!important;width:100%;margin-top:8px}
+.btn-primary:hover{opacity:.9;transform:translateY(-1px)}
+.btn-primary:active{transform:scale(.97)!important;background:var(--ycy-panel-s)!important;color:var(--ycy-t)!important}
+.btn-primary:disabled{opacity:.5;cursor:not-allowed;transform:none}
+.progress-wrap{margin-top:12px;display:none}
+.progress-bar{height:4px;background:var(--ycy-panel)!important;border:1px solid var(--ycy-bd)!important;border-radius:2px!important;overflow:hidden}
+.progress-fill{height:100%;background:var(--ycy-ac)!important;border-radius:2px!important;transition:width .3s;width:0}
+.progress-text{font-size:.82rem;color:var(--ycy-t2);margin-top:6px;text-align:center;transition:color .45s ease}
+.stats{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:12px}
+.stat-item{background:var(--ycy-panel)!important;border:1px solid var(--ycy-bd)!important;border-radius:var(--ycy-r-xs)!important;box-shadow:none!important;padding:12px;text-align:center;transition:background-color .45s ease,border-color .45s ease}
+.stat-val{font-size:1.2rem;font-weight:700;color:var(--ycy-gn)!important;transition:color .45s ease}
+.stat-label{font-size:.78rem;color:var(--ycy-t2)!important;margin-top:4px;transition:color .45s ease}
+.log{background:var(--ycy-panel)!important;border:1px solid var(--ycy-bd)!important;border-radius:var(--ycy-r-xs)!important;box-shadow:none!important;padding:12px;margin-top:12px;max-height:200px;overflow-y:auto;font-family:var(--font-main);font-size:.78rem;color:var(--ycy-t2);line-height:1.6;display:none;transition:background-color .45s ease,color .45s ease}
+.log:empty{display:none}
+.log .err{color:var(--ycy-ac)!important}
+.log .ok{color:var(--ycy-gn)!important}
+.size-hint{font-size:.78rem;color:var(--ycy-t3);margin-top:2px;margin-bottom:6px;transition:color .45s ease}
+.field-grid{display:grid;grid-template-columns:1fr;gap:6px 12px;align-items:center;margin-top:10px;padding-top:10px;border-top:1px solid var(--ycy-bd2)!important}
+@media(min-width:600px){.field-grid{grid-template-columns:110px 1fr}}
+.field-grid .fg-label{font-size:.8rem;color:var(--ycy-t2);font-family:var(--font-main);transition:color .45s ease}
+.field-grid .fg-ctrl{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.field-grid .fg-ctrl select{min-width:76px;padding:5px 8px;font-size:.8rem}
+.field-grid .fg-ctrl input[type=text]{width:130px;padding:5px 8px;font-size:.8rem}
+.field-grid .fg-ctrl input[type=number]{width:76px;padding:5px 8px;font-size:.8rem}
+.field-grid .fg-ctrl input[type=date]{padding:5px 8px;font-size:.8rem}
+.field-grid .fg-ctrl .fg-hint{font-size:.72rem;color:var(--ycy-t3);transition:color .45s ease}
+.theme-toggle-btn{position:fixed;top:12px;right:12px;z-index:100;background:var(--ycy-panel)!important;border:1px solid var(--ycy-bd)!important;border-radius:var(--ycy-r-xs)!important;box-shadow:var(--ycy-sh)!important;padding:5px 12px;cursor:pointer;font-family:var(--font-main)!important;font-size:.8rem;color:var(--ycy-t2)!important;text-shadow:0 1px 6px rgba(255,255,255,.4);transition:all .2s}
+html.bg-dark .theme-toggle-btn{text-shadow:0 1px 6px rgba(0,0,0,.5)}
+.theme-toggle-btn:hover{background:var(--ycy-panel-s)!important;color:var(--ycy-ac)!important}
+</style>
+</head>
+<body>
+<div id="bg-layer-a"></div>
+<div id="bg-layer-b"></div>
+<div id="bg-loading"></div>
+<div id="bg-vignette"></div>
+
+<button class="theme-toggle-btn" id="theme-toggle-btn" onclick="toggleTheme()">自动</button>
+
+<div class="container">
+  <h1>测试数据<span>生成器</span></h1>
+
+  <div class="card">
+    <div class="card-title" onclick="toggleCard(this)"><span class="ct-icon">T</span>Todo 设置<span class="ct-right">1000 条</span></div>
+    <div class="card-body">
+      <div class="section-label">数量与大小</div>
+      <div class="row-2col">
+        <div class="row"><label>数量</label><input type="number" id="todo-count" value="1000" min="1" max="1000000"></div>
+        <div class="row"><label>大小</label><input type="number" id="todo-size" value="1" min="1" max="1000"><select id="todo-size-unit"><option value="B">B</option><option value="KB" selected>KB</option><option value="MB">MB</option></select></div>
+      </div>
+      <div class="size-hint" id="todo-total-hint">预估总大小: ~1000 KB</div>
+
+      <div class="section-label">日期</div>
+      <div class="row">
+        <label>模式</label>
+        <select id="date-mode" onchange="onDateModeChange()">
+          <option value="random">完全随机</option>
+          <option value="fixed">固定日期</option>
+          <option value="near" selected>基准附近随机</option>
+        </select>
+      </div>
+      <div class="row" id="fixed-date-row" style="display:none">
+        <label>固定日期</label>
+        <input type="date" id="fixed-date" value="2026-05-29">
+      </div>
+      <div class="row" id="near-date-row">
+        <label>基准日期</label>
+        <input type="date" id="base-date" value="2026-05-29">
+        <label style="min-width:auto">±</label>
+        <input type="number" id="near-days" value="30" min="1" max="3650" style="width:70px">
+        <span style="font-size:.82rem;color:var(--ycy-t3)">天</span>
+      </div>
+
+      <div class="section-label">字段控制</div>
+      <div class="field-grid" id="todo-fields"></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-title" onclick="toggleCard(this)"><span class="ct-icon">M</span>模板设置<span class="ct-right">100 条</span></div>
+    <div class="card-body">
+      <div class="section-label">数量与大小</div>
+      <div class="row-2col">
+        <div class="row"><label>数量</label><input type="number" id="tpl-count" value="100" min="0" max="100000"></div>
+        <div class="row"><label>大小</label><input type="number" id="tpl-size" value="1" min="1" max="1000"><select id="tpl-size-unit"><option value="B">B</option><option value="KB" selected>KB</option><option value="MB">MB</option></select></div>
+      </div>
+      <div class="size-hint" id="tpl-total-hint">预估总大小: ~100 KB</div>
+
+      <div class="section-label">字段控制</div>
+      <div class="field-grid" id="tpl-fields"></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-title" onclick="toggleCard(this)"><span class="ct-icon">O</span>其他选项</div>
+    <div class="card-body">
+      <div class="row-2col">
+        <div class="toggle-row"><input type="checkbox" id="inc-settings" checked><span>个性化数据</span></div>
+        <div class="toggle-row"><input type="checkbox" id="inc-categories" checked><span>分类数据</span></div>
+      </div>
+      <div class="row" style="margin-top:6px">
+        <label>输出格式</label>
+        <select id="output-format">
+          <option value="ndjson">NDJSON</option>
+          <option value="json">JSON 数组</option>
+        </select>
+      </div>
+      <div class="size-hint">NDJSON 与 Worker 导出格式一致，可直接导入测试</div>
+    </div>
+  </div>
+
+  <button class="btn btn-primary" id="gen-btn" onclick="generate()">生成测试数据</button>
+
+  <div class="progress-wrap" id="progress-wrap">
+    <div class="progress-bar"><div class="progress-fill" id="progress-fill"></div></div>
+    <div class="progress-text" id="progress-text">准备中...</div>
+  </div>
+
+  <div class="stats" id="stats" style="display:none">
+    <div class="stat-item"><div class="stat-val" id="stat-todos">0</div><div class="stat-label">Todo 条数</div></div>
+    <div class="stat-item"><div class="stat-val" id="stat-tpls">0</div><div class="stat-label">模板条数</div></div>
+    <div class="stat-item"><div class="stat-val" id="stat-size">0</div><div class="stat-label">文件大小</div></div>
+  </div>
+
+  <div class="log" id="log"></div>
+</div>
+
+<script>
+/* ── BACKGROUND SYSTEM ── */
+var bgA=document.getElementById('bg-layer-a');
+var bgB=document.getElementById('bg-layer-b');
+var bgLoader=document.getElementById('bg-loading');
+var bgCur='a';var bgLoading=false;var bgCurrentUrl='';
+var bgApiBase=window.innerWidth<768?'https://t.alcy.cc/json?mp':'https://t.alcy.cc/json?pc';
+var bgCustomUrl=''; /* 自定义背景图URL */
+
+function loadBg(){
+  if(bgLoading)return;bgLoading=true;var ts=Date.now();
+  if(bgCustomUrl){
+    var u=bgCustomUrl+(bgCustomUrl.indexOf('?')>-1?'&':'?')+'t='+ts;
+    var img=new Image();img.onload=function(){bgCurrentUrl=u;applyBg(u);bgLoading=false};img.onerror=function(){bgCurrentUrl=bgCustomUrl;applyBg(bgCustomUrl);bgLoading=false};img.src=u;
+  }else{
+    fetch(bgApiBase+'&t='+ts).then(function(r){return r.json()}).then(function(d){if(d&&d.data&&d.data.link){var u=d.data.link;var img=new Image();img.onload=function(){bgCurrentUrl=u;applyBg(u);bgLoading=false};img.onerror=function(){bgCurrentUrl=u;applyBg(u);bgLoading=false};img.src=u}else{bgLoading=false}}).catch(function(){bgLoading=false});
+  }
+}
+function applyBg(src){
+  var next=bgCur==='a'?'b':'a';var nextEl=document.getElementById('bg-layer-'+next);var curEl=document.getElementById('bg-layer-'+bgCur);
+  nextEl.style.backgroundImage='url('+src+')';requestAnimationFrame(function(){nextEl.classList.add('vis');curEl.classList.remove('vis')});bgCur=next;
+  bgLoader.style.opacity='0';setTimeout(function(){bgLoader.style.display='none'},800);
+}
+var bgClickCount=0;var bgClickTimer=null;
+document.addEventListener('click',function(e){
+  if(e.target.closest('button,input,textarea,select,a,.card,.theme-toggle-btn'))return;
+  bgClickCount++;if(bgClickTimer)clearTimeout(bgClickTimer);
+  bgClickTimer=setTimeout(function(){if(bgClickCount>=3&&bgCurrentUrl&&!bgCustomUrl){var a=document.createElement('a');a.href=bgCurrentUrl;a.download='';document.body.appendChild(a);a.click();document.body.removeChild(a)}else if(bgClickCount===2){loadBg()}bgClickCount=0},150);
+});
+loadBg();
+
+/* ── THEME ── */
+var ycyThemeMode=localStorage.getItem('ycyThemeMode')||'auto';
+function ycyApplyTheme(){
+  var isDark=false;
+  if(ycyThemeMode==='auto'){var h=new Date().getHours();isDark=h<6||h>=18}
+  else if(ycyThemeMode==='dark'){isDark=true}
+  if(isDark){document.documentElement.classList.add('bg-dark')}else{document.documentElement.classList.remove('bg-dark')}
+  var wantTheme=isDark?null:'light';var hasTheme=document.documentElement.getAttribute('data-theme');
+  if(hasTheme!==wantTheme){if(wantTheme)document.documentElement.setAttribute('data-theme',wantTheme);else document.documentElement.removeAttribute('data-theme')}
+  syncThemeBtn();
+}
+function syncThemeBtn(){var b=document.getElementById('theme-toggle-btn');if(!b)return;var m={auto:'自动',light:'亮色',dark:'暗色'};b.textContent=m[ycyThemeMode]||'自动'}
+function toggleTheme(){if(ycyThemeMode==='auto')ycyThemeMode='light';else if(ycyThemeMode==='light')ycyThemeMode='dark';else ycyThemeMode='auto';localStorage.setItem('ycyThemeMode',ycyThemeMode);ycyApplyTheme()}
+window.toggleTheme=toggleTheme;
+setTimeout(ycyApplyTheme,100);
+setInterval(ycyApplyTheme,3000);
+
+/* ── FIELD DEFINITIONS ── */
+var TODO_FIELDS=[
+  {key:'text',label:'text',type:'text',modes:['random','fixed','empty'],defaultMode:'random',fixedDefault:'自定义待办'},
+  {key:'time',label:'time',type:'time',modes:['random','fixed','empty'],defaultMode:'random',fixedDefault:'09:00'},
+  {key:'priority',label:'priority',type:'select',options:['low','med','high'],modes:['random','fixed'],defaultMode:'random',fixedDefault:'low'},
+  {key:'done',label:'done',type:'select',options:['0','1'],modes:['random','fixed'],defaultMode:'random',fixedDefault:'0',hint:'~30%为1'},
+  {key:'deleted',label:'deleted',type:'select',options:['0','1'],modes:['random','fixed'],defaultMode:'random',fixedDefault:'0',hint:'~10%为1'},
+  {key:'repeat_type',label:'repeat_type',type:'select',options:['none','daily','weekly','monthly','yearly','custom'],modes:['random','fixed'],defaultMode:'random',fixedDefault:'none'},
+  {key:'repeat_custom',label:'repeat_custom',type:'text',modes:['random','fixed','empty'],defaultMode:'random',fixedDefault:'0,2,4',hint:'custom时有效'},
+  {key:'category_id',label:'category_id',type:'text',modes:['random','fixed','empty'],defaultMode:'random',fixedDefault:'',hint:'60%空'},
+  {key:'desc',label:'desc',type:'text',modes:['random','fixed','empty'],defaultMode:'empty',fixedDefault:''},
+  {key:'url',label:'url',type:'text',modes:['random','fixed','empty'],defaultMode:'empty',fixedDefault:'https://example.com'},
+  {key:'copy_text',label:'copy_text',type:'text',modes:['random','fixed','empty'],defaultMode:'empty',fixedDefault:''},
+  {key:'subtasks',label:'subtasks',type:'subtasks',modes:['random','none'],defaultMode:'random',hint:'40%概率'},
+  {key:'search_terms',label:'search_terms',type:'text',modes:['random','fixed','empty'],defaultMode:'empty',fixedDefault:''}
+];
+var TPL_FIELDS=[
+  {key:'text',label:'text',type:'text',modes:['random','fixed','empty'],defaultMode:'random',fixedDefault:'自定义模板'},
+  {key:'time',label:'time',type:'time',modes:['random','fixed','empty'],defaultMode:'random',fixedDefault:'09:00'},
+  {key:'priority',label:'priority',type:'select',options:['low','med','high'],modes:['random','fixed'],defaultMode:'random',fixedDefault:'low'},
+  {key:'repeat_type',label:'repeat_type',type:'select',options:['none','daily','weekly','monthly','yearly','custom'],modes:['random','fixed'],defaultMode:'random',fixedDefault:'none'},
+  {key:'repeat_custom',label:'repeat_custom',type:'text',modes:['random','fixed','empty'],defaultMode:'random',fixedDefault:'1,3,5',hint:'custom时有效'},
+  {key:'anchor_date',label:'anchor_date',type:'date',modes:['random','fixed','empty'],defaultMode:'random',fixedDefault:'2026-05-29',hint:'50%为空'},
+  {key:'category_id',label:'category_id',type:'text',modes:['random','fixed','empty'],defaultMode:'random',fixedDefault:'',hint:'40%空'},
+  {key:'desc',label:'desc',type:'text',modes:['random','fixed','empty'],defaultMode:'empty',fixedDefault:''},
+  {key:'url',label:'url',type:'text',modes:['random','fixed','empty'],defaultMode:'empty',fixedDefault:'https://example.com'},
+  {key:'copy_text',label:'copy_text',type:'text',modes:['random','fixed','empty'],defaultMode:'empty',fixedDefault:''},
+  {key:'subtasks',label:'subtasks',type:'subtasks',modes:['random','none'],defaultMode:'random',hint:'30%概率'},
+  {key:'search_terms',label:'search_terms',type:'text',modes:['random','fixed','empty'],defaultMode:'empty',fixedDefault:''},
+  {key:'blacklist',label:'blacklist',type:'text',modes:['random','fixed','empty'],defaultMode:'empty',fixedDefault:'[]'}
+];
+
+function buildFieldHtml(prefix,fields){
+  var html='';
+  for(var i=0;i<fields.length;i++){
+    var f=fields[i];var id=prefix+'-'+f.key;
+    html+='<div class="fg-label">'+f.label+'</div><div class="fg-ctrl">';
+    html+='<select id="'+id+'-mode" onchange="onFieldModeChange(\''+id+'\')">';
+    var ml={random:'随机',fixed:'固定',empty:'空',none:'无'};
+    for(var mi=0;mi<f.modes.length;mi++){html+='<option value="'+f.modes[mi]+'"'+(f.modes[mi]===f.defaultMode?' selected':'')+'>'+ml[f.modes[mi]]+'</option>'}
+    html+='</select>';
+    if(f.type==='select'){html+='<select id="'+id+'-val" style="display:'+(f.defaultMode==='fixed'?'inline-block':'none')+'">';for(var oi=0;oi<f.options.length;oi++){html+='<option value="'+f.options[oi]+'"'+(f.options[oi]===f.fixedDefault?' selected':'')+'>'+f.options[oi]+'</option>'}html+='</select>'}
+    else if(f.type==='date'){html+='<input type="date" id="'+id+'-val" value="'+f.fixedDefault+'" style="display:'+(f.defaultMode==='fixed'?'inline-block':'none')+'">'}
+    else if(f.type==='subtasks'){}
+    else{html+='<input type="text" id="'+id+'-val" value="'+f.fixedDefault+'" style="display:'+(f.defaultMode==='fixed'?'inline-block':'none')+'">'}
+    if(f.hint){html+='<span class="fg-hint">'+f.hint+'</span>'}
+    html+='</div>';
+  }
+  return html;
+}
+document.getElementById('todo-fields').innerHTML=buildFieldHtml('todo',TODO_FIELDS);
+document.getElementById('tpl-fields').innerHTML=buildFieldHtml('tpl',TPL_FIELDS);
+
+function onFieldModeChange(id){var v=document.getElementById(id+'-val');if(!v)return;v.style.display=document.getElementById(id+'-mode').value==='fixed'?'inline-block':'none'}
+function toggleCard(t){t.classList.toggle('collapsed');t.nextElementSibling.classList.toggle('collapsed')}
+
+/* ── DATA GENERATION ── */
+var _idCounter=0;
+function genId(){_idCounter++;return(Date.now()+_idCounter).toString()+Math.random().toString().slice(2,6)}
+function randInt(a,b){return Math.floor(Math.random()*(b-a+1))+a}
+function randDate(){var y=randInt(2025,2026),m=String(randInt(1,12)).padStart(2,'0'),d=String(randInt(1,28)).padStart(2,'0');return y+'-'+m+'-'+d}
+function randTime(){return String(randInt(0,23)).padStart(2,'0')+':'+String(randInt(0,59)).padStart(2,'0')}
+function randPriority(){return['low','med','high'][randInt(0,2)]}
+function randRepeatType(){var t=['none','daily','weekly','monthly','yearly','custom'];return t[randInt(0,5)]}
+function padStr(tb){var s='';while(s.length<tb)s+='数据填充_'+genId()+'_';return s.substring(0,Math.max(0,tb))}
+function onDateModeChange(){var m=document.getElementById('date-mode').value;document.getElementById('fixed-date-row').style.display=m==='fixed'?'flex':'none';document.getElementById('near-date-row').style.display=m==='near'?'flex':'none'}
+function generateDate(dm){if(dm==='fixed')return document.getElementById('fixed-date').value||'2026-05-29';if(dm==='near'){var bv=document.getElementById('base-date').value||'2026-05-29',dy=parseInt(document.getElementById('near-days').value)||30,bm=new Date(bv).getTime(),o=randInt(-dy,dy)*86400000,d=new Date(bm+o);return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0')}return randDate()}
+function getFieldVal(p,k){var me=document.getElementById(p+'-'+k+'-mode'),ve=document.getElementById(p+'-'+k+'-val');if(!me)return{mode:'random',val:''};return{mode:me.value,val:ve?ve.value:''}}
+function sizeToBytes(v,u){var m={B:1,KB:1024,MB:1024*1024};return v*(m[u]||1)}
+function formatSize(b){if(b<1024)return b+' B';if(b<1024*1024)return(b/1024).toFixed(1)+' KB';return(b/1024/1024).toFixed(2)+' MB'}
+function updateHints(){
+  var tc=parseInt(document.getElementById('todo-count').value)||0,ts=parseInt(document.getElementById('todo-size').value)||0,tu=document.getElementById('todo-size-unit').value;
+  var tpc=parseInt(document.getElementById('tpl-count').value)||0,tps=parseInt(document.getElementById('tpl-size').value)||0,tpu=document.getElementById('tpl-size-unit').value;
+  document.getElementById('todo-total-hint').textContent='预估总大小: ~'+formatSize(tc*sizeToBytes(ts,tu));
+  document.getElementById('tpl-total-hint').textContent='预估总大小: ~'+formatSize(tpc*sizeToBytes(tps,tpu));
+  var todoCards=document.querySelectorAll('.card-title .ct-right');
+  if(todoCards[0])todoCards[0].textContent=tc.toLocaleString()+' 条';
+  if(todoCards[1])todoCards[1].textContent=tpc.toLocaleString()+' 条';
+}
+['todo-count','todo-size','tpl-count','tpl-size'].forEach(function(id){document.getElementById(id).addEventListener('input',updateHints)});
+['todo-size-unit','tpl-size-unit'].forEach(function(id){document.getElementById(id).addEventListener('change',updateHints)});
+updateHints();
+
+function log(msg,type){var el=document.getElementById('log');el.style.display='block';var d=document.createElement('div');d.className=type||'';d.textContent='['+new Date().toLocaleTimeString()+'] '+msg;el.appendChild(d);el.scrollTop=el.scrollHeight}
+function showProgress(pct,text){document.getElementById('progress-fill').style.width=pct+'%';document.getElementById('progress-text').textContent=text}
+function resolveField(ctrl,fn){if(ctrl.mode==='empty')return'';if(ctrl.mode==='none')return null;if(ctrl.mode==='fixed')return ctrl.val;return fn()}
+
+function generateTodo(baseSize,dateMode){
+  var id=genId(),date=generateDate(dateMode);
+  var fT=getFieldVal('todo','text'),fTm=getFieldVal('todo','time'),fP=getFieldVal('todo','priority'),fD=getFieldVal('todo','done'),fDl=getFieldVal('todo','deleted'),fRT=getFieldVal('todo','repeat_type'),fRC=getFieldVal('todo','repeat_custom'),fCI=getFieldVal('todo','category_id'),fDe=getFieldVal('todo','desc'),fU=getFieldVal('todo','url'),fCT=getFieldVal('todo','copy_text'),fST=getFieldVal('todo','subtasks'),fSE=getFieldVal('todo','search_terms');
+  var textVal=resolveField(fT,function(){return'待办事项_'+id.substring(0,8)+'_'+date});
+  var timeVal=resolveField(fTm,function(){return randTime()});
+  var priVal=resolveField(fP,function(){return randPriority()});
+  var delVal=resolveField(fDl,function(){return Math.random()<0.1?1:0});
+  var doneVal=resolveField(fD,function(){return delVal?1:(Math.random()<0.3?1:0)});
+  var rtVal=resolveField(fRT,function(){return randRepeatType()});
+  var rcVal=resolveField(fRC,function(){return rtVal==='custom'?'0,2,4':''});
+  var ciVal=resolveField(fCI,function(){return Math.random()<0.6?'':'cat_'+randInt(1,5)});
+  var deVal=resolveField(fDe,function(){return''});
+  var uVal=resolveField(fU,function(){return''});
+  var ctVal=resolveField(fCT,function(){return''});
+  var rpVal=rtVal!=='none'?1:0;
+  var stArr=[];if(fST.mode==='random'&&Math.random()<0.4){for(var i=0,sc=randInt(1,5);i<sc;i++){stArr.push({text:'子任务_'+i+'_'+genId().substring(0,6),done:Math.random()<0.5?true:false})}}
+  var stVal=fST.mode==='empty'?'[]':fST.mode==='fixed'?fST.val:JSON.stringify(stArr);
+  var seVal=fSE.mode==='empty'?'[]':fSE.mode==='fixed'?fSE.val:'[]';
+  var obj={id:id,parent_id:id,date:date,text:textVal,time:timeVal,priority:priVal,repeat:rpVal,desc:deVal,url:uVal,copy_text:ctVal,subtasks:stVal,search_terms:seVal,done:parseInt(doneVal)||0,deleted:parseInt(delVal)||0,repeat_type:rtVal,repeat_custom:rcVal,category_id:ciVal};
+  var bj=JSON.stringify(obj),cb=new TextEncoder().encode(bj).length;
+  if(baseSize>cb){var df=baseSize-cb-2;if(df>0)obj.desc=padStr(df)}
+  return obj;
+}
+
+function generateTemplate(baseSize,dateMode){
+  var pid=genId();
+  var fT=getFieldVal('tpl','text'),fTm=getFieldVal('tpl','time'),fP=getFieldVal('tpl','priority'),fRT=getFieldVal('tpl','repeat_type'),fRC=getFieldVal('tpl','repeat_custom'),fAD=getFieldVal('tpl','anchor_date'),fCI=getFieldVal('tpl','category_id'),fDe=getFieldVal('tpl','desc'),fU=getFieldVal('tpl','url'),fCT=getFieldVal('tpl','copy_text'),fST=getFieldVal('tpl','subtasks'),fSE=getFieldVal('tpl','search_terms'),fBL=getFieldVal('tpl','blacklist');
+  var textVal=resolveField(fT,function(){return'模板事项_'+pid.substring(0,8)});
+  var timeVal=resolveField(fTm,function(){return randTime()});
+  var priVal=resolveField(fP,function(){return randPriority()});
+  var rtVal=resolveField(fRT,function(){return randRepeatType()});
+  var rcVal=resolveField(fRC,function(){return rtVal==='custom'?'1,3,5':''});
+  var adVal=resolveField(fAD,function(){return Math.random()<0.5?generateDate(dateMode):''});
+  var ciVal=resolveField(fCI,function(){return Math.random()<0.4?'':'cat_'+randInt(1,5)});
+  var deVal=resolveField(fDe,function(){return''});
+  var uVal=resolveField(fU,function(){return''});
+  var ctVal=resolveField(fCT,function(){return''});
+  var stArr=[];if(fST.mode==='random'&&Math.random()<0.3){for(var i=0,sc=randInt(1,4);i<sc;i++){stArr.push({text:'模板子任务_'+i+'_'+genId().substring(0,6),done:false})}}
+  var stVal=fST.mode==='none'?'[]':fST.mode==='fixed'?fST.val:JSON.stringify(stArr);
+  var seVal=fSE.mode==='empty'?'[]':fSE.mode==='fixed'?fSE.val:'[]';
+  var blVal=fBL.mode==='empty'?'[]':fBL.mode==='fixed'?fBL.val:'[]';
+  var obj={_type:'template',parent_id:pid,text:textVal,time:timeVal,priority:priVal,desc:deVal,url:uVal,copy_text:ctVal,subtasks:stVal,search_terms:seVal,repeat_type:rtVal,repeat_custom:rcVal,anchor_date:adVal,blacklist:blVal,category_id:ciVal};
+  var bj=JSON.stringify(obj),cb=new TextEncoder().encode(bj).length;
+  if(baseSize>cb){var df=baseSize-cb-2;if(df>0)obj.desc=padStr(df)}
+  return obj;
+}
+
+async function generate(){
+  var btn=document.getElementById('gen-btn');btn.disabled=true;
+  document.getElementById('progress-wrap').style.display='block';
+  document.getElementById('stats').style.display='none';
+  document.getElementById('log').style.display='none';
+  document.getElementById('log').innerHTML='';_idCounter=0;
+  var tc=parseInt(document.getElementById('todo-count').value)||0,ts=parseInt(document.getElementById('todo-size').value)||1,tu=document.getElementById('todo-size-unit').value;
+  var tpc=parseInt(document.getElementById('tpl-count').value)||0,tps=parseInt(document.getElementById('tpl-size').value)||1,tpu=document.getElementById('tpl-size-unit').value;
+  var incS=document.getElementById('inc-settings').checked,incC=document.getElementById('inc-categories').checked;
+  var fmt=document.getElementById('output-format').value,dm=document.getElementById('date-mode').value;
+  var tbb=sizeToBytes(ts,tu),pbb=sizeToBytes(tps,tpu);
+  log('开始生成: '+tc+' 条 Todo, '+tpc+' 条模板, 日期: '+dm+', 格式: '+fmt);
+  var lines=[],tt=0,tpt=0;
+  if(fmt==='ndjson')lines.push('ndjson');
+  if(incS){
+    lines.push(JSON.stringify({_type:'settings',data:{scaleByBrowser:[{ua:navigator.userAgent,scale:1}]}}));
+    lines.push(JSON.stringify({_type:'custom_header',data:''}));
+    lines.push(JSON.stringify({_type:'custom_content',data:''}));
+    lines.push(JSON.stringify({_type:'customColors',data:[]}));
+    log('生成个性化数据完成','ok');
+  }
+  if(incC){
+    var cats=[];for(var ci=1;ci<=5;ci++){cats.push({id:genId(),name:'分类_'+ci,color:['#ef4444','#f97316','#eab308','#22c55e','#3b82f6'][ci-1]})}
+    lines.push(JSON.stringify({_type:'categories',data:cats}));
+    log('生成分类数据完成','ok');
+  }
+  showProgress(5,'生成 Todo 数据...');
+  var bs=Math.max(1,Math.min(1000,Math.floor(tc/20))),uids=new Set();
+  for(var ti=0;ti<tc;ti++){
+    var todo=generateTodo(tbb,dm);while(uids.has(todo.id)){todo.id=genId();todo.parent_id=todo.id}uids.add(todo.id);
+    lines.push(fmt==='ndjson'?JSON.stringify(todo):todo);tt++;
+    if(ti%bs===0){showProgress(5+Math.round(ti/tc*50),'生成 Todo: '+ti+'/'+tc);await new Promise(function(r){setTimeout(r,0)})}
+  }
+  log('生成 '+tt+' 条 Todo 完成','ok');
+  showProgress(55,'生成模板数据...');
+  var tbs=Math.max(1,Math.min(500,Math.floor(tpc/10))),upids=new Set();
+  for(var tpi=0;tpi<tpc;tpi++){
+    var tpl=generateTemplate(pbb,dm);while(upids.has(tpl.parent_id)){tpl.parent_id=genId()}upids.add(tpl.parent_id);
+    lines.push(fmt==='ndjson'?JSON.stringify(tpl):tpl);tpt++;
+    if(tpi%tbs===0){showProgress(55+Math.round(tpi/tpc*35),'生成模板: '+tpi+'/'+tpc);await new Promise(function(r){setTimeout(r,0)})}
+  }
+  log('生成 '+tpt+' 条模板完成','ok');
+  showProgress(92,'组装文件...');
+  var content;
+  if(fmt==='ndjson'){content=lines.join('\n')+'\n'}
+  else{var ja=[];for(var li=0;li<lines.length;li++){if(typeof lines[li]==='string'&&lines[li]==='ndjson')continue;if(typeof lines[li]==='string'){try{ja.push(JSON.parse(lines[li]))}catch(e){ja.push(lines[li])}}else{ja.push(lines[li])}}content=JSON.stringify(ja,null,2)}
+  showProgress(96,'准备下载...');
+  var blob=new Blob([content],{type:fmt==='ndjson'?'application/x-ndjson':'application/json'}),fs=blob.size;
+  var now=new Date(),ts=now.getFullYear()+'-'+String(now.getMonth()+1).padStart(2,'0')+'-'+String(now.getDate()).padStart(2,'0')+'-'+String(now.getHours()).padStart(2,'0')+'-'+String(now.getMinutes()).padStart(2,'0')+'-'+String(now.getSeconds()).padStart(2,'0');
+  var fname='todo_test_'+ts+'.json';
+  var dlDone=false;
+  if(window.showSaveFilePicker){
+    try{
+      var fh=await window.showSaveFilePicker({suggestedName:fname,types:[{description:'JSON',accept:{'application/json':['.json']}}]});
+      var ws=await fh.createWritable();await ws.write(content);await ws.close();dlDone=true;
+    }catch(pe){if(pe.name==='AbortError'){showProgress(100,'已取消');btn.disabled=false;return}}
+  }
+  if(!dlDone){
+    var blob=new Blob([content],{type:'application/json'});
+    var blobUrl=URL.createObjectURL(blob);
+    var a=document.createElement('a');a.href=blobUrl;a.download=fname;a.style.display='none';document.body.appendChild(a);a.click();
+    setTimeout(function(){document.body.removeChild(a);URL.revokeObjectURL(blobUrl)},30000);
+  }
+  showProgress(100,'完成!');
+  document.getElementById('stats').style.display='grid';
+  document.getElementById('stat-todos').textContent=tt.toLocaleString();
+  document.getElementById('stat-tpls').textContent=tpt.toLocaleString();
+  document.getElementById('stat-size').textContent=formatSize(fs);
+  log('文件已下载: '+formatSize(fs)+' (Todo: '+tt+', 模板: '+tpt+')','ok');
+  btn.disabled=false;
+}
+</script>
+</body>
+</html>
+
