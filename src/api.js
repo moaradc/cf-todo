@@ -1499,17 +1499,29 @@ async function handleRequest(request, env, ctx) {
     if (url.pathname === '/api/trash-action' && request.method === 'POST') {
       const { action, id, ids } = await request.json();
       if (action === 'RESTORE') {
-        const t = await env.DB.prepare('SELECT parent_id, date, repeat FROM todos WHERE id = ?').bind(id).first();
+        const t = await env.DB.prepare('SELECT parent_id, date, repeat, repeat_type, repeat_end FROM todos WHERE id = ?').bind(id).first();
         await env.DB.prepare('UPDATE todos SET deleted = 0 WHERE id = ?').bind(id).run();
-        if (t && t.repeat === 1) {
-            const tpl = await env.DB.prepare('SELECT blacklist FROM todo_templates WHERE parent_id = ?').bind(t.parent_id).first();
-            if (tpl && tpl.blacklist) {
-                let bl =[]; try { bl = JSON.parse(tpl.blacklist); } catch(e){}
-                if (bl.includes(t.date)) {
-                    bl = bl.filter(d => d !== t.date);
-                    await env.DB.prepare('UPDATE todo_templates SET blacklist = ? WHERE parent_id = ?').bind(JSON.stringify(bl), t.parent_id).run();
-                }
+        if (t && t.repeat !== 0 && t.parent_id) {
+          if (t.repeat === -1 && t.repeat_type && t.repeat_type !== 'none') {
+            // 恢复被终止的系列项：重新激活重复
+            await env.DB.prepare('UPDATE todos SET repeat=1, repeat_end=\'\' WHERE id=?').bind(id).run();
+          }
+          const tpl = await env.DB.prepare('SELECT blacklist FROM todo_templates WHERE parent_id = ?').bind(t.parent_id).first();
+          if (tpl && tpl.blacklist) {
+            let bl =[]; try { bl = JSON.parse(tpl.blacklist); } catch(e){}
+            if (bl.includes(t.date)) {
+              bl = bl.filter(d => d !== t.date);
+              await env.DB.prepare('UPDATE todo_templates SET blacklist = ? WHERE parent_id = ?').bind(JSON.stringify(bl), t.parent_id).run();
             }
+          } else if (!tpl && t.repeat_type && t.repeat_type !== 'none') {
+            // 模板不存在时重建（删除scope=future/all时模板被删了）
+            const task = await env.DB.prepare('SELECT text, time, priority, `desc`, url, copy_text, subtasks, search_terms, repeat_type, repeat_custom, end_time, category_id FROM todos WHERE id=?').bind(id).first();
+            if (task) {
+              await env.DB.prepare(
+                'INSERT OR REPLACE INTO todo_templates (parent_id, text, time, priority, `desc`, url, copy_text, subtasks, search_terms, repeat_type, repeat_custom, repeat_end, end_time, anchor_date, blacklist, category_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)'
+              ).bind(t.parent_id, task.text, task.time, task.priority, task.desc, task.url, task.copy_text, task.subtasks, task.search_terms, task.repeat_type, task.repeat_custom || '', '', task.end_time, t.date, '[]', task.category_id).run();
+            }
+          }
         }
       } else if (action === 'DELETE_PERMANENT') {
         await env.DB.prepare('DELETE FROM todos WHERE id = ?').bind(id).run();
@@ -1518,11 +1530,17 @@ async function handleRequest(request, env, ctx) {
       } else if (action === 'BATCH_RESTORE') {
         if (ids && ids.length > 0) {
           const placeholders = ids.map(() => '?').join(',');
-          const tasks = await env.DB.prepare(`SELECT parent_id, date, repeat FROM todos WHERE id IN (${placeholders})`).bind(...ids).all();
+          const tasks = await env.DB.prepare(`SELECT id, parent_id, date, repeat, repeat_type, repeat_end FROM todos WHERE id IN (${placeholders})`).bind(...ids).all();
           await env.DB.prepare(`UPDATE todos SET deleted = 0 WHERE id IN (${placeholders})`).bind(...ids).run();
+          // 恢复被终止的系列项
+          const reviveIds = tasks.results.filter(t => t.repeat === -1 && t.repeat_type && t.repeat_type !== 'none').map(t => t.id);
+          if (reviveIds.length > 0) {
+            const ph = reviveIds.map(() => '?').join(',');
+            await env.DB.prepare(`UPDATE todos SET repeat=1, repeat_end='' WHERE id IN (${ph})`).bind(...reviveIds).run();
+          }
           const blUpdates = {};
           for (const t of tasks.results) {
-            if (t.repeat === 1) {
+            if (t.repeat !== 0 && t.parent_id) {
               if (!blUpdates[t.parent_id]) blUpdates[t.parent_id] = [];
               blUpdates[t.parent_id].push(t.date);
             }
@@ -1537,6 +1555,17 @@ async function handleRequest(request, env, ctx) {
                 if (idx !== -1) { bl.splice(idx, 1); changed = true; }
               }
               if (changed) await env.DB.prepare('UPDATE todo_templates SET blacklist = ? WHERE parent_id = ?').bind(JSON.stringify(bl), pid).run();
+            } else if (!tpl) {
+              // 模板不存在时从第一个有效任务重建
+              const firstTask = tasks.results.find(t => t.parent_id === pid && t.repeat_type && t.repeat_type !== 'none');
+              if (firstTask) {
+                const task = await env.DB.prepare('SELECT text, time, priority, `desc`, url, copy_text, subtasks, search_terms, repeat_type, repeat_custom, end_time, category_id FROM todos WHERE id=?').bind(firstTask.id).first();
+                if (task) {
+                  await env.DB.prepare(
+                    'INSERT OR REPLACE INTO todo_templates (parent_id, text, time, priority, `desc`, url, copy_text, subtasks, search_terms, repeat_type, repeat_custom, repeat_end, end_time, anchor_date, blacklist, category_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)'
+                  ).bind(pid, task.text, task.time, task.priority, task.desc, task.url, task.copy_text, task.subtasks, task.search_terms, task.repeat_type, task.repeat_custom || '', '', task.end_time, firstTask.date, '[]', task.category_id).run();
+                }
+              }
             }
           }
         }
