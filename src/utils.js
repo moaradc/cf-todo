@@ -2,8 +2,12 @@
  * Cloudflare Worker + D1 Todo App - Utility Functions & Constants
  */
 
-const APP_VERSION = '2.6.9.3';
+import versionData from '../version.json';
+
+const APP_VERSION = versionData.version;
 const DEFAULT_CATEGORY_COLOR = '#888888';
+
+const CHANGELOG = versionData.changelog;
 
 function parseCookies(request) {
   const cookieHeader = request.headers.get('Cookie') || '';
@@ -125,6 +129,7 @@ function apiError(msg, status = 500, extra = null) {
 
 export {
   APP_VERSION,
+  CHANGELOG,
   DEFAULT_CATEGORY_COLOR,
   parseCookies,
   sign,

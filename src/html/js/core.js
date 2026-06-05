@@ -174,10 +174,16 @@ export const core = `
     let sessionsList = [];
     
     var CURRENT_VERSION = 'v\${APP_VERSION}';
+    var LOCAL_CHANGELOG = \${CHANGELOG_JSON};
+    var remoteUpdateInfo = null;
     
     function initVersionDisplay() {
       var el = document.getElementById('app-version-display');
-      if (el) el.textContent = CURRENT_VERSION;
+      if (el) {
+        el.textContent = CURRENT_VERSION;
+        el.style.cursor = 'pointer';
+        el.onclick = function() { openChangelogModal(); };
+      }
     }
     
     async function checkUpdate() {
@@ -185,26 +191,26 @@ export const core = `
       if (!s) return;
       s.innerHTML = '<span style="color:#888;font-size:0.8rem;">检查中...</span>';
       try {
-        var res = await fetch('https://api.github.com/repos/moaradc/cf-todo/releases/latest', {
-          headers: { 'Accept': 'application/vnd.github.v3+json' }
-        });
+        var res = await fetch('https://raw.githubusercontent.com/moaradc/cf-todo/main/version.json');
         if (!res.ok) throw new Error('HTTP ' + res.status);
         var d = await res.json();
-        if (!d.tag_name) throw new Error('No tag');
+        if (!d.version) throw new Error('No version');
     
-        var latest = d.tag_name;
+        var latest = d.version;
         var cmp = compareVersions(CURRENT_VERSION, latest);
     
         if (cmp < 0) {
-          var dl = d.assets && d.assets[0]
-            ? ' | <a href="' + d.assets[0].browser_download_url + '" style="color:var(--accent);font-size:0.8rem;text-decoration:none;">下载</a>'
-            : '';
-          s.innerHTML = '<span style="font-size:0.8rem;font-weight:bold;">→ ' + escapeHtml(latest) + '</span> '
-            + '<a href="' + d.html_url + '" target="_blank" style="color:var(--accent);font-size:0.8rem;text-decoration:none;">GitHub</a>' + dl;
+          var remoteChangelog = (d.changelog && Array.isArray(d.changelog))
+            ? d.changelog
+            : [{ version: latest, date: d.date || '', notes: d.notes || '' }];
+          remoteUpdateInfo = { version: latest, changelog: remoteChangelog };
+          s.innerHTML = '<span style="font-size:0.8rem;font-weight:bold;cursor:pointer;color:var(--accent);" onclick="openChangelogModal()">→ v' + escapeHtml(latest) + '</span>';
         } else {
+          remoteUpdateInfo = null;
           s.innerHTML = '<span style="font-size:0.8rem;">已是最新</span>';
         }
       } catch (e) {
+        remoteUpdateInfo = null;
         s.innerHTML = '<span style="color:var(--accent);font-size:0.8rem;">检查失败</span>';
       }
     }
@@ -226,6 +232,64 @@ export const core = `
       var div = document.createElement('div');
       div.appendChild(document.createTextNode(text));
       return div.innerHTML;
+    }
+
+    function openChangelogModal() {
+      var overlay = document.getElementById('modal-changelog');
+      if (!overlay) return;
+      var body = document.getElementById('changelog-body');
+      if (!body) return;
+      var html = '';
+      var latestRemote = null;
+      var olderRemote = [];
+      if (remoteUpdateInfo && remoteUpdateInfo.changelog) {
+        for (var i = 0; i < remoteUpdateInfo.changelog.length; i++) {
+          var entry = remoteUpdateInfo.changelog[i];
+          if (compareVersions(CURRENT_VERSION, 'v' + entry.version) >= 0) continue;
+          if (!latestRemote) {
+            latestRemote = entry;
+          } else {
+            olderRemote.push(entry);
+          }
+        }
+      }
+      if (latestRemote) {
+        html += '<div class="changelog-entry changelog-new">';
+        html += '<div class="changelog-version">v' + escapeHtml(latestRemote.version) + ' <span style="font-size:0.7rem;color:var(--accent);">新版本可用</span></div>';
+        if (latestRemote.date) html += '<div class="changelog-date">' + escapeHtml(latestRemote.date) + '</div>';
+        if (latestRemote.notes) html += '<div class="changelog-notes">' + parseMarkdown(latestRemote.notes) + '</div>';
+        html += '</div>';
+      }
+      var hasHistory = olderRemote.length > 0 || (LOCAL_CHANGELOG && LOCAL_CHANGELOG.length > 0);
+      if (hasHistory) {
+        html += '<div class="changelog-section-title">历史更新</div>';
+        for (var k = 0; k < olderRemote.length; k++) {
+          var r = olderRemote[k];
+          html += '<div class="changelog-entry">';
+          html += '<div class="changelog-version">v' + escapeHtml(r.version) + '</div>';
+          if (r.date) html += '<div class="changelog-date">' + escapeHtml(r.date) + '</div>';
+          if (r.notes) html += '<div class="changelog-notes">' + parseMarkdown(r.notes) + '</div>';
+          html += '</div>';
+        }
+        if (LOCAL_CHANGELOG) {
+          for (var j = 0; j < LOCAL_CHANGELOG.length; j++) {
+            var e = LOCAL_CHANGELOG[j];
+            html += '<div class="changelog-entry">';
+            html += '<div class="changelog-version">v' + escapeHtml(e.version) + ' <span style="font-size:0.7rem;color:#666;">当前版本</span></div>';
+            if (e.date) html += '<div class="changelog-date">' + escapeHtml(e.date) + '</div>';
+            if (e.notes) html += '<div class="changelog-notes">' + parseMarkdown(e.notes) + '</div>';
+            html += '</div>';
+          }
+        }
+      }
+      if (!html) html = '<div style="text-align:center;color:#888;padding:20px;">暂无更新日志</div>';
+      body.innerHTML = html;
+      overlay.classList.add('active');
+    }
+
+    function closeChangelogModal() {
+      var overlay = document.getElementById('modal-changelog');
+      if (overlay) overlay.classList.remove('active');
     }
 
     async function loadSessions() {

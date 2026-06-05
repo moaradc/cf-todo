@@ -151,5 +151,7 @@ export const bootstrap = `
       resetScaleBrowserData: resetScaleBrowserData,
       checkUpdate: checkUpdate,
       compareVersions: compareVersions,
+      openChangelogModal: openChangelogModal,
+      closeChangelogModal: closeChangelogModal,
     });
 `;
