@@ -23,42 +23,53 @@ let isDbInitialized = false;
 
 const DAY_MAP = [RRule.SU, RRule.MO, RRule.TU, RRule.WE, RRule.TH, RRule.FR, RRule.SA];
 
+function makeUTCDate(dateStr) {
+  const p = dateStr.split('-');
+  return new Date(Date.UTC(parseInt(p[0]), parseInt(p[1]) - 1, parseInt(p[2])));
+}
+
 function buildRRule(repeatType, anchorDate, repeatEnd, repeatCustom) {
   if (repeatCustom) {
-    try { return RRule.fromString(repeatCustom); } catch(e) {}
+    try {
+      const opts = RRule.parseString(repeatCustom);
+      if (anchorDate && !opts.dtstart) {
+        opts.dtstart = makeUTCDate(anchorDate);
+      }
+      if (repeatEnd && !opts.until) {
+        opts.until = new Date(makeUTCDate(repeatEnd).getTime() + 86399999);
+      }
+      return new RRule(opts);
+    } catch(e) {}
   }
   if (!repeatType || repeatType === 'none' || !anchorDate) return null;
-  const parts = anchorDate.split('-');
-  const dtstart = new Date(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2]));
+  const dtstart = makeUTCDate(anchorDate);
   const options = { dtstart, freq: RRule.DAILY };
   switch (repeatType) {
     case 'daily': options.freq = RRule.DAILY; break;
     case 'weekly':
       options.freq = RRule.WEEKLY;
-      options.byweekday = [DAY_MAP[dtstart.getDay()]];
+      options.byweekday = [DAY_MAP[dtstart.getUTCDay()]];
       break;
     case 'monthly':
       options.freq = RRule.MONTHLY;
-      options.bymonthday = [dtstart.getDate()];
+      options.bymonthday = [dtstart.getUTCDate()];
       break;
     case 'yearly':
       options.freq = RRule.YEARLY;
-      options.bymonth = [dtstart.getMonth() + 1];
-      options.bymonthday = [dtstart.getDate()];
+      options.bymonth = [dtstart.getUTCMonth() + 1];
+      options.bymonthday = [dtstart.getUTCDate()];
       break;
     default: return null;
   }
   if (repeatEnd) {
-    const ep = repeatEnd.split('-');
-    options.until = new Date(parseInt(ep[0]), parseInt(ep[1]) - 1, parseInt(ep[2]), 23, 59, 59);
+    options.until = new Date(makeUTCDate(repeatEnd).getTime() + 86399999);
   }
   return new RRule(options);
 }
 
 function isOccurrenceOnDate(rule, dateStr) {
   if (!rule) return false;
-  const parts = dateStr.split('-');
-  const target = new Date(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2]));
+  const target = makeUTCDate(dateStr);
   const prev = new Date(target.getTime() - 86400000);
   const next = rule.after(prev, false);
   if (!next) return false;
