@@ -239,6 +239,7 @@ export const core = `
       if (remoteUpdateInfo && remoteUpdateInfo.changelog) {
         for (var i = 0; i < remoteUpdateInfo.changelog.length; i++) {
           var entry = remoteUpdateInfo.changelog[i];
+          if (compareVersions(CURRENT_VERSION, 'v' + entry.version) >= 0) continue;
           html += '<div class="changelog-entry changelog-new">';
           html += '<div class="changelog-version">v' + escapeHtml(entry.version) + ' <span style="font-size:0.7rem;color:var(--accent);">新版本可用</span></div>';
           if (entry.date) html += '<div class="changelog-date">' + escapeHtml(entry.date) + '</div>';
