@@ -1829,9 +1829,12 @@ async function handleRequest(request, env, ctx) {
                 'UPDATE todos SET text=?, priority=?, repeat=1, desc=?, url=?, copy_text=?, subtasks=?, search_terms=?, repeat_type=?, repeat_custom=?, repeat_end=?, category_id=? WHERE parent_id=? AND date >= ?'
               ).bind(task.text, task.priority || 'low', task.desc || '', task.url || '', task.copyText || '', subtasksStr, searchTermsStr, rptType, '', repeatEnd, categoryId, task.parentId, date).run();
             } else {
-              // 改为不重复：当前项及未来项真删除
+              // 改为不重复：当前项变单次任务，未来项真删除
               await env.DB.prepare(
-                'DELETE FROM todos WHERE parent_id=? AND date >= ?'
+                'UPDATE todos SET text=?, priority=?, repeat=0, desc=?, url=?, copy_text=?, subtasks=?, search_terms=?, repeat_type=\'none\', repeat_custom=\'\', repeat_end=\'\', category_id=? WHERE id=?'
+              ).bind(task.text, task.priority || 'low', task.desc || '', task.url || '', task.copyText || '', subtasksStr, searchTermsStr, categoryId, task.id).run();
+              await env.DB.prepare(
+                'DELETE FROM todos WHERE parent_id=? AND date > ?'
               ).bind(task.parentId, date).run();
             }
             // 过去项：保留 repeat_type，设置 repeat_end=当前日期 和 repeat=-1
