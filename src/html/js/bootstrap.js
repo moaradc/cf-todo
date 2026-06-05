@@ -152,6 +152,4 @@ export const bootstrap = `
       checkUpdate: checkUpdate,
       compareVersions: compareVersions,
     });
-
-  })();
 `;
