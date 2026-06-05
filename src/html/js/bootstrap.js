@@ -153,5 +153,4 @@ export const bootstrap = `
       compareVersions: compareVersions,
     });
 
-  })();
 `;
