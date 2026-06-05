@@ -3,6 +3,9 @@
  */
 
 const APP_VERSION = '2.6.9.3';
+const CHANGELOG = [
+  { version: '2.6.9.3', date: '2025-06-05', log: '更新检查改用远程版本对比，无需手动发布 Release' },
+];
 const DEFAULT_CATEGORY_COLOR = '#888888';
 
 function parseCookies(request) {
@@ -125,6 +128,7 @@ function apiError(msg, status = 500, extra = null) {
 
 export {
   APP_VERSION,
+  CHANGELOG,
   DEFAULT_CATEGORY_COLOR,
   parseCookies,
   sign,
