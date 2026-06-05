@@ -443,8 +443,7 @@ export const detail = `
           options.innerHTML += \`<button onclick="confirmAction('all')">所有</button>\`;
         } else { options.innerHTML += \`<button onclick="confirmAction('single')">确认删除</button>\`; }
       } else if (action === 'save') {
-        const isRepeatNow = tempRepeatType !== 'none';
-        if (task.isSeries || isRepeatNow) {
+        if (task.isSeries) {
           title.innerText = "保存为：";
           options.innerHTML += \`<button onclick="confirmAction('single')">仅此项</button>\`;
           options.innerHTML += \`<button onclick="confirmAction('future')">此项及以后</button>\`;
