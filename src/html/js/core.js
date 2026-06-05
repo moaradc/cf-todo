@@ -174,10 +174,17 @@ export const core = `
     let sessionsList = [];
     
     var CURRENT_VERSION = 'v\${APP_VERSION}';
+    var CURRENT_COMMIT = '\${APP_COMMIT}';
     
     function initVersionDisplay() {
       var el = document.getElementById('app-version-display');
-      if (el) el.textContent = CURRENT_VERSION;
+      if (el) {
+        var display = CURRENT_VERSION;
+        if (CURRENT_COMMIT && CURRENT_COMMIT !== '\${APP_COMMIT}' && CURRENT_COMMIT !== '') {
+          display += ' (' + CURRENT_COMMIT.substring(0, 7) + ')';
+        }
+        el.textContent = display;
+      }
     }
     
     async function checkUpdate() {
@@ -185,41 +192,31 @@ export const core = `
       if (!s) return;
       s.innerHTML = '<span style="color:#888;font-size:0.8rem;">检查中...</span>';
       try {
-        var res = await fetch('https://api.github.com/repos/moaradc/cf-todo/releases/latest', {
+        var res = await fetch('https://api.github.com/repos/moaradc/cf-todo/commits/main', {
           headers: { 'Accept': 'application/vnd.github.v3+json' }
         });
         if (!res.ok) throw new Error('HTTP ' + res.status);
         var d = await res.json();
-        if (!d.tag_name) throw new Error('No tag');
+        if (!d.sha) throw new Error('No sha');
     
-        var latest = d.tag_name;
-        var cmp = compareVersions(CURRENT_VERSION, latest);
+        var latestSha = d.sha;
+        var hasCommit = CURRENT_COMMIT && CURRENT_COMMIT !== '\${APP_COMMIT}' && CURRENT_COMMIT !== '';
     
-        if (cmp < 0) {
-          var dl = d.assets && d.assets[0]
-            ? ' | <a href="' + d.assets[0].browser_download_url + '" style="color:var(--accent);font-size:0.8rem;text-decoration:none;">下载</a>'
-            : '';
-          s.innerHTML = '<span style="font-size:0.8rem;font-weight:bold;">→ ' + escapeHtml(latest) + '</span> '
-            + '<a href="' + d.html_url + '" target="_blank" style="color:var(--accent);font-size:0.8rem;text-decoration:none;">GitHub</a>' + dl;
+        if (hasCommit && latestSha !== CURRENT_COMMIT) {
+          var shortSha = latestSha.substring(0, 7);
+          var commitDate = '';
+          if (d.commit && d.commit.committer && d.commit.committer.date) {
+            var dt = new Date(d.commit.committer.date);
+            commitDate = (dt.getMonth()+1) + '/' + dt.getDate() + ' ';
+          }
+          s.innerHTML = '<span style="font-size:0.8rem;font-weight:bold;">→ 更新可用</span> '
+            + '<a href="https://github.com/moaradc/cf-todo/commit/' + latestSha + '" target="_blank" style="color:var(--accent);font-size:0.8rem;text-decoration:none;">' + commitDate + shortSha + '</a>';
         } else {
           s.innerHTML = '<span style="font-size:0.8rem;">已是最新</span>';
         }
       } catch (e) {
         s.innerHTML = '<span style="color:var(--accent);font-size:0.8rem;">检查失败</span>';
       }
-    }
-    
-    function compareVersions(v1, v2) {
-      var s1 = v1.replace(/^v/, '').split('.');
-      var s2 = v2.replace(/^v/, '').split('.');
-      var len = Math.max(s1.length, s2.length);
-      for (var i = 0; i < len; i++) {
-        var n1 = parseInt(s1[i], 10) || 0;
-        var n2 = parseInt(s2[i], 10) || 0;
-        if (n1 < n2) return -1;
-        if (n1 > n2) return 1;
-      }
-      return 0;
     }
 
     function escapeHtml(text) {

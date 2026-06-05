@@ -62,6 +62,7 @@ ${bootstrap}
   `;
 
   html = html.replaceAll('${APP_VERSION}', APP_VERSION);
+  html = html.replaceAll('${APP_COMMIT}', APP_COMMIT);
 
   html = html.replace(
     '<script>/*CUSTOM_HEADER_PLACEHOLDER*/</script>',
