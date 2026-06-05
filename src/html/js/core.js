@@ -179,7 +179,11 @@ export const core = `
     
     function initVersionDisplay() {
       var el = document.getElementById('app-version-display');
-      if (el) el.textContent = CURRENT_VERSION;
+      if (el) {
+        el.textContent = CURRENT_VERSION;
+        el.style.cursor = 'pointer';
+        el.onclick = function() { openChangelogModal(); };
+      }
     }
     
     async function checkUpdate() {

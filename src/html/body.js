@@ -504,7 +504,7 @@ export function getBody(isAuthorized) {
   </div>
 
   <div id="modal-changelog" class="modal-overlay" style="z-index:75;" onclick="if(event.target===this) closeChangelogModal()">
-    <div class="modal-content" style="max-width:400px; display:flex; flex-direction:column; overflow:hidden;">
+    <div class="modal-content" style="max-width:400px; max-height:80vh; display:flex; flex-direction:column; overflow:hidden;">
       <h3 style="margin-bottom:12px; padding-bottom:5px; flex-shrink:0;">>> 更新日志</h3>
       <div id="changelog-body" style="flex:1; overflow-y:auto; min-height:0;"></div>
       <button onclick="closeChangelogModal()" style="width:100%; margin-top:12px; flex-shrink:0;">关闭</button>
