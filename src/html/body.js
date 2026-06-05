@@ -367,16 +367,6 @@ export function getBody(isAuthorized) {
     </div>
   </div>
 
-  <div id="modal-changelog" class="modal-overlay" onclick="if(event.target===this) closeChangelogModal()">
-    <div class="modal-content" style="max-height:80vh;display:flex;flex-direction:column;">
-      <h3 style="margin-bottom:15px; padding-bottom:5px; flex-shrink:0;">>> 更新日志</h3>
-      <div id="changelog-list" style="flex:1;overflow-y:auto;min-height:0;"></div>
-      <div style="margin-top:15px; flex-shrink:0;">
-        <button class="flex-1" onclick="closeChangelogModal()" style="width:100%;">关闭</button>
-      </div>
-    </div>
-  </div>
-
   <div id="popover-action" class="popover-menu">
     <div class="popover-title" id="popover-title">选择操作范围:</div>
     <div id="popover-options"></div>

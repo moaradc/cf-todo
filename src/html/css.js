@@ -203,10 +203,6 @@ export const css = `
       width: 90%; max-width: 400px; max-height: 90vh; overflow-y: auto; background: #111; border: 1px solid var(--crt);
       padding: 20px; box-shadow: 0 0 30px rgba(0,255,65,0.1); position: relative;
     }
-    .changelog-item {
-      padding: 12px 0; border-bottom: 1px solid #222;
-    }
-    .changelog-item:last-child { border-bottom: none; }
 
     #modal-time { z-index: 90; }
 
