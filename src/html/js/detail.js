@@ -475,9 +475,19 @@ export const detail = `
         task.desc = document.getElementById('edit-desc').value; task.url = document.getElementById('edit-url').value;
         task.copyText = document.getElementById('edit-copy').value; task.copy_text = task.copyText; 
         task.subtasks = tempSubtasks; task.search_terms = tempSearchTerms;
-        task.repeat_type = tempRepeatType; task.repeat_custom = '';
-        task.repeat_end = tempRepeatEnd;
         task.category_id = tempCategoryId;
+        
+        // scope='single' 时：脱离模板，变为单次任务
+        if (scope === 'single' && task.isSeries) {
+          task.repeat_type = 'none';
+          task.repeat_custom = '';
+          task.repeat_end = '';
+          task.repeat = false;
+        } else {
+          task.repeat_type = tempRepeatType;
+          task.repeat_custom = '';
+          task.repeat_end = tempRepeatEnd;
+        }
         
         toggleEditMode();
         await fetch('/api/todo-action', { method: 'POST', body: JSON.stringify({ action: 'UPDATE', date: formatDate(currentDate), task: task, scope: scope }), headers: { 'Content-Type': 'application/json' } });

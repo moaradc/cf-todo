@@ -74,6 +74,20 @@ function getDayOfWeek(dateStr) {
   return d.getDay();
 }
 
+function formatDateStr(date) {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, '0');
+  const d = String(date.getDate()).padStart(2, '0');
+  return y + '-' + m + '-' + d;
+}
+
+function offsetDate(dateStr, days) {
+  const parts = dateStr.split('-');
+  const d = new Date(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2]));
+  d.setDate(d.getDate() + days);
+  return formatDateStr(d);
+}
+
 async function fetchHotSearchData(providerName = 'auto') {
   const fetchers = {
     'bilibili': async () => { 
@@ -137,6 +151,8 @@ export {
   generateSessionToken,
   secureCompare,
   getDayOfWeek,
+  formatDateStr,
+  offsetDate,
   fetchHotSearchData,
   apiError
 };
