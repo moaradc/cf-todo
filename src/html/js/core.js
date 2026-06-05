@@ -174,11 +174,14 @@ export const core = `
     let sessionsList = [];
     
     var CURRENT_VERSION = 'v\${APP_VERSION}';
+    var LOCAL_CHANGELOG = \${CHANGELOG_JSON};
     
     function initVersionDisplay() {
       var el = document.getElementById('app-version-display');
       if (el) el.textContent = CURRENT_VERSION;
     }
+    
+    var _remoteChangelog = null;
     
     async function checkUpdate() {
       var s = document.getElementById('update-status');
@@ -195,14 +198,78 @@ export const core = `
         var localVer = CURRENT_VERSION.replace(/^v/, '');
         var remoteVer = remoteVersion.replace(/^v/, '');
     
+        var changelogMatch = text.match(/CHANGELOG\s*=\s*(\[[\s\S]*?\]);/);
+        if (changelogMatch) {
+          try { _remoteChangelog = JSON.parse(changelogMatch[1]); } catch(e) {}
+        }
+    
         if (remoteVer !== localVer) {
-          s.innerHTML = '<span style="font-size:0.8rem;font-weight:bold;">→ ' + escapeHtml(remoteVersion) + '</span> '
-            + '<a href="https://github.com/moaradc/cf-todo/releases" target="_blank" style="color:var(--accent);font-size:0.8rem;text-decoration:none;">查看</a>';
+          s.innerHTML = '<span style="font-size:0.8rem;font-weight:bold;cursor:pointer;color:var(--accent);" onclick="openChangelogModal(true)">→ ' + escapeHtml(remoteVersion) + '</span>';
         } else {
-          s.innerHTML = '<span style="font-size:0.8rem;">已是最新</span>';
+          s.innerHTML = '<span style="font-size:0.8rem;">已是最新</span> <span class="md-code" style="cursor:pointer;font-size:0.7rem;" onclick="openChangelogModal(false)">日志</span>';
         }
       } catch (e) {
         s.innerHTML = '<span style="color:var(--accent);font-size:0.8rem;">检查失败</span>';
+      }
+    }
+    
+    function openChangelogModal(hasUpdate) {
+      var list = document.getElementById('changelog-list');
+      if (!list) return;
+      list.innerHTML = '';
+      
+      var entries = [];
+      if (hasUpdate && _remoteChangelog) {
+        var localVer = CURRENT_VERSION.replace(/^v/, '');
+        entries = _remoteChangelog.filter(function(e) {
+          return e.version && e.version !== localVer;
+        });
+        if (entries.length === 0 && _remoteChangelog.length > 0) {
+          entries = _remoteChangelog;
+        }
+      } else {
+        entries = LOCAL_CHANGELOG;
+      }
+      
+      if (entries.length === 0) {
+        list.innerHTML = '<div style="color:#666;font-size:0.85rem;text-align:center;padding:20px;">暂无更新日志</div>';
+      } else {
+        for (var i = 0; i < entries.length; i++) {
+          var e = entries[i];
+          var dateStr = e.date ? '<span style="color:#666;font-size:0.75rem;">' + escapeHtml(e.date) + '</span>' : '';
+          var verStr = e.version ? '<span style="color:var(--accent);font-weight:bold;">v' + escapeHtml(e.version) + '</span>' : '';
+          var logStr = e.log ? '<div style="color:var(--fg);font-size:0.85rem;margin-top:4px;">' + escapeHtml(e.log) + '</div>' : '';
+          var item = document.createElement('div');
+          item.className = 'changelog-item';
+          item.innerHTML = '<div style="display:flex;justify-content:space-between;align-items:center;">' + verStr + ' ' + dateStr + '</div>' + logStr;
+          list.appendChild(item);
+        }
+      }
+      
+      document.getElementById('modal-changelog').classList.add('active');
+    }
+    
+    function closeChangelogModal() {
+      var modal = document.getElementById('modal-changelog');
+      if (!modal || !modal.classList.contains('active')) return;
+      modal.classList.add('closing-overlay');
+      var content = modal.querySelector('.modal-content');
+      if (content) content.classList.add('closing');
+      var closed = false;
+      function doClose() {
+        if (closed) return;
+        closed = true;
+        modal.classList.remove('active', 'closing-overlay');
+        if (content) content.classList.remove('closing');
+      }
+      if (content) {
+        content.addEventListener('animationend', function handler(e) {
+          content.removeEventListener('animationend', handler);
+          doClose();
+        });
+        setTimeout(doClose, 350);
+      } else {
+        doClose();
       }
     }
 
