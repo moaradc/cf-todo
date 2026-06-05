@@ -1,4 +1,4 @@
-import { APP_VERSION } from "../utils.js";
+import { APP_VERSION, CHANGELOG } from "../utils.js";
 import { css } from "./css.js";
 import { getBody } from "./body.js";
 import { core } from "./js/core.js";
@@ -62,6 +62,7 @@ ${bootstrap}
   `;
 
   html = html.replaceAll('${APP_VERSION}', APP_VERSION);
+  html = html.replaceAll('${CHANGELOG_JSON}', JSON.stringify(CHANGELOG).replace(/<\//g, '<\\/'));
 
   html = html.replace(
     '<script>/*CUSTOM_HEADER_PLACEHOLDER*/</script>',

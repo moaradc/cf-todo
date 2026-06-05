@@ -622,4 +622,20 @@ export const css = `
     [data-theme="light"] .io-btn-primary:hover { background: #1B1915; color: #FEFEFE; }
     [data-theme="light"] .io-btn-secondary { border: 2px solid #999; color: #666; }
     [data-theme="light"] .io-btn-secondary:hover { background: #E5E5E5; }
+
+    .changelog-entry { margin-bottom: 12px; padding-bottom: 10px; border-bottom: 1px dashed #333; }
+    .changelog-entry:last-child { border-bottom: none; margin-bottom: 0; padding-bottom: 0; }
+    .changelog-version { font-size: 0.9rem; font-weight: bold; color: var(--crt); margin-bottom: 2px; }
+    .changelog-date { font-size: 0.7rem; color: #666; margin-bottom: 4px; }
+    .changelog-notes { font-size: 0.8rem; color: var(--fg); line-height: 1.5; }
+    .changelog-new { border-left: 3px solid var(--accent); padding-left: 10px; border-bottom: none; }
+    .changelog-new .changelog-version { color: var(--accent); }
+    .changelog-section-title { font-size: 0.7rem; color: #555; text-transform: uppercase; margin: 12px 0 8px; padding-bottom: 4px; border-bottom: 1px solid #333; letter-spacing: 1px; }
+    [data-theme="light"] .changelog-entry { border-bottom-color: #1B1915; }
+    [data-theme="light"] .changelog-version { color: #5C960B; }
+    [data-theme="light"] .changelog-date { color: #666; }
+    [data-theme="light"] .changelog-notes { color: #1B1915; }
+    [data-theme="light"] .changelog-new { border-left-color: #CE2424; }
+    [data-theme="light"] .changelog-new .changelog-version { color: #CE2424; }
+    [data-theme="light"] .changelog-section-title { color: #1B1915; border-bottom-color: #1B1915; }
 `;
