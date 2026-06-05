@@ -1689,7 +1689,7 @@ async function handleRequest(request, env, ctx) {
           repeat_custom: row.repeat_custom || '',
           repeat_end: row.repeat_end || '',
           end_time: row.end_time || '',
-          isSeries: row.repeat !== 0 || rType !== 'none',
+          isSeries: row.repeat !== 0,
           done: !!row.done,
           subtasks: parsedSubtasks,
           search_terms: parsedSearchTerms
@@ -1793,16 +1793,12 @@ async function handleRequest(request, env, ctx) {
                 }
               }
             }
-          } else if (rptType === 'none') {
-            // 非重复任务的普通更新
-            await env.DB.prepare(
-              'UPDATE todos SET text=?, time=?, priority=?, repeat=?, desc=?, url=?, copy_text=?, subtasks=?, search_terms=?, repeat_type=?, repeat_custom=?, repeat_end=?, end_time=?, category_id=? WHERE id=?'
-            ).bind(task.text, task.time || '', task.priority || 'low', rpt, task.desc || '', task.url || '', task.copyText || '', subtasksStr, searchTermsStr, rptType, '', repeatEnd, endTime, categoryId, task.id).run();
           } else if (scope === 'future') {
             // 此项及以后：更新内容（忽略时间），过去项加 repeat_end
+            const rptVal = rptType !== 'none' ? 1 : 0;
             await env.DB.prepare(
-              'UPDATE todos SET text=?, priority=?, repeat=1, desc=?, url=?, copy_text=?, subtasks=?, search_terms=?, repeat_type=?, repeat_custom=?, repeat_end=?, category_id=? WHERE parent_id=? AND date >= ?'
-            ).bind(task.text, task.priority || 'low', task.desc || '', task.url || '', task.copyText || '', subtasksStr, searchTermsStr, rptType, '', repeatEnd, categoryId, task.parentId, date).run();
+              'UPDATE todos SET text=?, priority=?, repeat=?, desc=?, url=?, copy_text=?, subtasks=?, search_terms=?, repeat_type=?, repeat_custom=?, repeat_end=?, category_id=? WHERE parent_id=? AND date >= ?'
+            ).bind(task.text, task.priority || 'low', rptVal, task.desc || '', task.url || '', task.copyText || '', subtasksStr, searchTermsStr, rptType, '', repeatEnd, categoryId, task.parentId, date).run();
             // 过去项：保留 repeat_type，设置 repeat_end 和 repeat=-1
             const pastEnd = offsetDate(date, -1);
             await env.DB.prepare(
@@ -1810,18 +1806,32 @@ async function handleRequest(request, env, ctx) {
             ).bind(pastEnd, task.parentId, date).run();
           } else if (scope === 'future_repeat') {
             // 以后：更新内容（忽略时间），当前及过去项加 repeat_end
+            const rptVal = rptType !== 'none' ? 1 : 0;
             await env.DB.prepare(
-              'UPDATE todos SET text=?, priority=?, repeat=1, desc=?, url=?, copy_text=?, subtasks=?, search_terms=?, repeat_type=?, repeat_custom=?, repeat_end=?, category_id=? WHERE parent_id=? AND date > ?'
-            ).bind(task.text, task.priority || 'low', task.desc || '', task.url || '', task.copyText || '', subtasksStr, searchTermsStr, rptType, '', repeatEnd, categoryId, task.parentId, date).run();
+              'UPDATE todos SET text=?, priority=?, repeat=?, desc=?, url=?, copy_text=?, subtasks=?, search_terms=?, repeat_type=?, repeat_custom=?, repeat_end=?, category_id=? WHERE parent_id=? AND date > ?'
+            ).bind(task.text, task.priority || 'low', rptVal, task.desc || '', task.url || '', task.copyText || '', subtasksStr, searchTermsStr, rptType, '', repeatEnd, categoryId, task.parentId, date).run();
             // 当前及过去项：保留 repeat_type，设置 repeat_end 和 repeat=-1
             await env.DB.prepare(
               'UPDATE todos SET repeat=-1, repeat_end=? WHERE parent_id=? AND date <= ? AND repeat_type != \'none\''
             ).bind(date, task.parentId, date).run();
           } else if (scope === 'all') {
             // 所有：更新内容（忽略时间）
+            const rptVal = rptType !== 'none' ? 1 : 0;
             await env.DB.prepare(
-              'UPDATE todos SET text=?, priority=?, repeat=1, desc=?, url=?, copy_text=?, subtasks=?, search_terms=?, repeat_type=?, repeat_custom=?, repeat_end=?, category_id=? WHERE parent_id=?'
-            ).bind(task.text, task.priority || 'low', task.desc || '', task.url || '', task.copyText || '', subtasksStr, searchTermsStr, rptType, '', repeatEnd, categoryId, task.parentId).run();
+              'UPDATE todos SET text=?, priority=?, repeat=?, desc=?, url=?, copy_text=?, subtasks=?, search_terms=?, repeat_type=?, repeat_custom=?, repeat_end=?, category_id=? WHERE parent_id=?'
+            ).bind(task.text, task.priority || 'low', rptVal, task.desc || '', task.url || '', task.copyText || '', subtasksStr, searchTermsStr, rptType, '', repeatEnd, categoryId, task.parentId).run();
+            // rptType 为 none 时，过去项也加 repeat_end
+            if (rptType === 'none') {
+              const pastEnd = offsetDate(date, -1);
+              await env.DB.prepare(
+                'UPDATE todos SET repeat=-1, repeat_end=? WHERE parent_id=? AND date < ? AND repeat_type != \'none\''
+              ).bind(pastEnd, task.parentId, date).run();
+            }
+          } else {
+            // 非重复任务的普通更新
+            await env.DB.prepare(
+              'UPDATE todos SET text=?, time=?, priority=?, repeat=?, desc=?, url=?, copy_text=?, subtasks=?, search_terms=?, repeat_type=?, repeat_custom=?, repeat_end=?, end_time=?, category_id=? WHERE id=?'
+            ).bind(task.text, task.time || '', task.priority || 'low', rpt, task.desc || '', task.url || '', task.copyText || '', subtasksStr, searchTermsStr, rptType, '', repeatEnd, endTime, categoryId, task.id).run();
           }
         
           if (scope === 'future' || scope === 'all' || scope === 'future_repeat') {
