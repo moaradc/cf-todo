@@ -851,9 +851,6 @@ async function handleRequest(request, env, ctx) {
                 }
               }
 
-              if (sessionId) {
-                ctx.waitUntil(env.DB.prepare('DELETE FROM export_sessions WHERE id = ?').bind(sessionId).run().catch(() => {}));
-              }
               controller.close();
             } catch (err) {
               controller.error(err);
