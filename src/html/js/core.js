@@ -275,7 +275,7 @@ export const core = `
           for (var j = 0; j < LOCAL_CHANGELOG.length; j++) {
             var e = LOCAL_CHANGELOG[j];
             html += '<div class="changelog-entry">';
-            html += '<div class="changelog-version">v' + escapeHtml(e.version) + ' <span style="font-size:0.7rem;color:#666;">当前版本</span></div>';
+            html += '<div class="changelog-version">v' + escapeHtml(e.version) + (j === 0 ? ' <span style="font-size:0.7rem;color:#666;">当前版本</span>' : '') + '</div>';
             if (e.date) html += '<div class="changelog-date">' + escapeHtml(e.date) + '</div>';
             if (e.notes) html += '<div class="changelog-notes">' + parseMarkdown(e.notes) + '</div>';
             html += '</div>';
