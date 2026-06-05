@@ -3,7 +3,6 @@
  */
 
 const APP_VERSION = '2.6.9.3';
-const APP_COMMIT = '${APP_COMMIT}';
 const DEFAULT_CATEGORY_COLOR = '#888888';
 
 function parseCookies(request) {
