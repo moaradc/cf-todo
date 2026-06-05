@@ -92,7 +92,7 @@ export const categories = `
     }
 
     function toggleRepeatMenu(mode, triggerEl) {
-      activeMode = mode;
+      activeMode = mode; 
       showPopover('popover-repeat', triggerEl, true);
     }
 
@@ -772,4 +772,5 @@ export const categories = `
         }
       } catch(e) {}
     }
+
 `;

@@ -1,4 +1,5 @@
-export const core = `    function _injectPreview(target, html) {
+export const core = `
+    function _injectPreview(target, html) {
       if (!html) return;
       var temp = document.createElement('div');
       temp.innerHTML = html;
@@ -42,7 +43,7 @@ export const core = `    function _injectPreview(target, html) {
     
     async function generateSearchTerms(provider = 'auto') {
       try {
-        const res = await fetch(\\\`/api/hot-search?provider=\\\${provider}\\\`);
+        const res = await fetch(\`/api/hot-search?provider=\${provider}\`);
         if (res.ok) {
           const json = await res.json();
           if (json && json.success && Array.isArray(json.data) && json.data.length > 0) {
@@ -56,22 +57,22 @@ export const core = `    function _injectPreview(target, html) {
 
     function parseMarkdown(text) {
       if (!text) return '';
-      let lines = text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').split('\\\\n');
+      let lines = text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').split('\\n');
       let html = '';
       let inList = false;
 
       const formatInline = (str) => {
         return str
-          .replace(/\\\\*\\\\*([^*]+)\\\\*\\\\*/g, '<strong>$1</strong>')
-          .replace(/\\\\*([^*]+)\\\\*/g, '<em>$1</em>')
+          .replace(/\\*\\*([^*]+)\\*\\*/g, '<strong>$1</strong>')
+          .replace(/\\*([^*]+)\\*/g, '<em>$1</em>')
           .replace(/_([^_]+)_/g, '<em>$1</em>')
           .replace(/~~([^~]+)~~/g, '<del>$1</del>')
-          .replace(/\\\`([^\\\`]+)\\\`/g, '<code class="md-code">$1</code>');
+          .replace(/\`([^\`]+)\`/g, '<code class="md-code">$1</code>');
       };
 
       for (let i = 0; i < lines.length; i++) {
         let line = lines[i];
-        let isList = /^(\\\\s*[-*]\\\\s+)(.*)$/.exec(line);
+        let isList = /^(\\s*[-*]\\s+)(.*)$/.exec(line);
         if (isList) {
           if (!inList) { html += '<ul class="md-ul">'; inList = true; }
           let content = isList[2];
@@ -531,4 +532,5 @@ export const core = `    function _injectPreview(target, html) {
         else if (res.status === 429) { alert("连续尝试错误次数过多，IP已被锁定，请 15 分钟后再试！"); } 
         else { alert("密钥验证失败 / 访问被拒绝"); }
       } catch (e) { alert("网络连接失败"); }
-    }`;
+    }
+`;

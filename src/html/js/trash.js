@@ -9,14 +9,14 @@ export const trash = `
 
     function closeTrash() {
       exitTrashBatchMode();
-      const trashView = document.getElementById('trash-overlay');
+      const trashView = document.getElementById('trash-overlay'); 
       trashView.classList.add('closing');
       trashView.addEventListener('animationend', function handler() {
-        trashView.classList.remove('active');
-        trashView.classList.remove('closing');
+        trashView.classList.remove('active'); 
+        trashView.classList.remove('closing'); 
         trashView.removeEventListener('animationend', handler);
       });
-      loadTodos();
+      loadTodos(); 
     }
 
     async function loadTrashData() {
@@ -41,7 +41,7 @@ export const trash = `
       trashTodos.forEach((todo, index) => {
         const el = document.createElement('div');
         el.className = 'todo-item';
-
+        
         let checkboxHtml = '';
         let actionsHtml = '';
 
@@ -155,4 +155,5 @@ export const trash = `
       });
       loadTrashData();
     }
+
 `;

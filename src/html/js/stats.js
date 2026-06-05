@@ -3,7 +3,7 @@ export const stats = `
       var statsView = document.getElementById('stats-overlay');
       statsView.classList.remove('closing');
       statsView.classList.add('active');
-
+      
       currentStatsTab = 'weekly';
       updateStatsHeader();
       loadWeeklyStats();
@@ -20,7 +20,7 @@ export const stats = `
       const endDt = new Date();
       const startDt = new Date();
       startDt.setDate(startDt.getDate() - 6);
-
+      
       const endStr = formatDate(endDt);
       const startStr = formatDate(startDt);
 
@@ -55,7 +55,7 @@ export const stats = `
         statsView.removeEventListener('animationend', handler);
       });
     }
-
+    
     function switchStatsTab() {
       if (currentStatsTab === 'weekly') {
         if (getAnnualReportYear() === null) return;
@@ -70,7 +70,7 @@ export const stats = `
       }
       updateStatsHeader();
     }
-
+    
     // 年度报告出现时间 0=1月, 1=2月, ..., 11=12月
     function getAnnualReportYear() {
       var now = new Date();
@@ -84,7 +84,7 @@ export const stats = `
     function updateStatsHeader() {
       var titleEl = document.getElementById('stats-title-text');
       var switchBtn = document.getElementById('stats-switch-btn');
-
+      
       if (currentStatsTab === 'weekly') {
         titleEl.innerText = '7天统计';
         if (getAnnualReportYear() !== null) {
@@ -131,19 +131,19 @@ export const stats = `
 
     function renderAnnualReport(rawData) {
       const content = document.getElementById('annual-content');
-
+      
       const totalTasks = rawData.length;
       const doneTasks = rawData.filter(function(r){ return r.done === 1; }).length;
       const undoneTasks = totalTasks - doneTasks;
       const doneRate = totalTasks > 0 ? (doneTasks / totalTasks * 100) : 0;
-
+      
       const highPri = rawData.filter(function(r){ return r.priority === 'high'; }).length;
       const medPri = rawData.filter(function(r){ return r.priority === 'med'; }).length;
       const lowPri = rawData.filter(function(r){ return r.priority === 'low'; }).length;
       const highPriRate = totalTasks > 0 ? (highPri / totalTasks * 100) : 0;
       const medPriRate = totalTasks > 0 ? (medPri / totalTasks * 100) : 0;
       const lowPriRate = totalTasks > 0 ? (lowPri / totalTasks * 100) : 0;
-
+      
       var monthData = [];
       for (var mi = 0; mi < 12; mi++) monthData.push({ total: 0, done: 0 });
       rawData.forEach(function(r) {
@@ -153,10 +153,10 @@ export const stats = `
           if (r.done === 1) monthData[month].done++;
         }
       });
-
+      
       var busiestMonth = 0;
       monthData.forEach(function(m, i) { if (m.total > monthData[busiestMonth].total) busiestMonth = i; });
-
+      
       var dateCount = {};
       rawData.forEach(function(r) { dateCount[r.date] = (dateCount[r.date] || 0) + 1; });
       var busiestDate = '--';
@@ -164,18 +164,18 @@ export const stats = `
       for (var dk in dateCount) {
         if (dateCount[dk] > busiestDateCount) { busiestDate = dk; busiestDateCount = dateCount[dk]; }
       }
-
+      
       var firstHalf = 0, secondHalf = 0;
       monthData.forEach(function(m, i) { if (i < 6) firstHalf += m.total; else secondHalf += m.total; });
-
+      
       var activeDays = Object.keys(dateCount).length;
-
+      
       var ending = determineEnding(totalTasks, doneRate, highPriRate, firstHalf, secondHalf, monthData, activeDays, medPriRate, lowPriRate);
-
+      
       var monthMax = 1;
       monthData.forEach(function(m) { if (m.total > monthMax) monthMax = m.total; });
       var monthLabels = ['1月','2月','3月','4月','5月','6月','7月','8月','9月','10月','11月','12月'];
-
+      
       var monthBarsHtml = '';
       for (var bi = 0; bi < 12; bi++) {
         var m = monthData[bi];
@@ -209,7 +209,7 @@ export const stats = `
 
       var narrative = generateNarrative(totalTasks, doneTasks, doneRate, busiestMonth, busiestDate, busiestDateCount, highPri, medPri, lowPri, activeDays, firstHalf, secondHalf, monthData, annualYear);
 
-      content.innerHTML =
+      content.innerHTML = 
         '<div class="annual-year-title"><span>' + annualYear + ' 年度报告</span></div>' +
         '<div class="annual-hero">' +
           '<div class="annual-ending-title">' + ending.title + '</div>' +
@@ -412,7 +412,7 @@ export const stats = `
 
       return n;
     }
-
+    
     function getAnnualExpiryTime() {
       var y = annualYear + 1;
       return y + '-01-07 23:59:59';

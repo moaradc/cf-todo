@@ -22,7 +22,7 @@ export const todos = `
       const d = String(date.getDate()).padStart(2, '0');
       return y + '-' + m + '-' + d;
     }
-
+    
     function updateDateHeader(isLoading = false) {
       const str = formatDate(currentDate);
       const todayStr = formatDate(new Date());
@@ -34,7 +34,7 @@ export const todos = `
       } else {
         prefix = "未来计划";
       }
-
+      
       let subText = "";
       if (isLoading) {
         subText = \`[ \${prefix} | 拉取中... ]\`;
@@ -187,13 +187,13 @@ export const todos = `
         body: JSON.stringify({ action: 'TOGGLE_DONE', task: { id: todos[index].id, done: todos[index].done } }),
         headers: { 'Content-Type': 'application/json' }
       });
-      renderTodos();
+      renderTodos(); 
     }
 
     async function toggleSubtask(taskIndex, subIndex) {
       const task = todos[taskIndex];
       task.subtasks[subIndex].done = !task.subtasks[subIndex].done;
-      renderDetailContent();
+      renderDetailContent(); 
       await fetch('/api/todo-action', {
         method: 'POST',
         body: JSON.stringify({ action: 'UPDATE_SUBTASKS', task: { id: task.id, subtasks: task.subtasks } }),

@@ -1,4 +1,3 @@
-// bootstrap.js
 export const bootstrap = `
     async function bootstrap() {
       if (_previewRedirecting) return;
@@ -23,7 +22,7 @@ export const bootstrap = `
       if (scalePreview) scalePreview.style.zoom = 1.0;
       updateScalePresetButtons();
       applyAppScale(1.0);
-
+    
       await fetch('/api/settings', {
         method: 'POST',
         body: JSON.stringify(appSettings),
@@ -153,4 +152,6 @@ export const bootstrap = `
       checkUpdate: checkUpdate,
       compareVersions: compareVersions,
     });
+
+  })();
 `;

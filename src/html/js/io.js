@@ -932,7 +932,7 @@ export const io = `
     async function factoryReset() {
       if (!confirm("警告：此操作将彻底删除云端所有的待办事项、回收站记录和所有的云端偏好设置！\\n此操作不可逆，强烈建议先导出系统备份！\\n\\n是否继续？")) return;
       if (!confirm("最终确认：真的要彻底清空所有数据吗？")) return;
-
+      
       try {
         await fetch('/api/trash-action', {
           method: 'POST', body: JSON.stringify({ action: 'CLEAR_ALL_DATA' }),

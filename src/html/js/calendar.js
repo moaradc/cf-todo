@@ -1,13 +1,12 @@
-// calendar.js
 export const calendar = `
     function openCalendar() { calendarMode = 'navigate'; calDate = new Date(currentDate); calMode = 'date'; renderCalendar(); document.getElementById('modal-calendar').classList.add('active'); }
     function calChange(offset) {
       if (calendarMode === 'repeat_end') { calDate.setMonth(calDate.getMonth() + offset); renderCalendarForRepeatEnd(); return; }
-      if (calMode === 'date') { calDate.setMonth(calDate.getMonth() + offset); renderCalendar(); }
-      else if (calMode === 'year') { yearPickerStart += offset * 12; openYearPicker(yearPickerStart); }
+      if (calMode === 'date') { calDate.setMonth(calDate.getMonth() + offset); renderCalendar(); } 
+      else if (calMode === 'year') { yearPickerStart += offset * 12; openYearPicker(yearPickerStart); } 
       else if (calMode === 'month') { calDate.setFullYear(calDate.getFullYear() + offset); openMonthPicker(); }
     }
-
+    
     function openCalendarForAdd() { calendarMode = 'select'; calDate = new Date(tempAddDate || currentDate); renderCalendar(); document.getElementById('modal-calendar').classList.add('active');
     }
     function openCalendarForEdit() { calendarMode = 'edit_date'; var t = todos[currentDetailIndex]; calDate = new Date(t.date || currentDate); renderCalendar(); document.getElementById('modal-calendar').classList.add('active'); }
@@ -63,10 +62,10 @@ export const calendar = `
       calMode = 'date';
       const year = calDate.getFullYear(); const month = calDate.getMonth();
       const actionBtn = document.getElementById('cal-action-btn'); actionBtn.innerText = '返回今日'; actionBtn.onclick = jumpToToday;
-
+      
       document.getElementById('cal-prev').innerText = '< 上月'; document.getElementById('cal-next').innerText = '下月 >';
       document.getElementById('cal-title').innerHTML = \`<span class="cal-title-btn" onclick="openYearPicker()">\${year}年</span> <span class="cal-title-btn" onclick="openMonthPicker()">\${month + 1}月</span>\`;
-
+      
       const grid = document.getElementById('cal-grid'); grid.style.gridTemplateColumns = 'repeat(7, 1fr)'; grid.innerHTML = '';
       const days = ['日','一','二','三','四','五','六']; days.forEach(d => grid.innerHTML += \`<div class="cal-day-name">\${d}</div>\`);
       const firstDay = new Date(year, month, 1).getDay(); const daysInMonth = new Date(year, month + 1, 0).getDate();
@@ -150,7 +149,7 @@ export const calendar = `
         loadTodos();
       }
     }
-
+    
     function closeCalendar() {
       document.getElementById('modal-calendar').classList.remove('active');
       calendarMode = 'navigate';
@@ -163,4 +162,5 @@ export const calendar = `
         document.body.style.touchAction = locked ? 'none' : '';
       }).observe(document.body, { subtree: true, attributes: true, attributeFilter: ['class'] });
     }
+    
 `;

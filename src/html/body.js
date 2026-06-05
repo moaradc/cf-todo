@@ -2,7 +2,7 @@ export function getBody(isAuthorized) {
   return `
 <body>
   <div class="scanlines"></div>
-
+  
   <div id="preview-notice" class="hidden" style="background:var(--warn);color:#000;padding:8px 15px;text-align:center;font-weight:bold;font-size:0.85rem;position:fixed;top:0;left:0;right:0;z-index:110;">⚠ 前端定制预览状态 — 自定义仅在本地生效 <span class="md-code" style="cursor:pointer;margin-left:8px;background:#000;color:var(--warn);" onclick="restoreAllPreview()">还原</span></div>
 
   <div class="container">
@@ -25,7 +25,7 @@ export function getBody(isAuthorized) {
     </div>
 
     <div id="app-view" class="${isAuthorized ? '' : 'hidden'}">
-
+      
       <div class="date-bar">
         <button onclick="changeDate(-1)">&lt;</button>
         <div class="date-display" onclick="openCalendar()">
@@ -46,7 +46,7 @@ export function getBody(isAuthorized) {
       </div>
 
       <div id="todo-list"></div>
-
+      
       <div class="fab" onclick="openAddModal()">+</div>
     </div>
   </div>
@@ -62,7 +62,7 @@ export function getBody(isAuthorized) {
     <div class="modal-content">
       <h3 style="margin-bottom:15px; padding-bottom:5px;">>> 新建事项</h3>
       <input type="text" id="add-text" placeholder="事项标题（必填）">
-
+      
       <div class="detail-label modal-section">子任务</div>
       <div class="row modal-subtask-row">
         <input type="text" id="add-subtask-input" placeholder="输入子任务（可选）" class="flex-1">
@@ -123,7 +123,7 @@ export function getBody(isAuthorized) {
             <span id="add-search-provider-display">自动 (随机源)</span>
             <span class="arrow-r">▼</span>
           </div>
-          <button class="btn-ghost flex-1" id="add-search-regeneration-btn" style="height:46px; padding: 0 5px;" onclick="regenerateAddSearchTerms()">获取热搜</button>
+          <button class="btn-ghost flex-1" id="add-search-regenerate-btn" style="height:46px; padding: 0 5px;" onclick="regenerateAddSearchTerms()">获取热搜</button>
         </div>
         <div class="search-card" id="add-search-preview"></div>
       </div>
@@ -163,7 +163,7 @@ export function getBody(isAuthorized) {
       </div>
     </div>
     <div id="trash-list" style="flex:1; overflow-y:auto; padding-bottom: 20px;"></div>
-
+    
     <div id="trash-batch-bar" class="batch-bar hidden" style="z-index: 70;">
       <button onclick="batchTrashSelectAll()">全选</button>
       <button onclick="batchTrashRestore()">恢复选中</button>
@@ -210,7 +210,7 @@ export function getBody(isAuthorized) {
       <button onclick="saveAndCloseSettings()" style="padding: 4px 8px;">保存</button>
     </div>
     <div style="flex:1; overflow-y:auto; padding-bottom: 20px;">
-
+      
       <div class="detail-label">偏好设置</div>
       <div style="margin-bottom: 20px;">
           <div class="setting-item">
@@ -274,7 +274,7 @@ export function getBody(isAuthorized) {
             </div>
           </div>
       </div>
-
+      
       <div class="settings-card">
           <div class="setting-item" style="margin-bottom: 15px; border: none; padding: 0;">
               <span class="settings-text" style="margin:0;"><strong>启用前端定制注入</strong></span>
@@ -284,7 +284,7 @@ export function getBody(isAuthorized) {
           </div>
 
           <p class="settings-text" style="margin-bottom: 12px;">关闭后将不再注入自定义代码，但代码仍会保留在数据库中。</p>
-
+          
          <div class="detail-label" style="margin-top: 6px;">自定义头部</div>
         <textarea id="custom-header-preview" rows="5"
           style="resize:vertical; font-size:0.8rem; margin-bottom: 12px;"
@@ -309,23 +309,23 @@ export function getBody(isAuthorized) {
       <div class="settings-card">
           <div class="settings-text" style="margin-bottom: 10px;">即将导出的内容包括：</div>
           <label style="display:flex; align-items:center; gap:10px; margin-bottom:8px; cursor:pointer;">
-            <input type="checkbox" id="export-todos" checked style="width:16px; height:16px; margin:0;">
+            <input type="checkbox" id="export-todos" checked style="width:16px; height:16px; margin:0;"> 
             <span class="settings-text" style="margin:0;">活动与历史待办事项（含重复模板）</span>
           </label>
           <label style="display:flex; align-items:center; gap:10px; margin-bottom:8px; cursor:pointer;">
-            <input type="checkbox" id="export-trash" checked style="width:16px; height:16px; margin:0;">
+            <input type="checkbox" id="export-trash" checked style="width:16px; height:16px; margin:0;"> 
             <span class="settings-text" style="margin:0;">仅回收站中的数据（相关的黑名单在重复模板中）</span>
           </label>
           <label style="display:flex; align-items:center; gap:10px; margin-bottom:8px; cursor:pointer;">
-            <input type="checkbox" id="export-settings" checked style="width:16px; height:16px; margin:0;">
+            <input type="checkbox" id="export-settings" checked style="width:16px; height:16px; margin:0;"> 
             <span class="settings-text" style="margin:0;">个性化数据</span>
           </label>
           <label style="display:flex; align-items:center; gap:10px; margin-bottom:15px; cursor:pointer;">
-            <input type="checkbox" id="export-categories" checked style="width:16px; height:16px; margin:0;">
+            <input type="checkbox" id="export-categories" checked style="width:16px; height:16px; margin:0;"> 
             <span class="settings-text" style="margin:0;">分类数据</span>
           </label>
           <label style="display:flex; align-items:center; gap:10px; margin-bottom:15px; cursor:pointer;">
-            <input type="checkbox" id="chunked-mode" style="width:16px; height:16px; margin:0;">
+            <input type="checkbox" id="chunked-mode" style="width:16px; height:16px; margin:0;"> 
             <span class="settings-text" style="margin:0;">使用分片模式（推荐大数据使用）</span>
           </label>
           <div class="row">
@@ -359,7 +359,7 @@ export function getBody(isAuthorized) {
       <div class="settings-card danger">
           <div class="settings-text" style="margin-bottom: 10px;">退出当前登录会话，需重新输入密钥接入系统。您的数据不会消失。</div>
           <button class="btn-danger" style="width:100%" onclick="logout()">退出登录</button>
-
+          
           <p class="settings-text" style="margin-bottom: 15px; margin-top: 20px; padding-top: 20px; border-top: 1px dashed var(--accent);">执行此操作将不可逆地清空所有的系统记录、回收站数据并重置偏好设置。建议提前导出备份。</p>
           <button class="btn-danger" style="width:100%" onclick="factoryReset()">恢复出厂设置</button>
       </div>
@@ -502,5 +502,6 @@ export function getBody(isAuthorized) {
       </div>
     </div>
   </div>
-`;
+
+  `;
 }

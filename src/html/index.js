@@ -61,6 +61,8 @@ ${bootstrap}
 </html>
   `;
 
+  html = html.replaceAll('${APP_VERSION}', APP_VERSION);
+
   html = html.replace(
     '<script>/*CUSTOM_HEADER_PLACEHOLDER*/</script>',
     customHeader || ''

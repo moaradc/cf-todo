@@ -1,4 +1,3 @@
-// detail.js
 export const detail = `
     function openAddModal() {
       activeMode = 'add';
@@ -15,12 +14,12 @@ export const detail = `
       document.getElementById('add-endtime-display').innerText = '结束 --:--';
       document.getElementById('add-repeat-end-display').innerText = '循环截止: 永不';
       document.getElementById('add-repeat-end-row').style.display = 'none';
-
-      tempSubtasks =[]; tempSearchTerms =[]; addSearchState = false;
+      
+      tempSubtasks =[]; tempSearchTerms =[]; addSearchState = false; 
       tempSearchProvider = appSettings.provider || 'auto';
       document.getElementById('add-subtask-input').value = '';
       renderTempSubtasks('add');
-
+      
       const pMap = {'auto':'自动 (随机源)', 'bilibili':'哔哩哔哩', 'weibo':'微博热搜', 'zhihu':'知乎热榜', 'baidu':'百度热搜'};
       const providerDisplay = document.getElementById('add-search-provider-display');
       if(providerDisplay) providerDisplay.innerText = pMap[tempSearchProvider];
@@ -30,7 +29,7 @@ export const detail = `
 
       updateAddUI();
     }
-
+    
     function updateAddUI() {
       document.getElementById('add-time-display').innerText = tempTime ? ('开始 ' + tempTime) : '开始 --:--';
       document.getElementById('add-endtime-display').innerText = tempEndTime ? ('结束 ' + tempEndTime) : '结束 --:--';
@@ -43,17 +42,17 @@ export const detail = `
       closeCategoryModal();
       var modal = document.getElementById('modal-add');
       if (!modal || !modal.classList.contains('active')) return;
-
+      
       var content = modal.querySelector('.modal-content');
       if (!content) { modal.classList.remove('active'); return; }
-
+      
       modal.classList.add('closing-overlay');
       content.classList.add('closing');
-
+      
       var computedStyle = window.getComputedStyle(content);
       var duration = parseFloat(computedStyle.animationDuration);
       var name = computedStyle.animationName;
-
+      
       var closed = false;
       function doClose() {
         if (closed) return;
@@ -61,7 +60,7 @@ export const detail = `
         modal.classList.remove('active', 'closing-overlay');
         content.classList.remove('closing');
       }
-
+      
       if (name && name !== 'none' && duration > 0) {
         content.addEventListener('animationend', function handler(e) {
           if (e.target === content) {
@@ -82,7 +81,7 @@ export const detail = `
       const newTask = {
         id: newId, parentId: newId, text: text, time: tempTime,
         end_time: tempEndTime,
-        priority: tempPriority,
+        priority: tempPriority, 
         repeat_type: tempRepeatType,
         repeat_custom: '',
         repeat_end: tempRepeatEnd,
@@ -97,7 +96,7 @@ export const detail = `
         body: JSON.stringify({ action: 'CREATE', date: tempAddDate, task: newTask }),
         headers: { 'Content-Type': 'application/json' }
       });
-      loadTodos();
+      loadTodos(); 
     }
 
     async function toggleSearchTerm(taskIndex, termIndex) {
@@ -109,7 +108,7 @@ export const detail = `
         body: JSON.stringify({ action: 'UPDATE_SEARCH_TERMS', task: { id: task.id, search_terms: task.search_terms } }),
         headers: { 'Content-Type': 'application/json' }
       });
-      renderTodos();
+      renderTodos(); 
     }
 
     async function copySearchTerm(taskIndex, termIndex, safeText) {
@@ -132,7 +131,7 @@ export const detail = `
       const task = todos[index]; tempTime = task.time || ''; tempPriority = task.priority || 'low';
       tempCategoryId = task.category_id || '';
       renderDetailContent();
-
+      
       const btnSave = document.getElementById('btn-save-task'); const btnDel = document.getElementById('btn-delete-task');
       const btnEdit = document.getElementById('btn-edit-toggle');
       btnSave.classList.add('hidden'); btnDel.classList.remove('hidden'); btnEdit.innerText = "编辑";
@@ -156,7 +155,7 @@ export const detail = `
       const task = todos[currentDetailIndex]; const container = document.getElementById('detail-content');
       const pMap = {low:'优先级: 低', med:'优先级: 中', high:'优先级: 高'};
       const rMap = { none: '不重复', daily: '每天', weekly: '每周', monthly: '每月', yearly: '每年' };
-
+      
       if (!isEditMode) {
         let urlSection = '';
         if (task.url) urlSection = \`<div class="detail-label">链接 (URL)</div><div class="detail-value"><a href="\${task.url}" target="_blank">\${task.url}</a></div>\`;
@@ -239,7 +238,7 @@ export const detail = `
         activeMode = 'edit';
         container.innerHTML = \`
           <input type="text" id="edit-text" value="\${task.text}" class="detail-value editable" placeholder="事项标题（必填）">
-
+          
           <div class="detail-label modal-section">子任务</div>
           <div class="row modal-subtask-row">
             <input type="text" id="edit-subtask-input" placeholder="输入子任务（可选）" class="detail-value editable flex-1">
@@ -298,7 +297,7 @@ export const detail = `
             </div>
             <div class="search-card" id="edit-search-preview"></div>
           </div>
-
+          
           <textarea id="edit-desc" rows="3" class="detail-value editable" placeholder="输入备注/详细描述（可选）">\${task.desc || ''}</textarea>
         \`;
         renderTempSubtasks('edit');
@@ -311,7 +310,7 @@ export const detail = `
       const btnSave = document.getElementById('btn-save-task'); const btnDel = document.getElementById('btn-delete-task'); const btnEdit = document.getElementById('btn-edit-toggle');
       if (isEditMode) {
         btnSave.classList.remove('hidden'); btnDel.classList.add('hidden'); btnEdit.innerText = "取消编辑";
-        const task = todos[currentDetailIndex];
+        const task = todos[currentDetailIndex]; 
         tempTime = task.time || ''; tempPriority = task.priority || 'low';
         tempEndTime = task.end_time || '';
         tempRepeatType = task.repeat_type || 'none';
@@ -319,7 +318,7 @@ export const detail = `
         tempSubtasks = JSON.parse(JSON.stringify(task.subtasks ||[]));
         tempSearchTerms = JSON.parse(JSON.stringify(task.search_terms ||[]));
         tempSearchProvider = appSettings.provider || 'auto';
-
+        
         setTimeout(() => {
           const pMap = {'auto':'自动 (随机源)', 'bilibili':'哔哩哔哩', 'weibo':'微博热搜', 'zhihu':'知乎热榜', 'baidu':'百度热搜'};
           const el = document.getElementById('edit-search-provider-display');
@@ -332,12 +331,12 @@ export const detail = `
     }
 
     function toggleProviderMenu(mode, triggerEl) {
-      activeMode = mode;
+      activeMode = mode; 
       showPopover('popover-provider', triggerEl, true);
     }
 
     function selectProvider(val) {
-      tempSearchProvider = val;
+      tempSearchProvider = val; 
       const pMap = {
         'auto': '自动 (随机源)', 'bilibili': '哔哩哔哩', 'weibo': '微博热搜', 'zhihu': '知乎热榜', 'baidu': '百度热搜'
       };
@@ -364,7 +363,7 @@ export const detail = `
         if (parts[1] >= 60) { parts[0] += 1; parts[1] -= 60; }
         if (parts[0] >= 24) parts[0] = 23;
         timePickerHour = parts[0]; timePickerMin = parts[1];
-      } else if (refTime) { const[h, m] = refTime.split(':').map(Number); timePickerHour = h; timePickerMin = m; }
+      } else if (refTime) { const[h, m] = refTime.split(':').map(Number); timePickerHour = h; timePickerMin = m; } 
       else { const now = new Date(); timePickerHour = now.getHours(); timePickerMin = now.getMinutes(); }
       const hCol = document.getElementById('time-col-hour'); hCol.innerHTML = '';
       for(let i=0; i<24; i++) {
@@ -421,7 +420,7 @@ export const detail = `
     function closeTimePicker() { document.getElementById('modal-time').classList.remove('active'); }
 
     function togglePriorityMenu(mode, triggerEl) {
-      activeMode = mode;
+      activeMode = mode; 
       showPopover('popover-priority', triggerEl, false);
     }
 
@@ -469,17 +468,17 @@ export const detail = `
         closeDetail();
         await fetch('/api/todo-action', { method: 'POST', body: JSON.stringify({ action: 'DELETE', date: formatDate(currentDate), task: task, scope: scope }), headers: { 'Content-Type': 'application/json' } });
         loadTodos();
-      }
+      } 
       else if (pendingAction === 'save') {
         task.text = document.getElementById('edit-text').value; task.time = tempTime; task.priority = tempPriority;
         task.end_time = tempEndTime;
         task.desc = document.getElementById('edit-desc').value; task.url = document.getElementById('edit-url').value;
-        task.copyText = document.getElementById('edit-copy').value; task.copy_text = task.copyText;
+        task.copyText = document.getElementById('edit-copy').value; task.copy_text = task.copyText; 
         task.subtasks = tempSubtasks; task.search_terms = tempSearchTerms;
         task.repeat_type = tempRepeatType; task.repeat_custom = '';
         task.repeat_end = tempRepeatEnd;
         task.category_id = tempCategoryId;
-
+        
         toggleEditMode();
         await fetch('/api/todo-action', { method: 'POST', body: JSON.stringify({ action: 'UPDATE', date: formatDate(currentDate), task: task, scope: scope }), headers: { 'Content-Type': 'application/json' } });
         await loadTodos();
@@ -487,4 +486,5 @@ export const detail = `
         if (newIndex !== -1) currentDetailIndex = newIndex; else closeDetail();
       }
     }
+
 `;
