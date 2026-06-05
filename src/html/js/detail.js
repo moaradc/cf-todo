@@ -207,7 +207,7 @@ export const detail = `
         let rText = '单次任务';
         if (task.repeat_type && task.repeat_type !== 'none') {
             rText = \`重复: \${rMap[task.repeat_type]}\`;
-            if (task.repeat_end) rText += ' (至' + task.repeat_end + ')';
+            if (task.repeat_end) rText += '·至' + task.repeat_end;
         } else if (task.isSeries) {
             rText = '已停用未来的系列事项';
         }

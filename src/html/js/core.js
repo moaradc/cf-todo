@@ -421,7 +421,7 @@ export const core = `
           var parts3 = todo.date.split('-');
           repeatLabel = '每年' + parseInt(parts3[1], 10) + '月' + parseInt(parts3[2], 10) + '日';
         }
-        if (todo.repeat_end) repeatLabel += ' (至' + todo.repeat_end + ')';
+        if (todo.repeat_end) repeatLabel += '·至' + todo.repeat_end;
         badges += '<span class="badge" style="background:transparent;border:1px solid var(--fg);color:var(--fg);">' + repeatLabel + '</span> ';
       }
 
