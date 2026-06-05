@@ -471,6 +471,18 @@ html.bg-dark .date-display .sub{color:var(--ycy-t2)!important;font-weight:400!im
 #ycy-light-overlay{position:fixed;top:0;left:0;width:100%;height:100%;z-index:55;pointer-events:none;background:rgba(0,0,0,.12);opacity:0;transition:opacity .35s ease}
 #ycy-light-overlay.vis{opacity:1}
 html.bg-dark #ycy-light-overlay{display:none!important}
+
+/* ── changelog modal ── */
+#modal-changelog.modal-overlay{background:rgba(0,0,0,.22)!important}
+html.bg-dark #modal-changelog.modal-overlay{background:rgba(0,0,0,.42)!important}
+.changelog-entry{margin-bottom:12px!important;padding-bottom:10px!important;border-bottom:1px dashed var(--ycy-bd2)!important}
+.changelog-entry:last-child{border-bottom:none!important;margin-bottom:0!important;padding-bottom:0!important}
+.changelog-version{font-size:.9rem!important;font-weight:700!important;color:var(--ycy-gn)!important;margin-bottom:2px!important}
+.changelog-date{font-size:.7rem!important;color:var(--ycy-t3)!important;margin-bottom:4px!important}
+.changelog-notes{font-size:.8rem!important;color:var(--ycy-t)!important;line-height:1.5!important}
+.changelog-new{border-left:3px solid var(--ycy-ac)!important;padding-left:10px!important;border-bottom:none!important}
+.changelog-new .changelog-version{color:var(--ycy-ac)!important}
+.changelog-section-title{font-size:.7rem!important;color:var(--ycy-t2)!important;text-transform:uppercase!important;margin:12px 0 8px!important;padding-bottom:4px!important;border-bottom:1px solid var(--ycy-bd2)!important;letter-spacing:1px!important}
 </style>
 ```
 </details>
