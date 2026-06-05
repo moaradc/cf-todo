@@ -236,26 +236,46 @@ export const core = `
       var body = document.getElementById('changelog-body');
       if (!body) return;
       var html = '';
+      var latestRemote = null;
+      var olderRemote = [];
       if (remoteUpdateInfo && remoteUpdateInfo.changelog) {
         for (var i = 0; i < remoteUpdateInfo.changelog.length; i++) {
           var entry = remoteUpdateInfo.changelog[i];
           if (compareVersions(CURRENT_VERSION, 'v' + entry.version) >= 0) continue;
-          html += '<div class="changelog-entry changelog-new">';
-          html += '<div class="changelog-version">v' + escapeHtml(entry.version) + ' <span style="font-size:0.7rem;color:var(--accent);">新版本可用</span></div>';
-          if (entry.date) html += '<div class="changelog-date">' + escapeHtml(entry.date) + '</div>';
-          if (entry.notes) html += '<div class="changelog-notes">' + parseMarkdown(entry.notes) + '</div>';
-          html += '</div>';
+          if (!latestRemote) {
+            latestRemote = entry;
+          } else {
+            olderRemote.push(entry);
+          }
         }
       }
-      if (LOCAL_CHANGELOG && LOCAL_CHANGELOG.length > 0) {
-        if (html) html += '<div class="changelog-section-title">历史更新</div>';
-        for (var j = 0; j < LOCAL_CHANGELOG.length; j++) {
-          var e = LOCAL_CHANGELOG[j];
+      if (latestRemote) {
+        html += '<div class="changelog-entry changelog-new">';
+        html += '<div class="changelog-version">v' + escapeHtml(latestRemote.version) + ' <span style="font-size:0.7rem;color:var(--accent);">新版本可用</span></div>';
+        if (latestRemote.date) html += '<div class="changelog-date">' + escapeHtml(latestRemote.date) + '</div>';
+        if (latestRemote.notes) html += '<div class="changelog-notes">' + parseMarkdown(latestRemote.notes) + '</div>';
+        html += '</div>';
+      }
+      var hasHistory = olderRemote.length > 0 || (LOCAL_CHANGELOG && LOCAL_CHANGELOG.length > 0);
+      if (hasHistory) {
+        html += '<div class="changelog-section-title">历史更新</div>';
+        for (var k = 0; k < olderRemote.length; k++) {
+          var r = olderRemote[k];
           html += '<div class="changelog-entry">';
-          html += '<div class="changelog-version">v' + escapeHtml(e.version) + '</div>';
-          if (e.date) html += '<div class="changelog-date">' + escapeHtml(e.date) + '</div>';
-          if (e.notes) html += '<div class="changelog-notes">' + parseMarkdown(e.notes) + '</div>';
+          html += '<div class="changelog-version">v' + escapeHtml(r.version) + '</div>';
+          if (r.date) html += '<div class="changelog-date">' + escapeHtml(r.date) + '</div>';
+          if (r.notes) html += '<div class="changelog-notes">' + parseMarkdown(r.notes) + '</div>';
           html += '</div>';
+        }
+        if (LOCAL_CHANGELOG) {
+          for (var j = 0; j < LOCAL_CHANGELOG.length; j++) {
+            var e = LOCAL_CHANGELOG[j];
+            html += '<div class="changelog-entry">';
+            html += '<div class="changelog-version">v' + escapeHtml(e.version) + ' <span style="font-size:0.7rem;color:#666;">当前版本</span></div>';
+            if (e.date) html += '<div class="changelog-date">' + escapeHtml(e.date) + '</div>';
+            if (e.notes) html += '<div class="changelog-notes">' + parseMarkdown(e.notes) + '</div>';
+            html += '</div>';
+          }
         }
       }
       if (!html) html = '<div style="text-align:center;color:#888;padding:20px;">暂无更新日志</div>';
