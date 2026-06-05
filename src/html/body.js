@@ -350,7 +350,7 @@ export function getBody(isAuthorized) {
 
       <div class="detail-label">关于 MOARA 待办事项</div>
       <div class="settings-card">
-          <p class="settings-text" style="margin-bottom:5px;display:flex;align-items:center;gap:6px;flex-wrap:wrap;"><strong>当前版本:</strong> <span id="app-version-display"></span> <span id="update-status"></span> <span class="md-code" style="cursor:pointer;font-size:0.75rem;" onclick="checkUpdate()">检查</span></p>
+          <p class="settings-text" style="margin-bottom:5px;display:flex;align-items:center;gap:6px;flex-wrap:wrap;"><strong>当前版本:</strong> <span id="app-version-display"></span> <span id="update-status"></span> <span class="md-code" style="font-size:0.75rem;"><a href="https://github.com/moaradc/cf-todo" target="_blank" style="color:inherit;text-decoration:none;">GitHub</a></span> <span class="md-code" style="cursor:pointer;font-size:0.75rem;" onclick="checkUpdate()">检查</span></p>
           <p class="settings-text" style="margin-bottom: 5px;"><strong>底层架构:</strong> Cloudflare Worker + D1 Database</p>
           <p class="settings-text"><strong>项目描述:</strong> 普通的待办事项管理</p>
       </div>
