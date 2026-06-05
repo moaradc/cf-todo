@@ -1805,7 +1805,7 @@ async function handleRequest(request, env, ctx) {
                 'UPDATE todos SET text=?, priority=?, repeat=0, desc=?, url=?, copy_text=?, subtasks=?, search_terms=?, repeat_type=\'none\', repeat_custom=\'\', repeat_end=\'\', category_id=? WHERE id=?'
               ).bind(task.text, task.priority || 'low', task.desc || '', task.url || '', task.copyText || '', subtasksStr, searchTermsStr, categoryId, task.id).run();
               await env.DB.prepare(
-                'UPDATE todos SET deleted=1 WHERE parent_id=? AND date > ?'
+                'UPDATE todos SET deleted=1, repeat=0, repeat_type=\'none\', repeat_custom=\'\', repeat_end=\'\' WHERE parent_id=? AND date > ?'
               ).bind(task.parentId, date).run();
             }
             // 过去项：保留 repeat_type，设置 repeat_end=当前日期 和 repeat=-1
@@ -1819,9 +1819,9 @@ async function handleRequest(request, env, ctx) {
                 'UPDATE todos SET text=?, priority=?, repeat=1, desc=?, url=?, copy_text=?, subtasks=?, search_terms=?, repeat_type=?, repeat_custom=?, repeat_end=?, category_id=? WHERE parent_id=? AND date > ?'
               ).bind(task.text, task.priority || 'low', task.desc || '', task.url || '', task.copyText || '', subtasksStr, searchTermsStr, rptType, '', repeatEnd, categoryId, task.parentId, date).run();
             } else {
-              // 改为不重复：未来项删除
+              // 改为不重复：未来项删除并清空重复字段
               await env.DB.prepare(
-                'UPDATE todos SET deleted=1 WHERE parent_id=? AND date > ?'
+                'UPDATE todos SET deleted=1, repeat=0, repeat_type=\'none\', repeat_custom=\'\', repeat_end=\'\' WHERE parent_id=? AND date > ?'
               ).bind(task.parentId, date).run();
             }
             // 当前及过去项：保留 repeat_type，设置 repeat_end=当前日期 和 repeat=-1
@@ -1840,7 +1840,7 @@ async function handleRequest(request, env, ctx) {
                 'UPDATE todos SET text=?, priority=?, repeat=0, desc=?, url=?, copy_text=?, subtasks=?, search_terms=?, repeat_type=\'none\', repeat_custom=\'\', repeat_end=\'\', category_id=? WHERE id=?'
               ).bind(task.text, task.priority || 'low', task.desc || '', task.url || '', task.copyText || '', subtasksStr, searchTermsStr, categoryId, task.id).run();
               await env.DB.prepare(
-                'UPDATE todos SET deleted=1 WHERE parent_id=? AND date > ?'
+                'UPDATE todos SET deleted=1, repeat=0, repeat_type=\'none\', repeat_custom=\'\', repeat_end=\'\' WHERE parent_id=? AND date > ?'
               ).bind(task.parentId, date).run();
               // 过去项：保留 repeat_type，设置 repeat_end=当前日期 和 repeat=-1
               await env.DB.prepare(
