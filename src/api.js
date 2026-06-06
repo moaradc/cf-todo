@@ -1847,22 +1847,6 @@ async function handleRequest(request, env, ctx) {
           const endTime = task.end_time || '';
           const newDate = task.date || date;
           const dateChanged = newDate !== date;
-
-          // 用 rrule.js 计算当前模板会生成哪些日期
-          const tpl = await env.DB.prepare('SELECT * FROM todo_templates WHERE parent_id = ?').bind(task.parentId).first();
-          let rruleDates = []; // 模板从 anchor_date 开始的所有生成日期
-          if (tpl) {
-            const rule = buildRRule(tpl.repeat_type, tpl.anchor_date, tpl.repeat_end, tpl.repeat_custom);
-            if (rule) {
-              // 计算未来2年的实例日期，足够覆盖实际场景
-              const farFuture = new Date(Date.UTC(new Date().getUTCFullYear() + 2, 0, 1));
-              rruleDates = rule.between(makeUTCDate(tpl.anchor_date), farFuture).map(d => formatDateStr(d));
-            }
-          }
-          // 从 rrule 日期中排除黑名单
-          let blacklist = [];
-          if (tpl && tpl.blacklist) { try { blacklist = JSON.parse(tpl.blacklist); } catch(e){} }
-          rruleDates = rruleDates.filter(d => !blacklist.includes(d));
         
           if (scope === 'single') {
             // 脱离重复模板，变为单次任务
@@ -1871,108 +1855,73 @@ async function handleRequest(request, env, ctx) {
               'UPDATE todos SET parent_id=?, date=?, text=?, time=?, priority=?, repeat=0, desc=?, url=?, copy_text=?, subtasks=?, search_terms=?, repeat_type=\'none\', repeat_custom=\'\', repeat_end=\'\', end_time=?, category_id=? WHERE id=?'
             ).bind(task.id, newDate, task.text, task.time || '', task.priority || 'low', task.desc || '', task.url || '', task.copyText || '', subtasksStr, searchTermsStr, endTime, categoryId, task.id).run();
             if (isSeriesTask && task.parentId) {
-              if (!blacklist.includes(date)) {
-                blacklist.push(date);
-                await env.DB.prepare('UPDATE todo_templates SET blacklist = ? WHERE parent_id = ?').bind(JSON.stringify(blacklist), task.parentId).run();
+              const tpl = await env.DB.prepare('SELECT blacklist FROM todo_templates WHERE parent_id = ?').bind(task.parentId).first();
+              if (tpl) {
+                let bl = []; try { bl = JSON.parse(tpl.blacklist || '[]'); } catch(e){}
+                if (!bl.includes(date)) {
+                  bl.push(date);
+                  await env.DB.prepare('UPDATE todo_templates SET blacklist = ? WHERE parent_id = ?').bind(JSON.stringify(bl), task.parentId).run();
+                }
               }
             }
           } else if (scope === 'future' || scope === 'future_repeat') {
-            // 用 rrule 精确计算"当前及之后"和"当前之后"的日期集合
-            const currentDateIdx = rruleDates.indexOf(date);
-            const futureDates = currentDateIdx >= 0 ? rruleDates.slice(currentDateIdx) : [date]; // 此项及以后
-            const afterDates = currentDateIdx >= 0 ? rruleDates.slice(currentDateIdx + 1) : []; // 以后（不含当前）
-            const targetDates = scope === 'future' ? futureDates : afterDates;
-
             if (rptType !== 'none') {
-              // 先按 id 更新当前实例，保留 done/subtasks 等状态
+              // 始终先按 id 更新当前实例，保留 done/subtasks 等状态
               await env.DB.prepare(
                 'UPDATE todos SET date=?, text=?, time=?, priority=?, repeat=1, desc=?, url=?, copy_text=?, subtasks=?, search_terms=?, repeat_type=?, repeat_custom=?, repeat_end=?, end_time=?, category_id=? WHERE id=?'
               ).bind(newDate, task.text, task.time || '', task.priority || 'low', task.desc || '', task.url || '', task.copyText || '', subtasksStr, searchTermsStr, rptType, '', repeatEnd, endTime, categoryId, task.id).run();
-
-              if (dateChanged && targetDates.length > 0) {
-                // 日期变了：删除目标日期范围内的其他非回收站实例，rrule 从新 anchor_date 重建
-                const ph = targetDates.map(() => '?').join(',');
+              if (dateChanged) {
+                // 日期变了：删除当前之后的其他非回收站实例，rrule 从新 anchor_date 重建
                 await env.DB.prepare(
-                  `DELETE FROM todos WHERE parent_id=? AND id != ? AND date IN (${ph}) AND deleted = 0`
-                ).bind(task.parentId, task.id, ...targetDates).run();
-              } else if (!dateChanged && targetDates.length > 0) {
-                // 日期没变：更新目标日期范围内的其他非回收站实例
-                const ph = targetDates.map(() => '?').join(',');
+                  'DELETE FROM todos WHERE parent_id=? AND id != ? AND date >= ? AND deleted = 0'
+                ).bind(task.parentId, task.id, date).run();
+              } else {
+                // 日期没变：更新当前之后的其他非回收站实例
                 await env.DB.prepare(
-                  `UPDATE todos SET text=?, time=?, priority=?, repeat=1, desc=?, url=?, copy_text=?, subtasks=?, search_terms=?, repeat_type=?, repeat_custom=?, repeat_end=?, end_time=?, category_id=? WHERE parent_id=? AND id != ? AND date IN (${ph}) AND deleted = 0`
-                ).bind(task.text, task.time || '', task.priority || 'low', task.desc || '', task.url || '', task.copyText || '', subtasksStr, searchTermsStr, rptType, '', repeatEnd, endTime, categoryId, task.parentId, task.id, ...targetDates).run();
+                  'UPDATE todos SET text=?, time=?, priority=?, repeat=1, desc=?, url=?, copy_text=?, subtasks=?, search_terms=?, repeat_type=?, repeat_custom=?, repeat_end=?, end_time=?, category_id=? WHERE parent_id=? AND id != ? AND date >= ? AND deleted = 0'
+                ).bind(task.text, task.time || '', task.priority || 'low', task.desc || '', task.url || '', task.copyText || '', subtasksStr, searchTermsStr, rptType, '', repeatEnd, endTime, categoryId, task.parentId, task.id, date).run();
               }
-
-              // 过去项（scope=future时为当前之前，scope=future_repeat时为当前及之前）
-              // 仅对尚未终止的非回收站实例设 repeat_end
-              const pastCutoff = scope === 'future' ? date : date; // repeat_end 都是当前日期
-              const pastCondition = scope === 'future'
-                ? 'date < ?'
-                : 'date <= ? AND id != ?';
-              const pastBinds = scope === 'future'
-                ? [pastCutoff, task.parentId, pastCutoff]
-                : [pastCutoff, task.parentId, pastCutoff, task.id];
+              // 过去项：仅对尚未终止的非回收站实例设 repeat_end
               await env.DB.prepare(
-                `UPDATE todos SET repeat=-1, repeat_end=? WHERE parent_id=? AND ${pastCondition} AND repeat_type != 'none' AND repeat != -1 AND deleted = 0`
-              ).bind(...pastBinds).run();
+                'UPDATE todos SET repeat=-1, repeat_end=? WHERE parent_id=? AND date < ? AND repeat_type != \'none\' AND repeat != -1 AND deleted = 0'
+              ).bind(date, task.parentId, date).run();
             } else {
               // 改为不重复：当前项变单次任务，未来非回收站项真删除
               await env.DB.prepare(
                 'UPDATE todos SET date=?, text=?, time=?, priority=?, repeat=0, desc=?, url=?, copy_text=?, subtasks=?, search_terms=?, repeat_type=\'none\', repeat_custom=\'\', repeat_end=\'\', category_id=? WHERE id=?'
               ).bind(newDate, task.text, task.time || '', task.priority || 'low', task.desc || '', task.url || '', task.copyText || '', subtasksStr, searchTermsStr, categoryId, task.id).run();
-              if (afterDates.length > 0) {
-                const ph = afterDates.map(() => '?').join(',');
-                await env.DB.prepare(
-                  `DELETE FROM todos WHERE parent_id=? AND id != ? AND date IN (${ph}) AND deleted = 0`
-                ).bind(task.parentId, task.id, ...afterDates).run();
-              }
-              const pastCondition2 = scope === 'future' ? 'date < ?' : 'date <= ? AND id != ?';
-              const pastBinds2 = scope === 'future'
-                ? [date, task.parentId, date]
-                : [date, task.parentId, date, task.id];
               await env.DB.prepare(
-                `UPDATE todos SET repeat=-1, repeat_end=? WHERE parent_id=? AND ${pastCondition2} AND repeat_type != 'none' AND repeat != -1 AND deleted = 0`
-              ).bind(...pastBinds2).run();
+                'DELETE FROM todos WHERE parent_id=? AND id != ? AND date > ? AND deleted = 0'
+              ).bind(task.parentId, task.id, date).run();
+              await env.DB.prepare(
+                'UPDATE todos SET repeat=-1, repeat_end=? WHERE parent_id=? AND date < ? AND repeat_type != \'none\' AND repeat != -1 AND deleted = 0'
+              ).bind(date, task.parentId, date).run();
             }
           } else if (scope === 'all') {
             if (rptType !== 'none') {
-              // 先按 id 更新当前实例，保留状态
+              // 始终先按 id 更新当前实例，保留状态
               await env.DB.prepare(
                 'UPDATE todos SET date=?, text=?, time=?, priority=?, repeat=1, desc=?, url=?, copy_text=?, subtasks=?, search_terms=?, repeat_type=?, repeat_custom=?, repeat_end=?, end_time=?, category_id=? WHERE id=?'
               ).bind(newDate, task.text, task.time || '', task.priority || 'low', task.desc || '', task.url || '', task.copyText || '', subtasksStr, searchTermsStr, rptType, '', repeatEnd, endTime, categoryId, task.id).run();
-              if (dateChanged && rruleDates.length > 0) {
+              if (dateChanged) {
                 // 日期变了：删除其他非回收站实例，rrule 从新 anchor_date 重建
-                const otherDates = rruleDates.filter(d => d !== date);
-                if (otherDates.length > 0) {
-                  const ph = otherDates.map(() => '?').join(',');
-                  await env.DB.prepare(
-                    `DELETE FROM todos WHERE parent_id=? AND id != ? AND date IN (${ph}) AND deleted = 0`
-                  ).bind(task.parentId, task.id, ...otherDates).run();
-                }
-              } else if (!dateChanged && rruleDates.length > 0) {
+                await env.DB.prepare(
+                  'DELETE FROM todos WHERE parent_id=? AND id != ? AND deleted = 0'
+                ).bind(task.parentId, task.id).run();
+              } else {
                 // 日期没变：更新其他非回收站实例
-                const otherDates = rruleDates.filter(d => d !== date);
-                if (otherDates.length > 0) {
-                  const ph = otherDates.map(() => '?').join(',');
-                  await env.DB.prepare(
-                    `UPDATE todos SET text=?, time=?, priority=?, repeat=1, desc=?, url=?, copy_text=?, subtasks=?, search_terms=?, repeat_type=?, repeat_custom=?, repeat_end=?, end_time=?, category_id=? WHERE parent_id=? AND id != ? AND date IN (${ph}) AND deleted = 0`
-                  ).bind(task.text, task.time || '', task.priority || 'low', task.desc || '', task.url || '', task.copyText || '', subtasksStr, searchTermsStr, rptType, '', repeatEnd, endTime, categoryId, task.parentId, task.id, ...otherDates).run();
-                }
+                await env.DB.prepare(
+                  'UPDATE todos SET text=?, time=?, priority=?, repeat=1, desc=?, url=?, copy_text=?, subtasks=?, search_terms=?, repeat_type=?, repeat_custom=?, repeat_end=?, end_time=?, category_id=? WHERE parent_id=? AND id != ? AND deleted = 0'
+                ).bind(task.text, task.time || '', task.priority || 'low', task.desc || '', task.url || '', task.copyText || '', subtasksStr, searchTermsStr, rptType, '', repeatEnd, endTime, categoryId, task.parentId, task.id).run();
               }
             } else {
               // 改为不重复：当前项变单次任务，其他非回收站项删除
               await env.DB.prepare(
                 'UPDATE todos SET date=?, text=?, time=?, priority=?, repeat=0, desc=?, url=?, copy_text=?, subtasks=?, search_terms=?, repeat_type=\'none\', repeat_custom=\'\', repeat_end=\'\', category_id=? WHERE id=?'
               ).bind(newDate, task.text, task.time || '', task.priority || 'low', task.desc || '', task.url || '', task.copyText || '', subtasksStr, searchTermsStr, categoryId, task.id).run();
-              if (rruleDates.length > 0) {
-                const otherDates = rruleDates.filter(d => d !== date);
-                if (otherDates.length > 0) {
-                  const ph = otherDates.map(() => '?').join(',');
-                  await env.DB.prepare(
-                    `DELETE FROM todos WHERE parent_id=? AND id != ? AND date IN (${ph}) AND deleted = 0`
-                  ).bind(task.parentId, task.id, ...otherDates).run();
-                }
-              }
+              await env.DB.prepare(
+                'DELETE FROM todos WHERE parent_id=? AND id != ? AND deleted = 0'
+              ).bind(task.parentId, task.id).run();
             }
           } else {
             // 非重复任务的普通更新
@@ -1984,11 +1933,21 @@ async function handleRequest(request, env, ctx) {
           // 更新模板：anchor_date 改为新日期，让 rrule 从新日期开始生成实例
           if (scope === 'future' || scope === 'all' || scope === 'future_repeat') {
               if (rpt) {
+                  let existingBlacklist = '[]';
+                  try {
+                    const existingTpl = await env.DB.prepare(
+                      'SELECT blacklist FROM todo_templates WHERE parent_id = ?'
+                    ).bind(task.parentId).first();
+                    if (existingTpl && existingTpl.blacklist) {
+                      existingBlacklist = existingTpl.blacklist;
+                    }
+                  } catch(e) {}
+          
                   await env.DB.prepare(
                     'INSERT OR REPLACE INTO todo_templates (parent_id, text, time, priority, desc, url, copy_text, subtasks, search_terms, repeat_type, repeat_custom, repeat_end, end_time, anchor_date, blacklist, category_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
                   ).bind(
                     task.parentId, task.text, task.time || '', task.priority || 'low', task.desc || '', task.url || '', task.copyText || '', 
-                    subtasksStr, searchTermsStr, rptType, '', repeatEnd, endTime, newDate, JSON.stringify(blacklist), categoryId
+                    subtasksStr, searchTermsStr, rptType, '', repeatEnd, endTime, newDate, existingBlacklist, categoryId
                   ).run();
               } else {
                   await env.DB.prepare('DELETE FROM todo_templates WHERE parent_id=?').bind(task.parentId).run();
@@ -2009,43 +1968,14 @@ async function handleRequest(request, env, ctx) {
               }
             }
           } else if (scope === 'future') {
-            // 用 rrule 精确计算当前及之后的日期
-            const tpl = await env.DB.prepare('SELECT * FROM todo_templates WHERE parent_id = ?').bind(task.parentId).first();
-            let delDates = [date];
-            if (tpl) {
-              const rule = buildRRule(tpl.repeat_type, tpl.anchor_date, tpl.repeat_end, tpl.repeat_custom);
-              if (rule) {
-                const farFuture = new Date(Date.UTC(new Date().getUTCFullYear() + 2, 0, 1));
-                const allDates = rule.between(makeUTCDate(tpl.anchor_date), farFuture).map(d => formatDateStr(d));
-                let bl = []; try { bl = JSON.parse(tpl.blacklist || '[]'); } catch(e){}
-                const idx = allDates.indexOf(date);
-                delDates = idx >= 0 ? allDates.slice(idx).filter(d => !bl.includes(d)) : [date];
-              }
-            }
-            const ph = delDates.map(() => '?').join(',');
-            await env.DB.prepare(`UPDATE todos SET deleted = 1 WHERE parent_id=? AND date IN (${ph})`).bind(task.parentId, ...delDates).run();
-            // 过去项：设置 repeat_end 和 repeat=-1
-            await env.DB.prepare('UPDATE todos SET repeat=-1, repeat_end=? WHERE parent_id=? AND date < ? AND repeat_type != \'none\' AND repeat != -1 AND deleted = 0').bind(date, task.parentId, date).run();
+            await env.DB.prepare('UPDATE todos SET deleted = 1 WHERE parent_id=? AND date >= ?').bind(task.parentId, date).run();
+            // 过去项：保留 repeat_type，设置 repeat_end=当前日期 和 repeat=-1
+            await env.DB.prepare('UPDATE todos SET repeat=-1, repeat_end=? WHERE parent_id=? AND date < ? AND repeat_type != \'none\'').bind(date, task.parentId, date).run();
             await env.DB.prepare('DELETE FROM todo_templates WHERE parent_id=?').bind(task.parentId).run();
           } else if (scope === 'future_repeat') {
-            const tpl = await env.DB.prepare('SELECT * FROM todo_templates WHERE parent_id = ?').bind(task.parentId).first();
-            let delDates = [];
-            if (tpl) {
-              const rule = buildRRule(tpl.repeat_type, tpl.anchor_date, tpl.repeat_end, tpl.repeat_custom);
-              if (rule) {
-                const farFuture = new Date(Date.UTC(new Date().getUTCFullYear() + 2, 0, 1));
-                const allDates = rule.between(makeUTCDate(tpl.anchor_date), farFuture).map(d => formatDateStr(d));
-                let bl = []; try { bl = JSON.parse(tpl.blacklist || '[]'); } catch(e){}
-                const idx = allDates.indexOf(date);
-                delDates = idx >= 0 ? allDates.slice(idx + 1).filter(d => !bl.includes(d)) : [];
-              }
-            }
-            if (delDates.length > 0) {
-              const ph = delDates.map(() => '?').join(',');
-              await env.DB.prepare(`UPDATE todos SET deleted = 1 WHERE parent_id=? AND date IN (${ph})`).bind(task.parentId, ...delDates).run();
-            }
-            // 当前及过去项：设置 repeat_end 和 repeat=-1
-            await env.DB.prepare('UPDATE todos SET repeat=-1, repeat_end=? WHERE parent_id=? AND date <= ? AND repeat_type != \'none\' AND repeat != -1 AND deleted = 0').bind(date, task.parentId, date).run();
+            await env.DB.prepare('UPDATE todos SET deleted = 1 WHERE parent_id=? AND date > ?').bind(task.parentId, date).run();
+            // 当前及过去项：保留 repeat_type，设置 repeat_end 和 repeat=-1
+            await env.DB.prepare('UPDATE todos SET repeat=-1, repeat_end=? WHERE parent_id=? AND date <= ? AND repeat_type != \'none\'').bind(date, task.parentId, date).run();
             await env.DB.prepare('DELETE FROM todo_templates WHERE parent_id=?').bind(task.parentId).run();
           } else if (scope === 'all') {
             await env.DB.prepare('UPDATE todos SET deleted = 1 WHERE parent_id=?').bind(task.parentId).run();
