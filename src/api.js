@@ -1502,12 +1502,11 @@ async function handleRequest(request, env, ctx) {
         const t = await env.DB.prepare('SELECT parent_id, date, repeat, repeat_type, repeat_end FROM todos WHERE id = ?').bind(id).first();
         await env.DB.prepare('UPDATE todos SET deleted = 0 WHERE id = ?').bind(id).run();
         if (t && t.repeat !== 0 && t.parent_id) {
-          const tpl = await env.DB.prepare('SELECT blacklist, repeat_end FROM todo_templates WHERE parent_id = ?').bind(t.parent_id).first();
           if (t.repeat === -1 && t.repeat_type && t.repeat_type !== 'none') {
-            // 恢复被终止的系列项：重新激活重复，repeat_end 继承模板
-            const tplRepeatEnd = (tpl && tpl.repeat_end) || '';
-            await env.DB.prepare('UPDATE todos SET repeat=1, repeat_end=? WHERE id=?').bind(tplRepeatEnd, id).run();
+            // 恢复被终止的系列项：重新激活重复
+            await env.DB.prepare('UPDATE todos SET repeat=1, repeat_end=\'\' WHERE id=?').bind(id).run();
           }
+          const tpl = await env.DB.prepare('SELECT blacklist FROM todo_templates WHERE parent_id = ?').bind(t.parent_id).first();
           if (tpl && tpl.blacklist) {
             let bl =[]; try { bl = JSON.parse(tpl.blacklist); } catch(e){}
             if (bl.includes(t.date)) {
@@ -1533,20 +1532,11 @@ async function handleRequest(request, env, ctx) {
           const placeholders = ids.map(() => '?').join(',');
           const tasks = await env.DB.prepare(`SELECT id, parent_id, date, repeat, repeat_type, repeat_end FROM todos WHERE id IN (${placeholders})`).bind(...ids).all();
           await env.DB.prepare(`UPDATE todos SET deleted = 0 WHERE id IN (${placeholders})`).bind(...ids).run();
-          // 收集需要恢复的系列项，按 parent_id 分组以获取模板 repeat_end
-          const reviveTasks = tasks.results.filter(t => t.repeat === -1 && t.repeat_type && t.repeat_type !== 'none');
-          if (reviveTasks.length > 0) {
-            // 按 parent_id 分组，获取每个模板的 repeat_end
-            const pids = [...new Set(reviveTasks.map(t => t.parent_id))];
-            const tplRepeatEndMap = {};
-            for (const pid of pids) {
-              const tpl = await env.DB.prepare('SELECT repeat_end FROM todo_templates WHERE parent_id = ?').bind(pid).first();
-              tplRepeatEndMap[pid] = (tpl && tpl.repeat_end) || '';
-            }
-            // 逐个更新，使用对应模板的 repeat_end
-            for (const t of reviveTasks) {
-              await env.DB.prepare('UPDATE todos SET repeat=1, repeat_end=? WHERE id=?').bind(tplRepeatEndMap[t.parent_id] || '', t.id).run();
-            }
+          // 恢复被终止的系列项
+          const reviveIds = tasks.results.filter(t => t.repeat === -1 && t.repeat_type && t.repeat_type !== 'none').map(t => t.id);
+          if (reviveIds.length > 0) {
+            const ph = reviveIds.map(() => '?').join(',');
+            await env.DB.prepare(`UPDATE todos SET repeat=1, repeat_end='' WHERE id IN (${ph})`).bind(...reviveIds).run();
           }
           const blUpdates = {};
           for (const t of tasks.results) {
@@ -1556,7 +1546,7 @@ async function handleRequest(request, env, ctx) {
             }
           }
           for (const pid of Object.keys(blUpdates)) {
-            const tpl = await env.DB.prepare('SELECT blacklist, repeat_end FROM todo_templates WHERE parent_id = ?').bind(pid).first();
+            const tpl = await env.DB.prepare('SELECT blacklist FROM todo_templates WHERE parent_id = ?').bind(pid).first();
             if (tpl && tpl.blacklist) {
               let bl =[]; try { bl = JSON.parse(tpl.blacklist); } catch(e){}
               let changed = false;
