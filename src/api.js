@@ -4,6 +4,7 @@
 
 import {
   APP_VERSION,
+  DB_SCHEMA,
   DEFAULT_CATEGORY_COLOR,
   parseCookies,
   sign,
@@ -66,15 +67,15 @@ async function handleRequest(request, env, ctx) {
     const initDb = async () => {
       if (isDbInitialized) return;
       try {
-        // 读取当前数据库 schema 版本
-        let currentVersion = null;
+        // 读取当前数据库 schema 版本（整数）
+        let currentSchema = 0;
         try {
           const marker = await env.DB.prepare("SELECT value FROM settings WHERE key = 'db_schema_version'").first();
-          if (marker) currentVersion = marker.value;
+          if (marker && marker.value) currentSchema = parseInt(marker.value, 10) || 0;
         } catch (e) {}
 
         // 版本一致则跳过所有迁移
-        if (currentVersion === APP_VERSION) {
+        if (currentSchema >= DB_SCHEMA) {
           isDbInitialized = true;
           return;
         }
@@ -166,10 +167,11 @@ async function handleRequest(request, env, ctx) {
         ]);
 
         // ==================== 版本化增量迁移 ====================
-        // 每个版本只执行一次，通过 currentVersion 判断跳过已执行的迁移
+        // 用整数版本号，每个版本只执行一次
+        // 新增迁移：递增 db_schema 版本号，添加 if (currentSchema < N) 块
 
-        // --- v2.7.0 及之前的迁移（首次部署时需要） ---
-        if (!currentVersion || currentVersion < '2.7.0') {
+        // --- schema 1: v2.7.0 基础列（首次部署时需要） ---
+        if (currentSchema < 1) {
           try { await env.DB.prepare(`ALTER TABLE export_sessions ADD COLUMN todos_cursor TEXT NOT NULL DEFAULT ''`).run(); } catch (e) {}
           try { await env.DB.prepare(`ALTER TABLE export_sessions ADD COLUMN templates_cursor TEXT NOT NULL DEFAULT ''`).run(); } catch (e) {}
           try { await env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_todos_cursor ON todos(date, deleted, id)`).run(); } catch (e) {}
@@ -186,9 +188,8 @@ async function handleRequest(request, env, ctx) {
           try { await env.DB.prepare(`ALTER TABLE todo_templates ADD COLUMN category_id TEXT DEFAULT ''`).run(); } catch (e) {}
         }
 
-        // --- v2.7.1 迁移 ---
-        if (!currentVersion || currentVersion < '2.7.1') {
-          // 旧版本自动迁移：从 todos 表生成 todo_templates
+        // --- schema 2: v2.7.1 模板自动迁移 ---
+        if (currentSchema < 2) {
           // 旧数据中 repeat=1 是重复的标记，repeat_type 可能为空
           try {
             const c = await env.DB.prepare("SELECT COUNT(*) as c FROM todo_templates").first();
@@ -206,8 +207,8 @@ async function handleRequest(request, env, ctx) {
           } catch (e) {}
         }
 
-        // --- v2.8.0 迁移：RFC 5545 重构 ---
-        if (!currentVersion || currentVersion < '2.8.0') {
+        // --- schema 3: v2.8.0 RFC 5545 重构 ---
+        if (currentSchema < 3) {
           // 1. 添加新列
           try { await env.DB.prepare(`ALTER TABLE todos ADD COLUMN recurrence_id TEXT DEFAULT ''`).run(); } catch (e) {}
           try { await env.DB.prepare(`ALTER TABLE todos ADD COLUMN is_exception INTEGER NOT NULL DEFAULT 0`).run(); } catch (e) {}
@@ -244,8 +245,8 @@ async function handleRequest(request, env, ctx) {
           try { await env.DB.prepare(`ALTER TABLE todos DROP COLUMN repeat`).run(); } catch (e) {}
         }
 
-        // 写入当前版本号
-        await env.DB.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('db_schema_version', ?)").bind(APP_VERSION).run();
+        // 写入当前 schema 版本号（整数）
+        await env.DB.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('db_schema_version', ?)").bind(String(DB_SCHEMA)).run();
         isDbInitialized = true;
       } catch (e) {
         console.error("DB Init error:", e);
