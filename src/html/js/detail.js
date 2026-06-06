@@ -500,23 +500,17 @@ export const detail = `
           }
         }
         
-        // 系列任务非仅此项：原任务会被删除/重建，直接关闭详情
-        const isSeriesNonSingle = task.isSeries && scope !== 'single';
-        if (isSeriesNonSingle) {
+        // 系列任务：直接关闭详情；非系列任务：切回查看模式保留详情
+        if (task.isSeries) {
           closeDetail();
         } else {
           toggleEditMode();
         }
         
-        // 日期变更时导航到新日期
-        if (tempEditDate && tempEditDate !== formatDate(currentDate)) {
-          currentDate = new Date(tempEditDate);
-        }
-        
         await fetch('/api/todo-action', { method: 'POST', body: JSON.stringify({ action: 'UPDATE', date: originalDate, task: task, scope: scope }), headers: { 'Content-Type': 'application/json' } });
         await loadTodos();
         
-        if (!isSeriesNonSingle) {
+        if (!task.isSeries) {
           const newIndex = todos.findIndex(t => t.id === task.id);
           if (newIndex !== -1) { currentDetailIndex = newIndex; renderDetailContent(); }
           else closeDetail();
