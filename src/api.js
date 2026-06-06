@@ -189,6 +189,7 @@ async function handleRequest(request, env, ctx) {
         // --- v2.7.1 迁移 ---
         if (!currentVersion || currentVersion < '2.7.1') {
           // 旧版本自动迁移：从 todos 表生成 todo_templates
+          // 旧数据中 repeat=1 是重复的标记，repeat_type 可能为空
           try {
             const c = await env.DB.prepare("SELECT COUNT(*) as c FROM todo_templates").first();
             if (c && c.c === 0) {
@@ -198,8 +199,8 @@ async function handleRequest(request, env, ctx) {
                   CASE WHEN (repeat_type IS NULL OR repeat_type = 'none' OR repeat_type = '') THEN 'daily' ELSE repeat_type END,
                   repeat_custom, '', '', date, '[]'
                 FROM todos t1
-                WHERE repeat_type NOT IN ('none', '') AND repeat_type IS NOT NULL AND deleted = 0
-                AND date = (SELECT MAX(date) FROM todos t2 WHERE t2.parent_id = t1.parent_id AND t2.repeat_type NOT IN ('none', '') AND t2.repeat_type IS NOT NULL AND t2.deleted = 0)
+                WHERE repeat = 1 AND deleted = 0 
+                AND date = (SELECT MAX(date) FROM todos t2 WHERE t2.parent_id = t1.parent_id AND t2.repeat = 1 AND t2.deleted = 0)
               `).run();
             }
           } catch (e) {}
