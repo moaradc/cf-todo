@@ -128,7 +128,8 @@ export const detail = `
 
     function openDetail(index) {
       currentDetailIndex = index; isEditMode = false;
-      const task = todos[index]; tempTime = task.time || ''; tempPriority = task.priority || 'low';
+      const task = todos[index]; tempEditDate = task.date || '';
+      tempTime = task.time || ''; tempPriority = task.priority || 'low';
       tempCategoryId = task.category_id || '';
       renderDetailContent();
       
@@ -470,6 +471,8 @@ export const detail = `
         loadTodos();
       } 
       else if (pendingAction === 'save') {
+        // 保存原始日期，后端需要它定位当前实例
+        const originalDate = task.date || formatDate(currentDate);
         task.date = tempEditDate;
         task.text = document.getElementById('edit-text').value; task.time = tempTime; task.priority = tempPriority;
         task.end_time = tempEndTime;
@@ -497,11 +500,27 @@ export const detail = `
           }
         }
         
-        toggleEditMode();
-        await fetch('/api/todo-action', { method: 'POST', body: JSON.stringify({ action: 'UPDATE', date: formatDate(currentDate), task: task, scope: scope }), headers: { 'Content-Type': 'application/json' } });
+        // 系列任务非仅此项：原任务会被删除/重建，直接关闭详情
+        const isSeriesNonSingle = task.isSeries && scope !== 'single';
+        if (isSeriesNonSingle) {
+          closeDetail();
+        } else {
+          toggleEditMode();
+        }
+        
+        // 日期变更时导航到新日期
+        if (tempEditDate && tempEditDate !== formatDate(currentDate)) {
+          currentDate = new Date(tempEditDate);
+        }
+        
+        await fetch('/api/todo-action', { method: 'POST', body: JSON.stringify({ action: 'UPDATE', date: originalDate, task: task, scope: scope }), headers: { 'Content-Type': 'application/json' } });
         await loadTodos();
-        const newIndex = todos.findIndex(t => t.id === task.id);
-        if (newIndex !== -1) currentDetailIndex = newIndex; else closeDetail();
+        
+        if (!isSeriesNonSingle) {
+          const newIndex = todos.findIndex(t => t.id === task.id);
+          if (newIndex !== -1) { currentDetailIndex = newIndex; renderDetailContent(); }
+          else closeDetail();
+        }
       }
     }
 
