@@ -491,12 +491,14 @@ export const detail = `
         task.subtasks = tempSubtasks; task.search_terms = tempSearchTerms;
         task.category_id = tempCategoryId;
         
-        // scope='this' 时：脱离模板，变为单次任务
+        // scope='this' 时：脱离旧系列
         if (scope === 'this' && task.isSeries) {
-          task.repeat_type = 'none';
+          task.repeat_type = tempRepeatType;
           task.repeat_custom = '';
-          task.repeat_end = '';
-          task.isSeries = false;
+          task.repeat_end = tempRepeatEnd;
+          if (tempRepeatType === 'none') {
+            task.isSeries = false;
+          }
         } else {
           task.repeat_type = tempRepeatType;
           task.repeat_custom = '';
