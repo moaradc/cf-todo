@@ -73,13 +73,15 @@ async function handleRequest(request, env, ctx) {
           if (marker) currentVersion = marker.value;
         } catch (e) {}
 
-        // 版本一致则跳过所有迁移
-        if (currentVersion === APP_VERSION) {
+        // 版本比较：等于或大于当前代码版本时跳过迁移
+        // - 等于：已迁移到最新，无需操作
+        // - 大于：数据库来自更新版本的代码（如回滚部署），不应降级迁移
+        if (currentVersion && currentVersion >= APP_VERSION) {
           isDbInitialized = true;
           return;
         }
 
-        // ==================== 基础表结构（首次部署） ====================
+        // ==================== 基础表结构（每次都执行，IF NOT EXISTS 无副作用） ====================
         await env.DB.batch([
           env.DB.prepare(`
             CREATE TABLE IF NOT EXISTS todos (
@@ -166,7 +168,9 @@ async function handleRequest(request, env, ctx) {
         ]);
 
         // ==================== 版本化增量迁移 ====================
-        // 每个版本只执行一次，通过 currentVersion 判断跳过已执行的迁移
+        // currentVersion 为 null 时（首次部署）执行全部迁移
+        // currentVersion < APP_VERSION 时只执行对应版本的增量迁移
+        // currentVersion >= APP_VERSION 时已在上方跳过
 
         // --- v2.7.0 及之前的迁移（首次部署时需要） ---
         if (!currentVersion || currentVersion < '2.7.0') {
