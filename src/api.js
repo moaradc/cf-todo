@@ -1757,8 +1757,7 @@ async function handleRequest(request, env, ctx) {
         }).filter(Boolean);
 
         let rType = row.repeat_type || 'none';
-        // 兜底：repeat_type 为空或无效时默认 daily（防御迁移未覆盖的边界情况）
-        if (rType === 'none' && row.parent_id && row.parent_id !== row.id) rType = 'daily';
+        // 兜底：repeat_type 为无效值时默认 daily（防御迁移未覆盖的边界情况）
         if (rType !== 'none' && !['daily','weekly','monthly','yearly'].includes(rType)) rType = 'daily';
 
         return {
@@ -1768,7 +1767,7 @@ async function handleRequest(request, env, ctx) {
           repeat_custom: row.repeat_custom || '',
           repeat_end: row.repeat_end || '',
           end_time: row.end_time || '',
-          isSeries: row.repeat_type && row.repeat_type !== 'none',
+          isSeries: rType && rType !== 'none',
           done: !!row.done,
           subtasks: parsedSubtasks,
           search_terms: parsedSearchTerms
@@ -1911,9 +1910,10 @@ async function handleRequest(request, env, ctx) {
             if (actions.pastTodos) {
               const pt = actions.pastTodos;
               if (pt.type === 'set_repeat_end') {
+                const prevDate = getPreviousDate(date);
                 await env.DB.prepare(
                   'UPDATE todos SET repeat_end=? WHERE parent_id=? AND date < ? AND repeat_type != \'none\' AND (repeat_end = \'\' OR repeat_end IS NULL) AND deleted = 0'
-                ).bind(date, parentId, date).run();
+                ).bind(prevDate, parentId, date).run();
               }
             }
 
@@ -2029,8 +2029,8 @@ async function handleRequest(request, env, ctx) {
                 if (tmpl.alsoDeleteFuture) {
                   await env.DB.prepare('UPDATE todos SET deleted = 1 WHERE parent_id=? AND date >= ?').bind(parentId, date).run();
                 }
-                // Set repeat_end on past instances
-                await env.DB.prepare('UPDATE todos SET repeat_end=? WHERE parent_id=? AND date < ? AND repeat_type != \'none\'').bind(date, parentId, date).run();
+                // Set repeat_end on past instances (系列截止到前一天，当前日期已不属于系列)
+                await env.DB.prepare('UPDATE todos SET repeat_end=? WHERE parent_id=? AND date < ? AND repeat_type != \'none\'').bind(prevDate, parentId, date).run();
                 // Update template repeat_end
                 await env.DB.prepare('UPDATE todo_templates SET repeat_end=? WHERE parent_id=?').bind(prevDate, parentId).run();
               } else if (tmpl.type === 'delete_all') {
