@@ -75,6 +75,7 @@ export const css = `
       width: 100%; background: #000; border: 1px solid #444; color: var(--crt);
       padding: 8px 10px; font-family: var(--font-main); font-size: 1rem; outline: none; margin-bottom: 10px;
     }
+    textarea { resize: none; }
     input:focus, textarea:focus, select:focus { border-color: var(--crt); box-shadow: 0 0 5px rgba(0,255,65,0.3); }
     
     .fake-input {
