@@ -496,17 +496,13 @@ export const detail = `
           task.repeat_type = 'none';
           task.repeat_custom = '';
           task.repeat_end = '';
-          task.repeat = false;
           task.isSeries = false;
         } else {
           task.repeat_type = tempRepeatType;
           task.repeat_custom = '';
           task.repeat_end = tempRepeatEnd;
           if (tempRepeatType === 'none') {
-            task.repeat = false;
             task.isSeries = false;
-          } else {
-            task.repeat = true;
           }
         }
         
