@@ -400,10 +400,10 @@ export function computeUpdateActions({ task, date, scope, newValues }) {
         actions.pastTodos = { type: 'set_repeat_end', date: date, parentId: parentId };
         actions.template = { type: 'update_from_date', date: date, parentId: parentId, newValues: newValues };
       } else {
-        // 改为不重复: 当前项脱离系列变单次，未来项删除
+        // 改为不重复: 当前项脱离系列变单次，未来项删除，模板保留并设repeat_end
         actions.currentTodo = { ...newValues, repeat_type: 'none', isRecurring: false, detachFromSeries: true };
         actions.pastTodos = { type: 'set_repeat_end', date: date, parentId: parentId };
-        actions.template = { type: 'delete', parentId: parentId };
+        actions.template = { type: 'set_repeat_end', date: date, parentId: parentId };
       }
       break;
     }
@@ -414,7 +414,7 @@ export function computeUpdateActions({ task, date, scope, newValues }) {
         actions.currentTodo = { ...newValues, isRecurring: true };
         actions.template = { type: 'update_all', parentId: parentId, newValues: newValues };
       } else {
-        // 改为不重复: 当前项脱离系列变单次，其他实例删除
+        // 改为不重复: 当前项脱离系列变单次，所有其他实例删除，模板删除
         actions.currentTodo = { ...newValues, repeat_type: 'none', isRecurring: false, detachFromSeries: true };
         actions.template = { type: 'delete', parentId: parentId };
       }

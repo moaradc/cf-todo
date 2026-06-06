@@ -1994,6 +1994,10 @@ async function handleRequest(request, env, ctx) {
                   const newExdates = addExdate(currentExdates, date);
                   await env.DB.prepare('UPDATE todo_templates SET exdates = ? WHERE parent_id = ?').bind(newExdates, parentId).run();
                 }
+              } else if (tmpl.type === 'set_repeat_end') {
+                // "thisAndFuture" + 改为不重复: 模板保留，设repeat_end
+                const prevDate = getPreviousDate(date);
+                await env.DB.prepare('UPDATE todo_templates SET repeat_end=? WHERE parent_id=?').bind(prevDate, parentId).run();
               } else if (tmpl.type === 'update_from_date' || tmpl.type === 'update_all') {
                 // thisAndFuture or all: update template
                 if (rptType !== 'none') {
