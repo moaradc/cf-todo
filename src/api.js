@@ -173,14 +173,16 @@ async function handleRequest(request, env, ctx) {
         try { await env.DB.prepare(`ALTER TABLE todos ADD COLUMN end_time TEXT DEFAULT ''`).run(); } catch (e) {}
         try { await env.DB.prepare(`ALTER TABLE todo_templates ADD COLUMN repeat_end TEXT DEFAULT ''`).run(); } catch (e) {}
         try { await env.DB.prepare(`ALTER TABLE todo_templates ADD COLUMN end_time TEXT DEFAULT ''`).run(); } catch (e) {}
-        try { await env.DB.prepare(`ALTER TABLE todo_templates ADD COLUMN blacklist TEXT DEFAULT '[]'`).run(); } catch (e) {}
         try { await env.DB.prepare(`ALTER TABLE todos ADD COLUMN category_id TEXT DEFAULT ''`).run(); } catch (e) {}
         try { await env.DB.prepare(`ALTER TABLE todo_templates ADD COLUMN category_id TEXT DEFAULT ''`).run(); } catch (e) {}
         try { await env.DB.prepare(`ALTER TABLE todos ADD COLUMN recurrence_id TEXT DEFAULT ''`).run(); } catch (e) {}
         try { await env.DB.prepare(`ALTER TABLE todos ADD COLUMN is_exception INTEGER NOT NULL DEFAULT 0`).run(); } catch (e) {}
         try { await env.DB.prepare(`ALTER TABLE todo_templates ADD COLUMN exdates TEXT DEFAULT '[]'`).run(); } catch (e) {}
-        // Migrate blacklist data to exdates
-        try { await env.DB.prepare(`UPDATE todo_templates SET exdates = blacklist WHERE exdates = '[]' AND blacklist != '[]'`).run(); } catch (e) {}
+        // 迁移旧 blacklist 数据到 exdates，完成后清空 blacklist
+        try {
+          await env.DB.prepare(`UPDATE todo_templates SET exdates = blacklist WHERE exdates = '[]' AND blacklist != '[]'`).run();
+          await env.DB.prepare(`UPDATE todo_templates SET blacklist = '[]' WHERE blacklist != '[]'`).run();
+        } catch (e) {}
         
         // 自动迁移老版本
         try {
@@ -921,8 +923,7 @@ async function handleRequest(request, env, ctx) {
       const buildTemplateStmts = (items) => (items || []).map((t, idx) => {
         const label = t.text || t.parent_id || `第 ${idx + 1} 条`;
         if (!t.parent_id) throw new Error(`模板 "${label}" 缺少必填字段 parent_id`);
-        // Prefer exdates, fall back to blacklist for backward compat
-        const exdates = t.exdates || t.blacklist || '[]';
+        const exdates = t.exdates || '[]';
         return env.DB.prepare(
           `INSERT OR REPLACE INTO todo_templates
           (parent_id, text, time, priority, desc, url, copy_text, subtasks, search_terms, repeat_type, repeat_custom, repeat_end, end_time, anchor_date, exdates, category_id)
@@ -1490,13 +1491,9 @@ async function handleRequest(request, env, ctx) {
             }
           }
           // 从exdates中移除此日期
-          const tpl = await env.DB.prepare('SELECT exdates, blacklist FROM todo_templates WHERE parent_id = ?').bind(t.parent_id).first();
+          const tpl = await env.DB.prepare('SELECT exdates FROM todo_templates WHERE parent_id = ?').bind(t.parent_id).first();
           if (tpl) {
-            // Prefer exdates, fall back to blacklist
-            let currentExdates = tpl.exdates || '[]';
-            if ((!currentExdates || currentExdates === '[]') && tpl.blacklist && tpl.blacklist !== '[]') {
-              currentExdates = tpl.blacklist;
-            }
+            const currentExdates = tpl.exdates || '[]';
             const newExdates = removeExdate(currentExdates, t.date);
             await env.DB.prepare('UPDATE todo_templates SET exdates = ? WHERE parent_id = ?').bind(newExdates, t.parent_id).run();
           } else if (!tpl && t.repeat_type && t.repeat_type !== 'none') {
@@ -1554,13 +1551,9 @@ async function handleRequest(request, env, ctx) {
             }
           }
           for (const pid of Object.keys(exdateUpdates)) {
-            const tpl = await env.DB.prepare('SELECT exdates, blacklist FROM todo_templates WHERE parent_id = ?').bind(pid).first();
+            const tpl = await env.DB.prepare('SELECT exdates FROM todo_templates WHERE parent_id = ?').bind(pid).first();
             if (tpl) {
-              // Prefer exdates, fall back to blacklist
               let currentExdates = tpl.exdates || '[]';
-              if ((!currentExdates || currentExdates === '[]') && tpl.blacklist && tpl.blacklist !== '[]') {
-                currentExdates = tpl.blacklist;
-              }
               let changed = false;
               for (const d of exdateUpdates[pid]) {
                 const newExdates = removeExdate(currentExdates, d);
@@ -1631,13 +1624,7 @@ async function handleRequest(request, env, ctx) {
     
       if (templatesReq.results && templatesReq.results.length > 0) {
         for (const tpl of templatesReq.results) {
-          // Prefer exdates, fall back to blacklist for backward compat
-          let templateForEngine = { ...tpl };
-          if (tpl.exdates && tpl.exdates !== '[]') {
-            templateForEngine.exdates = tpl.exdates;
-          } else if (tpl.blacklist && tpl.blacklist !== '[]') {
-            templateForEngine.exdates = tpl.blacklist;
-          }
+          let templateForEngine = { ...tpl, exdates: tpl.exdates || '[]' };
 
           // 使用 recurring-engine 判断此模板是否在目标日期生成实例
           if (!isOccurrenceOnDate(templateForEngine, date)) continue;
@@ -1781,13 +1768,9 @@ async function handleRequest(request, env, ctx) {
               }
             }
             for (const pid of Object.keys(exdateUpdates)) {
-              const tpl = await env.DB.prepare('SELECT exdates, blacklist FROM todo_templates WHERE parent_id = ?').bind(pid).first();
+              const tpl = await env.DB.prepare('SELECT exdates FROM todo_templates WHERE parent_id = ?').bind(pid).first();
               if (tpl) {
-                // Prefer exdates, fall back to blacklist
                 let currentExdates = tpl.exdates || '[]';
-                if ((!currentExdates || currentExdates === '[]') && tpl.blacklist && tpl.blacklist !== '[]') {
-                  currentExdates = tpl.blacklist;
-                }
                 let changed = false;
                 for (const d of exdateUpdates[pid]) {
                   const newExdates = addExdate(currentExdates, d);
@@ -1854,18 +1837,13 @@ async function handleRequest(request, env, ctx) {
             date: newDate,
           };
 
-          // Map old scope names to new ones for backward compat
-          let effectiveScope = scope;
-          if (scope === 'single') effectiveScope = 'this';
-          if (scope === 'future' || scope === 'future_repeat') effectiveScope = 'thisAndFuture';
-
-          if (!isSeries || !effectiveScope || effectiveScope === 'none') {
+          if (!isSeries || !scope || scope === 'none') {
             // 非重复任务的普通更新
             await env.DB.prepare(
               'UPDATE todos SET date=?, text=?, time=?, priority=?, repeat=?, desc=?, url=?, copy_text=?, subtasks=?, search_terms=?, repeat_type=?, repeat_custom=?, repeat_end=?, end_time=?, category_id=? WHERE id=?'
             ).bind(newDate, task.text, task.time || '', task.priority || 'low', rpt, task.desc || '', task.url || '', task.copyText || '', subtasksStr, searchTermsStr, rptType, '', repeatEnd, endTime, categoryId, task.id).run();
           } else {
-            const actions = computeUpdateActions({ task, date, scope: effectiveScope, newValues });
+            const actions = computeUpdateActions({ task, date, scope, newValues });
 
             // Execute currentTodo action
             if (actions.currentTodo) {
@@ -1897,7 +1875,7 @@ async function handleRequest(request, env, ctx) {
             }
 
             // Handle future instances for thisAndFuture/all
-            if (effectiveScope === 'thisAndFuture') {
+            if (scope === 'thisAndFuture') {
               if (rptType !== 'none') {
                 if (dateChanged) {
                   // 日期变了：删除当前之后的其他非回收站实例
@@ -1916,7 +1894,7 @@ async function handleRequest(request, env, ctx) {
                   'DELETE FROM todos WHERE parent_id=? AND id != ? AND date > ? AND deleted = 0'
                 ).bind(parentId, task.id, date).run();
               }
-            } else if (effectiveScope === 'all') {
+            } else if (scope === 'all') {
               if (rptType !== 'none') {
                 if (dateChanged) {
                   // 日期变了：删除其他非回收站实例
@@ -1942,12 +1920,9 @@ async function handleRequest(request, env, ctx) {
               const tmpl = actions.template;
               if (tmpl.type === 'add_exdate') {
                 // "this" scope: add EXDATE to template
-                const tpl = await env.DB.prepare('SELECT exdates, blacklist FROM todo_templates WHERE parent_id = ?').bind(parentId).first();
+                const tpl = await env.DB.prepare('SELECT exdates FROM todo_templates WHERE parent_id = ?').bind(parentId).first();
                 if (tpl) {
-                  let currentExdates = tpl.exdates || '[]';
-                  if ((!currentExdates || currentExdates === '[]') && tpl.blacklist && tpl.blacklist !== '[]') {
-                    currentExdates = tpl.blacklist;
-                  }
+                  const currentExdates = tpl.exdates || '[]';
                   const newExdates = addExdate(currentExdates, date);
                   await env.DB.prepare('UPDATE todo_templates SET exdates = ? WHERE parent_id = ?').bind(newExdates, parentId).run();
                 }
@@ -1957,13 +1932,10 @@ async function handleRequest(request, env, ctx) {
                   let existingExdates = '[]';
                   try {
                     const existingTpl = await env.DB.prepare(
-                      'SELECT exdates, blacklist FROM todo_templates WHERE parent_id = ?'
+                      'SELECT exdates FROM todo_templates WHERE parent_id = ?'
                     ).bind(parentId).first();
                     if (existingTpl) {
                       existingExdates = existingTpl.exdates || '[]';
-                      if ((!existingExdates || existingExdates === '[]') && existingTpl.blacklist && existingTpl.blacklist !== '[]') {
-                        existingExdates = existingTpl.blacklist;
-                      }
                     }
                   } catch(e) {}
           
@@ -1984,16 +1956,11 @@ async function handleRequest(request, env, ctx) {
           const parentId = task.parentId || task.parent_id;
           const isSeries = task.isSeries || (parentId && parentId !== task.id);
 
-          // Map old scope names to new ones for backward compat
-          let effectiveScope = scope;
-          if (scope === 'single') effectiveScope = 'this';
-          if (scope === 'future' || scope === 'future_repeat') effectiveScope = 'thisAndFuture';
-
-          if (!isSeries || !effectiveScope) {
+          if (!isSeries || !scope) {
             // 非循环任务: 直接软删除
             await env.DB.prepare('UPDATE todos SET deleted = 1 WHERE id = ?').bind(task.id).run();
           } else {
-            const actions = computeDeleteActions({ task, date, scope: effectiveScope });
+            const actions = computeDeleteActions({ task, date, scope });
 
             // Soft delete specified todo IDs
             if (actions.deleteTodoIds && actions.deleteTodoIds.length > 0) {
@@ -2007,12 +1974,9 @@ async function handleRequest(request, env, ctx) {
               const tmpl = actions.updateTemplate;
               if (tmpl.type === 'add_exdate') {
                 // "this" scope: add EXDATE to template
-                const tpl = await env.DB.prepare('SELECT exdates, blacklist FROM todo_templates WHERE parent_id = ?').bind(parentId).first();
+                const tpl = await env.DB.prepare('SELECT exdates FROM todo_templates WHERE parent_id = ?').bind(parentId).first();
                 if (tpl) {
-                  let currentExdates = tpl.exdates || '[]';
-                  if ((!currentExdates || currentExdates === '[]') && tpl.blacklist && tpl.blacklist !== '[]') {
-                    currentExdates = tpl.blacklist;
-                  }
+                  const currentExdates = tpl.exdates || '[]';
                   const newExdates = addExdate(currentExdates, date);
                   await env.DB.prepare('UPDATE todo_templates SET exdates = ? WHERE parent_id = ?').bind(newExdates, parentId).run();
                 }
