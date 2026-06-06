@@ -154,6 +154,11 @@ function createICALComponent(template) {
 
 /**
  * 判断某日期是否为重复事件的发生日期
+ *
+ * RFC 5545 规定: DTSTART 始终是第一个实例，即使不匹配 RRULE。
+ * ical.js 的行为: 仅当 DTSTART 匹配 RRULE 时才包含，否则跳过。
+ * 此函数对齐 RFC 5545 标准，确保 anchor_date (DTSTART) 始终被视为发生日期。
+ *
  * @param {Object} template - 模板对象
  * @param {string} dateStr - 目标日期 YYYY-MM-DD
  * @returns {boolean}
@@ -174,13 +179,14 @@ export function isOccurrenceOnDate(template, dateStr) {
   // 检查repeat_end
   if (template.repeat_end && dateStr > template.repeat_end) return false;
 
-  // 使用ICAL.js计算
+  // RFC 5545: DTSTART 始终是第一个实例，即使不匹配 RRULE
+  if (dateStr === template.anchor_date) return true;
+
+  // 使用ICAL.js计算后续实例
   try {
     const vcalendar = createICALComponent(template);
     const vevent = vcalendar.getFirstSubcomponent('vevent');
     const event = new ICAL.Event(vevent);
-    const targetTime = dateStrToICALTime(dateStr);
-    const targetMs = targetTime.toUnixTime() * 1000;
 
     // 使用迭代器检查目标日期是否为发生日期
     const iterator = event.iterator();
@@ -230,6 +236,10 @@ function simpleIsOccurrence(template, dateStr) {
 
 /**
  * 获取两个日期之间的所有发生日期
+ *
+ * RFC 5545: DTSTART 始终是第一个实例。ical.js 可能跳过不匹配 RRULE 的 DTSTART，
+ * 因此需要显式确保 anchor_date 被包含。
+ *
  * @param {Object} template - 模板对象
  * @param {string} startDate - 起始日期
  * @param {string} endDate - 结束日期
@@ -239,20 +249,39 @@ function simpleIsOccurrence(template, dateStr) {
 export function getOccurrencesBetween(template, startDate, endDate, limit = 365) {
   if (!template.repeat_type || template.repeat_type === 'none') return [];
 
+  const results = [];
+
+  // RFC 5545: DTSTART 始终是第一个实例
+  const anchor = template.anchor_date;
+  if (anchor && anchor >= startDate && anchor <= endDate) {
+    // 检查 anchor_date 是否在 EXDATE 中
+    let exdates = [];
+    if (template.exdates) {
+      try {
+        exdates = typeof template.exdates === 'string' ? JSON.parse(template.exdates) : template.exdates;
+      } catch (e) { exdates = []; }
+    }
+    if (!Array.isArray(exdates) || !exdates.includes(anchor)) {
+      results.push(anchor);
+    }
+  }
+
   try {
     const vcalendar = createICALComponent(template);
     const vevent = vcalendar.getFirstSubcomponent('vevent');
     const event = new ICAL.Event(vevent);
     const iterator = event.iterator();
 
-    const results = [];
     let next;
-    let count = 0;
+    let count = results.length; // 已包含 anchor，计入 limit
     while ((next = iterator.next()) && count < limit) {
       const nextStr = icalTimeToDateStr(next);
       if (nextStr > endDate) break;
       if (nextStr >= startDate) {
-        results.push(nextStr);
+        // 避免重复添加 anchor_date（ical.js 可能已包含）
+        if (nextStr !== anchor || !results.includes(nextStr)) {
+          results.push(nextStr);
+        }
       }
       count++;
     }
