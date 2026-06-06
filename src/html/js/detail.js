@@ -249,7 +249,7 @@ export const detail = `
           <div class="detail-label modal-section">时间与重复</div>
           <div class="row modal-row">
             <div class="fake-input detail-value editable flex-1" onclick="openCalendarForEdit()">
-              <span id="edit-date-display">\${task.date || '----/--/--'}</span>
+              <span id="edit-date-display">\${tempEditDate || '----/--/--'}</span>
               <span class="arrow">▼</span>
             </div>
             <div class="fake-input detail-value editable flex-1" onclick="toggleRepeatMenu('edit', this)">
@@ -311,6 +311,7 @@ export const detail = `
       if (isEditMode) {
         btnSave.classList.remove('hidden'); btnDel.classList.add('hidden'); btnEdit.innerText = "取消编辑";
         const task = todos[currentDetailIndex]; 
+        tempEditDate = task.date || '';
         tempTime = task.time || ''; tempPriority = task.priority || 'low';
         tempEndTime = task.end_time || '';
         tempRepeatType = task.repeat_type || 'none';
@@ -469,6 +470,7 @@ export const detail = `
         loadTodos();
       } 
       else if (pendingAction === 'save') {
+        task.date = tempEditDate;
         task.text = document.getElementById('edit-text').value; task.time = tempTime; task.priority = tempPriority;
         task.end_time = tempEndTime;
         task.desc = document.getElementById('edit-desc').value; task.url = document.getElementById('edit-url').value;

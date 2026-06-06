@@ -9,7 +9,7 @@ export const calendar = `
     
     function openCalendarForAdd() { calendarMode = 'select'; calDate = new Date(tempAddDate || currentDate); renderCalendar(); document.getElementById('modal-calendar').classList.add('active');
     }
-    function openCalendarForEdit() { calendarMode = 'edit_date'; var t = todos[currentDetailIndex]; calDate = new Date(t.date || currentDate); renderCalendar(); document.getElementById('modal-calendar').classList.add('active'); }
+    function openCalendarForEdit() { calendarMode = 'edit_date'; calDate = new Date(tempEditDate || currentDate); renderCalendar(); document.getElementById('modal-calendar').classList.add('active'); }
 
     let calendarRepeatEndTarget = '';
     function openCalendarForRepeatEnd(mode) {
@@ -84,8 +84,8 @@ export const calendar = `
             document.getElementById('modal-calendar').classList.remove('active');
             calendarMode = 'navigate';
           } else if (calendarMode === 'edit_date') {
-            var t = todos[currentDetailIndex]; t.date = formatDate(new Date(year, month, i));
-            document.getElementById('edit-date-display').innerText = t.date;
+            tempEditDate = formatDate(new Date(year, month, i));
+            document.getElementById('edit-date-display').innerText = tempEditDate;
             document.getElementById('modal-calendar').classList.remove('active');
             calendarMode = 'navigate';
           } else {
@@ -135,8 +135,8 @@ export const calendar = `
         document.getElementById('modal-calendar').classList.remove('active');
         calendarMode = 'navigate';
       } else if (calendarMode === 'edit_date') {
-        var t = todos[currentDetailIndex]; t.date = formatDate(new Date());
-        document.getElementById('edit-date-display').innerText = t.date;
+        tempEditDate = formatDate(new Date());
+        document.getElementById('edit-date-display').innerText = tempEditDate;
         document.getElementById('modal-calendar').classList.remove('active');
         calendarMode = 'navigate';
       } else if (calendarMode === 'repeat_end') {
