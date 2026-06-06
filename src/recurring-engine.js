@@ -381,13 +381,24 @@ export function computeUpdateActions({ task, date, scope, newValues }) {
 
   switch (scope) {
     case 'this': {
-      // 仅修改此实例: 脱离模板，变为单次任务 + 添加EXDATE到模板
-      actions.currentTodo = {
-        ...newValues,
-        repeat_type: 'none',
-        isRecurring: false,
-        detachFromSeries: true,
-      };
+      // 仅修改此实例: 脱离模板
+      if (isRecurring) {
+        // 改为新的重复类型: 脱离旧系列，创建新系列
+        actions.currentTodo = {
+          ...newValues,
+          isRecurring: true,
+          detachFromSeries: true,
+          newSeries: true,
+        };
+      } else {
+        // 改为不重复: 脱离旧系列，变为单次任务
+        actions.currentTodo = {
+          ...newValues,
+          repeat_type: 'none',
+          isRecurring: false,
+          detachFromSeries: true,
+        };
+      }
       actions.template = { type: 'add_exdate', date: date, parentId: parentId };
       break;
     }

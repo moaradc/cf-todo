@@ -1916,10 +1916,24 @@ async function handleRequest(request, env, ctx) {
             if (actions.currentTodo) {
               const cv = actions.currentTodo;
               if (cv.detachFromSeries) {
-                // "this" scope: detach from series, become single task
-                await env.DB.prepare(
-                  'UPDATE todos SET parent_id=?, date=?, text=?, time=?, priority=?, desc=?, url=?, copy_text=?, subtasks=?, search_terms=?, repeat_type=\'none\', repeat_custom=\'\', repeat_end=\'\', end_time=?, category_id=? WHERE id=?'
-                ).bind(task.id, newDate, task.text, task.time || '', task.priority || 'low', task.desc || '', task.url || '', task.copyText || '', subtasksStr, searchTermsStr, endTime, categoryId, task.id).run();
+                if (cv.newSeries) {
+                  // "this" scope + 改为重复: 脱离旧系列，创建新系列
+                  await env.DB.prepare(
+                    'UPDATE todos SET parent_id=?, date=?, text=?, time=?, priority=?, desc=?, url=?, copy_text=?, subtasks=?, search_terms=?, repeat_type=?, repeat_custom=?, repeat_end=?, end_time=?, category_id=? WHERE id=?'
+                  ).bind(task.id, newDate, task.text, task.time || '', task.priority || 'low', task.desc || '', task.url || '', task.copyText || '', subtasksStr, searchTermsStr, rptType, '', repeatEnd, endTime, categoryId, task.id).run();
+                  // 创建新模板
+                  await env.DB.prepare(
+                    'INSERT OR REPLACE INTO todo_templates (parent_id, text, time, priority, desc, url, copy_text, subtasks, search_terms, repeat_type, repeat_custom, repeat_end, end_time, anchor_date, exdates, category_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+                  ).bind(
+                    task.id, task.text, task.time || '', task.priority || 'low', task.desc || '', task.url || '', task.copyText || '',
+                    subtasksStr, searchTermsStr, rptType, '', repeatEnd, endTime, newDate, '[]', categoryId
+                  ).run();
+                } else {
+                  // "this" scope + 改为不重复: 脱离旧系列，变为单次任务
+                  await env.DB.prepare(
+                    'UPDATE todos SET parent_id=?, date=?, text=?, time=?, priority=?, desc=?, url=?, copy_text=?, subtasks=?, search_terms=?, repeat_type=\'none\', repeat_custom=\'\', repeat_end=\'\', end_time=?, category_id=? WHERE id=?'
+                  ).bind(task.id, newDate, task.text, task.time || '', task.priority || 'low', task.desc || '', task.url || '', task.copyText || '', subtasksStr, searchTermsStr, endTime, categoryId, task.id).run();
+                }
               } else if (cv.isRecurring) {
                 await env.DB.prepare(
                   'UPDATE todos SET date=?, text=?, time=?, priority=?, desc=?, url=?, copy_text=?, subtasks=?, search_terms=?, repeat_type=?, repeat_custom=?, repeat_end=?, end_time=?, category_id=? WHERE id=?'
