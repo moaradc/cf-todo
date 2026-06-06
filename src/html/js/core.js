@@ -137,6 +137,7 @@ export const core = `
     let tempRepeatType = 'none';
     let tempRepeatEnd = '';
     let tempAddDate = '';
+    let tempEditDate = '';
     let tempCategoryId = '';
     let categoriesList = [];
     let categoriesMap = new Map();

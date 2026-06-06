@@ -5,6 +5,7 @@
 import versionData from '../version.json';
 
 const APP_VERSION = versionData.version;
+const DB_SCHEMA = versionData.db_schema;
 const DEFAULT_CATEGORY_COLOR = '#888888';
 
 const CHANGELOG = versionData.changelog;
@@ -143,6 +144,7 @@ function apiError(msg, status = 500, extra = null) {
 
 export {
   APP_VERSION,
+  DB_SCHEMA,
   CHANGELOG,
   DEFAULT_CATEGORY_COLOR,
   parseCookies,

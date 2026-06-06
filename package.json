@@ -3,6 +3,6 @@
   "private": true,
   "version": "1.0.0",
   "dependencies": {
-    "rrule": "^2.8.1"
+    "ical.js": "^2.2.1"
   }
 }

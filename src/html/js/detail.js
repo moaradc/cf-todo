@@ -128,7 +128,8 @@ export const detail = `
 
     function openDetail(index) {
       currentDetailIndex = index; isEditMode = false;
-      const task = todos[index]; tempTime = task.time || ''; tempPriority = task.priority || 'low';
+      const task = todos[index]; tempEditDate = task.date || '';
+      tempTime = task.time || ''; tempPriority = task.priority || 'low';
       tempCategoryId = task.category_id || '';
       renderDetailContent();
       
@@ -204,12 +205,24 @@ export const detail = `
           \`;
         }
 
-        let rText = '单次任务';
+        let rText = '不重复';
         if (task.repeat_type && task.repeat_type !== 'none') {
-            rText = \`重复: \${rMap[task.repeat_type]}\`;
+            var days = ['日','一','二','三','四','五','六'];
+            if (task.repeat_type === 'daily') rText = '每天';
+            else if (task.repeat_type === 'weekly') {
+              var dp = (task.date || '').split('-');
+              if (dp.length === 3) { var dw = new Date(dp[0], dp[1]-1, dp[2]).getDay(); rText = '每周' + days[dw]; }
+              else rText = '每周';
+            } else if (task.repeat_type === 'monthly') {
+              var mp = (task.date || '').split('-');
+              rText = mp.length === 3 ? '每月' + parseInt(mp[2], 10) + '号' : '每月';
+            } else if (task.repeat_type === 'yearly') {
+              var yp = (task.date || '').split('-');
+              rText = yp.length === 3 ? '每年' + parseInt(yp[1], 10) + '月' + parseInt(yp[2], 10) + '日' : '每年';
+            }
             if (task.repeat_end) rText += '·至' + task.repeat_end;
         } else if (task.isSeries) {
-            rText = '已停用未来的系列事项';
+            rText = '已停止重复';
         }
 
         let catSection = '';
@@ -249,7 +262,7 @@ export const detail = `
           <div class="detail-label modal-section">时间与重复</div>
           <div class="row modal-row">
             <div class="fake-input detail-value editable flex-1" onclick="openCalendarForEdit()">
-              <span id="edit-date-display">\${task.date || '----/--/--'}</span>
+              <span id="edit-date-display">\${tempEditDate || '----/--/--'}</span>
               <span class="arrow">▼</span>
             </div>
             <div class="fake-input detail-value editable flex-1" onclick="toggleRepeatMenu('edit', this)">
@@ -311,6 +324,7 @@ export const detail = `
       if (isEditMode) {
         btnSave.classList.remove('hidden'); btnDel.classList.add('hidden'); btnEdit.innerText = "取消编辑";
         const task = todos[currentDetailIndex]; 
+        tempEditDate = task.date || '';
         tempTime = task.time || ''; tempPriority = task.priority || 'low';
         tempEndTime = task.end_time || '';
         tempRepeatType = task.repeat_type || 'none';
@@ -435,21 +449,19 @@ export const detail = `
       const popover = document.getElementById('popover-action'); const title = document.getElementById('popover-title'); const options = document.getElementById('popover-options');
       options.innerHTML = '';
       if (action === 'delete') {
-        title.innerText = "警告：确认删除？";
+        title.innerText = "确认删除";
         if (task.isSeries) {
-          options.innerHTML += \`<button onclick="confirmAction('single')">仅此项</button>\`;
-          options.innerHTML += \`<button onclick="confirmAction('future')">此项及以后</button>\`;
-          options.innerHTML += \`<button onclick="confirmAction('future_repeat')">以后</button>\`;
-          options.innerHTML += \`<button onclick="confirmAction('all')">所有</button>\`;
-        } else { options.innerHTML += \`<button onclick="confirmAction('single')">确认删除</button>\`; }
+          options.innerHTML += \`<button onclick="confirmAction('this')">仅此日程</button>\`;
+          options.innerHTML += \`<button onclick="confirmAction('thisAndFuture')">此日程及之后</button>\`;
+          options.innerHTML += \`<button onclick="confirmAction('all')">所有日程</button>\`;
+        } else { options.innerHTML += \`<button onclick="confirmAction('this')">确认删除</button>\`; }
       } else if (action === 'save') {
         if (task.isSeries) {
-          title.innerText = "保存为：";
-          options.innerHTML += \`<button onclick="confirmAction('single')">仅此项</button>\`;
-          options.innerHTML += \`<button onclick="confirmAction('future')">此项及以后</button>\`;
-          options.innerHTML += \`<button onclick="confirmAction('future_repeat')">以后</button>\`;
-          options.innerHTML += \`<button onclick="confirmAction('all')">所有</button>\`;
-        } else { confirmAction('single'); return; }
+          title.innerText = "保存范围：";
+          options.innerHTML += \`<button onclick="confirmAction('this')">仅此日程</button>\`;
+          options.innerHTML += \`<button onclick="confirmAction('thisAndFuture')">此日程及之后</button>\`;
+          options.innerHTML += \`<button onclick="confirmAction('all')">所有日程</button>\`;
+        } else { confirmAction('this'); return; }
       }
 
       const btn = e.target; btn.parentNode.style.position = 'relative'; btn.parentNode.appendChild(popover);
@@ -469,6 +481,9 @@ export const detail = `
         loadTodos();
       } 
       else if (pendingAction === 'save') {
+        // 保存原始日期，后端需要它定位当前实例
+        const originalDate = task.date || formatDate(currentDate);
+        task.date = tempEditDate;
         task.text = document.getElementById('edit-text').value; task.time = tempTime; task.priority = tempPriority;
         task.end_time = tempEndTime;
         task.desc = document.getElementById('edit-desc').value; task.url = document.getElementById('edit-url').value;
@@ -476,30 +491,38 @@ export const detail = `
         task.subtasks = tempSubtasks; task.search_terms = tempSearchTerms;
         task.category_id = tempCategoryId;
         
-        // scope='single' 时：脱离模板，变为单次任务
-        if (scope === 'single' && task.isSeries) {
-          task.repeat_type = 'none';
+        // scope='this' 时：脱离旧系列
+        if (scope === 'this' && task.isSeries) {
+          task.repeat_type = tempRepeatType;
           task.repeat_custom = '';
-          task.repeat_end = '';
-          task.repeat = false;
-          task.isSeries = false;
+          task.repeat_end = tempRepeatEnd;
+          if (tempRepeatType === 'none') {
+            task.isSeries = false;
+          }
         } else {
           task.repeat_type = tempRepeatType;
           task.repeat_custom = '';
           task.repeat_end = tempRepeatEnd;
           if (tempRepeatType === 'none') {
-            task.repeat = false;
             task.isSeries = false;
-          } else {
-            task.repeat = true;
           }
         }
         
-        toggleEditMode();
-        await fetch('/api/todo-action', { method: 'POST', body: JSON.stringify({ action: 'UPDATE', date: formatDate(currentDate), task: task, scope: scope }), headers: { 'Content-Type': 'application/json' } });
+        // 系列任务：直接关闭详情；非系列任务：切回查看模式保留详情
+        if (task.isSeries) {
+          closeDetail();
+        } else {
+          toggleEditMode();
+        }
+        
+        await fetch('/api/todo-action', { method: 'POST', body: JSON.stringify({ action: 'UPDATE', date: originalDate, task: task, scope: scope }), headers: { 'Content-Type': 'application/json' } });
         await loadTodos();
-        const newIndex = todos.findIndex(t => t.id === task.id);
-        if (newIndex !== -1) currentDetailIndex = newIndex; else closeDetail();
+        
+        if (!task.isSeries) {
+          const newIndex = todos.findIndex(t => t.id === task.id);
+          if (newIndex !== -1) { currentDetailIndex = newIndex; renderDetailContent(); }
+          else closeDetail();
+        }
       }
     }
 
