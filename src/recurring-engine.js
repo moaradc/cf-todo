@@ -573,14 +573,14 @@ export function getRepeatLabel(repeatType, dateStr, repeatEnd) {
 export function getScopeLabels(action) {
   if (action === 'delete') {
     return {
-      this: '删除此事件',
-      thisAndFuture: '删除此事件及之后的事件',
-      all: '删除整个系列',
+      this: '仅此日程',
+      thisAndFuture: '此日程及之后',
+      all: '所有日程',
     };
   }
   return {
-    this: '仅此事件',
-    thisAndFuture: '此事件及之后的事件',
-    all: '整个系列的所有事件',
+    this: '仅此日程',
+    thisAndFuture: '此日程及之后',
+    all: '所有日程',
   };
 }

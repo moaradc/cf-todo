@@ -451,16 +451,16 @@ export const detail = `
       if (action === 'delete') {
         title.innerText = "确认删除";
         if (task.isSeries) {
-          options.innerHTML += \`<button onclick="confirmAction('this')">删除此事件</button>\`;
-          options.innerHTML += \`<button onclick="confirmAction('thisAndFuture')">删除此事件及之后</button>\`;
-          options.innerHTML += \`<button onclick="confirmAction('all')">删除整个系列</button>\`;
+          options.innerHTML += \`<button onclick="confirmAction('this')">仅此日程</button>\`;
+          options.innerHTML += \`<button onclick="confirmAction('thisAndFuture')">此日程及之后</button>\`;
+          options.innerHTML += \`<button onclick="confirmAction('all')">所有日程</button>\`;
         } else { options.innerHTML += \`<button onclick="confirmAction('this')">确认删除</button>\`; }
       } else if (action === 'save') {
         if (task.isSeries) {
           title.innerText = "保存范围：";
-          options.innerHTML += \`<button onclick="confirmAction('this')">仅此事件</button>\`;
-          options.innerHTML += \`<button onclick="confirmAction('thisAndFuture')">此事件及之后</button>\`;
-          options.innerHTML += \`<button onclick="confirmAction('all')">整个系列</button>\`;
+          options.innerHTML += \`<button onclick="confirmAction('this')">仅此日程</button>\`;
+          options.innerHTML += \`<button onclick="confirmAction('thisAndFuture')">此日程及之后</button>\`;
+          options.innerHTML += \`<button onclick="confirmAction('all')">所有日程</button>\`;
         } else { confirmAction('this'); return; }
       }
 
