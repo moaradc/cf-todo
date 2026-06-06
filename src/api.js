@@ -207,7 +207,7 @@ async function handleRequest(request, env, ctx) {
           } catch (e) {}
         }
 
-        // --- schema 3: v2.8.0 RFC 5545 重构 ---
+        // --- schema 3: v2.7.2 RFC 5545 重构 ---
         if (currentSchema < 3) {
           // 1. 添加新列
           try { await env.DB.prepare(`ALTER TABLE todos ADD COLUMN recurrence_id TEXT DEFAULT ''`).run(); } catch (e) {}
