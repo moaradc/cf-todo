@@ -1805,6 +1805,7 @@ async function handleRequest(request, env, ctx) {
           const repeatEnd = task.repeat_end || '';
           const endTime = task.end_time || '';
           const newDate = task.date || date;
+          const dateChanged = newDate !== date;
         
           if (scope === 'single') {
             // 脱离重复模板，变为单次任务
@@ -1824,59 +1825,84 @@ async function handleRequest(request, env, ctx) {
               }
             }
           } else if (scope === 'future') {
-            // 此项及以后：删除当前及未来实例，过去项设 repeat_end，模板 anchor_date 改为新日期
             if (rptType !== 'none') {
-              // 删除当前及未来的实例（rrule 会从新 anchor_date 重新生成）
-              await env.DB.prepare(
-                'DELETE FROM todos WHERE parent_id=? AND date >= ?'
-              ).bind(task.parentId, date).run();
-              // 过去项：设置 repeat_end 和 repeat=-1
-              await env.DB.prepare(
-                'UPDATE todos SET repeat=-1, repeat_end=? WHERE parent_id=? AND date < ? AND repeat_type != \'none\''
-              ).bind(date, task.parentId, date).run();
+              if (dateChanged) {
+                // 日期变了：删除当前及未来实例，rrule 从新 anchor_date 重建
+                await env.DB.prepare(
+                  'DELETE FROM todos WHERE parent_id=? AND date >= ?'
+                ).bind(task.parentId, date).run();
+                await env.DB.prepare(
+                  'UPDATE todos SET repeat=-1, repeat_end=? WHERE parent_id=? AND date < ? AND repeat_type != \'none\' AND repeat != -1'
+                ).bind(date, task.parentId, date).run();
+              } else {
+                // 日期没变：直接更新当前及未来实例，保留状态
+                await env.DB.prepare(
+                  'UPDATE todos SET text=?, time=?, priority=?, repeat=1, desc=?, url=?, copy_text=?, subtasks=?, search_terms=?, repeat_type=?, repeat_custom=?, repeat_end=?, end_time=?, category_id=? WHERE parent_id=? AND date >= ?'
+                ).bind(task.text, task.time || '', task.priority || 'low', task.desc || '', task.url || '', task.copyText || '', subtasksStr, searchTermsStr, rptType, '', repeatEnd, endTime, categoryId, task.parentId, date).run();
+                // 过去项：仅对尚未终止的实例设 repeat_end
+                await env.DB.prepare(
+                  'UPDATE todos SET repeat=-1, repeat_end=? WHERE parent_id=? AND date < ? AND repeat_type != \'none\' AND repeat != -1'
+                ).bind(date, task.parentId, date).run();
+              }
             } else {
               // 改为不重复：当前项变单次任务，未来项真删除
               await env.DB.prepare(
-                'UPDATE todos SET date=?, text=?, priority=?, repeat=0, desc=?, url=?, copy_text=?, subtasks=?, search_terms=?, repeat_type=\'none\', repeat_custom=\'\', repeat_end=\'\', category_id=? WHERE id=?'
-              ).bind(newDate, task.text, task.priority || 'low', task.desc || '', task.url || '', task.copyText || '', subtasksStr, searchTermsStr, categoryId, task.id).run();
+                'UPDATE todos SET date=?, text=?, time=?, priority=?, repeat=0, desc=?, url=?, copy_text=?, subtasks=?, search_terms=?, repeat_type=\'none\', repeat_custom=\'\', repeat_end=\'\', category_id=? WHERE id=?'
+              ).bind(newDate, task.text, task.time || '', task.priority || 'low', task.desc || '', task.url || '', task.copyText || '', subtasksStr, searchTermsStr, categoryId, task.id).run();
               await env.DB.prepare(
                 'DELETE FROM todos WHERE parent_id=? AND date > ?'
               ).bind(task.parentId, date).run();
               await env.DB.prepare(
-                'UPDATE todos SET repeat=-1, repeat_end=? WHERE parent_id=? AND date < ? AND repeat_type != \'none\''
+                'UPDATE todos SET repeat=-1, repeat_end=? WHERE parent_id=? AND date < ? AND repeat_type != \'none\' AND repeat != -1'
               ).bind(date, task.parentId, date).run();
             }
           } else if (scope === 'future_repeat') {
-            // 以后：删除当前之后的实例，当前及过去项设 repeat_end
             if (rptType !== 'none') {
-              // 删除当前之后的实例（rrule 会从新 anchor_date 重新生成）
-              await env.DB.prepare(
-                'DELETE FROM todos WHERE parent_id=? AND date > ?'
-              ).bind(task.parentId, date).run();
-              // 当前及过去项：设置 repeat_end 和 repeat=-1
-              await env.DB.prepare(
-                'UPDATE todos SET repeat=-1, repeat_end=? WHERE parent_id=? AND date <= ? AND repeat_type != \'none\''
-              ).bind(date, task.parentId, date).run();
+              if (dateChanged) {
+                // 日期变了：删除未来实例，rrule 从新 anchor_date 重建
+                await env.DB.prepare(
+                  'DELETE FROM todos WHERE parent_id=? AND date > ?'
+                ).bind(task.parentId, date).run();
+                await env.DB.prepare(
+                  'UPDATE todos SET repeat=-1, repeat_end=? WHERE parent_id=? AND date <= ? AND repeat_type != \'none\' AND repeat != -1'
+                ).bind(date, task.parentId, date).run();
+              } else {
+                // 日期没变：直接更新未来实例
+                await env.DB.prepare(
+                  'UPDATE todos SET text=?, time=?, priority=?, repeat=1, desc=?, url=?, copy_text=?, subtasks=?, search_terms=?, repeat_type=?, repeat_custom=?, repeat_end=?, end_time=?, category_id=? WHERE parent_id=? AND date > ?'
+                ).bind(task.text, task.time || '', task.priority || 'low', task.desc || '', task.url || '', task.copyText || '', subtasksStr, searchTermsStr, rptType, '', repeatEnd, endTime, categoryId, task.parentId, date).run();
+                // 当前及过去项：仅对尚未终止的实例设 repeat_end
+                await env.DB.prepare(
+                  'UPDATE todos SET repeat=-1, repeat_end=? WHERE parent_id=? AND date <= ? AND repeat_type != \'none\' AND repeat != -1'
+                ).bind(date, task.parentId, date).run();
+              }
             } else {
               // 改为不重复：未来项真删除
               await env.DB.prepare(
                 'DELETE FROM todos WHERE parent_id=? AND date > ?'
               ).bind(task.parentId, date).run();
               await env.DB.prepare(
-                'UPDATE todos SET repeat=-1, repeat_end=? WHERE parent_id=? AND date <= ? AND repeat_type != \'none\''
+                'UPDATE todos SET repeat=-1, repeat_end=? WHERE parent_id=? AND date <= ? AND repeat_type != \'none\' AND repeat != -1'
               ).bind(date, task.parentId, date).run();
             }
           } else if (scope === 'all') {
-            // 所有：删除所有旧实例，模板 anchor_date 改为新日期
             if (rptType !== 'none') {
-              await env.DB.prepare(
-                'DELETE FROM todos WHERE parent_id=?'
-              ).bind(task.parentId).run();
+              if (dateChanged) {
+                // 日期变了：删除所有旧实例，rrule 从新 anchor_date 重建
+                await env.DB.prepare(
+                  'DELETE FROM todos WHERE parent_id=?'
+                ).bind(task.parentId).run();
+              } else {
+                // 日期没变：直接更新所有实例，保留状态
+                await env.DB.prepare(
+                  'UPDATE todos SET text=?, time=?, priority=?, repeat=1, desc=?, url=?, copy_text=?, subtasks=?, search_terms=?, repeat_type=?, repeat_custom=?, repeat_end=?, end_time=?, category_id=? WHERE parent_id=?'
+                ).bind(task.text, task.time || '', task.priority || 'low', task.desc || '', task.url || '', task.copyText || '', subtasksStr, searchTermsStr, rptType, '', repeatEnd, endTime, categoryId, task.parentId).run();
+              }
             } else {
               // 改为不重复：当前项变单次任务，其他项删除
               await env.DB.prepare(
-                'UPDATE todos SET date=?, text=?, priority=?, repeat=0, desc=?, url=?, copy_text=?, subtasks=?, search_terms=?, repeat_type=\'none\', repeat_custom=\'\', repeat_end=\'\', category_id=? WHERE id=?'
-              ).bind(newDate, task.text, task.priority || 'low', task.desc || '', task.url || '', task.copyText || '', subtasksStr, searchTermsStr, categoryId, task.id).run();
+                'UPDATE todos SET date=?, text=?, time=?, priority=?, repeat=0, desc=?, url=?, copy_text=?, subtasks=?, search_terms=?, repeat_type=\'none\', repeat_custom=\'\', repeat_end=\'\', category_id=? WHERE id=?'
+              ).bind(newDate, task.text, task.time || '', task.priority || 'low', task.desc || '', task.url || '', task.copyText || '', subtasksStr, searchTermsStr, categoryId, task.id).run();
               await env.DB.prepare(
                 'DELETE FROM todos WHERE parent_id=? AND id != ?'
               ).bind(task.parentId, task.id).run();
