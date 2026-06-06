@@ -205,12 +205,24 @@ export const detail = `
           \`;
         }
 
-        let rText = '单次任务';
+        let rText = '不重复';
         if (task.repeat_type && task.repeat_type !== 'none') {
-            rText = \`重复: \${rMap[task.repeat_type]}\`;
+            var days = ['日','一','二','三','四','五','六'];
+            if (task.repeat_type === 'daily') rText = '每天';
+            else if (task.repeat_type === 'weekly') {
+              var dp = (task.date || '').split('-');
+              if (dp.length === 3) { var dw = new Date(dp[0], dp[1]-1, dp[2]).getDay(); rText = '每周' + days[dw]; }
+              else rText = '每周';
+            } else if (task.repeat_type === 'monthly') {
+              var mp = (task.date || '').split('-');
+              rText = mp.length === 3 ? '每月' + parseInt(mp[2], 10) + '号' : '每月';
+            } else if (task.repeat_type === 'yearly') {
+              var yp = (task.date || '').split('-');
+              rText = yp.length === 3 ? '每年' + parseInt(yp[1], 10) + '月' + parseInt(yp[2], 10) + '日' : '每年';
+            }
             if (task.repeat_end) rText += '·至' + task.repeat_end;
         } else if (task.isSeries) {
-            rText = '已停用未来的系列事项';
+            rText = '已停止重复';
         }
 
         let catSection = '';
@@ -437,21 +449,19 @@ export const detail = `
       const popover = document.getElementById('popover-action'); const title = document.getElementById('popover-title'); const options = document.getElementById('popover-options');
       options.innerHTML = '';
       if (action === 'delete') {
-        title.innerText = "警告：确认删除？";
+        title.innerText = "确认删除";
         if (task.isSeries) {
-          options.innerHTML += \`<button onclick="confirmAction('single')">仅此项</button>\`;
-          options.innerHTML += \`<button onclick="confirmAction('future')">此项及以后</button>\`;
-          options.innerHTML += \`<button onclick="confirmAction('future_repeat')">以后</button>\`;
-          options.innerHTML += \`<button onclick="confirmAction('all')">所有</button>\`;
-        } else { options.innerHTML += \`<button onclick="confirmAction('single')">确认删除</button>\`; }
+          options.innerHTML += \`<button onclick="confirmAction('this')">删除此事件</button>\`;
+          options.innerHTML += \`<button onclick="confirmAction('thisAndFuture')">删除此事件及之后</button>\`;
+          options.innerHTML += \`<button onclick="confirmAction('all')">删除整个系列</button>\`;
+        } else { options.innerHTML += \`<button onclick="confirmAction('this')">确认删除</button>\`; }
       } else if (action === 'save') {
         if (task.isSeries) {
-          title.innerText = "保存为：";
-          options.innerHTML += \`<button onclick="confirmAction('single')">仅此项</button>\`;
-          options.innerHTML += \`<button onclick="confirmAction('future')">此项及以后</button>\`;
-          options.innerHTML += \`<button onclick="confirmAction('future_repeat')">以后</button>\`;
-          options.innerHTML += \`<button onclick="confirmAction('all')">所有</button>\`;
-        } else { confirmAction('single'); return; }
+          title.innerText = "保存范围：";
+          options.innerHTML += \`<button onclick="confirmAction('this')">仅此事件</button>\`;
+          options.innerHTML += \`<button onclick="confirmAction('thisAndFuture')">此事件及之后</button>\`;
+          options.innerHTML += \`<button onclick="confirmAction('all')">整个系列</button>\`;
+        } else { confirmAction('this'); return; }
       }
 
       const btn = e.target; btn.parentNode.style.position = 'relative'; btn.parentNode.appendChild(popover);
@@ -481,8 +491,8 @@ export const detail = `
         task.subtasks = tempSubtasks; task.search_terms = tempSearchTerms;
         task.category_id = tempCategoryId;
         
-        // scope='single' 时：脱离模板，变为单次任务
-        if (scope === 'single' && task.isSeries) {
+        // scope='this' 时：脱离模板，变为单次任务
+        if (scope === 'this' && task.isSeries) {
           task.repeat_type = 'none';
           task.repeat_custom = '';
           task.repeat_end = '';
