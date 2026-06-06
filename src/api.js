@@ -66,14 +66,20 @@ async function handleRequest(request, env, ctx) {
     const initDb = async () => {
       if (isDbInitialized) return;
       try {
-        let marker = null;
+        // 读取当前数据库 schema 版本
+        let currentVersion = null;
         try {
-          marker = await env.DB.prepare("SELECT value FROM settings WHERE key = 'db_schema_version'").first();
+          const marker = await env.DB.prepare("SELECT value FROM settings WHERE key = 'db_schema_version'").first();
+          if (marker) currentVersion = marker.value;
         } catch (e) {}
-        if (marker && marker.value === APP_VERSION) {
+
+        // 版本一致则跳过所有迁移
+        if (currentVersion === APP_VERSION) {
           isDbInitialized = true;
           return;
         }
+
+        // ==================== 基础表结构（首次部署） ====================
         await env.DB.batch([
           env.DB.prepare(`
             CREATE TABLE IF NOT EXISTS todos (
@@ -114,7 +120,6 @@ async function handleRequest(request, env, ctx) {
             )
           `),
           env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_templates_repeat_type ON todo_templates(repeat_type)`),
-          
           env.DB.prepare(`
             CREATE TABLE IF NOT EXISTS login_attempts (
               ip TEXT PRIMARY KEY,
@@ -160,46 +165,64 @@ async function handleRequest(request, env, ctx) {
             )
           `),
         ]);
-        
-        try { await env.DB.prepare(`ALTER TABLE export_sessions ADD COLUMN todos_cursor TEXT NOT NULL DEFAULT ''`).run(); } catch (e) {}
-        try { await env.DB.prepare(`ALTER TABLE export_sessions ADD COLUMN templates_cursor TEXT NOT NULL DEFAULT ''`).run(); } catch (e) {}
-        try { await env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_todos_cursor ON todos(date, deleted, id)`).run(); } catch (e) {}
-        try { await env.DB.prepare(`ALTER TABLE todos ADD COLUMN copy_text TEXT`).run(); } catch (e) {}
-        try { await env.DB.prepare(`ALTER TABLE todos ADD COLUMN subtasks TEXT`).run(); } catch (e) {}
-        try { await env.DB.prepare(`ALTER TABLE todos ADD COLUMN search_terms TEXT`).run(); } catch (e) {}
-        try { await env.DB.prepare(`ALTER TABLE todos ADD COLUMN repeat_type TEXT DEFAULT 'none'`).run(); } catch (e) {}
-        try { await env.DB.prepare(`ALTER TABLE todos ADD COLUMN repeat_custom TEXT DEFAULT ''`).run(); } catch (e) {}
-        try { await env.DB.prepare(`ALTER TABLE todos ADD COLUMN repeat_end TEXT DEFAULT ''`).run(); } catch (e) {}
-        try { await env.DB.prepare(`ALTER TABLE todos ADD COLUMN end_time TEXT DEFAULT ''`).run(); } catch (e) {}
-        try { await env.DB.prepare(`ALTER TABLE todo_templates ADD COLUMN repeat_end TEXT DEFAULT ''`).run(); } catch (e) {}
-        try { await env.DB.prepare(`ALTER TABLE todo_templates ADD COLUMN end_time TEXT DEFAULT ''`).run(); } catch (e) {}
-        try { await env.DB.prepare(`ALTER TABLE todos ADD COLUMN category_id TEXT DEFAULT ''`).run(); } catch (e) {}
-        try { await env.DB.prepare(`ALTER TABLE todo_templates ADD COLUMN category_id TEXT DEFAULT ''`).run(); } catch (e) {}
-        try { await env.DB.prepare(`ALTER TABLE todos ADD COLUMN recurrence_id TEXT DEFAULT ''`).run(); } catch (e) {}
-        try { await env.DB.prepare(`ALTER TABLE todos ADD COLUMN is_exception INTEGER NOT NULL DEFAULT 0`).run(); } catch (e) {}
-        try { await env.DB.prepare(`ALTER TABLE todo_templates ADD COLUMN exdates TEXT DEFAULT '[]'`).run(); } catch (e) {}
-        // 迁移旧 blacklist 数据到 exdates，完成后清空 blacklist
-        try {
-          await env.DB.prepare(`UPDATE todo_templates SET exdates = blacklist WHERE exdates = '[]' AND blacklist != '[]'`).run();
-          await env.DB.prepare(`UPDATE todo_templates SET blacklist = '[]' WHERE blacklist != '[]'`).run();
-        } catch (e) {}
-        
-        // 自动迁移老版本
-        try {
-          const c = await env.DB.prepare("SELECT COUNT(*) as c FROM todo_templates").first();
-          if (c && c.c === 0) {
-            await env.DB.prepare(`
-              INSERT OR IGNORE INTO todo_templates (parent_id, text, time, priority, desc, url, copy_text, subtasks, search_terms, repeat_type, repeat_custom, repeat_end, end_time, anchor_date, exdates)
-              SELECT parent_id, text, time, priority, desc, url, copy_text, subtasks, search_terms, 
-                CASE WHEN (repeat_type IS NULL OR repeat_type = 'none' OR repeat_type = '') THEN 'daily' ELSE repeat_type END,
-                repeat_custom, '', '', date, '[]'
-              FROM todos t1
-              WHERE repeat = 1 AND deleted = 0 
-              AND date = (SELECT MAX(date) FROM todos t2 WHERE t2.parent_id = t1.parent_id AND t2.repeat = 1 AND t2.deleted = 0)
-            `).run();
-          }
-        } catch (e) {}
 
+        // ==================== 版本化增量迁移 ====================
+        // 每个版本只执行一次，通过 currentVersion 判断跳过已执行的迁移
+
+        // --- v2.7.0 及之前的迁移（首次部署时需要） ---
+        if (!currentVersion || currentVersion < '2.7.0') {
+          try { await env.DB.prepare(`ALTER TABLE export_sessions ADD COLUMN todos_cursor TEXT NOT NULL DEFAULT ''`).run(); } catch (e) {}
+          try { await env.DB.prepare(`ALTER TABLE export_sessions ADD COLUMN templates_cursor TEXT NOT NULL DEFAULT ''`).run(); } catch (e) {}
+          try { await env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_todos_cursor ON todos(date, deleted, id)`).run(); } catch (e) {}
+          try { await env.DB.prepare(`ALTER TABLE todos ADD COLUMN copy_text TEXT`).run(); } catch (e) {}
+          try { await env.DB.prepare(`ALTER TABLE todos ADD COLUMN subtasks TEXT`).run(); } catch (e) {}
+          try { await env.DB.prepare(`ALTER TABLE todos ADD COLUMN search_terms TEXT`).run(); } catch (e) {}
+          try { await env.DB.prepare(`ALTER TABLE todos ADD COLUMN repeat_type TEXT DEFAULT 'none'`).run(); } catch (e) {}
+          try { await env.DB.prepare(`ALTER TABLE todos ADD COLUMN repeat_custom TEXT DEFAULT ''`).run(); } catch (e) {}
+          try { await env.DB.prepare(`ALTER TABLE todos ADD COLUMN repeat_end TEXT DEFAULT ''`).run(); } catch (e) {}
+          try { await env.DB.prepare(`ALTER TABLE todos ADD COLUMN end_time TEXT DEFAULT ''`).run(); } catch (e) {}
+          try { await env.DB.prepare(`ALTER TABLE todo_templates ADD COLUMN repeat_end TEXT DEFAULT ''`).run(); } catch (e) {}
+          try { await env.DB.prepare(`ALTER TABLE todo_templates ADD COLUMN end_time TEXT DEFAULT ''`).run(); } catch (e) {}
+          try { await env.DB.prepare(`ALTER TABLE todos ADD COLUMN category_id TEXT DEFAULT ''`).run(); } catch (e) {}
+          try { await env.DB.prepare(`ALTER TABLE todo_templates ADD COLUMN category_id TEXT DEFAULT ''`).run(); } catch (e) {}
+        }
+
+        // --- v2.7.1 迁移 ---
+        if (!currentVersion || currentVersion < '2.7.1') {
+          // 旧版本自动迁移：从 todos 表生成 todo_templates
+          try {
+            const c = await env.DB.prepare("SELECT COUNT(*) as c FROM todo_templates").first();
+            if (c && c.c === 0) {
+              await env.DB.prepare(`
+                INSERT OR IGNORE INTO todo_templates (parent_id, text, time, priority, desc, url, copy_text, subtasks, search_terms, repeat_type, repeat_custom, repeat_end, end_time, anchor_date, exdates)
+                SELECT parent_id, text, time, priority, desc, url, copy_text, subtasks, search_terms, 
+                  CASE WHEN (repeat_type IS NULL OR repeat_type = 'none' OR repeat_type = '') THEN 'daily' ELSE repeat_type END,
+                  repeat_custom, '', '', date, '[]'
+                FROM todos t1
+                WHERE repeat = 1 AND deleted = 0 
+                AND date = (SELECT MAX(date) FROM todos t2 WHERE t2.parent_id = t1.parent_id AND t2.repeat = 1 AND t2.deleted = 0)
+              `).run();
+            }
+          } catch (e) {}
+        }
+
+        // --- v2.8.0 迁移：RFC 5545 重构 ---
+        if (!currentVersion || currentVersion < '2.8.0') {
+          // 1. 添加新列
+          try { await env.DB.prepare(`ALTER TABLE todos ADD COLUMN recurrence_id TEXT DEFAULT ''`).run(); } catch (e) {}
+          try { await env.DB.prepare(`ALTER TABLE todos ADD COLUMN is_exception INTEGER NOT NULL DEFAULT 0`).run(); } catch (e) {}
+          try { await env.DB.prepare(`ALTER TABLE todo_templates ADD COLUMN exdates TEXT DEFAULT '[]'`).run(); } catch (e) {}
+
+          // 2. 迁移 blacklist → exdates
+          try {
+            await env.DB.prepare(`UPDATE todo_templates SET exdates = blacklist WHERE exdates = '[]' AND blacklist IS NOT NULL AND blacklist != '[]'`).run();
+          } catch (e) {}
+
+          // 3. 彻底移除 blacklist 列（D1/SQLite 3.35.0+ 支持 ALTER TABLE DROP COLUMN）
+          try { await env.DB.prepare(`ALTER TABLE todo_templates DROP COLUMN blacklist`).run(); } catch (e) {}
+        }
+
+        // 写入当前版本号
         await env.DB.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('db_schema_version', ?)").bind(APP_VERSION).run();
         isDbInitialized = true;
       } catch (e) {

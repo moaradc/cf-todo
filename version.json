@@ -1,7 +1,7 @@
 {
-  "version": "2.7.2",
+  "version": "2.8.0",
   "changelog": [
-    { "version": "2.7.2", "date": "2025-06-06", "notes": "" },
+    { "version": "2.8.0", "date": "2025-06-06", "notes": "RFC 5545 大型重构\nical.js 替换 rrule.js，完整支持 RRULE/EXDATE/RDATE\n循环事件操作对齐 Google Calendar 标准：仅此事件/此事件及之后/整个系列\n修复 ical.js DTSTART 不匹配 RRULE 时跳过首实例的问题\n版本化增量数据库迁移，彻底移除冗余 blacklist 列" },
     { "version": "2.7.1", "date": "2025-06-05", "notes": "集成rrule.js替换SQL匹配\n仅此项：\n编辑重复任务脱离模板变为单次任务\n此项及以后/以后/所有：\n编辑/删除重复任务忽略时间修改，过去项显示\"每天·至日期\"\n编辑为不重复时当前项变单次任务，未来项真删除\n恢复回收站中的重复事项时重新激活重复并重建模板\n日期时区统一UTC\n修复条件分支顺序和isSeries计算等逻辑问题" },
     { "version": "2.7.0", "date": "2025-06-05", "notes": "项目分片\n优化更新检查机制\n新增更新日志功能" }
   ]
