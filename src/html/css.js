@@ -75,6 +75,8 @@ export const css = `
       width: 100%; background: #000; border: 1px solid #444; color: var(--crt);
       padding: 8px 10px; font-family: var(--font-main); font-size: 1rem; outline: none; margin-bottom: 10px;
     }
+    textarea { resize: vertical; scrollbar-width: thin; }
+    textarea::-webkit-scrollbar { display: initial; }
     input:focus, textarea:focus, select:focus { border-color: var(--crt); box-shadow: 0 0 5px rgba(0,255,65,0.3); }
     
     .fake-input {
@@ -511,7 +513,7 @@ export const css = `
       background: #FEFEFE; color: #1B1915; border: 2px solid #1B1915;
       box-shadow: inset 2px 2px 0 #E5E5E5; border-radius: 4px;
     }
-    
+
     [data-theme="light"] #preview-notice { background: #E1AC07; color: #1B1915; border-bottom: 2px solid #1B1915; }
     [data-theme="light"] #preview-notice .md-code { background: #1B1915; color: #E1AC07; border: 1px solid #1B1915; }
     
