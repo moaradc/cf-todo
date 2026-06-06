@@ -1949,10 +1949,10 @@ async function handleRequest(request, env, ctx) {
             if (actions.pastTodos) {
               const pt = actions.pastTodos;
               if (pt.type === 'set_repeat_end') {
-                // repeat_end = 当前日期（对齐华为日历：系列活跃至被终止的日期）
+                const prevDate = getPreviousDate(date);
                 await env.DB.prepare(
                   'UPDATE todos SET repeat_end=? WHERE parent_id=? AND date < ? AND repeat_type != \'none\' AND (repeat_end = \'\' OR repeat_end IS NULL) AND deleted = 0'
-                ).bind(date, parentId, date).run();
+                ).bind(prevDate, parentId, date).run();
               }
             }
 
@@ -2009,14 +2009,9 @@ async function handleRequest(request, env, ctx) {
                   await env.DB.prepare('UPDATE todo_templates SET exdates = ? WHERE parent_id = ?').bind(newExdates, parentId).run();
                 }
               } else if (tmpl.type === 'set_repeat_end') {
-                // "thisAndFuture" + 改为不重复: 模板保留，设repeat_end + 加EXDATE防重新生成
-                await env.DB.prepare('UPDATE todo_templates SET repeat_end=? WHERE parent_id=?').bind(date, parentId).run();
-                const tpl = await env.DB.prepare('SELECT exdates FROM todo_templates WHERE parent_id = ?').bind(parentId).first();
-                if (tpl) {
-                  const currentExdates = tpl.exdates || '[]';
-                  const newExdates = addExdate(currentExdates, date);
-                  await env.DB.prepare('UPDATE todo_templates SET exdates = ? WHERE parent_id = ?').bind(newExdates, parentId).run();
-                }
+                // "thisAndFuture" + 改为不重复: 模板保留，设repeat_end
+                const prevDate = getPreviousDate(date);
+                await env.DB.prepare('UPDATE todo_templates SET repeat_end=? WHERE parent_id=?').bind(prevDate, parentId).run();
               } else if (tmpl.type === 'update_from_date' || tmpl.type === 'update_all') {
                 // thisAndFuture or all: update template
                 if (rptType !== 'none') {
@@ -2073,19 +2068,14 @@ async function handleRequest(request, env, ctx) {
                 }
               } else if (tmpl.type === 'set_repeat_end') {
                 // "thisAndFuture" scope: set repeat_end on template, soft delete current and future
+                const prevDate = getPreviousDate(date);
                 if (tmpl.alsoDeleteFuture) {
                   await env.DB.prepare('UPDATE todos SET deleted = 1 WHERE parent_id=? AND date >= ?').bind(parentId, date).run();
                 }
-                // 过去实例 repeat_end = 当前日期（对齐华为日历：系列活跃至被终止的日期）
-                await env.DB.prepare('UPDATE todos SET repeat_end=? WHERE parent_id=? AND date < ? AND repeat_type != \'none\'').bind(date, parentId, date).run();
-                // 模板 repeat_end = 当前日期 + 加EXDATE防重新生成
-                await env.DB.prepare('UPDATE todo_templates SET repeat_end=? WHERE parent_id=?').bind(date, parentId).run();
-                const tpl = await env.DB.prepare('SELECT exdates FROM todo_templates WHERE parent_id = ?').bind(parentId).first();
-                if (tpl) {
-                  const currentExdates = tpl.exdates || '[]';
-                  const newExdates = addExdate(currentExdates, date);
-                  await env.DB.prepare('UPDATE todo_templates SET exdates = ? WHERE parent_id = ?').bind(newExdates, parentId).run();
-                }
+                // Set repeat_end on past instances (系列截止到前一天，当前日期已不属于系列)
+                await env.DB.prepare('UPDATE todos SET repeat_end=? WHERE parent_id=? AND date < ? AND repeat_type != \'none\'').bind(prevDate, parentId, date).run();
+                // Update template repeat_end
+                await env.DB.prepare('UPDATE todo_templates SET repeat_end=? WHERE parent_id=?').bind(prevDate, parentId).run();
               } else if (tmpl.type === 'delete_all') {
                 // "all" scope: soft delete all instances and delete template
                 await env.DB.prepare('UPDATE todos SET deleted = 1 WHERE parent_id=?').bind(parentId).run();
