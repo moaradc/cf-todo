@@ -983,7 +983,7 @@ export const io = `
           } else {
             await fetch('/api/import', {
               method: 'POST',
-              body: JSON.stringify({ phase: 'abort', importId: data.importId }),
+              body: JSON.stringify({ phase: 'abort', importId: data.importId, discard: true }),
               headers: { 'Content-Type': 'application/json' }
             });
           }
