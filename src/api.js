@@ -946,12 +946,7 @@ async function handleRequest(request, env, ctx) {
         return '[]';
       };
 
-      const buildTodoStmts = (items) => (items || []).map((t, idx) => {
-        const label = t.text && t.id ? `${t.text} (id:${t.id})` : (t.text || t.id || `第 ${idx + 1} 条`);
-        if (!t.id) throw new Error(`事项 "${label}" 缺少必填字段 id`);
-        if (!t.parent_id) throw new Error(`事项 "${label}" 缺少必填字段 parent_id`);
-        if (!t.date) throw new Error(`事项 "${label}" 缺少必填字段 date`);
-        if (!t.text) throw new Error(`事项 id:${t.id} 缺少必填字段 text`);
+      const buildTodoStmts = (items) => (items || []).map((t) => {
         return env.DB.prepare(
           `INSERT OR REPLACE INTO todos
           (id, parent_id, date, text, time, priority, desc, url, copy_text, subtasks, search_terms, done, deleted, repeat_type, repeat_custom, repeat_end, end_time, category_id, recurrence_id, is_exception)
@@ -965,9 +960,7 @@ async function handleRequest(request, env, ctx) {
         );
       });
 
-      const buildTemplateStmts = (items) => (items || []).map((t, idx) => {
-        const label = t.text || t.parent_id || `第 ${idx + 1} 条`;
-        if (!t.parent_id) throw new Error(`模板 "${label}" 缺少必填字段 parent_id`);
+      const buildTemplateStmts = (items) => (items || []).map((t) => {
         const exdates = t.exdates || '[]';
         return env.DB.prepare(
           `INSERT OR REPLACE INTO todo_templates
@@ -985,6 +978,8 @@ async function handleRequest(request, env, ctx) {
         }
       };
 
+      const BACKUP_TTL = 10 * 60 * 1000;
+
       const clearBackupTables = async () => {
         try {
           await env.DB.batch([
@@ -993,6 +988,15 @@ async function handleRequest(request, env, ctx) {
             env.DB.prepare('DROP TABLE IF EXISTS categories_backup'),
           ]);
         } catch (e) { console.error("Failed to drop backup tables:", e); }
+      };
+
+      const cleanExpiredBackups = async () => {
+        const record = await env.DB.prepare("SELECT value FROM settings WHERE key = 'import_backup_time'").first();
+        if (!record || !record.value) return;
+        const backupTime = parseInt(record.value, 10);
+        if (isNaN(backupTime) || Date.now() - backupTime < BACKUP_TTL) return;
+        await clearBackupTables();
+        await env.DB.prepare("DELETE FROM settings WHERE key = 'import_backup_time'").run();
       };
 
       try {
@@ -1052,6 +1056,7 @@ async function handleRequest(request, env, ctx) {
         const phase = body.phase;
 
         if (phase === 'status') {
+          await cleanExpiredBackups();
           const session = await env.DB.prepare('SELECT * FROM import_sessions WHERE status = ?').bind('active').first();
           if (!session) {
             return new Response(JSON.stringify({ active: false }), { headers: { 'Content-Type': 'application/json' } });
@@ -1078,12 +1083,17 @@ async function handleRequest(request, env, ctx) {
 
         if (phase === 'abort') {
           const importId = body.importId;
+          const discard = !!body.discard;
+          const keepBackup = !!body.keepBackup;
           if (!importId) return apiError('importId required', 400);
 
           const session = await env.DB.prepare('SELECT * FROM import_sessions WHERE id = ?').bind(importId).first();
           if (!session) return apiError('会话不存在', 400);
 
-          if (session.mode === 'overwrite') {
+          if (session.mode === 'overwrite' && !keepBackup) {
+            if (discard) {
+              await clearBackupTables();
+            } else {
               try {
                 await env.DB.batch([
                   env.DB.prepare('DROP TABLE IF EXISTS todos'),
@@ -1099,10 +1109,14 @@ async function handleRequest(request, env, ctx) {
               } catch (e) {
                 return apiError('恢复备份失败: ' + e.message, 500);
               }
+            }
           }
 
           await env.DB.prepare('DELETE FROM import_sessions WHERE id = ?').bind(importId).run();
-          return new Response(JSON.stringify({ success: true, recovered: session.mode === 'overwrite' }), {
+          if (session.mode === 'overwrite' && !keepBackup) {
+            await env.DB.prepare("DELETE FROM settings WHERE key = 'import_backup_time'").run();
+          }
+          return new Response(JSON.stringify({ success: true, recovered: session.mode === 'overwrite' && !discard && !keepBackup }), {
             headers: { 'Content-Type': 'application/json' }
           });
         }
@@ -1111,6 +1125,8 @@ async function handleRequest(request, env, ctx) {
           const importId = body.importId;
           const mode = body.mode || 'merge';
           if (!importId) return apiError('importId required', 400);
+
+          await cleanExpiredBackups();
 
           const oldSession = await env.DB.prepare('SELECT * FROM import_sessions WHERE status = ?').bind('active').first();
           if (oldSession) {
@@ -1137,6 +1153,9 @@ async function handleRequest(request, env, ctx) {
                 }
             }
             await env.DB.prepare('DELETE FROM import_sessions WHERE id = ?').bind(oldSession.id).run();
+            if (oldSession.mode === 'overwrite') {
+              await env.DB.prepare("DELETE FROM settings WHERE key = 'import_backup_time'").run();
+            }
           }
 
           const now = Date.now();
@@ -1203,6 +1222,8 @@ async function handleRequest(request, env, ctx) {
                 `),
                 env.DB.prepare('INSERT INTO import_sessions (id, mode, status, started_at, updated_at) VALUES (?, ?, ?, ?, ?)')
                   .bind(importId, 'overwrite', 'active', now, now),
+                env.DB.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('import_backup_time', ?)")
+                  .bind(String(now)),
               ]);
             } catch (backupErr) {
                 try {
@@ -1238,7 +1259,6 @@ async function handleRequest(request, env, ctx) {
           if (!session) return apiError('会话不存在', 400);
 
           if (session.mode === 'overwrite') {
-            await clearBackupTables();
             try {
               await env.DB.batch([
                 env.DB.prepare('CREATE INDEX IF NOT EXISTS idx_todos_cursor ON todos(date, deleted, id)'),
@@ -1355,7 +1375,9 @@ async function handleRequest(request, env, ctx) {
           } catch (e) {
             return apiError("恢复失败: " + e.message + "，备份数据仍保留，可重试");
           }
-    
+
+          await env.DB.prepare("DELETE FROM settings WHERE key = 'import_backup_time'").run();
+
           return new Response(JSON.stringify({
             success: true,
             restored: { todos: hasTodoBak ? 'restored' : 0, templates: hasTplBak ? 'restored' : 0, categories: hasCatBak ? 'restored' : 0 }
@@ -1384,6 +1406,7 @@ async function handleRequest(request, env, ctx) {
             env.DB.prepare('DROP TABLE IF EXISTS todo_templates_backup'),
             env.DB.prepare('DROP TABLE IF EXISTS categories_backup'),
           ]);
+          await env.DB.prepare("DELETE FROM settings WHERE key = 'import_backup_time'").run();
           return new Response(JSON.stringify({
             success: true,
             message: "备份记录已清除（原始数据未恢复）"
