@@ -501,10 +501,10 @@ export const io = `
       (async function() {
         try {
           var mode = 'merge';
-          var isOverwrite = await showConfirm("是否使用【覆盖模式】？", "点击确定将清空云端的所有数据，然后完全替换为导入的新数据。\\n系统会自动备份当前的待办事项、模板和分类，备份保留10分钟后自动清除。\\n如导入后数据不完整，可访问 /api/import-backup?action=restore 手动恢复。\\n请确保导出数据时一定要全部勾选，否则执行时对于可能出现的问题后果自负。\\n点击取消将进入【合并模式】或取消导入操作。");
+          var isOverwrite = await showConfirm("是否使用【覆盖模式】？", "点击确定将清空云端的所有数据，然后完全替换为导入的新数据。\\n请确保导出数据时一定要全部勾选，否则执行时对于可能出现的问题后果自负。\\n点击取消将进入【合并模式】或取消导入操作。");
           if (isOverwrite) { mode = 'overwrite'; }
           else {
-            var isMerge = await showConfirm("是否继续使用【合并模式】进行导入？", "将保留现有云端的所有数据，新增并覆盖更新 ID 相同的重叠事项。\\n合并模式不创建备份，如导入后数据异常将无法恢复。\\n请确保导出数据时一定要全部勾选，否则执行时对于可能出现的问题后果自负。");
+            var isMerge = await showConfirm("是否继续使用【合并模式】进行导入？", "将保留现有云端的所有数据，新增并覆盖更新 ID 相同的重叠事项。\\n请确保导出数据时一定要全部勾选，否则执行时对于可能出现的问题后果自负。\\n过程中出现异常将无法恢复。");
             if (!isMerge) { closeProgress(); event.target.value=''; return; }
           }
 
@@ -523,7 +523,7 @@ export const io = `
             if (initRes.status === 409 && errData1.conflict && errData1.importId) {
               var conflictMsg = '检测到未完成的导入会话 (' + errData1.importId + ')\\n\\n';
               if (errData1.mode === 'overwrite') {
-                conflictMsg += '该会话为覆写模式，点击「恢复」将中止旧会话并恢复原始备份数据。\\n';
+                conflictMsg += '该会话为覆写模式，点击「恢复」将中止旧会话并恢复原始数据。\\n';
               } else {
                 conflictMsg += '点击「恢复」将清除旧会话记录。\\n';
               }
@@ -917,7 +917,7 @@ export const io = `
             throw new Error(errMsg4);
           }
 
-          showProgress('导入完成', mode === 'overwrite' ? '原始数据备份保留10分钟，可手动恢复。界面即将重载...' : '界面即将重载...', 100);
+          showProgress('导入完成', '界面即将重载...', 100);
           await new Promise(function(r){ setTimeout(r,1000); });
           closeProgress();
           location.reload();
@@ -958,11 +958,10 @@ export const io = `
 
         if (data.mode === 'overwrite' && data.hasBackup) {
           var doRecover = confirm(
-            '检测到上次覆写导入中断，原始数据备份仍在（保留10分钟后自动清除）。\\n\\n' +
+            '检测到上次覆写导入中断，原始数据备份仍在。\\n\\n' +
             '会话 ID: ' + data.importId + '\\n' +
             '启动时间: ' + new Date(data.startedAt).toLocaleString() + '\\n\\n' +
-            '点击「确定」恢复原始数据，点击「取消」放弃恢复（当前不完整数据将保留）。\\n' +
-            '也可稍后访问 /api/import-backup?action=restore 手动恢复。'
+            '点击「确定」恢复原始数据，点击「取消」放弃恢复（当前不完整数据将保留）。'
           );
           if (doRecover) {
             var abortRes = await fetch('/api/import', {
@@ -984,7 +983,7 @@ export const io = `
           } else {
             await fetch('/api/import', {
               method: 'POST',
-              body: JSON.stringify({ phase: 'abort', importId: data.importId, keepBackup: true }),
+              body: JSON.stringify({ phase: 'abort', importId: data.importId }),
               headers: { 'Content-Type': 'application/json' }
             });
           }

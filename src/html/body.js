@@ -334,7 +334,7 @@ export function getBody(isAuthorized) {
               <input type="file" id="import-file" style="display:none" accept=".json" onchange="importData(event)">
           </div>
           <div class="settings-text" style="border-top: 1px dashed #333; padding-top: 10px; margin-top: 15px;">
-           <strong>/api/import-backup: </strong>执行覆盖模式导入时，系统会将当前 <span class="md-code">todos、todo_templates、categories</span> 表直接重命名为备份表，然后创建空表接收新数据。导入成功后备份表保留10分钟供手动恢复，到期自动清除。导入异常将自动把备份表重命名回主表恢复原数据。若自动恢复也失败（极端情况）或存在残留，可在浏览器地址栏访问以下接口手动处理。<br>
+           <strong>/api/import-backup: </strong>执行覆盖模式导入时，系统会将当前 <span class="md-code">todos、todo_templates、categories</span> 表直接重命名为备份表，然后创建空表接收新数据。导入成功则删除备份表，导入异常将自动把备份表重命名回主表恢复原数据。若自动恢复也失败（极端情况）或存在残留，可在浏览器地址栏访问以下接口手动处理。<br>
            <span class="md-code">?action=query</span> — 查询是否存在备份表<br>
            <span class="md-code">?action=restore</span> — 恢复备份表（当前数据将被覆盖）<br>
            <span class="md-code">?action=clear</span> — 清空备份表
