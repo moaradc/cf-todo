@@ -1,0 +1,801 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>数据迁移工具 - v2.6.x → v2.7.2</title>
+  <style>
+    :root {
+      --bg: #0a0a0a;
+      --fg: #b0b0b0;
+      --accent: #ff3300;
+      --crt: #00ff41;
+      --warn: #ffcc00;
+      --panel: #141414;
+      --font-main: 'Courier New', Courier, monospace;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background-color: var(--bg);
+      color: var(--fg);
+      font-family: var(--font-main);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 20px;
+    }
+    .container { max-width: 720px; width: 100%; }
+    h1 { color: var(--crt); font-size: 1.3rem; margin-bottom: 6px; }
+    h2 {
+      color: var(--accent); font-size: 1rem;
+      margin: 18px 0 8px; padding-bottom: 4px;
+      border-bottom: 1px solid #333; width: 100%;
+    }
+    .sub { color: #666; font-size: 0.8rem; margin-bottom: 16px; }
+    .drop-zone {
+      border: 2px dashed #333; border-radius: 8px; padding: 40px 20px;
+      text-align: center; cursor: pointer; transition: all 0.2s;
+      margin-bottom: 16px;
+    }
+    .drop-zone:hover, .drop-zone.drag-over { border-color: var(--crt); }
+    .drop-zone.loaded {
+      border-color: var(--crt); border-style: solid;
+      background: rgba(0, 255, 65, 0.03);
+    }
+    .drop-zone .icon { font-size: 2rem; margin-bottom: 8px; }
+    .drop-zone p { color: #666; font-size: 0.85rem; }
+    .btn {
+      background: #222; color: var(--fg); border: 1px solid #333;
+      padding: 8px 18px; font-size: 0.85rem; cursor: pointer;
+      font-family: var(--font-main); border-radius: 4px; transition: all 0.15s;
+    }
+    .btn:hover { border-color: var(--crt); color: var(--crt); }
+    .btn:disabled { opacity: 0.4; cursor: not-allowed; }
+    .btn-primary { background: var(--accent); color: #fff; border-color: var(--accent); }
+    .btn-primary:hover { background: #cc2800; }
+    .btn-row { display: flex; gap: 10px; margin: 12px 0; flex-wrap: wrap; }
+    .log-header {
+      display: flex; align-items: center; justify-content: space-between;
+      margin-top: 18px; margin-bottom: 8px; padding-bottom: 4px;
+      border-bottom: 1px solid #333; width: 100%;
+    }
+    .log-header h2 { margin: 0; border: none; padding: 0; }
+    .log-toggle {
+      background: none; border: 1px solid #333; color: #666;
+      padding: 2px 8px; font-size: 0.7rem; cursor: pointer;
+      font-family: var(--font-main); border-radius: 3px; transition: all 0.15s;
+      display: inline-flex; align-items: center; gap: 4px;
+      white-space: nowrap;
+    }
+    .log-toggle:hover { border-color: var(--crt); color: var(--crt); }
+    .log-toggle.active { border-color: var(--crt); color: var(--crt); }
+    .log-toggle.hidden { display: none; }
+    .log-box {
+      background: #0d0d0d; border: 1px solid #222; border-radius: 4px;
+      padding: 10px; max-height: 320px; overflow-y: auto; font-size: 0.75rem;
+      line-height: 1.6; margin: 8px 0;
+    }
+    .log-box::-webkit-scrollbar { width: 4px; }
+    .log-box::-webkit-scrollbar-thumb { background: #333; }
+    .log-ok { color: var(--crt); }
+    .log-warn { color: var(--warn); }
+    .log-err { color: var(--accent); }
+    .log-info { color: #666; }
+    .stats-grid {
+      display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+      gap: 8px; margin: 10px 0;
+    }
+    .stat-card {
+      background: var(--panel); border: 1px solid #222; border-radius: 4px;
+      padding: 10px; text-align: center;
+    }
+    .stat-card .num { font-size: 1.4rem; color: var(--crt); }
+    .stat-card .label { font-size: 0.7rem; color: #666; margin-top: 2px; }
+    .diff-list { margin: 8px 0; }
+    .diff-item {
+      background: var(--panel); border: 1px solid #222; border-radius: 4px;
+      padding: 8px 10px; margin-bottom: 6px; font-size: 0.75rem;
+      overflow: hidden;
+    }
+    .diff-item .diff-head {
+      display: flex; align-items: center; gap: 6px; margin-bottom: 4px;
+      flex-wrap: wrap;
+    }
+    .diff-item .diff-obj {
+      color: #555; font-size: 0.65rem; text-transform: uppercase; letter-spacing: 0.5px;
+      flex-shrink: 0;
+    }
+    .diff-item .diff-change { word-break: break-all; }
+    .diff-item .diff-desc { color: #555; font-size: 0.7rem; word-break: break-word; }
+    .diff-item .diff-count {
+      color: #444; font-size: 0.65rem; margin-left: auto; flex-shrink: 0;
+    }
+    .removed { color: var(--accent); text-decoration: line-through; }
+    .added { color: var(--crt); }
+    .renamed { color: var(--warn); }
+    .progress-bar { background: #1a1a1a; border-radius: 4px; height: 6px; margin: 8px 0; overflow: hidden; }
+    .progress-bar .fill { background: var(--crt); height: 100%; width: 0; transition: width 0.2s; }
+    .hidden { display: none; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>数据迁移工具</h1>
+    <p class="sub">v2.6.x → v2.7.2</p>
+
+    <div class="drop-zone" id="dropZone">
+      <div class="icon">📁</div>
+      <p id="dropLabel">拖拽或点击选择旧版导出文件 (.json)</p>
+      <p style="color:#444; margin-top:4px;">支持 NDJSON (JSON 格式) 和传统 JSON 格式</p>
+      <input type="file" id="fileInput" accept=".json" style="display:none">
+    </div>
+
+    <div id="analysisSection" class="hidden">
+      <h2>数据概览</h2>
+      <div class="stats-grid" id="statsGrid"></div>
+
+      <h2>迁移差异</h2>
+      <div class="diff-list" id="diffList"></div>
+
+      <div class="log-header">
+        <h2>迁移日志</h2>
+        <button class="log-toggle hidden" id="logToggle" title="切换日志记录模式">
+          <span id="logToggleIcon">☰</span> <span id="logToggleLabel">显示全部</span>
+        </button>
+      </div>
+      <div class="progress-bar"><div class="fill" id="progressFill"></div></div>
+      <div class="log-box" id="logBox"></div>
+
+      <div class="btn-row">
+        <button class="btn btn-primary" id="migrateBtn" disabled>执行迁移</button>
+        <button class="btn" id="downloadBtn" disabled>下载迁移后文件</button>
+        <button class="btn" id="resetBtn">重置</button>
+      </div>
+    </div>
+  </div>
+
+<script>
+(function() {
+  'use strict';
+
+  var dropZone = document.getElementById('dropZone');
+  var dropLabel = document.getElementById('dropLabel');
+  var fileInput = document.getElementById('fileInput');
+  var analysisSection = document.getElementById('analysisSection');
+  var statsGrid = document.getElementById('statsGrid');
+  var logBox = document.getElementById('logBox');
+  var progressFill = document.getElementById('progressFill');
+  var migrateBtn = document.getElementById('migrateBtn');
+  var downloadBtn = document.getElementById('downloadBtn');
+  var resetBtn = document.getElementById('resetBtn');
+  var logToggle = document.getElementById('logToggle');
+  var logToggleIcon = document.getElementById('logToggleIcon');
+  var logToggleLabel = document.getElementById('logToggleLabel');
+
+  var parsedData = null;
+  var migratedOutput = null;
+  var currentFileName = '';
+
+  // 日志系统
+  var DEFAULT_LOG_LIMIT = 100; // 默认模式最多记录条数
+  var allLogs = [];             // 存储所有日志
+  var droppedCount = 0;         // 因默认模式截断而丢弃的日志数
+  var showAll = false;          // true=记录全部，false=最多100条
+  var migrationDone = false;    // 迁移已完成
+
+  // File System Access API 检测
+  var hasFileSystemAPI = !!(window.showOpenFilePicker && window.showSaveFilePicker);
+
+  // ==================== 文件读取 ====================
+
+  // 点击拖拽区：优先使用 File System API，降级到 input[type=file]
+  dropZone.addEventListener('click', function() {
+    if (hasFileSystemAPI) {
+      openFileWithFSAPI();
+    } else {
+      fileInput.click();
+    }
+  });
+  dropZone.addEventListener('dragover', function(e) { e.preventDefault(); dropZone.classList.add('drag-over'); });
+  dropZone.addEventListener('dragleave', function() { dropZone.classList.remove('drag-over'); });
+  dropZone.addEventListener('drop', function(e) {
+    e.preventDefault(); dropZone.classList.remove('drag-over');
+    if (e.dataTransfer.files.length) handleFile(e.dataTransfer.files[0]);
+  });
+  fileInput.addEventListener('change', function() {
+    if (fileInput.files.length) handleFile(fileInput.files[0]);
+  });
+
+  // File System Access API 打开文件
+  async function openFileWithFSAPI() {
+    try {
+      var handles = await window.showOpenFilePicker({
+        types: [{ description: 'JSON 文件', accept: { 'application/json': ['.json'] } }],
+        multiple: false
+      });
+      var file = await handles[0].getFile();
+      var text = await file.text();
+      parseAndShow(file.name, text);
+    } catch (err) {
+      if (err.name === 'AbortError') return;
+      fileInput.click();
+    }
+  }
+
+  function handleFile(file) {
+    currentFileName = file.name;
+    // 优先使用 file.text()（Promise），降级到 FileReader
+    if (file.text) {
+      file.text().then(function(text) {
+        parseAndShow(file.name, text);
+      }).catch(function(err) {
+        addLog('读取文件失败: ' + err.message, 'err');
+        renderLogs();
+      });
+    } else {
+      var reader = new FileReader();
+      reader.onload = function(e) { parseAndShow(file.name, e.target.result); };
+      reader.onerror = function() { addLog('读取文件失败', 'err'); renderLogs(); };
+      reader.readAsText(file);
+    }
+  }
+
+  function parseAndShow(fileName, text) {
+    currentFileName = fileName;
+    try {
+      parsedData = parseExportFile(text);
+      dropZone.classList.add('loaded');
+      dropLabel.textContent = '已加载: ' + fileName;
+      showAnalysis(parsedData);
+    } catch (err) {
+      addLog('解析文件失败: ' + err.message, 'err');
+      renderLogs();
+    }
+  }
+
+  // ==================== 解析导出文件 ====================
+
+  function parseExportFile(raw) {
+    var firstLine = raw.split('\n')[0].trim();
+    var isNdjson = (firstLine === 'ndjson');
+    var result = { settings: null, custom_header: '', custom_content: '', customColors: [], categories: [], todos: [], templates: [] };
+
+    if (isNdjson) {
+      var lines = raw.split('\n');
+      for (var i = 1; i < lines.length; i++) {
+        var line = lines[i].trim();
+        if (!line) continue;
+        var obj = JSON.parse(line);
+        if (obj._type === 'settings') { result.settings = obj.data; }
+        else if (obj._type === 'custom_header') { result.custom_header = obj.data; }
+        else if (obj._type === 'custom_content') { result.custom_content = obj.data; }
+        else if (obj._type === 'customColors') { result.customColors = obj.data; }
+        else if (obj._type === 'categories') { result.categories = obj.data; }
+        else if (obj._type === 'template') { var tpl = Object.assign({}, obj); delete tpl._type; result.templates.push(tpl); }
+        else if (!obj._type) { result.todos.push(obj); }
+      }
+    } else {
+      var data = JSON.parse(raw);
+      if (data.settings) result.settings = data.settings;
+      if (data.custom_header !== undefined) result.custom_header = data.custom_header;
+      if (data.custom_content !== undefined) result.custom_content = data.custom_content;
+      if (data.customColors) result.customColors = data.customColors;
+      if (data.categories) result.categories = data.categories;
+      var todos = data.todos || [];
+      var trash = data.trash || [];
+      result.todos = todos.concat(trash);
+      if (data.todo_templates) result.templates = data.todo_templates;
+    }
+
+    return result;
+  }
+
+  // ==================== 分析与展示 ====================
+
+  function diffItem(obj, changeHtml, desc, count) {
+    var countHtml = count !== undefined ? '<span class="diff-count">' + count + ' 项</span>' : '';
+    return '<div class="diff-item"><div class="diff-head"><span class="diff-obj">' + obj +
+      '</span><span class="diff-change">' + changeHtml + '</span>' + countHtml +
+      '</div><div class="diff-desc">' + desc + '</div></div>';
+  }
+
+  function showAnalysis(data) {
+    analysisSection.classList.remove('hidden');
+    allLogs = [];
+    droppedCount = 0;
+    showAll = false;
+    migrationDone = false;
+    migratedOutput = null;
+    downloadBtn.disabled = true;
+    updateToggleUI();
+    showLogToggle();
+
+    // 全面检测数据特征
+    var hasRepeat = data.todos.some(function(t) { return t.repeat !== undefined; });
+    var hasDeletedAt = data.todos.some(function(t) { return t.deleted_at !== undefined; });
+    var hasBlacklist = data.templates.some(function(t) { return t.blacklist !== undefined; });
+    var hasOldCustomTodo = data.todos.some(function(t) {
+      if (!t.repeat_custom) return false;
+      try { var o = JSON.parse(t.repeat_custom); return o && typeof o.interval === 'number'; } catch(e) { return false; }
+    });
+    var hasOldCustomTpl = data.templates.some(function(t) {
+      if (!t.repeat_custom) return false;
+      try { var o = JSON.parse(t.repeat_custom); return o && typeof o.interval === 'number'; } catch(e) { return false; }
+    });
+    var hasOldCustom = hasOldCustomTodo || hasOldCustomTpl;
+
+    var needMigration = hasRepeat || hasDeletedAt || hasBlacklist || hasOldCustom;
+
+    var activeTodos = data.todos.filter(function(t) { return !t.deleted; });
+    var deletedTodos = data.todos.filter(function(t) { return t.deleted; });
+    var repeatingTodos = data.todos.filter(function(t) { return t.repeat === 1 || t.repeat === -1 || (t.repeat_type && t.repeat_type !== 'none'); });
+    var exceptionTodos = data.todos.filter(function(t) { return t.repeat === -1; });
+    var dirtyRepeatNeg1 = data.todos.filter(function(t) {
+      return t.repeat === -1 && (!t.repeat_type || t.repeat_type === 'none' || t.repeat_type === '');
+    });
+    var dirtyRepeatZero = data.todos.filter(function(t) {
+      return t.repeat === 0 && t.repeat_type && t.repeat_type !== 'none';
+    });
+    var dirtyRepeatOne = data.todos.filter(function(t) {
+      return t.repeat === 1 && (!t.repeat_type || t.repeat_type === 'none' || t.repeat_type === '');
+    });
+    var dirtyRepeat = dirtyRepeatNeg1.concat(dirtyRepeatZero).concat(dirtyRepeatOne);
+    var templatesWithBlacklist = data.templates.filter(function(t) { return t.blacklist !== undefined && t.blacklist !== null; });
+
+    var oldFormatCustomTodos = data.todos.filter(function(t) {
+      if (!t.repeat_custom) return false;
+      try { var o = JSON.parse(t.repeat_custom); return o && typeof o.interval === 'number'; } catch(e) { return false; }
+    });
+    var oldFormatCustomTpls = data.templates.filter(function(t) {
+      if (!t.repeat_custom) return false;
+      try { var o = JSON.parse(t.repeat_custom); return o && typeof o.interval === 'number'; } catch(e) { return false; }
+    });
+
+    // 检测根 todo 的 repeat_custom 未同步到模板
+    var rootTodoMap = {};
+    data.todos.forEach(function(t) {
+      if (t.id === t.parent_id && t.repeat_custom) rootTodoMap[t.parent_id] = t.repeat_custom;
+    });
+    var unsyncedCustom = data.templates.filter(function(t) {
+      return rootTodoMap[t.parent_id] && (!t.repeat_custom || t.repeat_custom === '');
+    });
+
+    // 检测缺少 recurrence_id / is_exception 的 todos
+    var missingRecurrenceId = data.todos.filter(function(t) { return t.recurrence_id === undefined; });
+    var missingIsException = data.todos.filter(function(t) { return t.is_exception === undefined; });
+    // 检测缺少 exdates 的 templates
+    var missingExdates = data.templates.filter(function(t) { return t.exdates === undefined; });
+
+    // 数据概览
+    statsGrid.innerHTML =
+      statCard(data.todos.length, '待办事项') +
+      statCard(activeTodos.length, '活跃事项') +
+      statCard(deletedTodos.length, '已删除') +
+      statCard(data.templates.length, '重复模板') +
+      statCard(repeatingTodos.length, '重复事项') +
+      statCard(exceptionTodos.length, '例外事项(repeat=-1)') +
+      statCard(dirtyRepeat.length, '脏数据修复') +
+      statCard(oldFormatCustomTodos.length + oldFormatCustomTpls.length + unsyncedCustom.length, 'repeat_custom 迁移');
+
+    // 动态生成迁移差异（完整覆盖所有迁移操作）
+    var diffList = document.getElementById('diffList');
+    diffList.innerHTML = '';
+
+    if (!needMigration && dirtyRepeat.length === 0 && exceptionTodos.length === 0 && unsyncedCustom.length === 0 && missingRecurrenceId.length === 0 && missingIsException.length === 0 && missingExdates.length === 0) {
+      diffList.innerHTML = '<div class="diff-item" style="border-color:#1a3a1a;"><div class="diff-desc" style="color:var(--crt);">此文件已是新版格式，无需迁移</div></div>';
+      migrateBtn.disabled = true;
+      addLog('此文件已是 v2.7.2 格式，无需迁移', 'ok');
+      renderLogs();
+      return;
+    }
+
+    // 字段移除
+    if (hasRepeat) {
+      diffList.innerHTML += diffItem('todos', '<span class="removed">repeat</span> 移除', '旧版重复标记列，schema 3 已移除', data.todos.filter(function(t) { return t.repeat !== undefined; }).length);
+    }
+    if (hasDeletedAt) {
+      diffList.innerHTML += diffItem('todos', '<span class="removed">deleted_at</span> 移除', '旧版删除时间戳，schema 3 不使用', data.todos.filter(function(t) { return t.deleted_at !== undefined; }).length);
+    }
+    if (hasBlacklist) {
+      diffList.innerHTML += diffItem('templates', '<span class="removed">blacklist</span> → <span class="added">exdates</span>', '排除日期字段重命名，格式不变', templatesWithBlacklist.length);
+    }
+
+    // 字段新增
+    if (missingRecurrenceId.length > 0) {
+      diffList.innerHTML += diffItem('todos', '<span class="added">recurrence_id</span> 新增', 'RFC 5545 例外实例标识', missingRecurrenceId.length);
+    }
+    if (missingIsException.length > 0) {
+      diffList.innerHTML += diffItem('todos', '<span class="added">is_exception</span> 新增', '是否为脱离系列的例外实例', missingIsException.length);
+    }
+    if (missingExdates.length > 0) {
+      diffList.innerHTML += diffItem('templates', '<span class="added">exdates</span> 新增', '排除日期字段，默认空数组', missingExdates.length);
+    }
+
+    // 数据修复
+    if (exceptionTodos.length > 0) {
+      diffList.innerHTML += diffItem('todos', '<span class="renamed">repeat=-1 → is_exception=1</span>', '旧版 repeat=-1 表示已脱离重复系列，映射为新版例外标记', exceptionTodos.length);
+    }
+    if (dirtyRepeatNeg1.length > 0) {
+      diffList.innerHTML += diffItem('todos', '<span class="renamed">repeat_type 修复</span>', 'repeat=-1 且 repeat_type=none → 从模板恢复或默认 daily', dirtyRepeatNeg1.length);
+    }
+    if (dirtyRepeatZero.length > 0) {
+      diffList.innerHTML += diffItem('todos', '<span class="renamed">repeat_type 修复</span>', 'repeat=0 且 repeat_type≠none → 修正为 none', dirtyRepeatZero.length);
+    }
+    if (dirtyRepeatOne.length > 0) {
+      diffList.innerHTML += diffItem('todos', '<span class="renamed">repeat_type 修复</span>', 'repeat=1 且 repeat_type=none → 修正为 daily', dirtyRepeatOne.length);
+    }
+
+    // 格式转换
+    if (hasOldCustomTodo) {
+      diffList.innerHTML += diffItem('todos', '<span class="renamed">repeat_custom 格式转换</span>', '旧版 JSON 格式转为 RRULE（如 FREQ=DAILY;INTERVAL=N）', oldFormatCustomTodos.length);
+    }
+    if (hasOldCustomTpl) {
+      diffList.innerHTML += diffItem('templates', '<span class="renamed">repeat_custom 格式转换</span>', '旧版 JSON 格式转为 RRULE', oldFormatCustomTpls.length);
+    }
+    if (unsyncedCustom.length > 0) {
+      diffList.innerHTML += diffItem('templates', '<span class="renamed">repeat_custom 同步</span>', '旧版 repeat_custom 存在 todo 上，新版需同步到模板', unsyncedCustom.length);
+    }
+
+    // 分析日志
+    if (exceptionTodos.length > 0) {
+      addLog('发现 ' + exceptionTodos.length + ' 条 repeat=-1 的例外事项，将标记 is_exception=1', 'warn');
+    }
+    if (dirtyRepeat.length > 0) {
+      addLog('发现 ' + dirtyRepeat.length + ' 条 repeat/repeat_type 不一致的脏数据，迁移时将自动修复', 'warn');
+    }
+    if (templatesWithBlacklist.length > 0) {
+      addLog('发现 ' + templatesWithBlacklist.length + ' 个模板含 blacklist 字段，将迁移为 exdates', 'warn');
+    }
+    if (oldFormatCustomTodos.length > 0) {
+      addLog('发现 ' + oldFormatCustomTodos.length + ' 条 todo 旧版 repeat_custom 格式，将转换为 RRULE', 'warn');
+    }
+    if (oldFormatCustomTpls.length > 0) {
+      addLog('发现 ' + oldFormatCustomTpls.length + ' 个模板旧版 repeat_custom 格式，将转换为 RRULE', 'warn');
+    }
+    if (unsyncedCustom.length > 0) {
+      addLog('发现 ' + unsyncedCustom.length + ' 个模板缺少 repeat_custom，将从根 todo 同步', 'warn');
+    }
+    if (hasRepeat) {
+      addLog('数据包含旧版 repeat 字段，迁移后将移除', 'info');
+    }
+
+    addLog('数据解析完成，可以执行迁移', 'ok');
+    migrateBtn.disabled = false;
+    renderLogs();
+  }
+
+  function statCard(num, label) {
+    return '<div class="stat-card"><div class="num">' + num + '</div><div class="label">' + label + '</div></div>';
+  }
+
+  // ==================== 日志系统 ====================
+
+  // addLog 受 showAll 控制：默认模式最多记录 DEFAULT_LOG_LIMIT 条，全部模式无限制
+  function addLog(msg, type, category) {
+    if (!showAll && allLogs.length >= DEFAULT_LOG_LIMIT) {
+      droppedCount++;
+      return;
+    }
+    allLogs.push({ msg: msg, type: type || 'info', category: category || '' });
+  }
+
+  function renderLogs() {
+    logBox.innerHTML = '';
+    for (var i = 0; i < allLogs.length; i++) {
+      appendLogDom(allLogs[i]);
+    }
+    if (droppedCount > 0) {
+      appendLogDom({ msg: '... 省略 ' + droppedCount + ' 条日志（迁移前开启"显示全部"可记录完整日志）', type: 'info' });
+    }
+    logBox.scrollTop = logBox.scrollHeight;
+  }
+
+  function appendLogDom(entry) {
+    var cls = entry.type === 'ok' ? 'log-ok' : entry.type === 'warn' ? 'log-warn' : entry.type === 'err' ? 'log-err' : 'log-info';
+    var prefix = entry.type === 'ok' ? '✓ ' : entry.type === 'warn' ? '⚠ ' : entry.type === 'err' ? '✗ ' : '  ';
+    var div = document.createElement('div');
+    div.className = cls;
+    div.textContent = prefix + entry.msg;
+    logBox.appendChild(div);
+  }
+
+  function showLogToggle() {
+    if (!migrationDone) logToggle.classList.remove('hidden');
+  }
+
+  function hideLogToggle() {
+    logToggle.classList.add('hidden');
+  }
+
+  function updateToggleUI() {
+    if (showAll) {
+      logToggleIcon.textContent = '☰';
+      logToggleLabel.textContent = '全部';
+      logToggle.classList.add('active');
+    } else {
+      logToggleIcon.textContent = '✂';
+      logToggleLabel.textContent = '截断';
+      logToggle.classList.remove('active');
+    }
+  }
+
+  logToggle.addEventListener('click', function() {
+    if (migrationDone) return;
+    showAll = !showAll;
+    updateToggleUI();
+    // 切换后重新渲染已有日志（不改变已记录的数据）
+    renderLogs();
+  });
+
+  // ==================== 迁移核心逻辑 ====================
+
+  var FREQ_MAP = { daily: 'DAILY', weekly: 'WEEKLY', monthly: 'MONTHLY', yearly: 'YEARLY' };
+
+  function convertRepeatCustom(oldCustom, repeatType) {
+    if (!oldCustom || !oldCustom.trim()) return '';
+    if (oldCustom.trim().startsWith('FREQ=')) return oldCustom.trim();
+    try {
+      var obj = JSON.parse(oldCustom);
+      if (obj && typeof obj === 'object') {
+        var freq = FREQ_MAP[repeatType] || 'DAILY';
+        var parts = ['FREQ=' + freq];
+        if (typeof obj.interval === 'number' && obj.interval > 1) {
+          parts.push('INTERVAL=' + obj.interval);
+        }
+        if (Array.isArray(obj.byDay) && obj.byDay.length > 0) {
+          parts.push('BYDAY=' + obj.byDay.join(','));
+        }
+        if (typeof obj.byMonthDay === 'number') {
+          parts.push('BYMONTHDAY=' + obj.byMonthDay);
+        }
+        return parts.join(';');
+      }
+    } catch(e) {}
+    return oldCustom;
+  }
+
+  function migrate(data) {
+    var templateMap = {};
+    for (var i = 0; i < data.templates.length; i++) {
+      templateMap[data.templates[i].parent_id] = data.templates[i];
+    }
+
+    var rootTodoMap = {};
+    data.todos.forEach(function(t) {
+      if (t.id === t.parent_id && t.repeat === 1) rootTodoMap[t.parent_id] = t;
+    });
+
+    var migratedTodos = [];
+    var migratedTemplates = [];
+    var fixCount = 0;
+
+    // 迁移 todos
+    for (var ti = 0; ti < data.todos.length; ti++) {
+      var t = data.todos[ti];
+      var m = Object.assign({}, t);
+
+      if (m.repeat === -1) {
+        m.is_exception = 1;
+        if (!m.repeat_type || m.repeat_type === 'none' || m.repeat_type === '') {
+          var tpl = templateMap[m.parent_id];
+          m.repeat_type = (tpl && tpl.repeat_type && tpl.repeat_type !== 'none') ? tpl.repeat_type : 'daily';
+          addLog('修复 id:' + m.id + ' repeat=-1 → is_exception=1, repeat_type=' + m.repeat_type, 'warn', 'exception');
+        } else {
+          addLog('修复 id:' + m.id + ' repeat=-1 → is_exception=1', 'warn', 'exception');
+        }
+        fixCount++;
+      }
+      if (m.repeat === 0 && m.repeat_type && m.repeat_type !== 'none') {
+        m.repeat_type = 'none';
+        addLog('修复 id:' + m.id + ' repeat=0 → repeat_type=none', 'warn', 'repeatZero');
+        fixCount++;
+      }
+      if (m.repeat === 1 && (!m.repeat_type || m.repeat_type === 'none' || m.repeat_type === '')) {
+        m.repeat_type = 'daily';
+        addLog('修复 id:' + m.id + ' repeat=1 → repeat_type=daily', 'warn', 'repeatOne');
+        fixCount++;
+      }
+
+      if (m.repeat_custom) {
+        var converted = convertRepeatCustom(m.repeat_custom, m.repeat_type);
+        if (converted !== m.repeat_custom) {
+          addLog('转换 id:' + m.id + ' repeat_custom: ' + m.repeat_custom + ' → ' + converted, 'warn', 'customConvert');
+          m.repeat_custom = converted;
+          fixCount++;
+        }
+      }
+
+      delete m.repeat;
+      delete m.deleted_at;
+      if (!m.recurrence_id) {
+        m.recurrence_id = '';
+        addLog('新增 id:' + m.id + ' recurrence_id', 'info', 'newFields');
+      }
+      if (m.is_exception === undefined) {
+        m.is_exception = 0;
+        addLog('新增 id:' + m.id + ' is_exception=0', 'info', 'newFields');
+      }
+      if (!m.repeat_custom) m.repeat_custom = '';
+
+      migratedTodos.push(m);
+    }
+
+    // 迁移 templates
+    for (var tpi = 0; tpi < data.templates.length; tpi++) {
+      var tpl = data.templates[tpi];
+      var mt = Object.assign({}, tpl);
+
+      if (mt.blacklist !== undefined && mt.blacklist !== null) {
+        mt.exdates = mt.blacklist;
+        delete mt.blacklist;
+        addLog('模板 parent_id:' + mt.parent_id + ' blacklist → exdates: ' + mt.exdates, 'info', 'blacklist');
+      } else if (!mt.exdates) {
+        mt.exdates = '[]';
+        addLog('新增 模板 parent_id:' + mt.parent_id + ' exdates=[]', 'info', 'newFields');
+      }
+
+      var rootTodo = rootTodoMap[mt.parent_id];
+      if (rootTodo && rootTodo.repeat_custom) {
+        var convertedTpl = convertRepeatCustom(rootTodo.repeat_custom, mt.repeat_type || rootTodo.repeat_type);
+        if (convertedTpl && (!mt.repeat_custom || mt.repeat_custom === '')) {
+          mt.repeat_custom = convertedTpl;
+          addLog('模板 parent_id:' + mt.parent_id + ' 从根 todo 同步 repeat_custom: ' + convertedTpl, 'warn', 'customSync');
+          fixCount++;
+        } else if (convertedTpl && mt.repeat_custom !== convertedTpl) {
+          addLog('模板 parent_id:' + mt.parent_id + ' repeat_custom 不一致，覆盖为: ' + convertedTpl, 'warn', 'customSync');
+          mt.repeat_custom = convertedTpl;
+          fixCount++;
+        }
+      }
+
+      if (mt.repeat_custom) {
+        var convertedSelf = convertRepeatCustom(mt.repeat_custom, mt.repeat_type);
+        if (convertedSelf !== mt.repeat_custom) {
+          addLog('模板 parent_id:' + mt.parent_id + ' repeat_custom 格式转换: ' + mt.repeat_custom + ' → ' + convertedSelf, 'warn', 'tplCustomConvert');
+          mt.repeat_custom = convertedSelf;
+          fixCount++;
+        }
+      }
+
+      migratedTemplates.push(mt);
+    }
+
+    progressFill.style.width = '100%';
+    addLog('迁移完成: 处理 ' + migratedTodos.length + ' 条事项 + ' + migratedTemplates.length + ' 个模板，修复 ' + fixCount + ' 条数据', 'ok');
+
+    return {
+      settings: data.settings,
+      custom_header: data.custom_header,
+      custom_content: data.custom_content,
+      customColors: data.customColors,
+      categories: data.categories,
+      todos: migratedTodos,
+      templates: migratedTemplates
+    };
+  }
+
+  // ==================== 生成 NDJSON 输出 ====================
+
+  function buildNdjson(data) {
+    var lines = ['ndjson'];
+    if (data.settings) {
+      lines.push(JSON.stringify({ _type: 'settings', data: data.settings }));
+    }
+    lines.push(JSON.stringify({ _type: 'custom_header', data: data.custom_header || '' }));
+    lines.push(JSON.stringify({ _type: 'custom_content', data: data.custom_content || '' }));
+    lines.push(JSON.stringify({ _type: 'customColors', data: data.customColors || [] }));
+    if (data.categories && data.categories.length > 0) {
+      lines.push(JSON.stringify({ _type: 'categories', data: data.categories }));
+    }
+    for (var i = 0; i < data.todos.length; i++) {
+      lines.push(JSON.stringify(data.todos[i]));
+    }
+    for (var j = 0; j < data.templates.length; j++) {
+      lines.push(JSON.stringify(Object.assign({ _type: 'template' }, data.templates[j])));
+    }
+    return lines.join('\n') + '\n';
+  }
+
+  // ==================== 事件绑定 ====================
+
+  migrateBtn.addEventListener('click', function() {
+    if (!parsedData) return;
+    migrateBtn.disabled = true;
+    allLogs = [];
+    droppedCount = 0;
+    // showAll 保持用户选择，控制迁移中日志记录量
+    migrationDone = false;
+    progressFill.style.width = '0%';
+    hideLogToggle();
+
+    setTimeout(function() {
+      try {
+        migratedOutput = migrate(parsedData);
+        downloadBtn.disabled = false;
+      } catch (err) {
+        addLog('迁移失败: ' + err.message, 'err');
+        migrateBtn.disabled = false;
+      }
+      migrationDone = true;
+      renderLogs();
+      // 迁移完成后不显示切换按钮
+    }, 50);
+  });
+
+  downloadBtn.addEventListener('click', function() {
+    if (!migratedOutput) return;
+    var ndjson = buildNdjson(migratedOutput);
+    var now = new Date();
+    var defaultName = 'todo_migrated_' + now.getFullYear() + '-' +
+      String(now.getMonth() + 1).padStart(2, '0') + '-' +
+      String(now.getDate()).padStart(2, '0') + '-' +
+      String(now.getHours()).padStart(2, '0') + '-' +
+      String(now.getMinutes()).padStart(2, '0') + '-' +
+      String(now.getSeconds()).padStart(2, '0') + '.json';
+
+    if (hasFileSystemAPI) {
+      saveFileWithFSAPI(ndjson, defaultName);
+    } else {
+      downloadWithBlob(ndjson, defaultName);
+    }
+  });
+
+  // File System Access API 保存文件
+  async function saveFileWithFSAPI(content, defaultName) {
+    try {
+      var handle = await window.showSaveFilePicker({
+        suggestedName: defaultName,
+        types: [{ description: 'JSON 文件', accept: { 'application/json': ['.json'] } }]
+      });
+      var writable = await handle.createWritable();
+      await writable.write(content);
+      await writable.close();
+      addLog('文件已保存，请在 v2.7.2 的导入功能中使用【覆盖模式】导入', 'ok');
+      renderLogs();
+    } catch (err) {
+      if (err.name === 'AbortError') return; // 用户取消
+      // 降级到 Blob 下载
+      downloadWithBlob(content, defaultName);
+    }
+  }
+
+  // 降级：Blob + <a> 下载
+  function downloadWithBlob(content, filename) {
+    var blob = new Blob([content], { type: 'application/json' });
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(function() { URL.revokeObjectURL(url); }, 10000);
+    addLog('文件已下载，请在 v2.7.2 的导入功能中使用【覆盖模式】导入', 'ok');
+    renderLogs();
+  }
+
+  resetBtn.addEventListener('click', function() {
+    parsedData = null;
+    migratedOutput = null;
+    currentFileName = '';
+    allLogs = [];
+    droppedCount = 0;
+    showAll = false;
+    migrationDone = false;
+    analysisSection.classList.add('hidden');
+    logBox.innerHTML = '';
+    progressFill.style.width = '0%';
+    migrateBtn.disabled = true;
+    downloadBtn.disabled = true;
+    fileInput.value = '';
+    dropZone.classList.remove('loaded');
+    dropLabel.textContent = '拖拽或点击选择旧版导出文件 (.json)';
+    showLogToggle();
+    updateToggleUI();
+  });
+
+})();
+</script>
+</body>
+</html>
