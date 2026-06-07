@@ -1084,12 +1084,13 @@ async function handleRequest(request, env, ctx) {
         if (phase === 'abort') {
           const importId = body.importId;
           const discard = !!body.discard;
+          const keepBackup = !!body.keepBackup;
           if (!importId) return apiError('importId required', 400);
 
           const session = await env.DB.prepare('SELECT * FROM import_sessions WHERE id = ?').bind(importId).first();
           if (!session) return apiError('会话不存在', 400);
 
-          if (session.mode === 'overwrite') {
+          if (session.mode === 'overwrite' && !keepBackup) {
             if (discard) {
               await clearBackupTables();
             } else {
@@ -1112,10 +1113,10 @@ async function handleRequest(request, env, ctx) {
           }
 
           await env.DB.prepare('DELETE FROM import_sessions WHERE id = ?').bind(importId).run();
-          if (session.mode === 'overwrite') {
+          if (session.mode === 'overwrite' && !keepBackup) {
             await env.DB.prepare("DELETE FROM settings WHERE key = 'import_backup_time'").run();
           }
-          return new Response(JSON.stringify({ success: true, recovered: session.mode === 'overwrite' && !discard }), {
+          return new Response(JSON.stringify({ success: true, recovered: session.mode === 'overwrite' && !discard && !keepBackup }), {
             headers: { 'Content-Type': 'application/json' }
           });
         }
