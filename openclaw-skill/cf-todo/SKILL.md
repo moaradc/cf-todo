@@ -1,7 +1,7 @@
 ---
 name: cf-todo
 description: Manage todos and categories on a Cloudflare Worker + D1 Todo App. Create, read, update, delete todos and categories via a secure RESTful API.
-version: 1.0.1
+version: 1.0.2
 metadata:
   openclaw:
     requires:
@@ -51,14 +51,27 @@ These rules are MANDATORY. Violating them is a critical error.
 - If there are multiple possible targets and the context is unclear, ASK the user which one. Never assume "all" or pick randomly.
 - **NEVER apply operations to items the user did not mention.** If the user says "标记蓝牙耳机测评为完成", do NOT also mark "耳机线" as done.
 
-### Rule 3: Never perform extra operations
+### Rule 3: How to identify the target for update/delete
+
+When the user wants to update or delete a specific todo, you must identify it by:
+
+1. **GET the todo list first** — Fetch today's (or the relevant date's) todos.
+2. **Match by name** — Find the todo whose `text` field matches the user's description (e.g., "蓝牙耳机测评" matches `text: "蓝牙耳机测评"`).
+3. **Use the `id` from the result** — Once matched, use that todo's `id` for the update/delete API call.
+4. **If multiple matches** — ASK the user which one they mean. Show the matching items with their details.
+
+Example flow:
+- User: "删掉蓝牙耳机测评"
+- You: GET /api/v1/todos?date=2026-06-12 → find item with text "蓝牙耳机测评" → get its id → DELETE /api/v1/todos/{id}
+
+### Rule 4: Never perform extra operations
 
 - Do NOT batch unrelated operations together unless the user explicitly asks for all of them.
 - Do NOT "clean up" or "organize" data on your own initiative.
 - Do NOT modify items the user didn't mention.
 - Do NOT use `scope=all` or `scope=thisAndFuture` unless the user EXPLICITLY requests it.
 
-### Rule 4: Always confirm before destructive actions
+### Rule 5: Always confirm before destructive actions
 
 Before ANY delete or bulk operation, you MUST:
 1. Show the user exactly what will be affected (item name, id, scope)
@@ -70,13 +83,42 @@ This applies to:
 - Using `scope=all` or `scope=thisAndFuture` on recurring todos
 - Updating multiple items at once
 
-### Rule 5: Verify after execution
+### Rule 6: Verify after execution
 
 After every create/update/delete, GET the data again to confirm the result. Report the outcome to the user.
 
-### Rule 6: If unsure, ASK
+### Rule 7: If unsure, ASK
 
 If the user's intent is ambiguous (e.g., "删除那个待办" when there are multiple), ASK which one. Never guess.
+
+---
+
+## CRITICAL: Date Calculation Rules
+
+### Natural language to date mapping
+
+The API requires dates in `YYYY-MM-DD` format. You MUST calculate the correct date from the user's natural language:
+
+| User says | Meaning | How to calculate |
+|---|---|---|
+| "今天" / "today" | Today's date | Use current date |
+| "明天" / "tomorrow" | Tomorrow | current date + 1 day |
+| "后天" | Day after tomorrow | current date + 2 days |
+| "下周一" / "next Monday" | Next Monday | Find next Monday from current date |
+| "6月15日" / "June 15" | Specific date | Use 2026-06-15 (use current year) |
+| "周六" / "Saturday" | This Saturday | Find next Saturday (including today if it's Saturday) |
+
+### CRITICAL: Recurring todo first occurrence date
+
+When creating a recurring todo, the `date` field is the **first occurrence date** (anchor date). This is crucial:
+
+- **"创建每周六待办"** on a Friday → `date` should be **Saturday** (tomorrow), NOT today (Friday)
+- **"创建每日重复待办"** → `date` should be **today** (or the date the user specified)
+- **"创建每周重复待办，名称日常"** on Friday → If the user doesn't specify a start date, use **today** as the first occurrence
+
+Rule: The `date` field = the date of the FIRST occurrence. For weekly recurring todos, if the user says "每周X" (e.g., "每周六"), calculate the NEXT occurrence of that weekday (including today if it matches).
+
+Weekday numbers: Sunday=0, Monday=1, Tuesday=2, Wednesday=3, Thursday=4, Friday=5, Saturday=6
 
 ---
 
@@ -106,6 +148,12 @@ A todo is recurring if its API response has:
 - `isSeries` = `true`
 
 Always check these fields before deciding on scope.
+
+### Toggle behavior for recurring todos
+
+- Toggling a recurring todo marks **only that specific date's instance** as done/undone.
+- The next day's instance will still appear as undone (this is correct behavior — each day is independent).
+- If the user says "标记为完成", use the toggle endpoint for that specific instance only.
 
 ---
 
@@ -155,13 +203,15 @@ Content-Type: application/json
 ```
 
 Required fields: `date`, `text`
-Optional: `time`, `priority` (low/medium/high, default low), `desc`, `url`, `copyText`, `subtasks`, `searchTerms`, `repeatType` (none/daily/weekly/monthly/yearly), `repeatEnd`, `endTime`, `categoryId`
+Optional: `time`, `priority`, `desc`, `url`, `copyText`, `subtasks`, `searchTerms`, `repeatType`, `repeatEnd`, `endTime`, `categoryId`
+
+**Priority values:** `"low"`, `"med"`, `"high"` (default: `"low"`). The value `"medium"` is also accepted and will be auto-converted to `"med"`.
 
 **subtasks format:** Array of objects with `text` and `done` fields. You can use either format:
 - Object format (recommended): `[{"text": "Task 1", "done": false}, {"text": "Task 2", "done": false}]`
-- String shorthand (API will auto-convert): `["Task 1", "Task 2"]` → becomes `[{"text": "Task 1", "done": false}, {"text": "Task 2", "done": false}]`
+- String shorthand (API will auto-convert): `["Task 1", "Task 2"]` → becomes `[{"text": "Task 1", "done": false}]`
 
-**Creating a recurring todo:** Set `repeatType` to `daily`, `weekly`, `monthly`, or `yearly`. Optionally set `repeatEnd` (YYYY-MM-DD) for when the repetition should stop.
+**Creating a recurring todo:** Set `repeatType` to `daily`, `weekly`, `monthly`, or `yearly`. Optionally set `repeatEnd` (YYYY-MM-DD) for when the repetition should stop. **The `date` field is the first occurrence date** — see Date Calculation Rules above.
 
 #### Update a todo
 
@@ -279,16 +329,24 @@ DELETE {CF_TODO_API_URL}/api/v1/categories/{id}
 
 Deleting a category clears the `categoryId` on all associated todos (they become uncategorized). **This requires user confirmation.**
 
+#### Assigning a category to a todo
+
+When the user says "add to Work category" or "set category to Work":
+1. First GET /api/v1/categories to find the category ID by name
+2. Then PUT /api/v1/todos/{id} with `{"categoryId": "cat_xxx"}`
+3. If the category doesn't exist, ask the user if they want to create it first
+
 ---
 
 ## Step-by-step Workflow
 
 1. **Always fetch first** — Before deleting or updating, GET the todo/category list to find the correct `id` and check if it's recurring (`isSeries: true`).
-2. **Identify the exact target** — Match the user's description to a specific item. If multiple match, ASK the user which one.
-3. **Check recurring status** — If the todo is recurring, determine the appropriate `scope` based on the user's intent (see scope rules above).
-4. **Confirm destructive actions** — Before ANY delete or `scope=all`/`thisAndFuture`, tell the user exactly what will happen and wait for confirmation.
-5. **Execute only what was asked** — Do NOT add extra operations the user didn't request.
-6. **Verify and report** — After the operation, GET the data again to confirm the result. Report the outcome to the user.
+2. **Identify the exact target** — Match the user's description to a specific item by `text` field. If multiple match, ASK the user which one.
+3. **Calculate the correct date** — Convert natural language dates to YYYY-MM-DD format. For recurring todos, ensure `date` is the first occurrence date.
+4. **Check recurring status** — If the todo is recurring, determine the appropriate `scope` based on the user's intent (see scope rules above).
+5. **Confirm destructive actions** — Before ANY delete or `scope=all`/`thisAndFuture`, tell the user exactly what will happen and wait for confirmation.
+6. **Execute only what was asked** — Do NOT add extra operations the user didn't request.
+7. **Verify and report** — After the operation, GET the data again to confirm the result. Report the outcome to the user.
 
 ---
 
@@ -312,21 +370,21 @@ curl -s -H "X-API-Key: $CF_TODO_API_KEY" "$CF_TODO_API_URL/api/v1/categories"
 ```bash
 curl -s -X POST -H "X-API-Key: $CF_TODO_API_KEY" -H "Content-Type: application/json" \
   "$CF_TODO_API_URL/api/v1/todos" \
-  -d '{"date":"2026-06-12","text":"Task description","priority":"medium"}'
+  -d '{"date":"2026-06-12","text":"Task description","priority":"med"}'
 ```
 
-**Create a recurring todo:**
+**Create a recurring todo (daily):**
 ```bash
 curl -s -X POST -H "X-API-Key: $CF_TODO_API_KEY" -H "Content-Type: application/json" \
   "$CF_TODO_API_URL/api/v1/todos" \
   -d '{"date":"2026-06-12","text":"Daily standup","time":"09:30","priority":"high","repeatType":"daily"}'
 ```
 
-**Create a todo with subtasks:**
+**Create a weekly todo with subtasks and time range:**
 ```bash
 curl -s -X POST -H "X-API-Key: $CF_TODO_API_KEY" -H "Content-Type: application/json" \
   "$CF_TODO_API_URL/api/v1/todos" \
-  -d '{"date":"2026-06-12","text":"Weekly review","time":"09:00","endTime":"10:00","repeatType":"weekly","subtasks":[{"text":"书剑","done":false}]}'
+  -d '{"date":"2026-06-13","text":"日常","time":"09:00","endTime":"10:00","desc":"日常","repeatType":"weekly","subtasks":[{"text":"书剑","done":false}]}'
 ```
 
 **Create a category with color:**
@@ -334,13 +392,6 @@ curl -s -X POST -H "X-API-Key: $CF_TODO_API_KEY" -H "Content-Type: application/j
 curl -s -X POST -H "X-API-Key: $CF_TODO_API_KEY" -H "Content-Type: application/json" \
   "$CF_TODO_API_URL/api/v1/categories" \
   -d '{"name":"Work","color":"#3B82F6"}'
-```
-
-**Create a category without color (uses default #888888):**
-```bash
-curl -s -X POST -H "X-API-Key: $CF_TODO_API_KEY" -H "Content-Type: application/json" \
-  "$CF_TODO_API_URL/api/v1/categories" \
-  -d '{"name":"Personal"}'
 ```
 
 ### Update operations

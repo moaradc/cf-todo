@@ -258,6 +258,15 @@ function parseJsonField(val) {
 }
 
 /**
+ * 规范化优先级值（前端使用 med，API 同时接受 medium 和 med）
+ */
+function normalizePriority(val) {
+  if (val === 'medium') return 'med';
+  if (['low', 'med', 'high'].includes(val)) return val;
+  return 'low';
+}
+
+/**
  * 格式化 todo 记录为 API 响应格式
  */
 function formatTodo(row) {
@@ -281,7 +290,7 @@ function formatTodo(row) {
     date: row.date,
     text: row.text,
     time: row.time || '',
-    priority: row.priority || 'low',
+    priority: normalizePriority(row.priority || 'low'),
     desc: row.desc || '',
     url: row.url || '',
     copyText: row.copy_text || '',
@@ -443,6 +452,7 @@ async function handleV1Todos(request, env, url) {
     const catId = categoryId || '';
     const rEnd = repeatEnd || '';
     const eTime = endTime || '';
+    const normPriority = normalizePriority(priority || 'low');
     // 规范化 subtasks：字符串→{text, done:false} 对象
     const normalizedSubtasks = (subtasks || []).map(s => {
       if (typeof s === 'string') return { text: s, done: false };
@@ -460,7 +470,7 @@ async function handleV1Todos(request, env, url) {
     await DB.prepare(
       'INSERT INTO todos (id, parent_id, date, text, time, priority, desc, url, copy_text, subtasks, search_terms, done, deleted, repeat_type, repeat_custom, repeat_end, end_time, category_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
     ).bind(
-      id, id, date, text, time || '', priority || 'low',
+      id, id, date, text, time || '', normPriority,
       desc || '', url || '', copyText || '', subtasksStr, searchTermsStr,
       0, 0, rptType, '', rEnd, eTime, catId
     ).run();
@@ -469,7 +479,7 @@ async function handleV1Todos(request, env, url) {
       await DB.prepare(
         'INSERT INTO todo_templates (parent_id, text, time, priority, desc, url, copy_text, subtasks, search_terms, repeat_type, repeat_custom, repeat_end, end_time, anchor_date, exdates, category_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
       ).bind(
-        id, text, time || '', priority || 'low', desc || '', url || '', copyText || '',
+        id, text, time || '', normPriority, desc || '', url || '', copyText || '',
         subtasksStr, searchTermsStr, rptType, '', rEnd, eTime, date, '[]', catId
       ).run();
     }
@@ -504,7 +514,7 @@ async function handleV1TodoPut(request, DB, todoId) {
   const newValues = {
     text: body.text !== undefined ? body.text : existing.text,
     time: body.time !== undefined ? body.time : (existing.time || ''),
-    priority: body.priority !== undefined ? body.priority : (existing.priority || 'low'),
+    priority: body.priority !== undefined ? normalizePriority(body.priority) : normalizePriority(existing.priority || 'low'),
     desc: body.desc !== undefined ? body.desc : (existing.desc || ''),
     url: body.url !== undefined ? body.url : (existing.url || ''),
     copyText: body.copyText !== undefined ? body.copyText : (existing.copy_text || ''),
