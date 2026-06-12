@@ -2,7 +2,7 @@
   "version": "2.7.4",
   "db_schema": 3,
   "changelog": [
-    { "version": "2.7.4", "date": "2026-06-12", "notes": "新增 RESTful API v1（/api/v1/），支持 API Key 鉴权（X-API-Key / Bearer / Query）及 Cookie 鉴权\n新增 API Key 管理功能（创建/删除/启用/禁用/重命名，最多10个，恒定时间比较防时序攻击）\n新增 Todo CRUD：查询（含日期范围/分类/完成状态筛选/分页）、创建、更新（含重复任务 scope）、删除（软删除）、切换完成状态\n新增批量操作：批量切换完成状态、批量删除（自动处理重复任务 exdate）\n新增回收站：列表/恢复/永久删除/清空/批量恢复/批量永久删除（自动处理重复任务冲突脱钩）\n新增统计 API：按日期范围统计总数/完成/未完成/按优先级/按日期\n新增分类 CRUD 及批量删除（硬删除，关联 Todo 自动置空 categoryId）\n设置页面新增 API 密钥管理面板\n新增 API_Wiki.md 完整 API 文档\n新增 OpenClaw Skill 集成（SKILL.md + cf-todo.sh + .clawhubignore）\n修复重复任务删除/更新无 scope 时默认 scope=this（防止误操作整个系列）\n修复优先级 medium 与前端 med 不一致问题（自动转换）\n修复子任务格式不一致（字符串自动转为 {text, done:false} 对象）\n修复 PUT 更新时 parentId 可被用户篡改为数据库实际值" },
+    { "version": "2.7.4", "date": "2026-06-12", "notes": "新增 RESTful API v1（/api/v1/），支持 API Key 鉴权（X-API-Key / Bearer / Query）及 Cookie 鉴权\n新增 API Key 管理功能（创建/删除/启用/禁用/重命名，最多10个，恒定时间比较防时序攻击）\n新增 Todo CRUD\n设置页面新增 API 密钥管理面板\n新增 API_Wiki.md\n新增 OpenClaw Skill" },
     { "version": "2.7.3", "date": "2025-06-07", "notes": "覆盖模式导入后备份保留10分钟供手动恢复，到期自动清除\n移除导入字段校验（由数据库约束兜底）\n导入中断恢复支持保留备份（keepBackup）或丢弃备份（discard）\n修复中断恢复弹窗点取消时错误恢复备份的bug" },
     { "version": "2.7.2", "date": "2025-06-06", "notes": "RFC 5545 大型重构\nical.js 替换 rrule.js，完整支持 RRULE/EXDATE/RDATE\n循环事件操作对齐 Google Calendar 标准：仅此事件/此事件及之后/整个系列\n修复 ical.js DTSTART 不匹配 RRULE 时跳过首实例的问题\n版本化增量数据库迁移，彻底移除冗余 blacklist/repeat 列\n修复 repeat=-1 但 repeat_type=none 的脏数据" },
     { "version": "2.7.1", "date": "2025-06-05", "notes": "集成rrule.js替换SQL匹配\n仅此项：\n编辑重复任务脱离模板变为单次任务\n此项及以后/以后/所有：\n编辑/删除重复任务忽略时间修改，过去项显示\"每天·至日期\"\n编辑为不重复时当前项变单次任务，未来项真删除\n恢复回收站中的重复事项时重新激活重复并重建模板\n日期时区统一UTC\n修复条件分支顺序和isSeries计算等逻辑问题" },
