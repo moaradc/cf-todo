@@ -27,6 +27,7 @@ import {
   getPreviousDate,
   getNextDate,
 } from './recurring-engine.js';
+import { handleV1Request } from './api-v1.js';
 
 let isDbInitialized = false;
 
@@ -258,11 +259,19 @@ async function handleRequest(request, env, ctx) {
     //  统一 API 鉴权拦截
     const publicApiPaths = ['/api/login', '/api/logout', '/api/hot-search'];
     const isApiRequest = url.pathname.startsWith('/api/');
-    if (isApiRequest && !publicApiPaths.includes(url.pathname)) {
+    const isV1Request = url.pathname.startsWith('/api/v1/');
+    if (isApiRequest && !publicApiPaths.includes(url.pathname) && !isV1Request) {
       const { ok: apiAuthed } = await isAuthorized();
       if (!apiAuthed) {
         return apiError("UNAUTHORIZED", 401);
       }
+    }
+
+    // v1 RESTful API（自带鉴权：API Key 或 Cookie）
+    if (isV1Request) {
+      const v1Result = await handleV1Request(request, env, ctx);
+      if (v1Result) return v1Result;
+      return apiError('Not Found', 404);
     }
     
     if (url.pathname === '/api/login' && request.method === 'POST') {
