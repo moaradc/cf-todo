@@ -65,13 +65,13 @@ async function saveApiKeys(DB, keys) {
 /**
  * 验证 API Key (恒定时间比较)
  */
-async function verifyApiKey(DB, providedKey) {
+async function verifyApiKey(DB, providedKey, jwtSecret) {
   if (!providedKey || typeof providedKey !== 'string') return false;
   const keys = await getApiKeys(DB);
   for (const k of keys) {
     if (k.disabled) continue;
-    // 使用恒定时间比较防止时序攻击
-    const match = await secureCompare(providedKey, k.key, providedKey + k.key);
+    // 使用恒定时间比较防止时序攻击，secret 必须为常量
+    const match = await secureCompare(providedKey, k.key, jwtSecret);
     if (match) return true;
   }
   return false;
@@ -98,8 +98,10 @@ function extractApiKey(request, url) {
 
 // ==================== API Key 管理端点 ====================
 
-async function handleApiKeys(request, env, url) {
-  // 这些端点需要 cookie 鉴权
+/**
+ * Cookie 鉴权（用于 /api/v1/keys 等仅允许网页端操作的端点）
+ */
+async function verifyCookieAuth(request, env) {
   const cookies = parseCookies(request);
   if (!cookies.auth_token || !cookies.auth_sig) {
     return apiError('Cookie authentication required', 401);
@@ -120,6 +122,14 @@ async function handleApiKeys(request, env, url) {
 
   const matched = sessions.find(s => s.token === cookies.auth_token);
   if (!matched) return apiError('UNAUTHORIZED', 401);
+
+  return null; // 鉴权通过
+}
+
+async function handleApiKeys(request, env, url) {
+  // 这些端点需要 cookie 鉴权
+  const authErr = await verifyCookieAuth(request, env);
+  if (authErr) return authErr;
 
   if (request.method === 'GET') {
     const keys = await getApiKeys(env.DB);
@@ -309,8 +319,8 @@ async function handleV1Todos(request, env, url) {
     const endDate = url.searchParams.get('end_date');
     const categoryId = url.searchParams.get('category_id');
     const done = url.searchParams.get('done'); // 'true' | 'false' | 不传=全部
-    const limit = Math.min(parseInt(url.searchParams.get('limit') || '100', 10), 500);
-    const offset = parseInt(url.searchParams.get('offset') || '0', 10);
+    const limit = Math.min(Math.max(parseInt(url.searchParams.get('limit') || '100', 10) || 100, 1), 500);
+    const offset = Math.max(parseInt(url.searchParams.get('offset') || '0', 10) || 0, 0);
 
     let conditions = ['deleted = 0'];
     let params = [];
@@ -472,7 +482,7 @@ async function handleV1TodoPut(request, DB, todoId) {
 
   const body = await request.json();
   const scope = body.scope || 'none'; // 'this' | 'thisAndFuture' | 'all' | 'none'
-  const parentId = body.parentId || existing.parent_id;
+  const parentId = existing.parent_id; // 始终使用数据库中的 parent_id，不可被用户篡改
   const isSeries = existing.repeat_type && existing.repeat_type !== 'none' && parentId && parentId !== existing.id;
 
   const newValues = {
@@ -770,32 +780,14 @@ export async function handleV1Request(request, env, ctx) {
   // 以下端点支持 API Key 鉴权
   const apiKey = extractApiKey(request, url);
   if (apiKey) {
-    const valid = await verifyApiKey(env.DB, apiKey);
+    const valid = await verifyApiKey(env.DB, apiKey, env.JWT_SECRET);
     if (!valid) return apiError('Invalid API Key', 401);
     // 更新最后使用时间（异步）
     ctx.waitUntil(touchApiKeyLastUsed(env.DB, apiKey));
   } else {
     // 没有 API Key，尝试 cookie 鉴权
-    const cookies = parseCookies(request);
-    if (!cookies.auth_token || !cookies.auth_sig) {
-      return apiError('Authentication required: provide X-API-Key header or cookie auth', 401);
-    }
-    const sigValid = await verifySig(cookies.auth_token, cookies.auth_sig, env.JWT_SECRET);
-    if (!sigValid) return apiError('Invalid cookie auth', 401);
-
-    const record = await env.DB.prepare(
-      "SELECT value FROM settings WHERE key = 'active_session_token'"
-    ).first();
-    if (!record || !record.value) return apiError('UNAUTHORIZED', 401);
-
-    let sessions;
-    try {
-      sessions = JSON.parse(record.value);
-      if (!Array.isArray(sessions)) return apiError('UNAUTHORIZED', 401);
-    } catch (e) { return apiError('UNAUTHORIZED', 401); }
-
-    const matched = sessions.find(s => s.token === cookies.auth_token);
-    if (!matched) return apiError('UNAUTHORIZED', 401);
+    const authErr = await verifyCookieAuth(request, env);
+    if (authErr) return authErr;
   }
 
   // ---- Todo 路由 ----
