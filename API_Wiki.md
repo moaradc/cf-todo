@@ -8,23 +8,23 @@
 
 项目包含两套 API 体系：
 - **V0 (Internal/Web)**: `api.js` 中实现，主要供 Web 前端使用，使用 Cookie 鉴权。
-- **V1 (RESTful)**: `api-v1.js` 中实现，供 OpenClaw / 外部程序调用，支持 API Key 鉴权。
+- **V1 (RESTful)**: `api-v1.js` 中实现，供 OpenClaw / 外部程序调用，使用 API Key 鉴权。
 
 ### 数据库表结构
 - `todos`: 存储待办事项。
 - `todo_templates`: 存储重复任务的模板信息。
-- `categories`: 存储任务分类。
-- `settings`: 存储配置（包括 API Keys）。
+- `categories`: 存储分类。
+- `settings`: 存储配置。
 
 ---
 
-## 2. V1 RESTful API (推荐用于外部调用)
+## 2. V1 RESTful API (用于外部调用)
 
 基础路径: `/api/v1/`
 
 ### 2.1 鉴权 (Authentication)
 
-V1 API 支持两种鉴权方式：
+V1 API 鉴权方式：
 1.  **API Key**:
     - Header: `X-API-Key: <your_api_key>`
     - Query: `?api_key=<your_api_key>`
