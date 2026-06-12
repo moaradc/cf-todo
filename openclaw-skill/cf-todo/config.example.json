@@ -1,0 +1,26 @@
+# cf-todo OpenClaw Skill Configuration Example
+#
+# Add the following to your ~/.openclaw/openclaw.json:
+#
+# {
+#   "skills": {
+#     "entries": {
+#       "cf-todo": {
+#         "enabled": true,
+#         "env": {
+#           "CF_TODO_API_URL": "https://todo.example.com",
+#           "CF_TODO_API_KEY": "cfk_your_api_key_here"
+#         }
+#       }
+#     }
+#   }
+# }
+#
+# How to get an API Key:
+# 1. Log in to your cf-todo web UI
+# 2. Use the API Key management endpoint:
+#    curl -X POST https://todo.example.com/api/v1/keys \
+#      -H "Cookie: auth_token=xxx; auth_sig=xxx" \
+#      -H "Content-Type: application/json" \
+#      -d '{"action":"CREATE","name":"openclaw"}'
+# 3. Copy the returned key (starts with cfk_) — it's shown only once
