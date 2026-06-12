@@ -817,15 +817,14 @@ V1 API 使用一致的 camelCase 命名：
 
 V0 API 响应格式因端点而异：
 
-#### `/api/todos` 响应（含 camelCase 别名）
+#### `/api/todos` 响应
 
-`/api/todos` 响应包含数据库原始列名（snake_case）并叠加部分 camelCase 别名，**命名不一致**：
+`/api/todos` 响应以数据库原始列名（snake_case）为基础，叠加少量类型转换和计算字段：
 
 ```json
 {
   "id": "uuid",
-  "parent_id": "uuid",          // DB 原始列（snake_case）
-  "parentId": "uuid",           // camelCase 别名（与 parent_id 值相同）
+  "parent_id": "uuid",          // DB 原始列，重复任务系列关联字段
   "date": "2023-10-01",
   "text": "Task Title",
   "time": "09:00",
@@ -833,8 +832,8 @@ V0 API 响应格式因端点而异：
   "desc": "Description",
   "url": "https://...",
   "copy_text": "...",           // DB 原始列
-  "subtasks": [...],            // 已解析为数组（但可能包含纯字符串或 {text, done} 对象）
-  "search_terms": [...],        // DB 原始列名，已解析为数组
+  "subtasks": [...],            // 已解析为数组（可能包含纯字符串或 {text, done} 对象）
+  "search_terms": [...],        // 已解析为数组
   "done": false,                // 覆盖为布尔值
   "deleted": 0,                 // DB 原始值（整数 0/1）
   "repeat_type": "none | daily | weekly | monthly | yearly",
@@ -844,32 +843,33 @@ V0 API 响应格式因端点而异：
   "category_id": "cat_id",
   "recurrence_id": "",
   "is_exception": 0,            // DB 原始值（整数 0/1）
-  "isSeries": true              // camelCase 别名
+  "isSeries": true              // 计算字段：repeat_type !== 'none'
 }
 ```
 
 #### `/api/trash` 响应（纯数据库行）
 
-`/api/trash` 返回的是**纯数据库行**，无任何 camelCase 别名或类型转换：
+`/api/trash` 返回的是**纯数据库行**，无类型转换或计算字段：
 
 ```json
 {
   "id": "uuid",
-  "parent_id": "uuid",          // 无 parentId 别名
+  "parent_id": "uuid",
   "date": "2023-10-01",
   "text": "Task Title",
   "subtasks": "[]",             // 未解析的 JSON 字符串（非数组）
   "search_terms": "[]",         // 未解析的 JSON 字符串（非数组）
   "done": 0,                    // 整数 0/1（非布尔值）
   "deleted": 1,                 // 整数 0/1
-  "is_exception": 0,            // 整数 0/1（无 isSeries 别名）
+  "is_exception": 0,            // 整数 0/1（无 isSeries 字段）
   // ...其余 snake_case 字段同上
 }
 ```
 
-**V0 输入（todo-action 的 task 对象）** 同样混合命名：
-- camelCase: `parentId`、`copyText`、`isSeries`
-- snake_case: `repeat_type`、`repeat_end`、`end_time`、`category_id`、`search_terms`
+**V0 输入（todo-action 的 task 对象）** 命名规则：
+- camelCase: `copyText`、`isSeries`（后端读取）
+- snake_case: `repeat_type`、`repeat_end`、`end_time`、`category_id`、`search_terms`（后端读取）
+- `parentId`：前端可传但后端 CREATE 时已忽略，始终使用 `task.id` 作为 `parent_id`
 
 **建议**: 新集成请使用 V1 API，字段命名一致且规范。
 
