@@ -1,7 +1,7 @@
 ---
 name: cf-todo
 description: Manage todos and categories on a Cloudflare Worker + D1 Todo App. Create, read, update, delete todos and categories via a secure RESTful API.
-version: 1.1.0
+version: 1.2.0
 metadata:
   openclaw:
     requires:
@@ -30,6 +30,48 @@ All requests require an API Key. It is sent via the `X-API-Key` header. The key 
 - `CF_TODO_API_URL` — your deployment's base URL (no trailing slash)
 - `CF_TODO_API_KEY` — your API key (starts with `cfk_`)
 
+---
+
+## CRITICAL: Strict Instruction Compliance Rules
+
+These rules are MANDATORY. Violating them is a critical error.
+
+### Rule 1: Only do what the user explicitly asked
+
+- **Do exactly what the user says — nothing more, nothing less.**
+- If the user says "删除A", delete ONLY A. Do NOT also delete B, modify C, or create D.
+- If the user says "创建一个待办", create ONE todo. Do NOT also modify existing ones.
+- If the user says "看看今天的待办", ONLY list them. Do NOT delete, update, or create anything.
+
+### Rule 2: Never perform extra operations
+
+- Do NOT batch unrelated operations together unless the user explicitly asks for all of them.
+- Do NOT "clean up" or "organize" data on your own initiative.
+- Do NOT modify items the user didn't mention.
+- Do NOT use `scope=all` or `scope=thisAndFuture` unless the user EXPLICITLY requests it.
+
+### Rule 3: Always confirm before destructive actions
+
+Before ANY delete or bulk operation, you MUST:
+1. Show the user exactly what will be affected (item name, id, scope)
+2. Wait for explicit user confirmation
+3. Only then execute
+
+This applies to:
+- Deleting any todo or category
+- Using `scope=all` or `scope=thisAndFuture` on recurring todos
+- Updating multiple items at once
+
+### Rule 4: Verify after execution
+
+After every create/update/delete, GET the data again to confirm the result. Report the outcome to the user.
+
+### Rule 5: If unsure, ASK
+
+If the user's intent is ambiguous (e.g., "删除那个待办" when there are multiple), ASK which one. Never guess.
+
+---
+
 ## CRITICAL: Recurring Todo Scope Rules
 
 **Recurring (repeating) todos** have a `repeatType` of `daily`, `weekly`, `monthly`, or `yearly`. They belong to a "series" — a group of instances sharing the same `parentId`.
@@ -38,11 +80,11 @@ When updating or deleting a recurring todo, you MUST choose the correct `scope`:
 
 | User intent (natural language) | scope value | What it does |
 |---|---|---|
-| "删除这个" / "仅删除" / "删掉今天的" / "delete this one" | `this` (default) | Deletes only this instance; adds an exception date so it won't regenerate |
+| "删除这个" / "仅删除" / "删掉今天的" / "只删这个" / "delete this one" | `this` (default) | Deletes only this instance; adds an exception date so it won't regenerate |
 | "删除这个及之后的" / "从这天起不再重复" / "delete this and future" | `thisAndFuture` | Deletes this and all future instances; keeps past instances |
 | "删除整个系列" / "删除所有重复" / "delete the entire series" | `all` | Deletes ALL instances in the series and the template — **IRREVERSIBLE** |
 
-### IMPORTANT Safety Rules
+### Scope Safety Rules
 
 1. **Default scope is `this`** — If the user doesn't specify, always use `scope=this`. The API already defaults to this, but you should be explicit.
 2. **NEVER use `scope=all` unless the user EXPLICITLY says so** — Phrases like "删除整个系列", "删掉所有重复的", "delete the entire series" qualify. If unsure, ASK the user first.
@@ -56,6 +98,8 @@ A todo is recurring if its API response has:
 - `isSeries` = `true`
 
 Always check these fields before deciding on scope.
+
+---
 
 ## API Endpoints
 
@@ -105,6 +149,8 @@ Content-Type: application/json
 Required fields: `date`, `text`
 Optional: `time`, `priority` (low/medium/high, default low), `desc`, `url`, `copyText`, `subtasks`, `searchTerms`, `repeatType` (none/daily/weekly/monthly/yearly), `repeatEnd`, `endTime`, `categoryId`
 
+**Creating a recurring todo:** Set `repeatType` to `daily`, `weekly`, `monthly`, or `yearly`. Optionally set `repeatEnd` (YYYY-MM-DD) for when the repetition should stop.
+
 #### Update a todo
 
 ```
@@ -117,6 +163,8 @@ Content-Type: application/json
   "scope": "this"
 }
 ```
+
+Only include fields you want to change. Omitted fields keep their current values.
 
 For recurring (series) todos, set `scope` to control the update range:
 - `"this"` — update this instance only, detach from series (default for recurring todos)
@@ -146,10 +194,23 @@ For non-recurring todos, no `scope` is needed.
 
 ### Categories
 
+Categories have an `id`, `name`, and `color` (hex color string, e.g. `"#3B82F6"`).
+
 #### List all categories
 
 ```
 GET {CF_TODO_API_URL}/api/v1/categories
+```
+
+Response:
+```json
+{
+  "success": true,
+  "data": [
+    { "id": "cat_1234", "name": "Work", "color": "#3B82F6" },
+    { "id": "cat_5678", "name": "Personal", "color": "#10B981" }
+  ]
+}
 ```
 
 #### Get a single category
@@ -166,13 +227,15 @@ Content-Type: application/json
 
 {
   "name": "Work",
-  "color": "#FF5733"
+  "color": "#3B82F6"
 }
 ```
 
-Required: `name`. Optional: `color` (hex color, default #888888)
+Required: `name`. Optional: `color` (hex color string, default `"#888888"`).
 
-#### Update a category
+**You can create a category with a color in one request** — just include both `name` and `color`.
+
+#### Update a category (name, color, or both)
 
 ```
 PUT {CF_TODO_API_URL}/api/v1/categories/{id}
@@ -184,33 +247,56 @@ Content-Type: application/json
 }
 ```
 
+You can update `name` alone, `color` alone, or both together. Only include the fields you want to change.
+
+**Change only the color:**
+```json
+{ "color": "#FF5733" }
+```
+
+**Change only the name:**
+```json
+{ "name": "New Name" }
+```
+
 #### Delete a category
 
 ```
 DELETE {CF_TODO_API_URL}/api/v1/categories/{id}
 ```
 
-Deleting a category clears the `categoryId` on all associated todos.
+Deleting a category clears the `categoryId` on all associated todos (they become uncategorized). **This requires user confirmation.**
 
-## Usage Instructions
+---
 
-When the user asks to manage their todo list or categories, use the `exec` tool to make curl requests to the cf-todo API. Always include the API key header.
+## Step-by-step Workflow
 
-### Step-by-step workflow
+1. **Always fetch first** — Before deleting or updating, GET the todo/category list to find the correct `id` and check if it's recurring (`isSeries: true`).
+2. **Identify the exact target** — Match the user's description to a specific item. If multiple match, ASK the user which one.
+3. **Check recurring status** — If the todo is recurring, determine the appropriate `scope` based on the user's intent (see scope rules above).
+4. **Confirm destructive actions** — Before ANY delete or `scope=all`/`thisAndFuture`, tell the user exactly what will happen and wait for confirmation.
+5. **Execute only what was asked** — Do NOT add extra operations the user didn't request.
+6. **Verify and report** — After the operation, GET the data again to confirm the result. Report the outcome to the user.
 
-1. **Always fetch first** — Before deleting or updating, GET the todo list to find the correct `id` and check if it's recurring (`isSeries: true`).
-2. **Check recurring status** — If the todo is recurring, determine the appropriate `scope` based on the user's intent (see scope rules above).
-3. **Confirm destructive actions** — Before using `scope=all` or `scope=thisAndFuture`, tell the user what will happen and ask for confirmation.
-4. **Execute and verify** — After the operation, GET the todo list again to confirm the result.
+---
 
-### Common patterns
+## Common Patterns
+
+### Read operations (safe, no confirmation needed)
 
 **Show today's todos:**
 ```bash
 curl -s -H "X-API-Key: $CF_TODO_API_KEY" "$CF_TODO_API_URL/api/v1/todos?date=$(date +%Y-%m-%d)"
 ```
 
-**Create a new todo:**
+**List categories:**
+```bash
+curl -s -H "X-API-Key: $CF_TODO_API_KEY" "$CF_TODO_API_URL/api/v1/categories"
+```
+
+### Create operations
+
+**Create a simple todo:**
 ```bash
 curl -s -X POST -H "X-API-Key: $CF_TODO_API_KEY" -H "Content-Type: application/json" \
   "$CF_TODO_API_URL/api/v1/todos" \
@@ -224,19 +310,34 @@ curl -s -X POST -H "X-API-Key: $CF_TODO_API_KEY" -H "Content-Type: application/j
   -d '{"date":"2026-06-12","text":"Daily standup","time":"09:30","priority":"high","repeatType":"daily"}'
 ```
 
-**Delete a non-recurring todo:**
+**Create a category with color:**
 ```bash
-curl -s -X DELETE -H "X-API-Key: $CF_TODO_API_KEY" "$CF_TODO_API_URL/api/v1/todos/{id}"
+curl -s -X POST -H "X-API-Key: $CF_TODO_API_KEY" -H "Content-Type: application/json" \
+  "$CF_TODO_API_URL/api/v1/categories" \
+  -d '{"name":"Work","color":"#3B82F6"}'
 ```
 
-**Delete only this instance of a recurring todo:**
+**Create a category without color (uses default #888888):**
 ```bash
-curl -s -X DELETE -H "X-API-Key: $CF_TODO_API_KEY" "$CF_TODO_API_URL/api/v1/todos/{id}?scope=this"
+curl -s -X POST -H "X-API-Key: $CF_TODO_API_KEY" -H "Content-Type: application/json" \
+  "$CF_TODO_API_URL/api/v1/categories" \
+  -d '{"name":"Personal"}'
 ```
 
-**Delete entire recurring series (MUST confirm with user first!):**
+### Update operations
+
+**Update a category's color only:**
 ```bash
-curl -s -X DELETE -H "X-API-Key: $CF_TODO_API_KEY" "$CF_TODO_API_URL/api/v1/todos/{id}?scope=all"
+curl -s -X PUT -H "X-API-Key: $CF_TODO_API_KEY" -H "Content-Type: application/json" \
+  "$CF_TODO_API_URL/api/v1/categories/{id}" \
+  -d '{"color":"#FF5733"}'
+```
+
+**Update a category's name only:**
+```bash
+curl -s -X PUT -H "X-API-Key: $CF_TODO_API_KEY" -H "Content-Type: application/json" \
+  "$CF_TODO_API_URL/api/v1/categories/{id}" \
+  -d '{"name":"New Name"}'
 ```
 
 **Mark a todo as done:**
@@ -244,21 +345,42 @@ curl -s -X DELETE -H "X-API-Key: $CF_TODO_API_KEY" "$CF_TODO_API_URL/api/v1/todo
 curl -s -X PATCH -H "X-API-Key: $CF_TODO_API_KEY" "$CF_TODO_API_URL/api/v1/todos/{id}/toggle"
 ```
 
-**List categories:**
+### Delete operations (ALWAYS confirm with user first!)
+
+**Delete a non-recurring todo:**
 ```bash
-curl -s -H "X-API-Key: $CF_TODO_API_KEY" "$CF_TODO_API_URL/api/v1/categories"
+curl -s -X DELETE -H "X-API-Key: $CF_TODO_API_KEY" "$CF_TODO_API_URL/api/v1/todos/{id}"
 ```
 
-**Create a category:**
+**Delete only this instance of a recurring todo (default):**
 ```bash
-curl -s -X POST -H "X-API-Key: $CF_TODO_API_KEY" -H "Content-Type: application/json" \
-  "$CF_TODO_API_URL/api/v1/categories" \
-  -d '{"name":"Work","color":"#3B82F6"}'
+curl -s -X DELETE -H "X-API-Key: $CF_TODO_API_KEY" "$CF_TODO_API_URL/api/v1/todos/{id}?scope=this"
 ```
+
+**Delete entire recurring series (MUST get explicit user confirmation first!):**
+```bash
+curl -s -X DELETE -H "X-API-Key: $CF_TODO_API_KEY" "$CF_TODO_API_URL/api/v1/todos/{id}?scope=all"
+```
+
+**Delete a category (MUST confirm with user first!):**
+```bash
+curl -s -X DELETE -H "X-API-Key: $CF_TODO_API_KEY" "$CF_TODO_API_URL/api/v1/categories/{id}"
+```
+
+---
 
 ## Response format
 
 All responses are JSON. Successful responses contain a `success: true` field and a `data` field with the result. Error responses contain an `error` field with a message.
+
+## Error handling
+
+- `400` — Bad request (missing required fields, invalid format, duplicate name)
+- `401` — Authentication failed (invalid or missing API key)
+- `404` — Item not found
+- `405` — Method not allowed
+
+Always report errors to the user with the error message from the API response.
 
 ## Limitations
 
@@ -266,3 +388,4 @@ All responses are JSON. Successful responses contain a `success: true` field and
 - API keys can be managed only through the web UI (cookie auth required)
 - Date format must be YYYY-MM-DD
 - Maximum 500 todos per query (use pagination for more)
+- Category names must be unique (case-insensitive)
