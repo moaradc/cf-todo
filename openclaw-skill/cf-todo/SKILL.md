@@ -320,31 +320,6 @@ curl -s -X POST -H "X-API-Key: $CF_TODO_API_KEY" -H "Content-Type: application/j
 
 Note: `"medium"` priority is auto-converted to `"med"`. Subtask/searchTerm strings are auto-converted to `{text, done:false}` objects.
 
-### Daily Search (每日搜索)
-
-The `searchTerms` field powers the **"启用每日搜索"** feature in the web UI. When enabled, the todo displays a list of trending/hot search terms that the user can click to copy or mark as done. This is useful for daily information gathering tasks.
-
-**How it works:**
-1. In the web UI, toggling "启用每日搜索" calls `/api/hot-search?provider=xxx` to fetch trending terms from sources like Bilibili, Weibo, Zhihu, or Baidu
-2. The fetched terms are saved as `searchTerms: [{"text": "热搜词1", "done": false}, ...]`
-3. Each term can be toggled (`done: true/false`) or copied via the UI
-
-**Via API:** You can set `searchTerms` directly when creating or updating a todo:
-
-```bash
-# Create a todo with daily search terms
-curl -s -X POST -H "X-API-Key: $CF_TODO_API_KEY" -H "Content-Type: application/json" \
-  "$CF_TODO_API_URL/api/v1/todos" \
-  -d '{"date":"2026-06-12","text":"每日热搜浏览","searchTerms":[{"text":"AI新突破","done":false},{"text":"科技前沿","done":false}]}'
-
-# Update search terms on an existing todo
-curl -s -X PUT -H "X-API-Key: $CF_TODO_API_KEY" -H "Content-Type: application/json" \
-  "$CF_TODO_API_URL/api/v1/todos/{id}" \
-  -d '{"searchTerms":[{"text":"AI新突破","done":true},{"text":"科技前沿","done":false}]}'
-```
-
-**Note:** The API does not provide a hot-search endpoint for fetching trending terms. That is only available through the web UI's internal `/api/hot-search` endpoint. When using the API, you must provide `searchTerms` content yourself.
-
 Response (HTTP 201):
 
 ```json
