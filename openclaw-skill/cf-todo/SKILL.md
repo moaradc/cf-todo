@@ -67,6 +67,8 @@ Alternative methods (also supported):
 - Query parameter: `?api_key=cfk_xxx`
 - Authorization header: `Authorization: Bearer cfk_xxx`
 
+Endpoints under `/api/v1/keys` require **Cookie auth only** (web UI session), not API Key.
+
 ## API Reference
 
 | Method | Endpoint | Description | Notes |
@@ -74,29 +76,29 @@ Alternative methods (also supported):
 | **Todo** | | | |
 | GET | `/api/v1/todos?date=` | 查询 Todo 列表 | 必填 `date`；可选 `start_date`+`end_date`, `category_id`, `done`, `limit`, `offset` |
 | GET | `/api/v1/todos/:id` | 获取单个 Todo | — |
-| POST | `/api/v1/todos` | 创建 Todo | 必填 `date`, `text`；`date` 为首次出现日期 |
-| PUT | `/api/v1/todos/:id` | 更新 Todo | 仅传需改字段；重复任务需设 `scope` |
+| POST | `/api/v1/todos` | 创建 Todo | 必填 `date`, `text`；返回 201；`date` 为首次出现日期 |
+| PUT | `/api/v1/todos/:id` | 更新 Todo | 仅传需改字段；可改 `date`；重复任务需设 `scope` |
 | PATCH | `/api/v1/todos/:id/toggle` | 切换完成状态 | 重复任务仅影响当天实例 |
 | DELETE | `/api/v1/todos/:id` | 删除 Todo（软删除） | 重复任务默认 `scope=this`；可选 `thisAndFuture`, `all` |
 | POST | `/api/v1/todos/batch` | 批量操作 | `BATCH_TOGGLE_DONE`（需 `ids`+`doneStatus`）或 `BATCH_DELETE`（需 `ids`）；最多100条 |
 | **Category** | | | |
 | GET | `/api/v1/categories` | 列出所有分类 | — |
 | GET | `/api/v1/categories/:id` | 获取单个分类 | — |
-| POST | `/api/v1/categories` | 创建分类 | 必填 `name`；可选 `color`（默认 `#888888`）；名称唯一（不区分大小写） |
+| POST | `/api/v1/categories` | 创建分类 | 必填 `name`；可选 `color`（默认 `#888888`）；返回 201；名称唯一（不区分大小写） |
 | PUT | `/api/v1/categories/:id` | 更新分类 | 仅传 `name` 和/或 `color` |
-| DELETE | `/api/v1/categories/:id` | 删除分类 | 关联 Todo 的 `categoryId` 自动置空 |
-| POST | `/api/v1/categories/batch` | 批量删除分类 | `BATCH_DELETE`（需 `ids`） |
+| DELETE | `/api/v1/categories/:id` | 删除分类 | 关联 Todo 的 `categoryId` 自动置空；硬删除 |
+| POST | `/api/v1/categories/batch` | 批量删除分类 | `BATCH_DELETE`（需 `ids`）；硬删除 |
 | **Trash** | | | |
-| GET | `/api/v1/trash` | 回收站列表 | 可选 `limit`, `offset` |
+| GET | `/api/v1/trash` | 回收站列表 | 可选 `limit`, `offset`；含分页 |
 | POST | `/api/v1/trash-action` | `RESTORE` 恢复单条 | 自动处理重复任务：移除 exdate、重建模板、冲突脱钩 |
-| POST | `/api/v1/trash-action` | `DELETE_PERMANENT` 永久删除 | **不可恢复**，需确认 |
+| POST | `/api/v1/trash-action` | `DELETE_PERMANENT` 永久删除 | **不可恢复**，需确认；硬删除 |
 | POST | `/api/v1/trash-action` | `CLEAR_ALL` 清空回收站 | **不可恢复**，需确认 |
-| POST | `/api/v1/trash-action` | `BATCH_RESTORE` 批量恢复 | 需 `ids` 数组 |
+| POST | `/api/v1/trash-action` | `BATCH_RESTORE` 批量恢复 | 需 `ids` 数组；自动处理冲突脱钩 |
 | POST | `/api/v1/trash-action` | `BATCH_DELETE_PERMANENT` 批量永久删除 | **不可恢复**，需确认；需 `ids` 数组 |
 | **Stats** | | | |
 | GET | `/api/v1/stats?start=&end=` | 统计数据 | 必填 `start`, `end`；返回 total/done/undone/byPriority/byDate |
 | **API Key 管理** | | | |
-| GET | `/api/v1/keys` | 列出所有 Key（脱敏） | Cookie only |
+| GET | `/api/v1/keys` | 列出所有 Key（脱敏） | Cookie only；返回 `keyPrefix`，不返回完整 Key |
 | POST | `/api/v1/keys` | `CREATE` 创建 Key | Cookie only；仅创建时返回完整 Key；最多10个 |
 | POST | `/api/v1/keys` | `DELETE` 删除 Key | Cookie only；需 `id` |
 | POST | `/api/v1/keys` | `TOGGLE` 启用/禁用 Key | Cookie only；需 `id` |
@@ -196,14 +198,88 @@ curl -s -H "X-API-Key: $CF_TODO_API_KEY" "$CF_TODO_API_URL/api/v1/todos?start_da
 
 # Filter by category or completion
 curl -s -H "X-API-Key: $CF_TODO_API_KEY" "$CF_TODO_API_URL/api/v1/todos?date=2026-06-12&category_id=cat_xxx&done=false"
+
+# With pagination
+curl -s -H "X-API-Key: $CF_TODO_API_KEY" "$CF_TODO_API_URL/api/v1/todos?date=2026-06-12&limit=20&offset=0"
 ```
 
-Query params: `date`, `start_date`+`end_date`, `category_id`, `done` (true/false), `limit` (max 500), `offset`
+Query params: `date`, `start_date`+`end_date`, `category_id`, `done` (true/false), `limit` (1-500, default 100), `offset` (default 0)
+
+Response:
+
+```json
+{
+  "success": true,
+  "data": [
+    {
+      "id": "uuid",
+      "parentId": "uuid",
+      "date": "2026-06-12",
+      "text": "Buy groceries",
+      "time": "14:00",
+      "priority": "high",
+      "desc": "Milk, eggs, bread",
+      "url": "",
+      "copyText": "",
+      "subtasks": [{"text": "Milk", "done": false}],
+      "searchTerms": [],
+      "done": false,
+      "deleted": false,
+      "repeatType": "none",
+      "repeatCustom": "",
+      "repeatEnd": "",
+      "endTime": "",
+      "categoryId": "",
+      "recurrenceId": "",
+      "isException": false,
+      "isSeries": false
+    }
+  ],
+  "pagination": {
+    "total": 42,
+    "limit": 100,
+    "offset": 0
+  }
+}
+```
+
+**Note:** When querying by `date`, recurring todo templates are auto-expanded: if a recurring todo should appear on that date but no instance exists yet, one is created automatically and included in the results.
 
 ### Get a single todo
 
 ```bash
 curl -s -H "X-API-Key: $CF_TODO_API_KEY" "$CF_TODO_API_URL/api/v1/todos/{id}"
+```
+
+Response:
+
+```json
+{
+  "success": true,
+  "data": {
+    "id": "uuid",
+    "parentId": "uuid",
+    "date": "2026-06-12",
+    "text": "Buy groceries",
+    "time": "14:00",
+    "priority": "high",
+    "desc": "",
+    "url": "",
+    "copyText": "",
+    "subtasks": [],
+    "searchTerms": [],
+    "done": false,
+    "deleted": false,
+    "repeatType": "none",
+    "repeatCustom": "",
+    "repeatEnd": "",
+    "endTime": "",
+    "categoryId": "",
+    "recurrenceId": "",
+    "isException": false,
+    "isSeries": false
+  }
+}
 ```
 
 ### Create a todo
@@ -242,7 +318,36 @@ curl -s -X POST -H "X-API-Key: $CF_TODO_API_KEY" -H "Content-Type: application/j
 | `endTime` | HH:MM | `""` |
 | `categoryId` | Category ID | `""` |
 
-Note: `"medium"` priority is auto-converted to `"med"`. Subtask strings are auto-converted to objects.
+Note: `"medium"` priority is auto-converted to `"med"`. Subtask/searchTerm strings are auto-converted to `{text, done:false}` objects.
+
+Response (HTTP 201):
+
+```json
+{
+  "success": true,
+  "data": {
+    "id": "uuid",
+    "date": "2026-06-12",
+    "text": "Buy groceries",
+    "repeatType": "none",
+    "categoryId": ""
+  }
+}
+```
+
+**Creating a recurring todo:** When `repeatType` is not `"none"`, a template is also created in `todo_templates`. The `date` field becomes the anchor (first occurrence) date.
+
+```bash
+# Create a daily recurring todo
+curl -s -X POST -H "X-API-Key: $CF_TODO_API_KEY" -H "Content-Type: application/json" \
+  "$CF_TODO_API_URL/api/v1/todos" \
+  -d '{"date":"2026-06-12","text":"晨跑","repeatType":"daily"}'
+
+# Create a weekly recurring todo ending on a specific date
+curl -s -X POST -H "X-API-Key: $CF_TODO_API_KEY" -H "Content-Type: application/json" \
+  "$CF_TODO_API_URL/api/v1/todos" \
+  -d '{"date":"2026-06-13","text":"周会","repeatType":"weekly","repeatEnd":"2026-12-31"}'
+```
 
 ### Update a todo
 
@@ -252,15 +357,87 @@ curl -s -X PUT -H "X-API-Key: $CF_TODO_API_KEY" -H "Content-Type: application/js
   -d '{"text": "Updated text", "priority": "high", "scope": "this"}'
 ```
 
-Only include fields you want to change. For recurring todos, set `scope`:
-- `"this"` — update this instance only (default for recurring)
-- `"thisAndFuture"` — update this + future instances
-- `"all"` — update all instances — **DESTRUCTIVE, confirm first**
+Only include fields you want to change. All fields from Create are also updatable, plus:
+
+| Field | Description |
+|---|---|
+| `date` | Change the date. For recurring todos with `scope=all` or `thisAndFuture`, changing date will delete and regenerate future instances. |
+| `scope` | For recurring todos only: `"this"`, `"thisAndFuture"`, `"all"` |
+
+For recurring todos, set `scope`:
+- `"this"` — update this instance only (default for recurring). Adds exdate to template; detaches from series if `repeatType` changes to `"none"`.
+- `"thisAndFuture"` — update this + future instances. Updates template.
+- `"all"` — update all instances — **DESTRUCTIVE, confirm first**. Updates template + all existing instances.
+
+**Special behaviors:**
+- Changing a non-recurring todo to recurring (`repeatType` != `"none"`) creates a template automatically.
+- Changing a recurring instance to non-recurring detaches it from the series (sets `parentId` = own `id`, adds exdate to template).
+- Changing `date` on a recurring todo with `scope=all` or `thisAndFuture` will delete future instances and regenerate them from the updated template.
+
+Response:
+
+```json
+{
+  "success": true,
+  "data": {
+    "id": "uuid",
+    "parentId": "uuid",
+    "date": "2026-06-12",
+    "text": "Updated text",
+    "...": "full todo object"
+  }
+}
+```
 
 ### Toggle done status
 
 ```bash
 curl -s -X PATCH -H "X-API-Key: $CF_TODO_API_KEY" "$CF_TODO_API_URL/api/v1/todos/{id}/toggle"
+```
+
+Toggles `done` between `true` and `false`. For recurring todos, only the specific day's instance is toggled — other days remain unaffected.
+
+Response:
+
+```json
+{
+  "success": true,
+  "data": {
+    "id": "uuid",
+    "done": true
+  }
+}
+```
+
+### Delete a todo
+
+```bash
+# Non-recurring
+curl -s -X DELETE -H "X-API-Key: $CF_TODO_API_KEY" "$CF_TODO_API_URL/api/v1/todos/{id}"
+
+# Recurring: delete only this instance (default)
+curl -s -X DELETE -H "X-API-Key: $CF_TODO_API_KEY" "$CF_TODO_API_URL/api/v1/todos/{id}?scope=this"
+
+# Recurring: delete this and all future instances
+curl -s -X DELETE -H "X-API-Key: $CF_TODO_API_KEY" "$CF_TODO_API_URL/api/v1/todos/{id}?scope=thisAndFuture"
+
+# Recurring: delete entire series (MUST confirm with user!)
+curl -s -X DELETE -H "X-API-Key: $CF_TODO_API_KEY" "$CF_TODO_API_URL/api/v1/todos/{id}?scope=all"
+```
+
+This is a **soft delete** — the todo is moved to trash (`deleted = 1`), not permanently removed. It can be restored via the Trash API.
+
+**Scope behaviors for recurring todos:**
+- `this` (default) — Soft-deletes this instance only; adds exdate to template to prevent regeneration.
+- `thisAndFuture` — Soft-deletes this + all future instances; sets `repeatEnd` on template and past instances.
+- `all` — Soft-deletes ALL instances + deletes the template — **IRREVERSIBLE even from trash** (template is permanently deleted).
+
+Response:
+
+```json
+{
+  "success": true
+}
 ```
 
 ### Batch operations
@@ -277,17 +454,24 @@ curl -s -X POST -H "X-API-Key: $CF_TODO_API_KEY" -H "Content-Type: application/j
   -d '{"action":"BATCH_DELETE","ids":["id1","id2"]}'
 ```
 
-### Delete a todo
+**BATCH_TOGGLE_DONE** — Set `doneStatus` to `true` (mark done) or `false` (mark undone) for all given `ids`.
 
-```bash
-# Non-recurring
-curl -s -X DELETE -H "X-API-Key: $CF_TODO_API_KEY" "$CF_TODO_API_URL/api/v1/todos/{id}"
+**BATCH_DELETE** — Soft-deletes all given `ids` (moves to trash). For recurring todos in the batch, exdates are automatically added to their templates to prevent regeneration.
 
-# Recurring: delete only this instance (default)
-curl -s -X DELETE -H "X-API-Key: $CF_TODO_API_KEY" "$CF_TODO_API_URL/api/v1/todos/{id}?scope=this"
+| Parameter | Type | Required | Description |
+|---|---|---|---|
+| `action` | string | Yes | `BATCH_TOGGLE_DONE` or `BATCH_DELETE` |
+| `ids` | string[] | Yes | Array of todo IDs (max 100) |
+| `doneStatus` | boolean | BATCH_TOGGLE_DONE | `true` = done, `false` = undone |
 
-# Recurring: delete entire series (MUST confirm with user!)
-curl -s -X DELETE -H "X-API-Key: $CF_TODO_API_KEY" "$CF_TODO_API_URL/api/v1/todos/{id}?scope=all"
+Response:
+
+```json
+// BATCH_TOGGLE_DONE
+{"success": true, "data": {"affected": 3, "done": true}}
+
+// BATCH_DELETE
+{"success": true, "data": {"affected": 3}}
 ```
 
 ### List categories
@@ -296,7 +480,32 @@ curl -s -X DELETE -H "X-API-Key: $CF_TODO_API_KEY" "$CF_TODO_API_URL/api/v1/todo
 curl -s -H "X-API-Key: $CF_TODO_API_KEY" "$CF_TODO_API_URL/api/v1/categories"
 ```
 
-Response: `{"success":true,"data":[{"id":"cat_xxx","name":"Work","color":"#3B82F6"}]}`
+Response:
+
+```json
+{
+  "success": true,
+  "data": [
+    {"id": "cat_xxx", "name": "Work", "color": "#3B82F6"},
+    {"id": "cat_yyy", "name": "Personal", "color": "#888888"}
+  ]
+}
+```
+
+### Get a single category
+
+```bash
+curl -s -H "X-API-Key: $CF_TODO_API_KEY" "$CF_TODO_API_URL/api/v1/categories/{id}"
+```
+
+Response:
+
+```json
+{
+  "success": true,
+  "data": {"id": "cat_xxx", "name": "Work", "color": "#3B82F6"}
+}
+```
 
 ### Create a category
 
@@ -306,7 +515,18 @@ curl -s -X POST -H "X-API-Key: $CF_TODO_API_KEY" -H "Content-Type: application/j
   -d '{"name":"Work","color":"#3B82F6"}'
 ```
 
-Required: `name`. Optional: `color` (hex, default `"#888888"`).
+Required: `name`. Optional: `color` (hex string, default `"#888888"`).
+
+Category names must be unique (case-insensitive check). If a duplicate name is provided, returns `400`.
+
+Response (HTTP 201):
+
+```json
+{
+  "success": true,
+  "data": {"id": "cat_xxx", "name": "Work", "color": "#3B82F6"}
+}
+```
 
 ### Update a category
 
@@ -320,6 +540,22 @@ curl -s -X PUT -H "X-API-Key: $CF_TODO_API_KEY" -H "Content-Type: application/js
 curl -s -X PUT -H "X-API-Key: $CF_TODO_API_KEY" -H "Content-Type: application/json" \
   "$CF_TODO_API_URL/api/v1/categories/{id}" \
   -d '{"color":"#FF5733"}'
+
+# Change both
+curl -s -X PUT -H "X-API-Key: $CF_TODO_API_KEY" -H "Content-Type: application/json" \
+  "$CF_TODO_API_URL/api/v1/categories/{id}" \
+  -d '{"name":"New Name","color":"#FF5733"}'
+```
+
+Only include fields you want to change. Name uniqueness is checked against other categories (excluding the current one).
+
+Response:
+
+```json
+{
+  "success": true,
+  "data": {"id": "cat_xxx", "name": "New Name", "color": "#FF5733"}
+}
 ```
 
 ### Delete a category
@@ -328,7 +564,13 @@ curl -s -X PUT -H "X-API-Key: $CF_TODO_API_KEY" -H "Content-Type: application/js
 curl -s -X DELETE -H "X-API-Key: $CF_TODO_API_KEY" "$CF_TODO_API_URL/api/v1/categories/{id}"
 ```
 
-Deletes the category and clears `categoryId` on all associated todos. **Confirm with user first.**
+This is a **hard delete** — the category is permanently removed. All todos and templates that referenced this category will have their `categoryId` set to `""`. **Confirm with user first.**
+
+Response:
+
+```json
+{"success": true}
+```
 
 ### Assign a category to a todo
 
@@ -352,12 +594,39 @@ curl -s -X POST -H "X-API-Key: $CF_TODO_API_KEY" -H "Content-Type: application/j
   -d '{"action":"BATCH_DELETE","ids":["cat_id1","cat_id2"]}'
 ```
 
+Hard-deletes all specified categories. All associated todos/templates have `categoryId` cleared. **Confirm with user first.**
+
+| Parameter | Type | Required | Description |
+|---|---|---|---|
+| `action` | string | Yes | `BATCH_DELETE` |
+| `ids` | string[] | Yes | Array of category IDs |
+
+Response:
+
+```json
+{"success": true, "data": {"deleted": 2}}
+```
+
 ### Trash (deleted todos)
 
 ```bash
-# List trash
-curl -s -H "X-API-Key: $CF_TODO_API_KEY" "$CF_TODO_API_URL/api/v1/trash"
+# List trash (with pagination)
+curl -s -H "X-API-Key: $CF_TODO_API_KEY" "$CF_TODO_API_URL/api/v1/trash?limit=20&offset=0"
+```
 
+Response:
+
+```json
+{
+  "success": true,
+  "data": [
+    {"id": "uuid", "text": "Deleted todo", "...": "full todo object with deleted: true"}
+  ],
+  "pagination": {"total": 5, "limit": 20, "offset": 0}
+}
+```
+
+```bash
 # Restore a single todo
 curl -s -X POST -H "X-API-Key: $CF_TODO_API_KEY" -H "Content-Type: application/json" \
   "$CF_TODO_API_URL/api/v1/trash-action" \
@@ -384,9 +653,28 @@ curl -s -X POST -H "X-API-Key: $CF_TODO_API_KEY" -H "Content-Type: application/j
   -d '{"action":"BATCH_DELETE_PERMANENT","ids":["id1","id2"]}'
 ```
 
-Trash actions: `RESTORE`, `DELETE_PERMANENT`, `CLEAR_ALL`, `BATCH_RESTORE`, `BATCH_DELETE_PERMANENT`
+**Action details:**
 
-**RESTORE** handles recurring todos correctly: removes exdate, rebuilds template if needed, detaches if conflict.
+| Action | Required Params | Description |
+|---|---|---|
+| `RESTORE` | `id` | Restore single todo. For recurring: removes exdate from template, rebuilds template if missing, detaches from series if date conflicts. |
+| `DELETE_PERMANENT` | `id` | **Irreversible** hard delete. |
+| `CLEAR_ALL` | — | **Irreversible** hard delete all trashed todos. |
+| `BATCH_RESTORE` | `ids` (array) | Restore multiple. Auto-handles recurring conflicts: detaches from series if same-date instance already exists or if template `repeatEnd` has passed. |
+| `BATCH_DELETE_PERMANENT` | `ids` (array) | **Irreversible** hard delete multiple. |
+
+Response:
+
+```json
+// RESTORE / DELETE_PERMANENT / CLEAR_ALL
+{"success": true}
+
+// BATCH_RESTORE
+{"success": true, "data": {"restored": 2}}
+
+// BATCH_DELETE_PERMANENT
+{"success": true, "data": {"deleted": 2}}
+```
 
 ### Statistics
 
@@ -394,7 +682,9 @@ Trash actions: `RESTORE`, `DELETE_PERMANENT`, `CLEAR_ALL`, `BATCH_RESTORE`, `BAT
 curl -s -H "X-API-Key: $CF_TODO_API_KEY" "$CF_TODO_API_URL/api/v1/stats?start=2026-06-01&end=2026-06-12"
 ```
 
-Required: `start`, `end` (YYYY-MM-DD). Returns:
+Required: `start`, `end` (YYYY-MM-DD). Only counts non-deleted todos.
+
+Response:
 
 ```json
 {
@@ -403,8 +693,11 @@ Required: `start`, `end` (YYYY-MM-DD). Returns:
     "total": 20,
     "done": 15,
     "undone": 5,
-    "byPriority": { "low": 10, "med": 5, "high": 5 },
-    "byDate": { "2026-06-12": { "total": 3, "done": 2 } }
+    "byPriority": {"low": 10, "med": 5, "high": 5},
+    "byDate": {
+      "2026-06-12": {"total": 3, "done": 2},
+      "2026-06-11": {"total": 5, "done": 4}
+    }
   }
 }
 ```
@@ -423,7 +716,13 @@ Required: `start`, `end` (YYYY-MM-DD). Returns:
 
 All responses are JSON: `{"success":true,"data":...}` or `{"error":"message"}`
 
-HTTP errors: `400` (bad request), `401` (auth failed), `404` (not found), `405` (method not allowed)
+HTTP status codes:
+- `200` — Success
+- `201` — Created (POST /todos, POST /categories)
+- `400` — Bad request (missing required fields, invalid format, duplicate name)
+- `401` — Auth failed (invalid API Key or missing cookie)
+- `404` — Not found (todo/category does not exist)
+- `405` — Method not allowed
 
 ## Limitations
 
@@ -431,4 +730,7 @@ HTTP errors: `400` (bad request), `401` (auth failed), `404` (not found), `405` 
 - API keys managed only via web UI (cookie auth)
 - Date format must be YYYY-MM-DD
 - Max 500 todos per query (use pagination)
+- Max 100 items per batch operation
 - Category names must be unique (case-insensitive)
+- Category delete is hard delete (cannot be restored); todo delete is soft delete (restorable from trash)
+- Deleting a recurring todo with `scope=all` also permanently deletes the template — the series cannot be restored from trash
