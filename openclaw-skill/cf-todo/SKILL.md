@@ -85,6 +85,51 @@ Alternative methods (also supported):
 
 ---
 
+## API Reference
+
+| Method | Endpoint | Description | Auth | Notes |
+|--------|----------|-------------|------|-------|
+| **Todo** | | | | |
+| GET | `/api/v1/todos?date=` | 查询 Todo 列表 | API Key / Cookie | 必填 `date`；可选 `start_date`+`end_date`, `category_id`, `done`, `limit`, `offset` |
+| GET | `/api/v1/todos/:id` | 获取单个 Todo | API Key / Cookie | — |
+| POST | `/api/v1/todos` | 创建 Todo | API Key / Cookie | 必填 `date`, `text`；`date` 为首次出现日期 |
+| PUT | `/api/v1/todos/:id` | 更新 Todo | API Key / Cookie | 仅传需改字段；重复任务需设 `scope` |
+| PATCH | `/api/v1/todos/:id/toggle` | 切换完成状态 | API Key / Cookie | 重复任务仅影响当天实例 |
+| DELETE | `/api/v1/todos/:id` | 删除 Todo（软删除） | API Key / Cookie | 重复任务默认 `scope=this`；可选 `thisAndFuture`, `all` |
+| POST | `/api/v1/todos/batch` | 批量操作 | API Key / Cookie | `BATCH_TOGGLE_DONE`（需 `ids`+`doneStatus`）或 `BATCH_DELETE`（需 `ids`）；最多100条 |
+| **Category** | | | | |
+| GET | `/api/v1/categories` | 列出所有分类 | API Key / Cookie | — |
+| GET | `/api/v1/categories/:id` | 获取单个分类 | API Key / Cookie | — |
+| POST | `/api/v1/categories` | 创建分类 | API Key / Cookie | 必填 `name`；可选 `color`（默认 `#888888`）；名称唯一（不区分大小写） |
+| PUT | `/api/v1/categories/:id` | 更新分类 | API Key / Cookie | 仅传 `name` 和/或 `color` |
+| DELETE | `/api/v1/categories/:id` | 删除分类 | API Key / Cookie | 关联 Todo 的 `categoryId` 自动置空 |
+| POST | `/api/v1/categories/batch` | 批量删除分类 | API Key / Cookie | `BATCH_DELETE`（需 `ids`） |
+| **Trash** | | | | |
+| GET | `/api/v1/trash` | 回收站列表 | API Key / Cookie | 可选 `limit`, `offset` |
+| POST | `/api/v1/trash-action` | `RESTORE` 恢复单条 | API Key / Cookie | 自动处理重复任务：移除 exdate、重建模板、冲突脱钩 |
+| POST | `/api/v1/trash-action` | `DELETE_PERMANENT` 永久删除 | API Key / Cookie | **不可恢复**，需确认 |
+| POST | `/api/v1/trash-action` | `CLEAR_ALL` 清空回收站 | API Key / Cookie | **不可恢复**，需确认 |
+| POST | `/api/v1/trash-action` | `BATCH_RESTORE` 批量恢复 | API Key / Cookie | 需 `ids` 数组 |
+| POST | `/api/v1/trash-action` | `BATCH_DELETE_PERMANENT` 批量永久删除 | API Key / Cookie | **不可恢复**，需确认；需 `ids` 数组 |
+| **Stats** | | | | |
+| GET | `/api/v1/stats?start=&end=` | 统计数据 | API Key / Cookie | 必填 `start`, `end`；返回 total/done/undone/byPriority/byDate |
+| **API Key 管理** | | | | |
+| GET | `/api/v1/keys` | 列出所有 Key（脱敏） | Cookie only | 返回 `keyPrefix`，不返回完整 Key |
+| POST | `/api/v1/keys` | `CREATE` 创建 Key | Cookie only | 仅创建时返回完整 Key；最多10个 |
+| POST | `/api/v1/keys` | `DELETE` 删除 Key | Cookie only | 需 `id` |
+| POST | `/api/v1/keys` | `TOGGLE` 启用/禁用 Key | Cookie only | 需 `id` |
+| POST | `/api/v1/keys` | `RENAME` 重命名 Key | Cookie only | 需 `id`+`name` |
+
+### Scope 说明（重复任务专用）
+
+| scope | 含义 | 适用场景 | 风险 |
+|-------|------|----------|------|
+| `this` | 仅操作此实例 | "仅删除"、"只改这个"（默认） | 低 — 不影响其他实例 |
+| `thisAndFuture` | 操作此实例及之后 | "从这天起不再重复" | 中 — 影响多个未来实例，需确认 |
+| `all` | 操作整个系列 | "删除整个系列"、"删掉所有重复" | 高 — **不可恢复**，必须用户明确要求 |
+
+---
+
 ## Safety Rules
 
 These rules are MANDATORY. Violating them may cause irreversible data loss.
