@@ -42,15 +42,23 @@ These rules are MANDATORY. Violating them is a critical error.
 - If the user says "删除A", delete ONLY A. Do NOT also delete B, modify C, or create D.
 - If the user says "创建一个待办", create ONE todo. Do NOT also modify existing ones.
 - If the user says "看看今天的待办", ONLY list them. Do NOT delete, update, or create anything.
+- If the user says "标记为完成" referring to a specific item, mark ONLY that item. Do NOT mark other items as done.
 
-### Rule 2: Never perform extra operations
+### Rule 2: Context-aware targeting
+
+- When the user gives a command like "标记为完成" or "删掉" without specifying which item, **use conversation context to identify the exact target**.
+- If the previous message mentioned a specific item (e.g., "蓝牙耳机测评那件还没完成"), the user's next command ("标记为完成") refers to THAT item only.
+- If there are multiple possible targets and the context is unclear, ASK the user which one. Never assume "all" or pick randomly.
+- **NEVER apply operations to items the user did not mention.** If the user says "标记蓝牙耳机测评为完成", do NOT also mark "耳机线" as done.
+
+### Rule 3: Never perform extra operations
 
 - Do NOT batch unrelated operations together unless the user explicitly asks for all of them.
 - Do NOT "clean up" or "organize" data on your own initiative.
 - Do NOT modify items the user didn't mention.
 - Do NOT use `scope=all` or `scope=thisAndFuture` unless the user EXPLICITLY requests it.
 
-### Rule 3: Always confirm before destructive actions
+### Rule 4: Always confirm before destructive actions
 
 Before ANY delete or bulk operation, you MUST:
 1. Show the user exactly what will be affected (item name, id, scope)
@@ -62,11 +70,11 @@ This applies to:
 - Using `scope=all` or `scope=thisAndFuture` on recurring todos
 - Updating multiple items at once
 
-### Rule 4: Verify after execution
+### Rule 5: Verify after execution
 
 After every create/update/delete, GET the data again to confirm the result. Report the outcome to the user.
 
-### Rule 5: If unsure, ASK
+### Rule 6: If unsure, ASK
 
 If the user's intent is ambiguous (e.g., "删除那个待办" when there are multiple), ASK which one. Never guess.
 
@@ -148,6 +156,10 @@ Content-Type: application/json
 
 Required fields: `date`, `text`
 Optional: `time`, `priority` (low/medium/high, default low), `desc`, `url`, `copyText`, `subtasks`, `searchTerms`, `repeatType` (none/daily/weekly/monthly/yearly), `repeatEnd`, `endTime`, `categoryId`
+
+**subtasks format:** Array of objects with `text` and `done` fields. You can use either format:
+- Object format (recommended): `[{"text": "Task 1", "done": false}, {"text": "Task 2", "done": false}]`
+- String shorthand (API will auto-convert): `["Task 1", "Task 2"]` → becomes `[{"text": "Task 1", "done": false}, {"text": "Task 2", "done": false}]`
 
 **Creating a recurring todo:** Set `repeatType` to `daily`, `weekly`, `monthly`, or `yearly`. Optionally set `repeatEnd` (YYYY-MM-DD) for when the repetition should stop.
 
@@ -308,6 +320,13 @@ curl -s -X POST -H "X-API-Key: $CF_TODO_API_KEY" -H "Content-Type: application/j
 curl -s -X POST -H "X-API-Key: $CF_TODO_API_KEY" -H "Content-Type: application/json" \
   "$CF_TODO_API_URL/api/v1/todos" \
   -d '{"date":"2026-06-12","text":"Daily standup","time":"09:30","priority":"high","repeatType":"daily"}'
+```
+
+**Create a todo with subtasks:**
+```bash
+curl -s -X POST -H "X-API-Key: $CF_TODO_API_KEY" -H "Content-Type: application/json" \
+  "$CF_TODO_API_URL/api/v1/todos" \
+  -d '{"date":"2026-06-12","text":"Weekly review","time":"09:00","endTime":"10:00","repeatType":"weekly","subtasks":[{"text":"书剑","done":false}]}'
 ```
 
 **Create a category with color:**

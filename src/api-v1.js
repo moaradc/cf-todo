@@ -261,7 +261,11 @@ function parseJsonField(val) {
  * 格式化 todo 记录为 API 响应格式
  */
 function formatTodo(row) {
-  const subtasks = parseJsonField(row.subtasks);
+  const subtasks = parseJsonField(row.subtasks).map(s => {
+    if (typeof s === 'string' && s.trim()) return { text: s, done: false };
+    if (s && typeof s === 'object' && s.text) return s;
+    return null;
+  }).filter(Boolean);
   const searchTerms = parseJsonField(row.search_terms).map(w => {
     if (typeof w === 'string' && w.trim()) return { text: w, done: false };
     if (w && typeof w === 'object' && w.text) return w;
@@ -439,8 +443,19 @@ async function handleV1Todos(request, env, url) {
     const catId = categoryId || '';
     const rEnd = repeatEnd || '';
     const eTime = endTime || '';
-    const subtasksStr = JSON.stringify(subtasks || []);
-    const searchTermsStr = JSON.stringify(searchTerms || []);
+    // 规范化 subtasks：字符串→{text, done:false} 对象
+    const normalizedSubtasks = (subtasks || []).map(s => {
+      if (typeof s === 'string') return { text: s, done: false };
+      if (s && typeof s === 'object' && s.text) return s;
+      return null;
+    }).filter(Boolean);
+    const normalizedSearchTerms = (searchTerms || []).map(w => {
+      if (typeof w === 'string') return { text: w, done: false };
+      if (w && typeof w === 'object' && w.text) return w;
+      return null;
+    }).filter(Boolean);
+    const subtasksStr = JSON.stringify(normalizedSubtasks);
+    const searchTermsStr = JSON.stringify(normalizedSearchTerms);
 
     await DB.prepare(
       'INSERT INTO todos (id, parent_id, date, text, time, priority, desc, url, copy_text, subtasks, search_terms, done, deleted, repeat_type, repeat_custom, repeat_end, end_time, category_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
