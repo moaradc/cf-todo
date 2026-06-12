@@ -27,6 +27,7 @@ import {
   getPreviousDate,
   getNextDate,
 } from './recurring-engine.js';
+import { handleV1Request } from './api-v1.js';
 
 let isDbInitialized = false;
 
@@ -258,11 +259,19 @@ async function handleRequest(request, env, ctx) {
     //  统一 API 鉴权拦截
     const publicApiPaths = ['/api/login', '/api/logout', '/api/hot-search'];
     const isApiRequest = url.pathname.startsWith('/api/');
-    if (isApiRequest && !publicApiPaths.includes(url.pathname)) {
+    const isV1Request = url.pathname.startsWith('/api/v1/');
+    if (isApiRequest && !publicApiPaths.includes(url.pathname) && !isV1Request) {
       const { ok: apiAuthed } = await isAuthorized();
       if (!apiAuthed) {
         return apiError("UNAUTHORIZED", 401);
       }
+    }
+
+    // v1 RESTful API（自带鉴权：API Key 或 Cookie）
+    if (isV1Request) {
+      const v1Result = await handleV1Request(request, env, ctx);
+      if (v1Result) return v1Result;
+      return apiError('Not Found', 404);
     }
     
     if (url.pathname === '/api/login' && request.method === 'POST') {
@@ -1785,7 +1794,6 @@ async function handleRequest(request, env, ctx) {
 
         return {
           ...row, 
-          parentId: row.parent_id, 
           repeat_type: rType,
           repeat_custom: row.repeat_custom || '',
           repeat_end: row.repeat_end || '',
@@ -1859,7 +1867,7 @@ async function handleRequest(request, env, ctx) {
           await env.DB.prepare(
             'INSERT INTO todos (id, parent_id, date, text, time, priority, desc, url, copy_text, subtasks, search_terms, done, deleted, repeat_type, repeat_custom, repeat_end, end_time, category_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
           ).bind(
-            task.id, task.parentId || task.id, date, task.text, task.time || '', task.priority || 'low', 
+            task.id, task.id, date, task.text, task.time || '', task.priority || 'low', 
             task.desc || '', task.url || '', task.copyText || '', JSON.stringify(task.subtasks||[]), JSON.stringify(task.search_terms||[]), 
             0, 0, rptType, '', repeatEnd, endTime, categoryId
           ).run();
@@ -1868,7 +1876,7 @@ async function handleRequest(request, env, ctx) {
               await env.DB.prepare(
                 'INSERT INTO todo_templates (parent_id, text, time, priority, desc, url, copy_text, subtasks, search_terms, repeat_type, repeat_custom, repeat_end, end_time, anchor_date, exdates, category_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
               ).bind(
-                task.parentId || task.id, task.text, task.time || '', task.priority || 'low', task.desc || '', task.url || '', task.copyText || '', 
+                task.id, task.text, task.time || '', task.priority || 'low', task.desc || '', task.url || '', task.copyText || '', 
                 JSON.stringify(task.subtasks||[]), JSON.stringify(task.search_terms||[]), rptType, '', repeatEnd, endTime, date, '[]', categoryId
               ).run();
           }

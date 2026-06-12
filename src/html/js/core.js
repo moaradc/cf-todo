@@ -345,6 +345,129 @@ export const core = `
       });
       location.reload();
     }
+
+    // ==================== API Key 管理 ====================
+
+    let apiKeysList = [];
+
+    async function loadApiKeys() {
+      try {
+        const res = await fetch('/api/v1/keys');
+        if (res.ok) {
+          apiKeysList = await res.json();
+          renderApiKeys();
+        }
+      } catch(e) { console.error('Load API keys error:', e); }
+    }
+
+    function renderApiKeys() {
+      const container = document.getElementById('apikeys-list');
+      if (!container) return;
+      if (apiKeysList.length === 0) {
+        container.innerHTML = '<div class="settings-text" style="text-align:center; padding: 10px;">暂无 API 密钥</div>';
+        return;
+      }
+      container.innerHTML = apiKeysList.map(function(k, i) {
+        var statusTag = k.disabled ? '<span style="font-size:0.7rem;color:var(--accent);margin-left:6px;">已禁用</span>' : '<span style="font-size:0.7rem;color:var(--crt);margin-left:6px;">活跃</span>';
+        var lastUsed = k.lastUsedAt ? new Date(k.lastUsedAt).toLocaleString() : '从未使用';
+        return '<div class="session-item' + (k.disabled ? '' : '') + '">' +
+          '<div style="flex:1;min-width:0;">' +
+            '<div style="display:flex;align-items:center;gap:4px;flex-wrap:wrap;">' +
+              '<span style="font-weight:bold;font-size:0.85rem;">' + escapeHtml(k.name || '未命名') + '</span>' +
+              statusTag +
+            '</div>' +
+            '<div style="font-size:0.75rem;color:#666;margin-top:3px;font-family:monospace;">' + escapeHtml(k.keyPrefix) + '</div>' +
+            '<div style="font-size:0.7rem;color:#555;margin-top:2px;">最后使用: ' + lastUsed + '</div>' +
+          '</div>' +
+          '<div style="display:flex;gap:4px;flex-shrink:0;">' +
+            '<button style="padding:4px 8px;font-size:0.75rem;" onclick="toggleApiKey(' + i + ')">' + (k.disabled ? '启用' : '禁用') + '</button>' +
+            '<button class="btn-danger" style="padding:4px 8px;font-size:0.75rem;" onclick="deleteApiKey(' + i + ')">删除</button>' +
+          '</div>' +
+        '</div>';
+      }).join('');
+    }
+
+    async function createApiKey() {
+      var nameInput = document.getElementById('apikey-name-input');
+      var name = nameInput ? nameInput.value.trim() : '';
+      try {
+        const res = await fetch('/api/v1/keys', {
+          method: 'POST',
+          body: JSON.stringify({ action: 'CREATE', name: name || 'Default' }),
+          headers: { 'Content-Type': 'application/json' }
+        });
+        if (res.ok) {
+          const data = await res.json();
+          if (data.success && data.key) {
+            var createdBox = document.getElementById('apikey-created-box');
+            var createdValue = document.getElementById('apikey-created-value');
+            if (createdBox && createdValue) {
+              createdValue.textContent = data.key;
+              createdBox.style.display = 'block';
+            }
+            if (nameInput) nameInput.value = '';
+            await loadApiKeys();
+          } else {
+            alert(data.error || '创建失败');
+          }
+        } else {
+          const err = await res.json();
+          alert(err.error || '创建失败');
+        }
+      } catch(e) {
+        alert('创建失败: ' + e.message);
+      }
+    }
+
+    function copyCreatedApiKey() {
+      var el = document.getElementById('apikey-created-value');
+      if (!el) return;
+      var text = el.textContent;
+      if (navigator.clipboard) {
+        navigator.clipboard.writeText(text).then(function() {
+          alert('已复制到剪贴板');
+        });
+      } else {
+        var ta = document.createElement('textarea');
+        ta.value = text;
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand('copy');
+        document.body.removeChild(ta);
+        alert('已复制到剪贴板');
+      }
+    }
+
+    async function deleteApiKey(index) {
+      var k = apiKeysList[index];
+      if (!k) return;
+      if (!confirm('确认删除密钥 "' + (k.name || '未命名') + '"？删除后使用此密钥的程序将无法访问。')) return;
+      try {
+        await fetch('/api/v1/keys', {
+          method: 'POST',
+          body: JSON.stringify({ action: 'DELETE', id: k.id }),
+          headers: { 'Content-Type': 'application/json' }
+        });
+        await loadApiKeys();
+      } catch(e) {
+        alert('删除失败: ' + e.message);
+      }
+    }
+
+    async function toggleApiKey(index) {
+      var k = apiKeysList[index];
+      if (!k) return;
+      try {
+        await fetch('/api/v1/keys', {
+          method: 'POST',
+          body: JSON.stringify({ action: 'TOGGLE', id: k.id }),
+          headers: { 'Content-Type': 'application/json' }
+        });
+        await loadApiKeys();
+      } catch(e) {
+        alert('操作失败: ' + e.message);
+      }
+    }
     
     let tempAppScale = 1.0;
 

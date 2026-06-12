@@ -50,7 +50,10 @@ export const settings = `
       const view = document.getElementById('settings-overlay');
       view.classList.remove('closing');
       view.classList.add('active');
+      var createdBox = document.getElementById('apikey-created-box');
+      if (createdBox) createdBox.style.display = 'none';
       loadSessions();
+      loadApiKeys();
       checkUpdate();
     }
 
