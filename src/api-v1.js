@@ -1047,6 +1047,11 @@ export async function handleV1Request(request, env, ctx) {
     return handleV1Todos(request, env, url);
   }
 
+  // POST /api/v1/todos/batch - 批量操作（必须在 :id 正则之前，否则 "batch" 会被当作 :id 拦截）
+  if (path === '/api/v1/todos/batch' && request.method === 'POST') {
+    return handleV1TodoBatch(request, env.DB);
+  }
+
   // /api/v1/todos/:id
   const todoMatch = path.match(/^\/api\/v1\/todos\/([a-zA-Z0-9_-]+)$/);
   if (todoMatch) {
@@ -1064,11 +1069,6 @@ export async function handleV1Request(request, env, ctx) {
   const toggleMatch = path.match(/^\/api\/v1\/todos\/([a-zA-Z0-9_-]+)\/toggle$/);
   if (toggleMatch && request.method === 'PATCH') {
     return handleV1TodoToggle(env.DB, toggleMatch[1]);
-  }
-
-  // POST /api/v1/todos/batch - 批量操作
-  if (path === '/api/v1/todos/batch' && request.method === 'POST') {
-    return handleV1TodoBatch(request, env.DB);
   }
 
   // ---- Trash 路由 ----
