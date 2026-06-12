@@ -1868,16 +1868,16 @@ async function handleRequest(request, env, ctx) {
           await env.DB.prepare(
             'INSERT INTO todos (id, parent_id, date, text, time, priority, desc, url, copy_text, subtasks, search_terms, done, deleted, repeat_type, repeat_custom, repeat_end, end_time, category_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
           ).bind(
-            task.id, task.parentId || task.id, date, task.text, task.time || '', task.priority || 'low', 
-            task.desc || '', task.url || '', task.copyText || '', JSON.stringify(task.subtasks||[]), JSON.stringify(task.search_terms||[]), 
+            task.id, task.id, date, task.text, task.time || '', task.priority || 'low',
+            task.desc || '', task.url || '', task.copyText || '', JSON.stringify(task.subtasks||[]), JSON.stringify(task.search_terms||[]),
             0, 0, rptType, '', repeatEnd, endTime, categoryId
           ).run();
-          
+
           if (rptType !== 'none') {
               await env.DB.prepare(
                 'INSERT INTO todo_templates (parent_id, text, time, priority, desc, url, copy_text, subtasks, search_terms, repeat_type, repeat_custom, repeat_end, end_time, anchor_date, exdates, category_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
               ).bind(
-                task.parentId || task.id, task.text, task.time || '', task.priority || 'low', task.desc || '', task.url || '', task.copyText || '', 
+                task.id, task.text, task.time || '', task.priority || 'low', task.desc || '', task.url || '', task.copyText || '',
                 JSON.stringify(task.subtasks||[]), JSON.stringify(task.search_terms||[]), rptType, '', repeatEnd, endTime, date, '[]', categoryId
               ).run();
           }
