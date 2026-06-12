@@ -25,33 +25,32 @@
 ### 2.1 鉴权 (Authentication)
 
 V1 API 支持两种鉴权方式：
-1.  **API Key**: 
+1.  **API Key**:
     - Header: `X-API-Key: <your_api_key>`
     - Query: `?api_key=<your_api_key>`
     - Bearer Token: `Authorization: Bearer <your_api_key>`
 2.  **Cookie**: 仅限管理 API Key 时使用（网页端）。
 
 #### 管理 API Keys
+
 管理端点需要 Cookie 鉴权（即已登录的网页端用户）。
 
 - **GET /api/v1/keys**
-  - **描述**: 获取所有 API Keys 列表。
+  - **描述**: 获取所有 API Keys 列表（脱敏）。
   - **响应**:
     ```json
-    {
-      "success": true,
-      "data": [
-        {
-          "id": "...",
-          "name": "...",
-          "keyPrefix": "cfk_xxxx...xxxx",
-          "createdAt": 1234567890,
-          "lastUsedAt": null,
-          "disabled": false
-        }
-      ]
-    }
+    [
+      {
+        "id": "...",
+        "name": "...",
+        "keyPrefix": "cfk_xxxx...xxxx",
+        "createdAt": 1234567890,
+        "lastUsedAt": null,
+        "disabled": false
+      }
+    ]
     ```
+  - **注意**: 此端点返回裸数组，非 `{success, data}` 格式。
 
 - **POST /api/v1/keys**
   - **描述**: 创建或管理 API Key。
@@ -68,10 +67,14 @@ V1 API 支持两种鉴权方式：
     {
       "success": true,
       "id": "...",
-      "key": "cfk_xxxxxxxxxxxxx...", // 完整 Key，仅创建时返回
+      "key": "cfk_xxxxxxxxxxxxx...",  // 完整 Key，仅创建时返回
       "name": "..."
     }
     ```
+  - **响应 (DELETE)**: `{"success": true}`
+  - **响应 (TOGGLE)**: `{"success": true, "disabled": true}`
+  - **响应 (RENAME)**: `{"success": true}`
+  - **限制**: 最多创建 10 个 API Key。名称最长 50 字符。
 
 ---
 
@@ -87,6 +90,7 @@ V1 API 支持两种鉴权方式：
     - `done` (string): `true` 或 `false`。
     - `limit` (int, default 100, max 500): 分页大小。
     - `offset` (int, default 0): 分页偏移。
+  - **注意**: 当使用 `date` 查询时，重复任务模板会自动展开——如果某重复任务应在当天出现但尚无实例，系统会自动创建并返回。
   - **响应**:
     ```json
     {
@@ -101,50 +105,102 @@ V1 API 支持两种鉴权方式：
   - **Body**:
     ```json
     {
-      "date": "2023-10-01", // 必填
-      "text": "Buy milk",   // 必填
+      "date": "2023-10-01",       // 必填，YYYY-MM-DD
+      "text": "Buy milk",         // 必填
       "time": "10:00",
-      "priority": "low | med | high",
+      "priority": "low | med | high",  // "medium" 自动转为 "med"
       "desc": "Description",
       "url": "https://...",
       "copyText": "Text to copy",
       "subtasks": ["Subtask 1", { "text": "Subtask 2", "done": true }],
-      "searchTerms": ["tag1"],
+      "searchTerms": ["tag1", { "text": "tag2", "done": false }],
       "repeatType": "none | daily | weekly | monthly | yearly",
       "repeatEnd": "2023-12-31",
       "endTime": "11:00",
       "categoryId": "category_id"
     }
     ```
+  - **说明**: `subtasks` 和 `searchTerms` 支持纯字符串或 `{text, done}` 对象，纯字符串会自动转为 `{text: "xxx", done: false}`。当 `repeatType` 不为 `none` 时，会同时创建模板记录。
   - **响应 (201)**:
     ```json
     {
       "success": true,
-      "data": { "id": "uuid", "date": "...", "text": "..." }
+      "data": { "id": "uuid", "date": "2023-10-01", "text": "Buy milk", "repeatType": "none", "categoryId": "" }
     }
     ```
 
 - **GET /api/v1/todos/:id**
   - **描述**: 获取单个 Todo 详情。
-  - **响应**: Todo 对象。
+  - **响应**:
+    ```json
+    {
+      "success": true,
+      "data": {
+        "id": "uuid",
+        "parentId": "uuid",
+        "date": "2023-10-01",
+        "text": "Task Title",
+        "time": "09:00",
+        "priority": "med",
+        "desc": "",
+        "url": "",
+        "copyText": "",
+        "subtasks": [{ "text": "Subtask 1", "done": false }],
+        "searchTerms": [],
+        "done": false,
+        "deleted": false,
+        "repeatType": "none",
+        "repeatCustom": "",
+        "repeatEnd": "",
+        "endTime": "",
+        "categoryId": "",
+        "recurrenceId": "",
+        "isException": false,
+        "isSeries": false
+      }
+    }
+    ```
 
 - **PUT /api/v1/todos/:id**
-  - **描述**: 更新 Todo。
-  - **Body**: 同创建，所有字段可选。
-  - **特殊参数**: 
-    - `scope` (string): 用于重复任务。
-      - `this`: 仅更新此实例（默认，会生成新模板或脱钩）。
-      - `all`: 更新所有未来和过去的实例（修改模板）。
-      - `thisAndFuture`: 更新此实例及未来实例。
+  - **描述**: 更新 Todo。仅传需修改的字段。
+  - **Body**: 同创建，所有字段可选。额外支持：
+    - `date` (string): 修改日期。对于重复任务配合 `scope=all` 或 `thisAndFuture` 时，会删除并重新生成未来实例。
+    - `scope` (string): 用于重复任务，见下方说明。
+  - **scope 说明**:
+    - `this`: 仅更新此实例（重复任务默认值）。会向模板添加 exdate；若将 `repeatType` 改为 `none`，则脱离系列（`parentId` 设为自身 `id`）。
+    - `thisAndFuture`: 更新此实例及未来实例。同时更新模板。
+    - `all`: 更新所有实例。同时更新模板和所有已有实例。
+  - **特殊行为**:
+    - 非重复 → 重复：自动创建模板。
+    - 重复 → 非重复：自动脱离系列（`parentId` 改为自身，模板添加 exdate）。
+    - 重复任务未指定 `scope` 时，默认 `scope=this`。
+  - **响应**:
+    ```json
+    {
+      "success": true,
+      "data": { /* 完整 Todo 对象 */ }
+    }
+    ```
 
 - **DELETE /api/v1/todos/:id**
-  - **描述**: 删除 Todo（软删除，移入回收站）。
+  - **描述**: 删除 Todo（软删除，移入回收站，可通过 Trash API 恢复）。
   - **查询参数**:
-    - `scope` (string): 同更新。
+    - `scope` (string): 用于重复任务。
+      - `this` (默认): 仅删除此实例，向模板添加 exdate 防止重新生成。
+      - `thisAndFuture`: 删除此实例及所有未来实例，设置模板和过去实例的 `repeatEnd`。
+      - `all`: 删除整个系列（所有实例 + 模板）。**注意**: 模板被永久删除，即使从回收站恢复也无法重建系列。
+  - **注意**: 重复任务未指定 `scope` 时，默认 `scope=this`。
+  - **响应**: `{"success": true}`
 
 - **PATCH /api/v1/todos/:id/toggle**
-  - **描述**: 切换 Todo 完成状态。
-  - **响应**: `{ "success": true, "data": { "id": "...", "done": true } }`
+  - **描述**: 切换 Todo 完成状态。重复任务仅影响当天实例。
+  - **响应**:
+    ```json
+    {
+      "success": true,
+      "data": { "id": "uuid", "done": true }
+    }
+    ```
 
 - **POST /api/v1/todos/batch**
   - **描述**: 批量操作 Todo。
@@ -156,8 +212,94 @@ V1 API 支持两种鉴权方式：
       "doneStatus": true           // BATCH_TOGGLE_DONE 时必填
     }
     ```
-  - **BATCH_TOGGLE_DONE**: 批量切换完成状态。
-  - **BATCH_DELETE**: 批量软删除，自动为重复任务添加 exdate。
+  - **BATCH_TOGGLE_DONE**: 批量设置完成状态。`doneStatus: true` 标记完成，`false` 标记未完成。
+  - **BATCH_DELETE**: 批量软删除，自动为重复任务添加 exdate 防止重新生成。
+  - **响应 (BATCH_TOGGLE_DONE)**:
+    ```json
+    { "success": true, "data": { "affected": 3, "done": true } }
+    ```
+  - **响应 (BATCH_DELETE)**:
+    ```json
+    { "success": true, "data": { "affected": 3 } }
+    ```
+
+---
+
+### 2.3 Category API
+
+- **GET /api/v1/categories**
+  - **描述**: 获取所有分类列表。
+  - **响应**:
+    ```json
+    {
+      "success": true,
+      "data": [
+        { "id": "cat_xxx", "name": "Work", "color": "#3B82F6" }
+      ]
+    }
+    ```
+
+- **GET /api/v1/categories/:id**
+  - **描述**: 获取单个分类详情。
+  - **响应**:
+    ```json
+    {
+      "success": true,
+      "data": { "id": "cat_xxx", "name": "Work", "color": "#3B82F6" }
+    }
+    ```
+
+- **POST /api/v1/categories**
+  - **描述**: 创建新分类。名称唯一（不区分大小写），重复返回 400。
+  - **Body**:
+    ```json
+    {
+      "name": "New Category",  // 必填
+      "color": "#00ff00"       // 可选，默认 "#888888"
+    }
+    ```
+  - **响应 (201)**:
+    ```json
+    {
+      "success": true,
+      "data": { "id": "cat_xxx", "name": "New Category", "color": "#00ff00" }
+    }
+    ```
+
+- **PUT /api/v1/categories/:id**
+  - **描述**: 更新分类名称或颜色。仅传需修改的字段。名称唯一性检查排除自身。
+  - **Body**:
+    ```json
+    {
+      "name": "Updated Name",
+      "color": "#0000ff"
+    }
+    ```
+  - **响应**:
+    ```json
+    {
+      "success": true,
+      "data": { "id": "cat_xxx", "name": "Updated Name", "color": "#0000ff" }
+    }
+    ```
+
+- **DELETE /api/v1/categories/:id**
+  - **描述**: 删除分类。**硬删除**（不可恢复），关联的 Todo 和模板的 `category_id` 自动置空。
+  - **响应**: `{"success": true}`
+
+- **POST /api/v1/categories/batch**
+  - **描述**: 批量删除分类。**硬删除**，关联的 Todo 和模板的 `category_id` 自动置空。
+  - **Body**:
+    ```json
+    {
+      "action": "BATCH_DELETE",
+      "ids": ["cat_id1", "cat_id2"]
+    }
+    ```
+  - **响应**:
+    ```json
+    { "success": true, "data": { "deleted": 2 } }
+    ```
 
 ---
 
@@ -172,7 +314,7 @@ V1 API 支持两种鉴权方式：
     ```json
     {
       "success": true,
-      "data": [ /* Todo Objects */ ],
+      "data": [ /* Todo Objects (deleted: true) */ ],
       "pagination": { "total": 5, "limit": 100, "offset": 0 }
     }
     ```
@@ -187,18 +329,23 @@ V1 API 支持两种鉴权方式：
       "ids": ["id1", "id2"]        // BATCH_RESTORE / BATCH_DELETE_PERMANENT
     }
     ```
-  - **RESTORE**: 恢复单条。自动处理重复任务：移除 exdate、重建模板（如已删除）、冲突时脱钩。
-  - **DELETE_PERMANENT**: 永久删除单条。
-  - **CLEAR_ALL**: 清空回收站。
-  - **BATCH_RESTORE**: 批量恢复。
-  - **BATCH_DELETE_PERMANENT**: 批量永久删除。
+  - **Action 详情**:
+    - `RESTORE`: 恢复单条。自动处理重复任务：移除 exdate、重建模板（如已删除）、冲突时脱钩（`parentId` 设为自身）。
+    - `DELETE_PERMANENT`: 永久删除单条。**不可恢复**。
+    - `CLEAR_ALL`: 清空回收站。**不可恢复**。
+    - `BATCH_RESTORE`: 批量恢复。自动处理重复任务冲突：同日期已有实例或模板 `repeatEnd` 已过期时自动脱钩。
+    - `BATCH_DELETE_PERMANENT`: 批量永久删除。**不可恢复**。
+  - **响应**:
+    - `RESTORE` / `DELETE_PERMANENT` / `CLEAR_ALL`: `{"success": true}`
+    - `BATCH_RESTORE`: `{"success": true, "data": {"restored": 2}}`
+    - `BATCH_DELETE_PERMANENT`: `{"success": true, "data": {"deleted": 2}}`
 
 ---
 
 ### 2.5 统计 API
 
 - **GET /api/v1/stats**
-  - **描述**: 获取指定时间范围内的统计数据。
+  - **描述**: 获取指定时间范围内的统计数据（仅统计未删除的 Todo）。
   - **查询参数**:
     - `start` (string, 必填): 起始日期 YYYY-MM-DD
     - `end` (string, 必填): 结束日期 YYYY-MM-DD
@@ -220,60 +367,16 @@ V1 API 支持两种鉴权方式：
 
 ---
 
-### 2.6 分类批量操作
+### 2.6 HTTP 状态码
 
-- **POST /api/v1/categories/batch**
-  - **描述**: 批量操作分类。
-  - **Body**:
-    ```json
-    {
-      "action": "BATCH_DELETE",
-      "ids": ["cat_id1", "cat_id2"]
-    }
-    ```
-  - **BATCH_DELETE**: 批量删除分类，关联的 Todo 和模板的 `category_id` 自动置空。
-
----
-
-### 2.3 Category API
-
-- **GET /api/v1/categories**
-  - **描述**: 获取所有分类列表。
-  - **响应**:
-    ```json
-    {
-      "success": true,
-      "data": [
-        { "id": "...", "name": "Work", "color": "#ff0000" }
-      ]
-    }
-    ```
-
-- **POST /api/v1/categories**
-  - **描述**: 创建新分类。
-  - **Body**:
-    ```json
-    {
-      "name": "New Category", // 必填
-      "color": "#00ff00"
-    }
-    ```
-
-- **GET /api/v1/categories/:id**
-  - **描述**: 获取单个分类详情。
-
-- **PUT /api/v1/categories/:id**
-  - **描述**: 更新分类名称或颜色。
-  - **Body**:
-    ```json
-    {
-      "name": "Updated Name",
-      "color": "#0000ff"
-    }
-    ```
-
-- **DELETE /api/v1/categories/:id**
-  - **描述**: 删除分类。关联的 Todo 的 `category_id` 将被置空。
+| 状态码 | 含义 |
+|--------|------|
+| 200 | 成功 |
+| 201 | 创建成功（POST /todos, POST /categories） |
+| 400 | 请求错误（缺少必填字段、格式错误、分类名称重复） |
+| 401 | 鉴权失败（API Key 无效或 Cookie 缺失） |
+| 404 | 资源不存在 |
+| 405 | 请求方法不允许 |
 
 ---
 
@@ -404,7 +507,10 @@ V1 API 支持两种鉴权方式：
     { "text": "Subtask 1", "done": false },
     { "text": "Subtask 2", "done": true }
   ],
-  "searchTerms": [ "tag1", "tag2" ],
+  "searchTerms": [
+    { "text": "tag1", "done": false },
+    { "text": "tag2", "done": false }
+  ],
   "done": false,
   "deleted": false,
   "repeatType": "none | daily | weekly | monthly | yearly",
