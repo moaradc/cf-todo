@@ -1,25 +1,8 @@
 ---
 name: cf-todo
 description: Manage todos and categories on a self-hosted Cloudflare Worker + D1 Todo App. Use when users ask to add, create, view, complete, update, or delete todos, manage recurring/repeating tasks, organize categories, or check their to-do list.
-version: 1.0.2
-metadata:
-  openclaw:
-    requires:
-      env:
-        - CF_TODO_API_URL
-        - CF_TODO_API_KEY
-      bins:
-        - curl
-    primaryEnv: CF_TODO_API_KEY
-    envVars:
-      - name: CF_TODO_API_URL
-        required: true
-        description: Base URL of your cf-todo deployment (e.g. https://todo.example.com, no trailing slash)
-      - name: CF_TODO_API_KEY
-        required: true
-        description: API Key (cfk_...) generated from the cf-todo web UI Settings page
-    emoji: "\U0001F4DD"
-    homepage: https://github.com/user/cf-todo
+version: 1.0.3
+metadata: {"openclaw":{"emoji":"📝","requires":{"env":["CF_TODO_API_URL","CF_TODO_API_KEY"],"bins":["curl"]},"primaryEnv":"CF_TODO_API_KEY","envVars":[{"name":"CF_TODO_API_URL","required":true,"description":"Base URL of your cf-todo deployment (e.g. https://todo.example.com, no trailing slash)"},{"name":"CF_TODO_API_KEY","required":true,"description":"API Key (cfk_...) generated from the cf-todo web UI Settings page"}]}}
 ---
 
 # cf-todo
@@ -40,6 +23,7 @@ Use this skill when the user:
 - Asks to assign a category to a todo ("加到工作分类", "set category")
 
 Do NOT use this skill for:
+
 - Calendar/scheduling without todo context
 - Time tracking or Pomodoro sessions
 - General reminders without actionable task context
@@ -83,52 +67,40 @@ Alternative methods (also supported):
 - Query parameter: `?api_key=cfk_xxx`
 - Authorization header: `Authorization: Bearer cfk_xxx`
 
----
-
 ## API Reference
 
-| Method | Endpoint | Description | Auth | Notes |
-|--------|----------|-------------|------|-------|
-| **Todo** | | | | |
-| GET | `/api/v1/todos?date=` | 查询 Todo 列表 | API Key / Cookie | 必填 `date`；可选 `start_date`+`end_date`, `category_id`, `done`, `limit`, `offset` |
-| GET | `/api/v1/todos/:id` | 获取单个 Todo | API Key / Cookie | — |
-| POST | `/api/v1/todos` | 创建 Todo | API Key / Cookie | 必填 `date`, `text`；`date` 为首次出现日期 |
-| PUT | `/api/v1/todos/:id` | 更新 Todo | API Key / Cookie | 仅传需改字段；重复任务需设 `scope` |
-| PATCH | `/api/v1/todos/:id/toggle` | 切换完成状态 | API Key / Cookie | 重复任务仅影响当天实例 |
-| DELETE | `/api/v1/todos/:id` | 删除 Todo（软删除） | API Key / Cookie | 重复任务默认 `scope=this`；可选 `thisAndFuture`, `all` |
-| POST | `/api/v1/todos/batch` | 批量操作 | API Key / Cookie | `BATCH_TOGGLE_DONE`（需 `ids`+`doneStatus`）或 `BATCH_DELETE`（需 `ids`）；最多100条 |
-| **Category** | | | | |
-| GET | `/api/v1/categories` | 列出所有分类 | API Key / Cookie | — |
-| GET | `/api/v1/categories/:id` | 获取单个分类 | API Key / Cookie | — |
-| POST | `/api/v1/categories` | 创建分类 | API Key / Cookie | 必填 `name`；可选 `color`（默认 `#888888`）；名称唯一（不区分大小写） |
-| PUT | `/api/v1/categories/:id` | 更新分类 | API Key / Cookie | 仅传 `name` 和/或 `color` |
-| DELETE | `/api/v1/categories/:id` | 删除分类 | API Key / Cookie | 关联 Todo 的 `categoryId` 自动置空 |
-| POST | `/api/v1/categories/batch` | 批量删除分类 | API Key / Cookie | `BATCH_DELETE`（需 `ids`） |
-| **Trash** | | | | |
-| GET | `/api/v1/trash` | 回收站列表 | API Key / Cookie | 可选 `limit`, `offset` |
-| POST | `/api/v1/trash-action` | `RESTORE` 恢复单条 | API Key / Cookie | 自动处理重复任务：移除 exdate、重建模板、冲突脱钩 |
-| POST | `/api/v1/trash-action` | `DELETE_PERMANENT` 永久删除 | API Key / Cookie | **不可恢复**，需确认 |
-| POST | `/api/v1/trash-action` | `CLEAR_ALL` 清空回收站 | API Key / Cookie | **不可恢复**，需确认 |
-| POST | `/api/v1/trash-action` | `BATCH_RESTORE` 批量恢复 | API Key / Cookie | 需 `ids` 数组 |
-| POST | `/api/v1/trash-action` | `BATCH_DELETE_PERMANENT` 批量永久删除 | API Key / Cookie | **不可恢复**，需确认；需 `ids` 数组 |
-| **Stats** | | | | |
-| GET | `/api/v1/stats?start=&end=` | 统计数据 | API Key / Cookie | 必填 `start`, `end`；返回 total/done/undone/byPriority/byDate |
-| **API Key 管理** | | | | |
-| GET | `/api/v1/keys` | 列出所有 Key（脱敏） | Cookie only | 返回 `keyPrefix`，不返回完整 Key |
-| POST | `/api/v1/keys` | `CREATE` 创建 Key | Cookie only | 仅创建时返回完整 Key；最多10个 |
-| POST | `/api/v1/keys` | `DELETE` 删除 Key | Cookie only | 需 `id` |
-| POST | `/api/v1/keys` | `TOGGLE` 启用/禁用 Key | Cookie only | 需 `id` |
-| POST | `/api/v1/keys` | `RENAME` 重命名 Key | Cookie only | 需 `id`+`name` |
-
-### Scope 说明（重复任务专用）
-
-| scope | 含义 | 适用场景 | 风险 |
-|-------|------|----------|------|
-| `this` | 仅操作此实例 | "仅删除"、"只改这个"（默认） | 低 — 不影响其他实例 |
-| `thisAndFuture` | 操作此实例及之后 | "从这天起不再重复" | 中 — 影响多个未来实例，需确认 |
-| `all` | 操作整个系列 | "删除整个系列"、"删掉所有重复" | 高 — **不可恢复**，必须用户明确要求 |
-
----
+| Method | Endpoint | Description | Notes |
+|--------|----------|-------------|-------|
+| **Todo** | | | |
+| GET | `/api/v1/todos?date=` | 查询 Todo 列表 | 必填 `date`；可选 `start_date`+`end_date`, `category_id`, `done`, `limit`, `offset` |
+| GET | `/api/v1/todos/:id` | 获取单个 Todo | — |
+| POST | `/api/v1/todos` | 创建 Todo | 必填 `date`, `text`；`date` 为首次出现日期 |
+| PUT | `/api/v1/todos/:id` | 更新 Todo | 仅传需改字段；重复任务需设 `scope` |
+| PATCH | `/api/v1/todos/:id/toggle` | 切换完成状态 | 重复任务仅影响当天实例 |
+| DELETE | `/api/v1/todos/:id` | 删除 Todo（软删除） | 重复任务默认 `scope=this`；可选 `thisAndFuture`, `all` |
+| POST | `/api/v1/todos/batch` | 批量操作 | `BATCH_TOGGLE_DONE`（需 `ids`+`doneStatus`）或 `BATCH_DELETE`（需 `ids`）；最多100条 |
+| **Category** | | | |
+| GET | `/api/v1/categories` | 列出所有分类 | — |
+| GET | `/api/v1/categories/:id` | 获取单个分类 | — |
+| POST | `/api/v1/categories` | 创建分类 | 必填 `name`；可选 `color`（默认 `#888888`）；名称唯一（不区分大小写） |
+| PUT | `/api/v1/categories/:id` | 更新分类 | 仅传 `name` 和/或 `color` |
+| DELETE | `/api/v1/categories/:id` | 删除分类 | 关联 Todo 的 `categoryId` 自动置空 |
+| POST | `/api/v1/categories/batch` | 批量删除分类 | `BATCH_DELETE`（需 `ids`） |
+| **Trash** | | | |
+| GET | `/api/v1/trash` | 回收站列表 | 可选 `limit`, `offset` |
+| POST | `/api/v1/trash-action` | `RESTORE` 恢复单条 | 自动处理重复任务：移除 exdate、重建模板、冲突脱钩 |
+| POST | `/api/v1/trash-action` | `DELETE_PERMANENT` 永久删除 | **不可恢复**，需确认 |
+| POST | `/api/v1/trash-action` | `CLEAR_ALL` 清空回收站 | **不可恢复**，需确认 |
+| POST | `/api/v1/trash-action` | `BATCH_RESTORE` 批量恢复 | 需 `ids` 数组 |
+| POST | `/api/v1/trash-action` | `BATCH_DELETE_PERMANENT` 批量永久删除 | **不可恢复**，需确认；需 `ids` 数组 |
+| **Stats** | | | |
+| GET | `/api/v1/stats?start=&end=` | 统计数据 | 必填 `start`, `end`；返回 total/done/undone/byPriority/byDate |
+| **API Key 管理** | | | |
+| GET | `/api/v1/keys` | 列出所有 Key（脱敏） | Cookie only |
+| POST | `/api/v1/keys` | `CREATE` 创建 Key | Cookie only；仅创建时返回完整 Key；最多10个 |
+| POST | `/api/v1/keys` | `DELETE` 删除 Key | Cookie only；需 `id` |
+| POST | `/api/v1/keys` | `TOGGLE` 启用/禁用 Key | Cookie only；需 `id` |
+| POST | `/api/v1/keys` | `RENAME` 重命名 Key | Cookie only；需 `id`+`name` |
 
 ## Safety Rules
 
@@ -170,8 +142,6 @@ After every create/update/delete, GET the data again to confirm the result.
 
 Ambiguous intent → ask the user. Never guess.
 
----
-
 ## Date Calculation
 
 The API requires `YYYY-MM-DD` format. Calculate dates from natural language:
@@ -195,27 +165,23 @@ The `date` field = first occurrence date (anchor). This is crucial:
 
 Weekday numbers: Sunday=0, Monday=1, ..., Saturday=6
 
----
-
 ## Recurring Todo Scope
 
 Recurring todos have `repeatType` != `"none"` and `isSeries` = `true`. They belong to a series sharing the same `parentId`.
 
 When updating/deleting a recurring todo, choose the correct `scope`:
 
-| User intent | scope | Effect |
-|---|---|---|
-| "仅删除" / "删掉今天的" / "只删这个" | `this` (default) | Delete this instance only; adds exception date |
-| "删除这个及之后的" / "不再重复" | `thisAndFuture` | Delete this + future; keep past |
-| "删除整个系列" / "删除所有重复" | `all` | Delete ALL instances + template — **IRREVERSIBLE** |
+| scope | 含义 | 适用场景 | 风险 |
+|-------|------|----------|------|
+| `this` | 仅操作此实例 | "仅删除"、"只改这个"（默认） | 低 — 不影响其他实例 |
+| `thisAndFuture` | 操作此实例及之后 | "从这天起不再重复" | 中 — 影响多个未来实例，需确认 |
+| `all` | 操作整个系列 | "删除整个系列"、"删掉所有重复" | 高 — **不可恢复**，必须用户明确要求 |
 
 **Rules:**
 - Default = `this`. API defaults to this, but be explicit in the request.
 - **NEVER use `scope=all` unless user EXPLICITLY says so** (e.g., "删除整个系列")
 - Always confirm before `all` or `thisAndFuture`
 - Toggle on a recurring todo marks only that day's instance (next day is still undone — correct)
-
----
 
 ## Core Operations
 
@@ -443,8 +409,6 @@ Required: `start`, `end` (YYYY-MM-DD). Returns:
 }
 ```
 
----
-
 ## Workflow
 
 1. **Fetch first** — GET the list before update/delete to find the correct `id`
@@ -454,8 +418,6 @@ Required: `start`, `end` (YYYY-MM-DD). Returns:
 5. **Confirm destructive** — Before delete, `scope=all`, or `scope=thisAndFuture`
 6. **Execute only what was asked** — No extra operations
 7. **Verify** — GET again after the operation to confirm
-
----
 
 ## Response format
 
