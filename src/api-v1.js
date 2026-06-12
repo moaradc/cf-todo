@@ -481,9 +481,10 @@ async function handleV1TodoPut(request, DB, todoId) {
   if (!existing) return apiError('Todo 不存在', 404);
 
   const body = await request.json();
-  const scope = body.scope || 'none'; // 'this' | 'thisAndFuture' | 'all' | 'none'
   const parentId = existing.parent_id; // 始终使用数据库中的 parent_id，不可被用户篡改
   const isSeries = existing.repeat_type && existing.repeat_type !== 'none' && parentId && parentId !== existing.id;
+  // 重复 todo 未指定 scope 时，默认 scope=this（仅更新此实例）
+  const scope = isSeries && (!body.scope || body.scope === 'none') ? 'this' : (body.scope || 'none');
 
   const newValues = {
     text: body.text !== undefined ? body.text : existing.text,
@@ -640,10 +641,13 @@ async function handleV1TodoDelete(DB, todoId, scope) {
   const isSeries = existing.repeat_type && existing.repeat_type !== 'none' && parentId && parentId !== todoId;
   const date = existing.date;
 
-  if (!isSeries || !scope) {
+  // 重复 todo 未指定 scope 时，默认 scope=this（仅删除此实例，加 exdate 防止重新生成）
+  const effectiveScope = isSeries && !scope ? 'this' : scope;
+
+  if (!isSeries || !effectiveScope) {
     await DB.prepare('UPDATE todos SET deleted = 1 WHERE id = ?').bind(todoId).run();
   } else {
-    const actions = computeDeleteActions({ task: { ...existing, parentId, isSeries }, date, scope });
+    const actions = computeDeleteActions({ task: { ...existing, parentId, isSeries }, date, scope: effectiveScope });
 
     if (actions.deleteTodoIds && actions.deleteTodoIds.length > 0) {
       for (const id of actions.deleteTodoIds) {
