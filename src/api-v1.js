@@ -99,7 +99,28 @@ function extractApiKey(request, url) {
 // ==================== API Key 管理端点 ====================
 
 async function handleApiKeys(request, env, url) {
-  // 这些端点需要 cookie 鉴权（已由外层保证）
+  // 这些端点需要 cookie 鉴权
+  const cookies = parseCookies(request);
+  if (!cookies.auth_token || !cookies.auth_sig) {
+    return apiError('Cookie authentication required', 401);
+  }
+  const sigValid = await verifySig(cookies.auth_token, cookies.auth_sig, env.JWT_SECRET);
+  if (!sigValid) return apiError('Invalid cookie auth', 401);
+
+  const record = await env.DB.prepare(
+    "SELECT value FROM settings WHERE key = 'active_session_token'"
+  ).first();
+  if (!record || !record.value) return apiError('UNAUTHORIZED', 401);
+
+  let sessions;
+  try {
+    sessions = JSON.parse(record.value);
+    if (!Array.isArray(sessions)) return apiError('UNAUTHORIZED', 401);
+  } catch (e) { return apiError('UNAUTHORIZED', 401); }
+
+  const matched = sessions.find(s => s.token === cookies.auth_token);
+  if (!matched) return apiError('UNAUTHORIZED', 401);
+
   if (request.method === 'GET') {
     const keys = await getApiKeys(env.DB);
     // 返回时隐藏完整 key，只显示前8位 + 掩码
