@@ -1,7 +1,7 @@
 ---
 name: cf-todo
 description: Manage todos and categories on a Cloudflare Worker + D1 Todo App. Create, read, update, delete todos and categories via a secure RESTful API.
-version: 1.2.0
+version: 1.0.1
 metadata:
   openclaw:
     requires:
