@@ -252,6 +252,20 @@ Only include fields you want to change. For recurring todos, set `scope`:
 curl -s -X PATCH -H "X-API-Key: $CF_TODO_API_KEY" "$CF_TODO_API_URL/api/v1/todos/{id}/toggle"
 ```
 
+### Batch operations
+
+```bash
+# Batch toggle done
+curl -s -X POST -H "X-API-Key: $CF_TODO_API_KEY" -H "Content-Type: application/json" \
+  "$CF_TODO_API_URL/api/v1/todos/batch" \
+  -d '{"action":"BATCH_TOGGLE_DONE","ids":["id1","id2"],"doneStatus":true}'
+
+# Batch delete (soft delete, max 100)
+curl -s -X POST -H "X-API-Key: $CF_TODO_API_KEY" -H "Content-Type: application/json" \
+  "$CF_TODO_API_URL/api/v1/todos/batch" \
+  -d '{"action":"BATCH_DELETE","ids":["id1","id2"]}'
+```
+
 ### Delete a todo
 
 ```bash
@@ -318,6 +332,71 @@ curl -s -X PUT -H "X-API-Key: $CF_TODO_API_KEY" -H "Content-Type: application/js
 ```
 
 If the category doesn't exist, ask the user if they want to create it first.
+
+### Batch delete categories
+
+```bash
+curl -s -X POST -H "X-API-Key: $CF_TODO_API_KEY" -H "Content-Type: application/json" \
+  "$CF_TODO_API_URL/api/v1/categories/batch" \
+  -d '{"action":"BATCH_DELETE","ids":["cat_id1","cat_id2"]}'
+```
+
+### Trash (deleted todos)
+
+```bash
+# List trash
+curl -s -H "X-API-Key: $CF_TODO_API_KEY" "$CF_TODO_API_URL/api/v1/trash"
+
+# Restore a single todo
+curl -s -X POST -H "X-API-Key: $CF_TODO_API_KEY" -H "Content-Type: application/json" \
+  "$CF_TODO_API_URL/api/v1/trash-action" \
+  -d '{"action":"RESTORE","id":"todo_id"}'
+
+# Permanently delete a single todo
+curl -s -X POST -H "X-API-Key: $CF_TODO_API_KEY" -H "Content-Type: application/json" \
+  "$CF_TODO_API_URL/api/v1/trash-action" \
+  -d '{"action":"DELETE_PERMANENT","id":"todo_id"}'
+
+# Clear all trash
+curl -s -X POST -H "X-API-Key: $CF_TODO_API_KEY" -H "Content-Type: application/json" \
+  "$CF_TODO_API_URL/api/v1/trash-action" \
+  -d '{"action":"CLEAR_ALL"}'
+
+# Batch restore
+curl -s -X POST -H "X-API-Key: $CF_TODO_API_KEY" -H "Content-Type: application/json" \
+  "$CF_TODO_API_URL/api/v1/trash-action" \
+  -d '{"action":"BATCH_RESTORE","ids":["id1","id2"]}'
+
+# Batch permanent delete
+curl -s -X POST -H "X-API-Key: $CF_TODO_API_KEY" -H "Content-Type: application/json" \
+  "$CF_TODO_API_URL/api/v1/trash-action" \
+  -d '{"action":"BATCH_DELETE_PERMANENT","ids":["id1","id2"]}'
+```
+
+Trash actions: `RESTORE`, `DELETE_PERMANENT`, `CLEAR_ALL`, `BATCH_RESTORE`, `BATCH_DELETE_PERMANENT`
+
+**RESTORE** handles recurring todos correctly: removes exdate, rebuilds template if needed, detaches if conflict.
+
+### Statistics
+
+```bash
+curl -s -H "X-API-Key: $CF_TODO_API_KEY" "$CF_TODO_API_URL/api/v1/stats?start=2026-06-01&end=2026-06-12"
+```
+
+Required: `start`, `end` (YYYY-MM-DD). Returns:
+
+```json
+{
+  "success": true,
+  "data": {
+    "total": 20,
+    "done": 15,
+    "undone": 5,
+    "byPriority": { "low": 10, "med": 5, "high": 5 },
+    "byDate": { "2026-06-12": { "total": 3, "done": 2 } }
+  }
+}
+```
 
 ---
 

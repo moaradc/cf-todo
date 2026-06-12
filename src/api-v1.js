@@ -795,6 +795,229 @@ async function handleV1CategoryDelete(DB, catId) {
   return jsonResponse({ success: true });
 }
 
+// ==================== 批量操作 ====================
+
+// POST /api/v1/todos/batch - 批量操作
+async function handleV1TodoBatch(request, DB) {
+  const { action, ids, doneStatus } = await request.json();
+
+  if (action === 'BATCH_TOGGLE_DONE') {
+    if (!ids || !Array.isArray(ids) || ids.length === 0) return apiError('ids 为必填数组', 400);
+    if (ids.length > 100) return apiError('单次最多100条', 400);
+    const placeholders = ids.map(() => '?').join(',');
+    await DB.prepare(`UPDATE todos SET done = ? WHERE id IN (${placeholders})`)
+      .bind(doneStatus ? 1 : 0, ...ids).run();
+    return jsonResponse({ success: true, data: { affected: ids.length, done: !!doneStatus } });
+  }
+
+  if (action === 'BATCH_DELETE') {
+    if (!ids || !Array.isArray(ids) || ids.length === 0) return apiError('ids 为必填数组', 400);
+    if (ids.length > 100) return apiError('单次最多100条', 400);
+    const placeholders = ids.map(() => '?').join(',');
+    const tasks = await DB.prepare(`SELECT parent_id, date, repeat_type FROM todos WHERE id IN (${placeholders})`).bind(...ids).all();
+    await DB.prepare(`UPDATE todos SET deleted = 1 WHERE id IN (${placeholders})`).bind(...ids).run();
+
+    // 为重复任务添加 exdate
+    const exdateUpdates = {};
+    for (const t of (tasks.results || [])) {
+      if (t.repeat_type && t.repeat_type !== 'none' && t.parent_id) {
+        if (!exdateUpdates[t.parent_id]) exdateUpdates[t.parent_id] = [];
+        exdateUpdates[t.parent_id].push(t.date);
+      }
+    }
+    for (const pid of Object.keys(exdateUpdates)) {
+      const tpl = await DB.prepare('SELECT exdates FROM todo_templates WHERE parent_id = ?').bind(pid).first();
+      if (tpl) {
+        let currentExdates = tpl.exdates || '[]';
+        let changed = false;
+        for (const d of exdateUpdates[pid]) {
+          const newExdates = addExdate(currentExdates, d);
+          if (newExdates !== currentExdates) { currentExdates = newExdates; changed = true; }
+        }
+        if (changed) await DB.prepare('UPDATE todo_templates SET exdates = ? WHERE parent_id = ?').bind(currentExdates, pid).run();
+      }
+    }
+    return jsonResponse({ success: true, data: { affected: ids.length } });
+  }
+
+  return apiError('未知操作，可用: BATCH_TOGGLE_DONE, BATCH_DELETE', 400);
+}
+
+// ==================== 回收站 ====================
+
+// GET /api/v1/trash - 获取回收站列表
+async function handleV1TrashList(DB, url) {
+  const limit = Math.min(Math.max(parseInt(url.searchParams.get('limit') || '100', 10) || 100, 1), 500);
+  const offset = Math.max(parseInt(url.searchParams.get('offset') || '0', 10) || 0, 0);
+  const { results } = await DB.prepare('SELECT * FROM todos WHERE deleted = 1 ORDER BY date DESC LIMIT ? OFFSET ?').bind(limit, offset).all();
+  const countRes = await DB.prepare('SELECT COUNT(*) as total FROM todos WHERE deleted = 1').first();
+  return jsonResponse({
+    success: true,
+    data: (results || []).map(formatTodo),
+    pagination: { total: countRes?.total || 0, limit, offset }
+  });
+}
+
+// POST /api/v1/trash-action - 回收站操作
+async function handleV1TrashAction(request, DB) {
+  const { action, id, ids } = await request.json();
+
+  if (action === 'RESTORE') {
+    if (!id) return apiError('缺少 id', 400);
+    const t = await DB.prepare('SELECT parent_id, date, repeat_type, repeat_end FROM todos WHERE id = ?').bind(id).first();
+    if (!t) return apiError('待办不存在', 404);
+    await DB.prepare('UPDATE todos SET deleted = 0 WHERE id = ?').bind(id).run();
+    if (t.repeat_type && t.repeat_type !== 'none' && t.parent_id) {
+      const existing = await DB.prepare(
+        'SELECT id FROM todos WHERE parent_id = ? AND date = ? AND deleted = 0 AND id != ? LIMIT 1'
+      ).bind(t.parent_id, t.date, id).first();
+      if (existing) {
+        await DB.prepare('UPDATE todos SET parent_id=?, repeat_type=\'none\', repeat_custom=\'\', repeat_end=\'\' WHERE id=?').bind(id, id).run();
+      } else if (t.repeat_end && t.repeat_end !== '') {
+        const tpl = await DB.prepare('SELECT repeat_end FROM todo_templates WHERE parent_id = ?').bind(t.parent_id).first();
+        if (tpl && tpl.repeat_end && tpl.repeat_end < t.date) {
+          await DB.prepare('UPDATE todos SET parent_id=?, repeat_type=\'none\', repeat_custom=\'\', repeat_end=\'\' WHERE id=?').bind(id, id).run();
+        } else {
+          await DB.prepare('UPDATE todos SET repeat_end=\'\' WHERE id=?').bind(id).run();
+        }
+      }
+      const tpl = await DB.prepare('SELECT exdates FROM todo_templates WHERE parent_id = ?').bind(t.parent_id).first();
+      if (tpl) {
+        const newExdates = removeExdate(tpl.exdates || '[]', t.date);
+        await DB.prepare('UPDATE todo_templates SET exdates = ? WHERE parent_id = ?').bind(newExdates, t.parent_id).run();
+      } else if (!tpl && t.repeat_type && t.repeat_type !== 'none') {
+        const task = await DB.prepare('SELECT text, time, priority, `desc`, url, copy_text, subtasks, search_terms, repeat_type, repeat_custom, end_time, category_id FROM todos WHERE id=?').bind(id).first();
+        if (task) {
+          await DB.prepare(
+            'INSERT OR REPLACE INTO todo_templates (parent_id, text, time, priority, `desc`, url, copy_text, subtasks, search_terms, repeat_type, repeat_custom, repeat_end, end_time, anchor_date, exdates, category_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)'
+          ).bind(t.parent_id, task.text, task.time, task.priority, task.desc, task.url, task.copy_text, task.subtasks, task.search_terms, task.repeat_type, task.repeat_custom || '', '', task.end_time, t.date, '[]', task.category_id).run();
+        }
+      }
+    }
+    return jsonResponse({ success: true });
+  }
+
+  if (action === 'DELETE_PERMANENT') {
+    if (!id) return apiError('缺少 id', 400);
+    await DB.prepare('DELETE FROM todos WHERE id = ?').bind(id).run();
+    return jsonResponse({ success: true });
+  }
+
+  if (action === 'CLEAR_ALL') {
+    await DB.prepare('DELETE FROM todos WHERE deleted = 1').run();
+    return jsonResponse({ success: true });
+  }
+
+  if (action === 'BATCH_RESTORE') {
+    if (!ids || !Array.isArray(ids) || ids.length === 0) return apiError('ids 为必填数组', 400);
+    const placeholders = ids.map(() => '?').join(',');
+    const tasks = await DB.prepare(`SELECT id, parent_id, date, repeat_type, repeat_end FROM todos WHERE id IN (${placeholders})`).bind(...ids).all();
+    await DB.prepare(`UPDATE todos SET deleted = 0 WHERE id IN (${placeholders})`).bind(...ids).run();
+
+    const reviveIds = [];
+    const detachIds = [];
+    for (const t of (tasks.results || [])) {
+      if (t.repeat_type && t.repeat_type !== 'none' && t.repeat_end && t.repeat_end !== '') {
+        const existing = await DB.prepare('SELECT id FROM todos WHERE parent_id = ? AND date = ? AND deleted = 0 AND id != ? LIMIT 1').bind(t.parent_id, t.date, t.id).first();
+        if (existing) { detachIds.push(t.id); }
+        else {
+          const tpl = await DB.prepare('SELECT repeat_end FROM todo_templates WHERE parent_id = ?').bind(t.parent_id).first();
+          if (tpl && tpl.repeat_end && tpl.repeat_end < t.date) { detachIds.push(t.id); }
+          else { reviveIds.push(t.id); }
+        }
+      }
+    }
+    if (reviveIds.length > 0) {
+      const ph = reviveIds.map(() => '?').join(',');
+      await DB.prepare(`UPDATE todos SET repeat_end='' WHERE id IN (${ph})`).bind(...reviveIds).run();
+    }
+    if (detachIds.length > 0) {
+      const ph = detachIds.map(() => '?').join(',');
+      await DB.prepare(`UPDATE todos SET parent_id=id, repeat_type='none', repeat_custom='', repeat_end='' WHERE id IN (${ph})`).bind(...detachIds).run();
+    }
+    const exdateUpdates = {};
+    for (const t of (tasks.results || [])) {
+      if (t.repeat_type && t.repeat_type !== 'none' && t.parent_id) {
+        if (!exdateUpdates[t.parent_id]) exdateUpdates[t.parent_id] = [];
+        exdateUpdates[t.parent_id].push(t.date);
+      }
+    }
+    for (const pid of Object.keys(exdateUpdates)) {
+      const tpl = await DB.prepare('SELECT exdates FROM todo_templates WHERE parent_id = ?').bind(pid).first();
+      if (tpl) {
+        let currentExdates = tpl.exdates || '[]';
+        let changed = false;
+        for (const d of exdateUpdates[pid]) {
+          const newExdates = removeExdate(currentExdates, d);
+          if (newExdates !== currentExdates) { currentExdates = newExdates; changed = true; }
+        }
+        if (changed) await DB.prepare('UPDATE todo_templates SET exdates = ? WHERE parent_id = ?').bind(currentExdates, pid).run();
+      }
+    }
+    return jsonResponse({ success: true, data: { restored: ids.length } });
+  }
+
+  if (action === 'BATCH_DELETE_PERMANENT') {
+    if (!ids || !Array.isArray(ids) || ids.length === 0) return apiError('ids 为必填数组', 400);
+    const placeholders = ids.map(() => '?').join(',');
+    await DB.prepare(`DELETE FROM todos WHERE id IN (${placeholders})`).bind(...ids).run();
+    return jsonResponse({ success: true, data: { deleted: ids.length } });
+  }
+
+  return apiError('未知操作，可用: RESTORE, DELETE_PERMANENT, CLEAR_ALL, BATCH_RESTORE, BATCH_DELETE_PERMANENT', 400);
+}
+
+// ==================== 统计 ====================
+
+// GET /api/v1/stats - 获取统计数据
+async function handleV1Stats(DB, url) {
+  const start = url.searchParams.get('start');
+  const end = url.searchParams.get('end');
+  if (!start || !end) return apiError('start 和 end 为必填参数 (YYYY-MM-DD)', 400);
+
+  const { results } = await DB.prepare(
+    'SELECT date, priority, done FROM todos WHERE date >= ? AND date <= ? AND deleted = 0'
+  ).bind(start, end).all();
+
+  const stats = {
+    total: results.length,
+    done: results.filter(r => r.done).length,
+    undone: results.filter(r => !r.done).length,
+    byPriority: {
+      low: results.filter(r => r.priority === 'low').length,
+      med: results.filter(r => r.priority === 'med').length,
+      high: results.filter(r => r.priority === 'high').length,
+    },
+    byDate: {},
+  };
+  for (const r of results) {
+    if (!stats.byDate[r.date]) stats.byDate[r.date] = { total: 0, done: 0 };
+    stats.byDate[r.date].total++;
+    if (r.done) stats.byDate[r.date].done++;
+  }
+  return jsonResponse({ success: true, data: stats });
+}
+
+// ==================== 分类批量删除 ====================
+
+// POST /api/v1/categories/batch - 批量操作
+async function handleV1CategoryBatch(request, DB) {
+  const { action, ids } = await request.json();
+
+  if (action === 'BATCH_DELETE') {
+    if (!ids || !Array.isArray(ids) || ids.length === 0) return apiError('ids 为必填数组', 400);
+    const placeholders = ids.map(() => '?').join(',');
+    await DB.batch([
+      DB.prepare(`DELETE FROM categories WHERE id IN (${placeholders})`).bind(...ids),
+      DB.prepare(`UPDATE todos SET category_id = '' WHERE category_id IN (${placeholders})`).bind(...ids),
+      DB.prepare(`UPDATE todo_templates SET category_id = '' WHERE category_id IN (${placeholders})`).bind(...ids),
+    ]);
+    return jsonResponse({ success: true, data: { deleted: ids.length } });
+  }
+
+  return apiError('未知操作，可用: BATCH_DELETE', 400);
+}
+
 // ==================== 路由分发 ====================
 
 export async function handleV1Request(request, env, ctx) {
@@ -843,9 +1066,32 @@ export async function handleV1Request(request, env, ctx) {
     return handleV1TodoToggle(env.DB, toggleMatch[1]);
   }
 
+  // POST /api/v1/todos/batch - 批量操作
+  if (path === '/api/v1/todos/batch' && request.method === 'POST') {
+    return handleV1TodoBatch(request, env.DB);
+  }
+
+  // ---- Trash 路由 ----
+  if (path === '/api/v1/trash' && request.method === 'GET') {
+    return handleV1TrashList(env.DB, url);
+  }
+  if (path === '/api/v1/trash-action' && request.method === 'POST') {
+    return handleV1TrashAction(request, env.DB);
+  }
+
+  // ---- Stats 路由 ----
+  if (path === '/api/v1/stats' && request.method === 'GET') {
+    return handleV1Stats(env.DB, url);
+  }
+
   // ---- Category 路由 ----
   if (path === '/api/v1/categories') {
     return handleV1Categories(request, env, url);
+  }
+
+  // POST /api/v1/categories/batch - 批量操作
+  if (path === '/api/v1/categories/batch' && request.method === 'POST') {
+    return handleV1CategoryBatch(request, env.DB);
   }
 
   const catMatch = path.match(/^\/api\/v1\/categories\/([a-zA-Z0-9_.-]+)$/);
