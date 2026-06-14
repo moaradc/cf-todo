@@ -587,6 +587,20 @@ export const css = `
     [data-theme="light"] .scale-label-sm,
     [data-theme="light"] .scale-label-lg { color: #1B1915; }
     
+    .apikey-create-row { display: flex; gap: 8px; margin-bottom: 12px; align-items: stretch; }
+    .apikey-create-row input { flex: 1; margin-bottom: 0; }
+    .apikey-create-btn { padding: 8px 14px; white-space: nowrap; }
+
+    #apikey-created-box { display: none; background: var(--panel); border: 1px solid var(--crt); border-radius: 4px; padding: 12px; margin-bottom: 12px; }
+    #apikey-created-box .apikey-created-text { margin: 0 0 8px 0; color: var(--crt); }
+    #apikey-created-box .apikey-created-row { display: flex; gap: 8px; align-items: center; }
+    #apikey-created-value { flex: 1; word-break: break-all; font-size: 0.8rem; padding: 8px; background: var(--bg); border-radius: 4px; border: 1px solid #333; }
+    #apikey-created-box .apikey-copy-btn { padding: 6px 10px; white-space: nowrap; }
+
+    [data-theme="light"] #apikey-created-box { background: #F0F0F0; border: 2px solid #1B1915; box-shadow: inset 2px 2px 0 #E5E5E5; }
+    [data-theme="light"] #apikey-created-box .apikey-created-text { color: #5C960B; }
+    [data-theme="light"] #apikey-created-value { background: #FEFEFE; border: 2px solid #1B1915; box-shadow: inset 2px 2px 0 #E5E5E5; color: #1B1915; }
+
     .session-item { display: flex; align-items: center; background: var(--panel); border: 1px solid #333; margin-bottom: 8px; padding: 10px; border-radius: 4px; gap: 10px; flex-wrap: wrap; }
     .session-item.current-session { border-color: var(--crt); }
     .session-ua { flex: 1; font-size: 0.72rem; color: var(--fg); word-break: break-all; line-height: 1.4; min-width: 0; }
