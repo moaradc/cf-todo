@@ -1,7 +1,7 @@
 ---
 name: cf-todo
 description: Manage todos and categories on a self-hosted Cloudflare Worker + D1 Todo App. Use when users ask to add, create, view, complete, update, or delete todos, manage recurring/repeating tasks, organize categories, or check their to-do list.
-version: 1.0.3
+version: 1.1.0
 metadata: {"openclaw":{"emoji":"📝","requires":{"env":["CF_TODO_API_URL","CF_TODO_API_KEY"],"bins":["curl"]},"primaryEnv":"CF_TODO_API_KEY","envVars":[{"name":"CF_TODO_API_URL","required":true,"description":"Base URL of your cf-todo deployment (e.g. https://todo.example.com, no trailing slash)"},{"name":"CF_TODO_API_KEY","required":true,"description":"API Key (cfk_...) generated from the cf-todo web UI Settings page"}]}}
 ---
 
@@ -21,6 +21,10 @@ Use this skill when the user:
 - Mentions recurring/repeating tasks ("每日重复", "每周", "daily repeat")
 - Wants to manage categories ("创建分类", "改颜色", "new category")
 - Asks to assign a category to a todo ("加到工作分类", "set category")
+- Wants to view or change app settings ("查看设置", "改排序方式", "change settings")
+- Wants to manage custom code ("改自定义代码", "更新样式", "update custom CSS/JS")
+- Wants to manage custom colors ("添加颜色", "自定义颜色", "add custom colors")
+- Wants to update subtasks or search terms independently ("更新子任务", "改搜索词", "update subtasks")
 
 Do NOT use this skill for:
 
@@ -81,6 +85,8 @@ Endpoints under `/api/v1/keys` require **Cookie auth only** (web UI session), no
 | PATCH | `/api/v1/todos/:id/toggle` | 切换完成状态 | 重复任务仅影响当天实例 |
 | DELETE | `/api/v1/todos/:id` | 删除 Todo（软删除） | 重复任务默认 `scope=this`；可选 `thisAndFuture`, `all` |
 | POST | `/api/v1/todos/batch` | 批量操作 | `BATCH_TOGGLE_DONE`（需 `ids`+`doneStatus`）或 `BATCH_DELETE`（需 `ids`）；最多100条 |
+| PATCH | `/api/v1/todos/:id/subtasks` | 独立更新子任务 | 需 `subtasks` 数组 |
+| PATCH | `/api/v1/todos/:id/search-terms` | 独立更新搜索词 | 需 `searchTerms` 数组 |
 | **Category** | | | |
 | GET | `/api/v1/categories` | 列出所有分类 | — |
 | GET | `/api/v1/categories/:id` | 获取单个分类 | — |
@@ -95,8 +101,20 @@ Endpoints under `/api/v1/keys` require **Cookie auth only** (web UI session), no
 | POST | `/api/v1/trash-action` | `CLEAR_ALL` 清空回收站 | **不可恢复**，需确认 |
 | POST | `/api/v1/trash-action` | `BATCH_RESTORE` 批量恢复 | 需 `ids` 数组；自动处理冲突脱钩 |
 | POST | `/api/v1/trash-action` | `BATCH_DELETE_PERMANENT` 批量永久删除 | **不可恢复**，需确认；需 `ids` 数组 |
+| POST | `/api/v1/trash-action` | `CLEAR_ALL_DATA` 清空所有数据 | **危险** 清空 todos、templates、settings、categories；**不可恢复** |
 | **Stats** | | | |
 | GET | `/api/v1/stats?start=&end=` | 统计数据 | 必填 `start`, `end`；返回 total/done/undone/byPriority/byDate |
+| **Settings** | | | |
+| GET | `/api/v1/settings` | 获取应用配置 | 返回 `app_settings` 键值 |
+| POST | `/api/v1/settings` | 保存应用配置 | 整体覆盖 |
+| **Custom Code** | | | |
+| GET | `/api/v1/custom-code` | 获取自定义头部+内容代码 | 返回 `customHeader` + `customContent` |
+| POST | `/api/v1/custom-code` | 保存自定义代码 | 两字段可选，仅更新传入的 |
+| GET | `/api/v1/custom-header` | 获取自定义头部代码 | 纯文本 `text/plain` |
+| GET | `/api/v1/custom-content` | 获取自定义内容代码 | 纯文本 `text/plain` |
+| **Custom Colors** | | | |
+| GET | `/api/v1/custom-colors` | 获取自定义颜色列表 | 返回颜色数组 |
+| POST | `/api/v1/custom-colors` | 保存自定义颜色列表 | 需 `colors` 数组 |
 | **API Key 管理** | | | |
 | GET | `/api/v1/keys` | 列出所有 Key（脱敏） | Cookie only；返回 `keyPrefix`，不返回完整 Key |
 | POST | `/api/v1/keys` | `CREATE` 创建 Key | Cookie only；仅创建时返回完整 Key；最多10个 |
@@ -131,10 +149,14 @@ Before update/delete:
 
 ### 4. Confirm before destructive actions
 
-Before ANY delete, `scope=all`, or `scope=thisAndFuture`:
+Before ANY delete, `scope=all`, `scope=thisAndFuture`, `CLEAR_ALL_DATA`, or saving custom code:
 1. Show the user exactly what will be affected (name, id, scope)
 2. Wait for explicit confirmation
 3. Only then execute
+
+**CLEAR_ALL_DATA** is the most destructive action — it permanently deletes ALL todos, templates, settings, and categories. **NEVER use it unless the user EXPLICITLY asks to wipe everything.** Always show a clear warning and wait for confirmation.
+
+**Custom code** (`POST /api/v1/custom-code`) directly injects HTML/CSS/JS into the web UI. Be cautious — malformed code can break the interface. Always show the user what will be saved before executing.
 
 ### 5. Verify after execution
 
@@ -651,6 +673,11 @@ curl -s -X POST -H "X-API-Key: $CF_TODO_API_KEY" -H "Content-Type: application/j
 curl -s -X POST -H "X-API-Key: $CF_TODO_API_KEY" -H "Content-Type: application/json" \
   "$CF_TODO_API_URL/api/v1/trash-action" \
   -d '{"action":"BATCH_DELETE_PERMANENT","ids":["id1","id2"]}'
+
+# Clear ALL data (DANGEROUS - confirm with user first!)
+curl -s -X POST -H "X-API-Key: $CF_TODO_API_KEY" -H "Content-Type: application/json" \
+  "$CF_TODO_API_URL/api/v1/trash-action" \
+  -d '{"action":"CLEAR_ALL_DATA"}'
 ```
 
 **Action details:**
@@ -662,6 +689,7 @@ curl -s -X POST -H "X-API-Key: $CF_TODO_API_KEY" -H "Content-Type: application/j
 | `CLEAR_ALL` | — | **Irreversible** hard delete all trashed todos. |
 | `BATCH_RESTORE` | `ids` (array) | Restore multiple. Auto-handles recurring conflicts: detaches from series if same-date instance already exists or if template `repeatEnd` has passed. |
 | `BATCH_DELETE_PERMANENT` | `ids` (array) | **Irreversible** hard delete multiple. |
+| `CLEAR_ALL_DATA` | — | **DANGEROUS** Permanently deletes ALL todos, templates, settings, and categories. **Irreversible. Must confirm with user.** |
 
 Response:
 
@@ -702,6 +730,102 @@ Response:
 }
 ```
 
+### Update subtasks independently
+
+```bash
+curl -s -X PATCH -H "X-API-Key: $CF_TODO_API_KEY" -H "Content-Type: application/json" \
+  "$CF_TODO_API_URL/api/v1/todos/{id}/subtasks" \
+  -d '{"subtasks":[{"text":"Subtask 1","done":false},{"text":"Subtask 2","done":true}]}'
+```
+
+Response: `{"success": true}`
+
+### Update search terms independently
+
+```bash
+curl -s -X PATCH -H "X-API-Key: $CF_TODO_API_KEY" -H "Content-Type: application/json" \
+  "$CF_TODO_API_URL/api/v1/todos/{id}/search-terms" \
+  -d '{"searchTerms":[{"text":"tag1","done":false}]}'
+```
+
+Response: `{"success": true}`
+
+### Settings
+
+```bash
+# Get settings
+curl -s -H "X-API-Key: $CF_TODO_API_KEY" "$CF_TODO_API_URL/api/v1/settings"
+
+# Save settings (full overwrite)
+curl -s -X POST -H "X-API-Key: $CF_TODO_API_KEY" -H "Content-Type: application/json" \
+  "$CF_TODO_API_URL/api/v1/settings" \
+  -d '{"provider":"auto","sortMethod":"time","sortAsc":true}'
+```
+
+GET response:
+
+```json
+{
+  "success": true,
+  "data": {"provider": "auto", "sortMethod": "time", "sortAsc": true}
+}
+```
+
+POST response: `{"success": true}`
+
+### Custom code
+
+```bash
+# Get custom header + content
+curl -s -H "X-API-Key: $CF_TODO_API_KEY" "$CF_TODO_API_URL/api/v1/custom-code"
+
+# Save custom code (both fields optional)
+curl -s -X POST -H "X-API-Key: $CF_TODO_API_KEY" -H "Content-Type: application/json" \
+  "$CF_TODO_API_URL/api/v1/custom-code" \
+  -d '{"customHeader":"<style>...</style>","customContent":"<script>...</script>"}'
+
+# Get custom header only (plain text)
+curl -s -H "X-API-Key: $CF_TODO_API_KEY" "$CF_TODO_API_URL/api/v1/custom-header"
+
+# Get custom content only (plain text)
+curl -s -H "X-API-Key: $CF_TODO_API_KEY" "$CF_TODO_API_URL/api/v1/custom-content"
+```
+
+GET `/api/v1/custom-code` response:
+
+```json
+{
+  "success": true,
+  "data": {
+    "customHeader": "<style>...</style>",
+    "customContent": "<script>...</script>"
+  }
+}
+```
+
+### Custom colors
+
+```bash
+# Get custom colors
+curl -s -H "X-API-Key: $CF_TODO_API_KEY" "$CF_TODO_API_URL/api/v1/custom-colors"
+
+# Save custom colors
+curl -s -X POST -H "X-API-Key: $CF_TODO_API_KEY" -H "Content-Type: application/json" \
+  "$CF_TODO_API_URL/api/v1/custom-colors" \
+  -d '{"colors":["#FF5733","#3B82F6"]}'
+```
+
+GET response:
+
+```json
+{
+  "success": true,
+  "data": ["#FF5733", "#3B82F6"]
+}
+```
+
+POST response: `{"success": true, "data": ["#FF5733", "#3B82F6"]}`
+
 ## Workflow
 
 1. **Fetch first** — GET the list before update/delete to find the correct `id`
@@ -734,3 +858,6 @@ HTTP status codes:
 - Category names must be unique (case-insensitive)
 - Category delete is hard delete (cannot be restored); todo delete is soft delete (restorable from trash)
 - Deleting a recurring todo with `scope=all` also permanently deletes the template — the series cannot be restored from trash
+- Settings POST is a full overwrite — always GET first, modify, then POST back
+- Custom code is injected directly into the web UI — malformed HTML/CSS/JS can break the interface
+- Custom colors must be an array of hex strings
