@@ -27,7 +27,7 @@ import {
   getPreviousDate,
   getNextDate,
 } from './recurring-engine.js';
-import { handleV1Request } from './api-v1.js';
+import { handleV1Request, verifyApiKey, extractApiKey } from './api-v1.js';
 
 let isDbInitialized = false;
 
