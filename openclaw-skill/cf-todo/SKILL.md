@@ -13,47 +13,18 @@ Manage your personal todo list and categories through the cf-todo RESTful API.
 
 Use this skill when the user:
 
-**创建/添加任务：**
-- "添加待办", "新建任务", "加一个", "记一下", "别忘了", "提醒我", "add a todo", "create a task", "new todo", "add to my list", "remind me to", "don't forget to", "I need to", "make a note to"
-
-**查看任务：**
-- "看看今天的待办", "我的任务", "今天有什么", "待办列表", "show my todos", "what's on my list", "today's tasks", "what do I have to do", "pending items", "my todos"
-
-**完成/标记：**
-- "标记完成", "完成了", "搞定了", "做完了", "打卡", "签到", "mark as done", "completed", "finished", "checked off", "done with", "toggle"
-
-**更新/修改：**
-- "改一下", "更新", "改时间", "改优先级", "改描述", "换个时间", "change the time", "update", "edit", "modify", "reschedule", "move to", "change priority"
-
-**删除：**
-- "删除", "删掉", "不要了", "去掉", "移除", "remove", "delete", "get rid of", "trash it", "discard"
-
-**重复/循环任务：**
-- "每日重复", "每周", "每天", "循环", "定期", "重复任务", "daily repeat", "recurring", "every day", "weekly", "repeating task", "scheduled task", "改为不重复", "stop repeating", "no longer repeat"
-
-**分类管理：**
-- "创建分类", "改颜色", "新建分类", "分类管理", "new category", "organize", "group by", "change color", "add label", "tag"
-
-**分配分类：**
-- "加到工作分类", "设分类", "归类到", "set category", "assign to", "categorize as", "put in group"
-
-**回收站/恢复：**
-- "恢复", "还原", "回收站", "撤销删除", "restore", "undo delete", "recover", "bring back", "trash list", "recently deleted"
-
-**统计/概览：**
-- "统计", "完成率", "概览", "进度", "多少任务", "statistics", "stats", "progress", "completion rate", "summary", "how many"
-
-**设置：**
-- "查看设置", "改排序方式", "改配置", "设置", "change settings", "preferences", "sort order", "configuration"
-
-**自定义代码/样式：**
-- "改自定义代码", "更新样式", "自定义CSS", "改JS", "自定义脚本", "custom CSS", "custom JS", "custom code", "inject code", "add style", "custom script", "header code", "footer code"
-
-**自定义颜色：**
-- "添加颜色", "自定义颜色", "颜色列表", "add color", "custom colors", "color palette", "theme colors"
-
-**子任务/搜索词：**
-- "更新子任务", "改搜索词", "子任务", "搜索词", "update subtasks", "add subtask", "checklist", "search terms", "tags", "keywords"
+- Asks to add, create, or schedule a todo/task ("添加待办", "新建任务", "加一个", "记一下", "别忘了", "提醒我", "add a todo", "create a task", "new todo", "add to my list", "remind me to", "don't forget to", "I need to", "make a note to")
+- Wants to view their todos ("看看今天的待办", "我的任务", "今天有什么", "待办列表", "show my todos", "what's on my list", "today's tasks", "what do I have to do", "pending items", "my todos")
+- Wants to mark a todo as done ("标记完成", "完成了", "mark as done")
+- Wants to update a todo ("改一下", "更新", "改时间", "改优先级", "改描述", "换个时间", "change the time", "update", "edit", "modify", "reschedule", "move to", "change priority")
+- Wants to delete a todo ("删除", "删掉", "不要了", "去掉", "移除", "remove", "delete", "get rid of", "trash it", "discard")
+- Mentions recurring/repeating tasks ("每日重复", "每周", "每天", "循环", "定期", "重复任务", "daily repeat", "recurring", "every day", "weekly", "repeating task", "scheduled task", "改为不重复", "stop repeating", "no longer repeat")
+- Wants to manage categories ("创建分类", "改颜色", "新建分类", "分类管理", "new category", "organize", "group by", "change color", "add label", "tag")
+- Asks to assign a category to a todo ("加到X分类", "设分类", "归类到", "set category", "assign to", "categorize as", "put in group")
+- Wants to view or change app settings ("查看设置", "改排序方式", "change settings")
+- Wants to manage custom code ("改自定义代码", "更新样式", "update custom CSS/JS")
+- Wants to manage custom colors ("添加颜色", "自定义颜色", "add custom colors")
+- Wants to update subtasks or search terms independently ("更新子任务", "改搜索词", "update subtasks", "add subtask")
 
 Do NOT use this skill for:
 
@@ -164,16 +135,7 @@ These rules are MANDATORY. Violating them may cause irreversible data loss. No e
 ### 2. Keep replies concise but informative after mutations
 
 After successful create/update/delete/toggle: respond with ONE short line that includes **what** was done and **to what**. Do NOT include full API responses, raw JSON, or code blocks unless the user explicitly asked for details.
-
-Good examples (translate to user's language):
-- "已添加「买牛奶」到 2026-06-15，优先级 high。"
-- "「淘宝搜拍拍乐」已改为不重复，从今天起不再生成新实例。"
-- "已删除「晨跑」（scope=thisAndFuture）。"
-- "已标记「必应日常」为完成。"
-- "已恢复 3 条待办。"
-- "Added 'Buy milk' to 2026-06-15, priority high."
-- "Marked 'Bing daily' as done."
-- "Deleted 'Morning run' (scope=thisAndFuture)."
+Reply first and foremost based on your own persona/character — if you have a character setting, use that tone, but keep it concise and clear; if not, keep it concise and natural. Regardless of the style, you must reply in the user's language.
 
 Bad examples (too terse, missing context):
 - "Done." / "已完成。"
@@ -187,7 +149,6 @@ Bad examples (too verbose, dumping API response):
 ### 3. Never print the todo list unless explicitly asked
 
 - If the user does NOT ask to "show/list/print my todos", do NOT paste the list.
-- Default behavior after mutations: one short confirmation line only.
 - Exception: when resolving ambiguity (see rule #5), you may show matching items to ask which one.
 
 ### 4. Context-aware targeting
@@ -936,8 +897,6 @@ HTTP status codes:
 
 ## Limitations
 
-- Max 10 API keys per deployment
-- API keys managed only via web UI (cookie auth)
 - Date format must be YYYY-MM-DD
 - Max 500 todos per query (use pagination)
 - Max 100 items per batch operation
