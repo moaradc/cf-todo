@@ -600,8 +600,7 @@ export const css = `
     #apikey-created-box .apikey-created-text { margin: 0 0 8px 0; color: var(--crt); }
     #apikey-created-box .apikey-created-row { display: flex; gap: 8px; align-items: center; }
     #apikey-created-value { flex: 1; word-break: break-all; font-size: 0.8rem; padding: 8px; margin-bottom: 0; cursor: text; }
-    #apikey-created-box .apikey-copy-btn { padding: 6px 10px; white-space: nowrap; transition: transform .1s; }
-    #apikey-created-box .apikey-copy-btn:active { transform: scale(.95); }
+    #apikey-created-box .apikey-copy-btn { padding: 6px 10px; white-space: nowrap; }
 
     [data-theme="light"] #apikey-created-box { background: #F0F0F0; border: 2px solid #1B1915; box-shadow: inset 2px 2px 0 #E5E5E5; }
     [data-theme="light"] #apikey-created-box .apikey-created-text { color: #5C960B; }
