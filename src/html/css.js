@@ -398,7 +398,8 @@ export const css = `
     [data-theme="light"] .setting-item span { color: #1B1915; font-weight: bold; }
     [data-theme="light"] .settings-card { background: #F0F0F0; border: 2px dashed #1B1915; box-shadow: inset 2px 2px 0 #E5E5E5; }[data-theme="light"] .settings-card.danger { border: 2px solid #CE2424; box-shadow: 4px 4px 0 #CE2424; background: #FEFEFE; }
     [data-theme="light"] .settings-text { color: #1B1915; font-weight: bold; }
-    [data-theme="light"] .settings-text strong { color: #5C960B; }
+    [data-theme="light"] .settings-text strong,
+    [data-theme="light"] .apikey-status { color: #5C960B; }
     [data-theme="light"] .md-code { background: #E5E5E5; color: #5C960B; border: 1px solid #1B1915; }
     [data-theme="light"] .chart-container { background: #F0F0F0; border: 2px dashed #1B1915; box-shadow: inset 2px 2px 0 #E5E5E5; }
     
@@ -591,11 +592,9 @@ export const css = `
     .apikey-create-row input { flex: 1; margin-bottom: 0; }
     .apikey-create-btn { padding: 8px 14px; white-space: nowrap; }
 
-    .apikey-status { font-size: 0.7rem; margin-left: 6px; }
-    .apikey-status-active { color: var(--crt); }
-    .apikey-status-disabled { color: var(--accent); }
-    [data-theme="light"] .apikey-status-active { color: #5C960B; }
-    [data-theme="light"] .apikey-status-disabled { color: #CE2424; }
+    .apikey-status { font-size: 0.7rem; margin-left: 6px; color: var(--crt); }
+    .apikey-status.disabled { color: var(--accent); }
+    [data-theme="light"] .apikey-status.disabled { color: #CE2424; }
 
     #apikey-created-box { display: none; background: var(--panel); border: 1px solid var(--crt); border-radius: 4px; padding: 12px; margin-bottom: 12px; }
     #apikey-created-box .apikey-created-text { margin: 0 0 8px 0; color: var(--crt); }
