@@ -345,7 +345,7 @@ export const css = `
       box-shadow: 2px 2px 0 #1B1915; border-radius: 4px; font-weight: bold;
     }[data-theme="light"] button:active {
       transform: translate(2px, 2px); box-shadow: 0 0 0 #1B1915; background: #E5E5E5;
-    }[data-theme="light"] .btn-primary { background: #CE2424; color: #FEFEFE; }[data-theme="light"] .btn-primary:active { background: #1B1915; color: #CE2424; }[data-theme="light"] .btn-danger { background: #FEFEFE; color: #CE2424; border: 2px solid #CE2424; box-shadow: 2px 2px 0 #CE2424; }[data-theme="light"] .btn-ghost { background: transparent; border: 2px dashed #E5E5E5; box-shadow: none; color: #1B1915; }[data-theme="light"] input,[data-theme="light"] textarea,[data-theme="light"] select,[data-theme="light"] .fake-input,[data-theme="light"] #apikey-created-box,[data-theme="light"] #apikey-created-value {
+    }[data-theme="light"] .btn-primary { background: #CE2424; color: #FEFEFE; }[data-theme="light"] .btn-primary:active { background: #1B1915; color: #CE2424; }[data-theme="light"] .btn-danger { background: #FEFEFE; color: #CE2424; border: 2px solid #CE2424; box-shadow: 2px 2px 0 #CE2424; }[data-theme="light"] .btn-ghost { background: transparent; border: 2px dashed #E5E5E5; box-shadow: none; color: #1B1915; }[data-theme="light"] input,[data-theme="light"] textarea,[data-theme="light"] select,[data-theme="light"] .fake-input {
       background: #FEFEFE; color: #1B1915; border: 2px solid #1B1915;
       box-shadow: inset 2px 2px 0 #E5E5E5; border-radius: 4px;
     }[data-theme="light"] input:focus,[data-theme="light"] textarea:focus,[data-theme="light"] select:focus {
@@ -399,8 +399,7 @@ export const css = `
     [data-theme="light"] .settings-card { background: #F0F0F0; border: 2px dashed #1B1915; box-shadow: inset 2px 2px 0 #E5E5E5; }[data-theme="light"] .settings-card.danger { border: 2px solid #CE2424; box-shadow: 4px 4px 0 #CE2424; background: #FEFEFE; }
     [data-theme="light"] .settings-text { color: #1B1915; font-weight: bold; }
     [data-theme="light"] .settings-text strong,
-    [data-theme="light"] .apikey-status,
-    [data-theme="light"] .apikey-created-text { color: #5C960B; }
+    [data-theme="light"] .apikey-status { color: #5C960B; }
     [data-theme="light"] .md-code { background: #E5E5E5; color: #5C960B; border: 1px solid #1B1915; }
     [data-theme="light"] .chart-container { background: #F0F0F0; border: 2px dashed #1B1915; box-shadow: inset 2px 2px 0 #E5E5E5; }
     
@@ -597,11 +596,15 @@ export const css = `
     .apikey-status.disabled { color: var(--accent); }
     [data-theme="light"] .apikey-status.disabled { color: #CE2424; }
 
-    #apikey-created-box { display: none; background: #000; border: 1px solid #444; border-radius: 4px; padding: 12px; margin-bottom: 12px; color: var(--crt); }
+    #apikey-created-box { display: none; background: var(--panel); border: 1px solid var(--crt); border-radius: 4px; padding: 12px; margin-bottom: 12px; }
     #apikey-created-box .apikey-created-text { margin: 0 0 8px 0; color: var(--crt); }
     #apikey-created-box .apikey-created-row { display: flex; gap: 8px; align-items: center; }
-    #apikey-created-value { flex: 1; word-break: break-all; font-size: 0.8rem; padding: 8px; background: #000; border-radius: 4px; border: 1px solid #444; }
+    #apikey-created-value { flex: 1; word-break: break-all; font-size: 0.8rem; padding: 8px; background: var(--bg); border-radius: 4px; border: 1px solid #333; }
     #apikey-created-box .apikey-copy-btn { padding: 6px 10px; white-space: nowrap; }
+
+    [data-theme="light"] #apikey-created-box { background: #F0F0F0; border: 2px solid #1B1915; box-shadow: inset 2px 2px 0 #E5E5E5; }
+    [data-theme="light"] #apikey-created-box .apikey-created-text { color: #5C960B; }
+    [data-theme="light"] #apikey-created-value { background: #FEFEFE; border: 2px solid #1B1915; box-shadow: inset 2px 2px 0 #E5E5E5; color: #1B1915; }
 
     .session-item { display: flex; align-items: center; background: var(--panel); border: 1px solid #333; margin-bottom: 8px; padding: 10px; border-radius: 4px; gap: 10px; flex-wrap: wrap; }
     .session-item.current-session { border-color: var(--crt); }
