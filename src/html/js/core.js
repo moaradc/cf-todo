@@ -402,7 +402,7 @@ export const core = `
             var createdBox = document.getElementById('apikey-created-box');
             var createdValue = document.getElementById('apikey-created-value');
             if (createdBox && createdValue) {
-              createdValue.textContent = data.key;
+              createdValue.value = data.key;
               createdBox.style.display = 'block';
             }
             if (nameInput) nameInput.value = '';
@@ -416,25 +416,6 @@ export const core = `
         }
       } catch(e) {
         alert('创建失败: ' + e.message);
-      }
-    }
-
-    function copyCreatedApiKey() {
-      var el = document.getElementById('apikey-created-value');
-      if (!el) return;
-      var text = el.textContent;
-      if (navigator.clipboard) {
-        navigator.clipboard.writeText(text).then(function() {
-          alert('已复制到剪贴板');
-        });
-      } else {
-        var ta = document.createElement('textarea');
-        ta.value = text;
-        document.body.appendChild(ta);
-        ta.select();
-        document.execCommand('copy');
-        document.body.removeChild(ta);
-        alert('已复制到剪贴板');
       }
     }
 

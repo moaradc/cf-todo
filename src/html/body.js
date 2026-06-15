@@ -352,8 +352,8 @@ export function getBody(isAuthorized) {
           <div id="apikey-created-box">
             <p class="settings-text apikey-created-text"><strong>密钥已创建！请立即复制，此密钥仅显示一次：</strong></p>
             <div class="apikey-created-row">
-              <code id="apikey-created-value"></code>
-              <button class="apikey-copy-btn" onclick="copyText(document.getElementById('apikey-created-value').textContent)">复制</button>
+              <input type="text" id="apikey-created-value" readonly onclick="this.select()">
+              <button class="apikey-copy-btn" onclick="copyText(document.getElementById('apikey-created-value').value)">复制</button>
             </div>
           </div>
           <div class="settings-text" style="border-top: 1px dashed #333; padding-top: 10px;">
