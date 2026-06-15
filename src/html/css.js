@@ -591,6 +591,12 @@ export const css = `
     .apikey-create-row input { flex: 1; margin-bottom: 0; }
     .apikey-create-btn { padding: 8px 14px; white-space: nowrap; }
 
+    .apikey-status { font-size: 0.7rem; margin-left: 6px; }
+    .apikey-status-active { color: var(--crt); }
+    .apikey-status-disabled { color: var(--accent); }
+    [data-theme="light"] .apikey-status-active { color: #5C960B; }
+    [data-theme="light"] .apikey-status-disabled { color: #CE2424; }
+
     #apikey-created-box { display: none; background: var(--panel); border: 1px solid var(--crt); border-radius: 4px; padding: 12px; margin-bottom: 12px; }
     #apikey-created-box .apikey-created-text { margin: 0 0 8px 0; color: var(--crt); }
     #apikey-created-box .apikey-created-row { display: flex; gap: 8px; align-items: center; }

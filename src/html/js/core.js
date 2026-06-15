@@ -368,7 +368,7 @@ export const core = `
         return;
       }
       container.innerHTML = apiKeysList.map(function(k, i) {
-        var statusTag = k.disabled ? '<span style="font-size:0.7rem;color:var(--accent);margin-left:6px;">已禁用</span>' : '<span style="font-size:0.7rem;color:var(--crt);margin-left:6px;">活跃</span>';
+        var statusTag = k.disabled ? '<span class="apikey-status apikey-status-disabled">已禁用</span>' : '<span class="apikey-status apikey-status-active">活跃</span>';
         var lastUsed = k.lastUsedAt ? new Date(k.lastUsedAt).toLocaleString() : '从未使用';
         return '<div class="session-item' + (k.disabled ? '' : '') + '">' +
           '<div style="flex:1;min-width:0;">' +
