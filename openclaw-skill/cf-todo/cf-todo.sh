@@ -14,16 +14,27 @@
 #   todos:update <id> <json-body>         - Update a todo
 #   todos:toggle <id>                     - Toggle done status
 #   todos:delete <id> [scope]             - Delete a todo
+#   todos:subtasks <id> <json-body>     - Update subtasks independently
+#   todos:search-terms <id> <json-body> - Update search terms independently
 #   trash:list                            - List trash
 #   trash:restore <id>                    - Restore a todo
 #   trash:permanent <id>                  - Permanently delete a todo
 #   trash:clear                           - Clear all trash
+#   trash:clear-all-data                  - Clear ALL data (dangerous!)
 #   cats:list                             - List all categories
 #   cats:get <id>                         - Get a category
 #   cats:create <name> [color]            - Create a category
 #   cats:update <id> <json-body>          - Update a category
 #   cats:delete <id>                      - Delete a category
 #   stats <start> <end>                   - Get statistics
+#   settings:get                          - Get app settings
+#   settings:save <json-body>             - Save app settings (full overwrite)
+#   custom-code:get                       - Get custom header + content
+#   custom-code:save <json-body>          - Save custom code
+#   custom-header                         - Get custom header (plain text)
+#   custom-content                        - Get custom content (plain text)
+#   custom-colors:get                     - Get custom colors
+#   custom-colors:save <json-body>        - Save custom colors
 
 set -euo pipefail
 
@@ -83,6 +94,16 @@ case "$action" in
     [[ -n "$scope" ]] && url="$url?scope=$scope"
     curl "${curl_opts[@]}" -X DELETE "$url"
     ;;
+  todos:subtasks)
+    id="${1:?Usage: todos:subtasks <id> <json-body>}"
+    body="${2:?Usage: todos:subtasks <id> <json-body>}"
+    curl "${curl_opts[@]}" -X PATCH "$BASE_URL/api/v1/todos/$id/subtasks" -d "$body"
+    ;;
+  todos:search-terms)
+    id="${1:?Usage: todos:search-terms <id> <json-body>}"
+    body="${2:?Usage: todos:search-terms <id> <json-body>}"
+    curl "${curl_opts[@]}" -X PATCH "$BASE_URL/api/v1/todos/$id/search-terms" -d "$body"
+    ;;
   trash:list)
     curl "${curl_opts[@]}" "$BASE_URL/api/v1/trash"
     ;;
@@ -99,6 +120,10 @@ case "$action" in
   trash:clear)
     curl "${curl_opts[@]}" -X POST "$BASE_URL/api/v1/trash-action" \
       -d '{"action":"CLEAR_ALL"}'
+    ;;
+  trash:clear-all-data)
+    curl "${curl_opts[@]}" -X POST "$BASE_URL/api/v1/trash-action" \
+      -d '{"action":"CLEAR_ALL_DATA"}'
     ;;
   cats:list)
     curl "${curl_opts[@]}" "$BASE_URL/api/v1/categories"
@@ -127,9 +152,36 @@ case "$action" in
     end="${2:?Usage: stats <start> <end>}"
     curl "${curl_opts[@]}" "$BASE_URL/api/v1/stats?start=$start&end=$end"
     ;;
+  settings:get)
+    curl "${curl_opts[@]}" "$BASE_URL/api/v1/settings"
+    ;;
+  settings:save)
+    body="${1:?Usage: settings:save <json-body>}"
+    curl "${curl_opts[@]}" -X POST "$BASE_URL/api/v1/settings" -d "$body"
+    ;;
+  custom-code:get)
+    curl "${curl_opts[@]}" "$BASE_URL/api/v1/custom-code"
+    ;;
+  custom-code:save)
+    body="${1:?Usage: custom-code:save <json-body>}"
+    curl "${curl_opts[@]}" -X POST "$BASE_URL/api/v1/custom-code" -d "$body"
+    ;;
+  custom-header)
+    curl "${curl_opts[@]}" "$BASE_URL/api/v1/custom-header"
+    ;;
+  custom-content)
+    curl "${curl_opts[@]}" "$BASE_URL/api/v1/custom-content"
+    ;;
+  custom-colors:get)
+    curl "${curl_opts[@]}" "$BASE_URL/api/v1/custom-colors"
+    ;;
+  custom-colors:save)
+    body="${1:?Usage: custom-colors:save <json-body>}"
+    curl "${curl_opts[@]}" -X POST "$BASE_URL/api/v1/custom-colors" -d "$body"
+    ;;
   *)
     echo "Unknown action: $action" >&2
-    echo "Available: todos:date, todos:range, todos:get, todos:create, todos:update, todos:toggle, todos:delete, trash:list, trash:restore, trash:permanent, trash:clear, cats:list, cats:get, cats:create, cats:update, cats:delete, stats" >&2
+    echo "Available: todos:date, todos:range, todos:get, todos:create, todos:update, todos:toggle, todos:delete, todos:subtasks, todos:search-terms, trash:list, trash:restore, trash:permanent, trash:clear, trash:clear-all-data, cats:list, cats:get, cats:create, cats:update, cats:delete, stats, settings:get, settings:save, custom-code:get, custom-code:save, custom-header, custom-content, custom-colors:get, custom-colors:save" >&2
     exit 1
     ;;
 esac
