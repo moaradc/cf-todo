@@ -13,18 +13,47 @@ Manage your personal todo list and categories through the cf-todo RESTful API.
 
 Use this skill when the user:
 
-- Asks to add, create, or schedule a todo/task ("添加待办", "新建任务", "add a todo")
-- Wants to view their todos ("看看今天的待办", "我的任务", "show my todos")
-- Wants to mark a todo as done ("标记完成", "完成了", "mark as done")
-- Wants to update a todo ("改一下", "更新", "change the time")
-- Wants to delete a todo ("删除", "删掉", "remove")
-- Mentions recurring/repeating tasks ("每日重复", "每周", "daily repeat")
-- Wants to manage categories ("创建分类", "改颜色", "new category")
-- Asks to assign a category to a todo ("加到工作分类", "set category")
-- Wants to view or change app settings ("查看设置", "改排序方式", "change settings")
-- Wants to manage custom code ("改自定义代码", "更新样式", "update custom CSS/JS")
-- Wants to manage custom colors ("添加颜色", "自定义颜色", "add custom colors")
-- Wants to update subtasks or search terms independently ("更新子任务", "改搜索词", "update subtasks")
+**创建/添加任务：**
+- "添加待办", "新建任务", "加一个", "记一下", "别忘了", "提醒我", "add a todo", "create a task", "new todo", "add to my list", "remind me to", "don't forget to", "I need to", "make a note to"
+
+**查看任务：**
+- "看看今天的待办", "我的任务", "今天有什么", "待办列表", "show my todos", "what's on my list", "today's tasks", "what do I have to do", "pending items", "my todos"
+
+**完成/标记：**
+- "标记完成", "完成了", "搞定了", "做完了", "打卡", "签到", "mark as done", "completed", "finished", "checked off", "done with", "toggle"
+
+**更新/修改：**
+- "改一下", "更新", "改时间", "改优先级", "改描述", "换个时间", "change the time", "update", "edit", "modify", "reschedule", "move to", "change priority"
+
+**删除：**
+- "删除", "删掉", "不要了", "去掉", "移除", "remove", "delete", "get rid of", "trash it", "discard"
+
+**重复/循环任务：**
+- "每日重复", "每周", "每天", "循环", "定期", "重复任务", "daily repeat", "recurring", "every day", "weekly", "repeating task", "scheduled task", "改为不重复", "stop repeating", "no longer repeat"
+
+**分类管理：**
+- "创建分类", "改颜色", "新建分类", "分类管理", "new category", "organize", "group by", "change color", "add label", "tag"
+
+**分配分类：**
+- "加到工作分类", "设分类", "归类到", "set category", "assign to", "categorize as", "put in group"
+
+**回收站/恢复：**
+- "恢复", "还原", "回收站", "撤销删除", "restore", "undo delete", "recover", "bring back", "trash list", "recently deleted"
+
+**统计/概览：**
+- "统计", "完成率", "概览", "进度", "多少任务", "statistics", "stats", "progress", "completion rate", "summary", "how many"
+
+**设置：**
+- "查看设置", "改排序方式", "改配置", "设置", "change settings", "preferences", "sort order", "configuration"
+
+**自定义代码/样式：**
+- "改自定义代码", "更新样式", "自定义CSS", "改JS", "自定义脚本", "custom CSS", "custom JS", "custom code", "inject code", "add style", "custom script", "header code", "footer code"
+
+**自定义颜色：**
+- "添加颜色", "自定义颜色", "颜色列表", "add color", "custom colors", "color palette", "theme colors"
+
+**子任务/搜索词：**
+- "更新子任务", "改搜索词", "子任务", "搜索词", "update subtasks", "add subtask", "checklist", "search terms", "tags", "keywords"
 
 Do NOT use this skill for:
 
@@ -122,9 +151,9 @@ Endpoints under `/api/v1/keys` require **Cookie auth only** (web UI session), no
 | POST | `/api/v1/keys` | `TOGGLE` 启用/禁用 Key | Cookie only；需 `id` |
 | POST | `/api/v1/keys` | `RENAME` 重命名 Key | Cookie only；需 `id`+`name` |
 
-## Safety Rules
+## Non-negotiable Rules
 
-These rules are MANDATORY. Violating them may cause irreversible data loss.
+These rules are MANDATORY. Violating them may cause irreversible data loss. No exceptions.
 
 ### 1. Only do what the user explicitly asked
 
@@ -132,22 +161,51 @@ These rules are MANDATORY. Violating them may cause irreversible data loss.
 - "标记为完成" → mark ONLY the specified item. Do NOT mark others.
 - "看看今天的待办" → ONLY list. Do NOT delete, update, or create.
 
-### 2. Context-aware targeting
+### 2. Keep replies concise but informative after mutations
+
+After successful create/update/delete/toggle: respond with ONE short line that includes **what** was done and **to what**. Do NOT include full API responses, raw JSON, or code blocks unless the user explicitly asked for details.
+
+Good examples (translate to user's language):
+- "已添加「买牛奶」到 2026-06-15，优先级 high。"
+- "「淘宝搜拍拍乐」已改为不重复，从今天起不再生成新实例。"
+- "已删除「晨跑」（scope=thisAndFuture）。"
+- "已标记「必应日常」为完成。"
+- "已恢复 3 条待办。"
+- "Added 'Buy milk' to 2026-06-15, priority high."
+- "Marked 'Bing daily' as done."
+- "Deleted 'Morning run' (scope=thisAndFuture)."
+
+Bad examples (too terse, missing context):
+- "Done." / "已完成。"
+- "Updated." / "已更新。"
+- "Deleted." / "已删除。"
+
+Bad examples (too verbose, dumping API response):
+- Pasting the full JSON response body
+- Showing the entire todo object with all 20+ fields
+
+### 3. Never print the todo list unless explicitly asked
+
+- If the user does NOT ask to "show/list/print my todos", do NOT paste the list.
+- Default behavior after mutations: one short confirmation line only.
+- Exception: when resolving ambiguity (see rule #5), you may show matching items to ask which one.
+
+### 4. Context-aware targeting
 
 When the user says "标记为完成" or "删掉" without specifying which item:
 - Use **conversation context** to identify the exact target (e.g., the item just discussed)
 - If multiple items could match, **ASK** which one — never guess or assume "all"
 - **NEVER apply operations to items the user did not mention**
 
-### 3. Identify targets before acting
+### 5. Identify targets before acting
 
 Before update/delete:
-1. GET the todo list for the relevant date
+1. GET the todo list for the relevant date (do NOT paste results unless asked)
 2. Match by `text` field to find the target's `id`
 3. Use that `id` for the API call
-4. If multiple matches, ASK the user which one
+4. If multiple matches, show the matching items and ASK which one
 
-### 4. Confirm before destructive actions
+### 6. Confirm before destructive actions
 
 Before ANY delete, `scope=all`, `scope=thisAndFuture`, `CLEAR_ALL_DATA`, or saving custom code:
 1. Show the user exactly what will be affected (name, id, scope)
@@ -201,10 +259,38 @@ When updating/deleting a recurring todo, choose the correct `scope`:
 | `thisAndFuture` | 操作此实例及之后 | "从这天起不再重复" | 中 — 影响多个未来实例，需确认 |
 | `all` | 操作整个系列 | "删除整个系列"、"删掉所有重复" | 高 — **不可恢复**，必须用户明确要求 |
 
+### Scope 意图映射（CRITICAL — 必须严格遵守）
+
+**将重复任务改为不重复** 是最常见的歧义场景，必须根据用户意图选择正确的 scope：
+
+| 用户说的 | 正确 scope | 错误 scope | 原因 |
+|----------|-----------|-----------|------|
+| "改为不重复，以后都不需要了" | `thisAndFuture` | ~~`this`~~ | "以后都不需要" = 从今天起停止，不是只改今天 |
+| "改为不重复，以后不再重复" | `thisAndFuture` | ~~`this`~~ | "以后不再" = 从今天起停止 |
+| "改为不重复，从今天起" | `thisAndFuture` | ~~`this`~~ | "从今天起" = 从今天起停止 |
+| "只今天不重复" | `this` | ~~`thisAndFuture`~~ | "只今天" = 仅此一次 |
+| "仅此一次不重复" | `this` | ~~`thisAndFuture`~~ | "仅此一次" = 仅此一天 |
+| "今天这个改成不重复" | `this` | ~~`thisAndFuture`~~ | "今天这个" = 仅此实例 |
+
+**判断规则：**
+1. **关键词检测**：用户提到"以后"、"以后都"、"不再"、"从今天起"、"从这天起" → `thisAndFuture`
+2. **关键词检测**：用户提到"只今天"、"仅此一次"、"就今天" → `this`
+3. **默认规则**：如果用户只说"改为不重复"而没有时间范围限定，**必须询问**用户是"仅此一天"还是"以后都不重复"
+
+**其他操作的 scope 映射：**
+
+| 用户意图 | scope |
+|----------|-------|
+| "删掉今天这个" / "只删这个" | `this` |
+| "从今天起删掉" / "以后都不要了" | `thisAndFuture` |
+| "删掉整个系列" / "所有重复的都删" | `all` |
+| "改一下时间"（没说范围） | 先问：仅今天？还是以后都改？ |
+
 **Rules:**
 - Default = `this`. API defaults to this, but be explicit in the request.
 - **NEVER use `scope=all` unless user EXPLICITLY says so** (e.g., "删除整个系列")
 - Always confirm before `all` or `thisAndFuture`
+- **When changing `repeatType` to `"none"`**: if user implies "以后都不需要" → MUST use `thisAndFuture`, NOT `this`
 - Toggle on a recurring todo marks only that day's instance (next day is still undone — correct)
 
 ## Core Operations
