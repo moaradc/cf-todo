@@ -352,6 +352,13 @@ html.bg-dark #modal-add .modal-content{box-shadow: 0 16px 56px rgba(0,0,0,.32), 
 .settings-text strong{color:var(--ycy-gn)!important}
 .md-code{background:var(--ycy-panel-s)!important;color:var(--ycy-ac)!important;border:1px solid var(--ycy-bd)!important;border-radius:4px!important;font-family:var(--font-main)!important}
 
+/* ── apikey ── */
+.apikey-status{color:var(--ycy-gn)!important}
+.apikey-status.disabled{color:var(--ycy-ac)!important}
+#apikey-created-box{background:var(--ycy-panel)!important;border:1px solid var(--ycy-bd)!important;border-radius:var(--ycy-r-xs)!important;box-shadow:none!important}
+#apikey-created-box .apikey-created-text{color:var(--ycy-gn)!important}
+#apikey-created-value{background:var(--ycy-panel-s)!important;border:1px solid var(--ycy-bd)!important;color:var(--ycy-t)!important;border-radius:var(--ycy-r-xs)!important;box-shadow:var(--ycy-sh)!important}
+
 /* ── chart ── */
 .chart-container{background:var(--ycy-panel)!important;border:1px dashed var(--ycy-bd)!important;border-radius:var(--ycy-r-s)!important;box-shadow:none!important}
 
