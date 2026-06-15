@@ -132,10 +132,7 @@ These rules are MANDATORY. Violating them may cause irreversible data loss. No e
 - "标记为完成" → mark ONLY the specified item. Do NOT mark others.
 - "看看今天的待办" → ONLY list. Do NOT delete, update, or create.
 
-### 2. Keep replies concise but informative after mutations
-
-After successful create/update/delete/toggle: respond with ONE short line that includes **what** was done and **to what**. Do NOT include full API responses, raw JSON, or code blocks unless the user explicitly asked for details.
-Reply first and foremost based on your own persona/character — if you have a character setting, use that tone, but keep it concise and clear; if not, keep it concise and natural. Regardless of the style, you must reply in the user's language.
+### 2. After successfully creating/updating/deleting/switching: The response should indicate what action was taken and what was operated on. Do not include full API responses, raw JSON, or code blocks unless the user explicitly requests detailed information.
 
 Bad examples (too terse, missing context):
 - "Done." / "已完成。"
