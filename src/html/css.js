@@ -510,7 +510,8 @@ export const css = `
     [data-theme="light"] .annual-pri-count { color: #1B1915; }
     [data-theme="light"] .annual-report-time { border-top-color: #1B1915; color: #666; }
     [data-theme="light"] #custom-header-preview,
-    [data-theme="light"] #custom-content-preview {
+    [data-theme="light"] #custom-content-preview,
+    [data-theme="light"] #apikey-created-box {
       background: #FEFEFE; color: #1B1915; border: 2px solid #1B1915;
       box-shadow: inset 2px 2px 0 #E5E5E5; border-radius: 4px;
     }
@@ -602,7 +603,6 @@ export const css = `
     #apikey-created-value { flex: 1; word-break: break-all; font-size: 0.8rem; padding: 8px; background: var(--bg); border-radius: 4px; border: 1px solid #333; }
     #apikey-created-box .apikey-copy-btn { padding: 6px 10px; white-space: nowrap; }
 
-    [data-theme="light"] #apikey-created-box { background: #F0F0F0; border: 2px solid #1B1915; box-shadow: inset 2px 2px 0 #E5E5E5; }
     [data-theme="light"] #apikey-created-box .apikey-created-text { color: #5C960B; }
     [data-theme="light"] #apikey-created-value { background: #FEFEFE; border: 2px solid #1B1915; box-shadow: inset 2px 2px 0 #E5E5E5; color: #1B1915; }
 
