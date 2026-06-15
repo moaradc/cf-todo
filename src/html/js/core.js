@@ -368,7 +368,7 @@ export const core = `
         return;
       }
       container.innerHTML = apiKeysList.map(function(k, i) {
-        var statusTag = k.disabled ? '<span style="font-size:0.7rem;color:var(--accent);margin-left:6px;">已禁用</span>' : '<span style="font-size:0.7rem;color:var(--crt);margin-left:6px;">活跃</span>';
+        var statusTag = k.disabled ? '<span class="apikey-status disabled">已禁用</span>' : '<span class="apikey-status">活跃</span>';
         var lastUsed = k.lastUsedAt ? new Date(k.lastUsedAt).toLocaleString() : '从未使用';
         return '<div class="session-item' + (k.disabled ? '' : '') + '">' +
           '<div style="flex:1;min-width:0;">' +
@@ -402,7 +402,7 @@ export const core = `
             var createdBox = document.getElementById('apikey-created-box');
             var createdValue = document.getElementById('apikey-created-value');
             if (createdBox && createdValue) {
-              createdValue.textContent = data.key;
+              createdValue.value = data.key;
               createdBox.style.display = 'block';
             }
             if (nameInput) nameInput.value = '';
@@ -416,25 +416,6 @@ export const core = `
         }
       } catch(e) {
         alert('创建失败: ' + e.message);
-      }
-    }
-
-    function copyCreatedApiKey() {
-      var el = document.getElementById('apikey-created-value');
-      if (!el) return;
-      var text = el.textContent;
-      if (navigator.clipboard) {
-        navigator.clipboard.writeText(text).then(function() {
-          alert('已复制到剪贴板');
-        });
-      } else {
-        var ta = document.createElement('textarea');
-        ta.value = text;
-        document.body.appendChild(ta);
-        ta.select();
-        document.execCommand('copy');
-        document.body.removeChild(ta);
-        alert('已复制到剪贴板');
       }
     }
 

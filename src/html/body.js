@@ -345,20 +345,19 @@ export function getBody(isAuthorized) {
       <div class="settings-card">
           <p class="settings-text" style="margin-bottom: 12px;">API 密钥用于外部程序（如 OpenClaw、脚本等）通过 RESTful API 安全访问待办数据。最多 <strong>10</strong> 个密钥。</p>
           <div id="apikeys-list" style="margin-bottom: 12px;"></div>
-          <div style="display:flex; gap:8px; margin-bottom:12px;">
-            <input type="text" id="apikey-name-input" placeholder="密钥名称（可选）" style="flex:1; padding:8px; border:1px solid #333; border-radius:4px; background:var(--bg); color:var(--fg); font-size:0.85rem;">
-            <button onclick="createApiKey()" style="padding:8px 14px; white-space:nowrap;">创建密钥</button>
+          <div class="apikey-create-row">
+            <input type="text" id="apikey-name-input" placeholder="密钥名称（可选）">
+            <button class="apikey-create-btn" onclick="createApiKey()">+</button>
           </div>
-          <div id="apikey-created-box" style="display:none; background:var(--panel); border:1px solid var(--crt); border-radius:4px; padding:12px; margin-bottom:12px;">
-            <p class="settings-text" style="margin:0 0 8px 0; color:var(--crt);"><strong>密钥已创建！请立即复制，此密钥仅显示一次：</strong></p>
-            <div style="display:flex; gap:8px; align-items:center;">
-              <code id="apikey-created-value" style="flex:1; word-break:break-all; font-size:0.8rem; padding:8px; background:var(--bg); border-radius:4px; border:1px solid #333;"></code>
-              <button onclick="copyCreatedApiKey()" style="padding:6px 10px; white-space:nowrap;">复制</button>
+          <div id="apikey-created-box">
+            <p class="settings-text apikey-created-text"><strong>密钥已创建！请立即复制，此密钥仅显示一次：</strong></p>
+            <div class="apikey-created-row">
+              <input type="text" id="apikey-created-value" readonly onclick="this.select()">
+              <button class="apikey-copy-btn" onclick="copyText(document.getElementById('apikey-created-value').value)">复制</button>
             </div>
           </div>
           <div class="settings-text" style="border-top: 1px dashed #333; padding-top: 10px;">
-            <strong>使用方式：</strong>在请求头中添加 <span class="md-code">X-API-Key: cfk_xxx</span>，或使用 <span class="md-code">?api_key=cfk_xxx</span> 查询参数。<br>
-            <strong>API 文档：</strong><span class="md-code">/api/v1/todos</span>（待办 CRUD）、<span class="md-code">/api/v1/categories</span>（分类 CRUD）
+            <strong>使用方式：</strong>在请求头中添加 <span class="md-code">X-API-Key: cfk_xxx</span>，或使用 <span class="md-code">?api_key=cfk_xxx</span> 查询参数。
           </div>
       </div>
 

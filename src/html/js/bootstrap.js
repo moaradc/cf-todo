@@ -149,7 +149,6 @@ export const bootstrap = `
       // API 密钥管理
       loadApiKeys: loadApiKeys,
       createApiKey: createApiKey,
-      copyCreatedApiKey: copyCreatedApiKey,
       deleteApiKey: deleteApiKey,
       toggleApiKey: toggleApiKey,
       onScaleSliderChange: onScaleSliderChange,

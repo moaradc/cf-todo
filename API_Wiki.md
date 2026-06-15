@@ -884,3 +884,87 @@ V0 和 V1 的 Category 对象格式一致：
   "color": "#hex_color"
 }
 ```
+
+---
+
+## 5. 示例代码
+
+### cURL
+
+```bash
+# 获取待办列表
+curl -H "X-API-Key: cfk_your_key_here" \
+     "https://your-app.workers.dev/api/v1/todos?date=2023-10-01"
+
+# 创建待办
+curl -X POST \
+     -H "X-API-Key: cfk_your_key_here" \
+     -H "Content-Type: application/json" \
+     -d '{"date":"2023-10-01","text":"买牛奶","priority":"high"}' \
+     "https://your-app.workers.dev/api/v1/todos"
+```
+
+### JavaScript
+
+```javascript
+const API_KEY = 'cfk_your_key_here';
+const BASE_URL = 'https://your-app.workers.dev';
+
+// 获取待办列表
+const response = await fetch(`${BASE_URL}/api/v1/todos?date=2023-10-01`, {
+  headers: { 'X-API-Key': API_KEY }
+});
+const data = await response.json();
+
+// 创建待办
+await fetch(`${BASE_URL}/api/v1/todos`, {
+  method: 'POST',
+  headers: {
+    'X-API-Key': API_KEY,
+    'Content-Type': 'application/json'
+  },
+  body: JSON.stringify({
+    date: '2023-10-01',
+    text: '新任务',
+    priority: 'high'
+  })
+});
+```
+
+### Python
+
+```python
+import requests
+
+API_KEY = 'cfk_your_key_here'
+BASE_URL = 'https://your-app.workers.dev'
+
+headers = {'X-API-Key': API_KEY}
+
+# 获取待办列表
+response = requests.get(f'{BASE_URL}/api/v1/todos',
+                        headers=headers,
+                        params={'date': '2023-10-01'})
+data = response.json()
+
+# 创建待办
+response = requests.post(f'{BASE_URL}/api/v1/todos',
+                         headers=headers,
+                         json={
+                             'date': '2023-10-01',
+                             'text': '新任务',
+                             'priority': 'high'
+                         })
+```
+
+---
+
+## 6. 注意事项
+
+1. API Key 格式为 `cfk_` 前缀 + 32 字节随机编码
+2. 完整密钥仅在创建时返回一次，请妥善保存
+3. 最多创建 10 个 API Key
+4. 禁用的密钥无法通过验证
+5. 每次成功调用会异步更新密钥的最后使用时间（5分钟限频）
+6. 重复任务默认 `scope=this`，仅操作当前实例
+7. `priority` 接受 `low`、`med`、`high`，`medium` 会自动转为 `med`
