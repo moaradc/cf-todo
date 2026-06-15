@@ -908,6 +908,16 @@ async function handleV1TrashAction(request, DB) {
     return jsonResponse({ success: true });
   }
 
+  if (action === 'CLEAR_ALL_DATA') {
+    await DB.batch([
+      DB.prepare('DELETE FROM todos'),
+      DB.prepare('DELETE FROM todo_templates'),
+      DB.prepare('DELETE FROM settings'),
+      DB.prepare('DELETE FROM categories'),
+    ]);
+    return jsonResponse({ success: true });
+  }
+
   if (action === 'BATCH_RESTORE') {
     if (!ids || !Array.isArray(ids) || ids.length === 0) return apiError('ids 为必填数组', 400);
     const placeholders = ids.map(() => '?').join(',');
@@ -964,7 +974,7 @@ async function handleV1TrashAction(request, DB) {
     return jsonResponse({ success: true, data: { deleted: ids.length } });
   }
 
-  return apiError('未知操作，可用: RESTORE, DELETE_PERMANENT, CLEAR_ALL, BATCH_RESTORE, BATCH_DELETE_PERMANENT', 400);
+  return apiError('未知操作，可用: RESTORE, DELETE_PERMANENT, CLEAR_ALL, CLEAR_ALL_DATA, BATCH_RESTORE, BATCH_DELETE_PERMANENT', 400);
 }
 
 // ==================== 统计 ====================
@@ -1016,6 +1026,112 @@ async function handleV1CategoryBatch(request, DB) {
   }
 
   return apiError('未知操作，可用: BATCH_DELETE', 400);
+}
+
+// ==================== 设置 ====================
+
+// GET /api/v1/settings - 获取应用配置
+async function handleV1SettingsGet(DB) {
+  const record = await DB.prepare("SELECT value FROM settings WHERE key = 'app_settings'").first();
+  let settingsObj = {};
+  if (record && record.value) {
+    try { settingsObj = JSON.parse(record.value); } catch (e) {}
+  }
+  return jsonResponse({ success: true, data: settingsObj });
+}
+
+// POST /api/v1/settings - 保存应用配置（整体覆盖）
+async function handleV1SettingsPost(request, DB) {
+  const data = await request.json();
+  await DB.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('app_settings', ?)").bind(JSON.stringify(data)).run();
+  return jsonResponse({ success: true });
+}
+
+// ==================== 自定义代码 ====================
+
+// GET /api/v1/custom-code - 获取自定义头部+内容代码
+async function handleV1CustomCodeGet(DB) {
+  const headerRecord = await DB.prepare("SELECT value FROM settings WHERE key = 'custom_header'").first();
+  const contentRecord = await DB.prepare("SELECT value FROM settings WHERE key = 'custom_content'").first();
+  return jsonResponse({
+    success: true,
+    data: {
+      customHeader: headerRecord?.value || '',
+      customContent: contentRecord?.value || '',
+    }
+  });
+}
+
+// POST /api/v1/custom-code - 保存自定义代码
+async function handleV1CustomCodePost(request, DB) {
+  const { customHeader, customContent } = await request.json();
+  const stmts = [];
+  if (customHeader !== undefined) {
+    stmts.push(DB.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('custom_header', ?)").bind(customHeader));
+  }
+  if (customContent !== undefined) {
+    stmts.push(DB.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('custom_content', ?)").bind(customContent));
+  }
+  if (stmts.length > 0) {
+    await DB.batch(stmts);
+  }
+  return jsonResponse({ success: true });
+}
+
+// GET /api/v1/custom-header - 获取自定义头部代码（纯文本）
+async function handleV1CustomHeaderGet(DB) {
+  const record = await DB.prepare("SELECT value FROM settings WHERE key = 'custom_header'").first();
+  return new Response(record?.value || '', { headers: { 'Content-Type': 'text/plain', 'Cache-Control': 'no-store' } });
+}
+
+// GET /api/v1/custom-content - 获取自定义内容代码（纯文本）
+async function handleV1CustomContentGet(DB) {
+  const record = await DB.prepare("SELECT value FROM settings WHERE key = 'custom_content'").first();
+  return new Response(record?.value || '', { headers: { 'Content-Type': 'text/plain', 'Cache-Control': 'no-store' } });
+}
+
+// ==================== 自定义颜色 ====================
+
+// GET /api/v1/custom-colors - 获取自定义颜色列表
+async function handleV1CustomColorsGet(DB) {
+  const record = await DB.prepare("SELECT value FROM settings WHERE key = 'customColors'").first();
+  let customColors = [];
+  if (record && record.value) {
+    try { customColors = JSON.parse(record.value); } catch (e) {}
+  }
+  return jsonResponse({ success: true, data: customColors });
+}
+
+// POST /api/v1/custom-colors - 保存自定义颜色列表
+async function handleV1CustomColorsPost(request, DB) {
+  const { colors } = await request.json();
+  if (!Array.isArray(colors)) {
+    return apiError('colors 必须为数组', 400);
+  }
+  await DB.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('customColors', ?)").bind(JSON.stringify(colors)).run();
+  return jsonResponse({ success: true, data: colors });
+}
+
+// ==================== Todo 子任务/搜索词独立更新 ====================
+
+// PATCH /api/v1/todos/:id/subtasks - 更新子任务
+async function handleV1TodoSubtasks(request, DB, todoId) {
+  const { subtasks } = await request.json();
+  if (!Array.isArray(subtasks)) return apiError('subtasks 必须为数组', 400);
+  const existing = await DB.prepare('SELECT id FROM todos WHERE id = ?').bind(todoId).first();
+  if (!existing) return apiError('待办不存在', 404);
+  await DB.prepare('UPDATE todos SET subtasks = ? WHERE id = ?').bind(JSON.stringify(subtasks), todoId).run();
+  return jsonResponse({ success: true });
+}
+
+// PATCH /api/v1/todos/:id/search-terms - 更新搜索词
+async function handleV1TodoSearchTerms(request, DB, todoId) {
+  const { searchTerms } = await request.json();
+  if (!Array.isArray(searchTerms)) return apiError('searchTerms 必须为数组', 400);
+  const existing = await DB.prepare('SELECT id FROM todos WHERE id = ?').bind(todoId).first();
+  if (!existing) return apiError('待办不存在', 404);
+  await DB.prepare('UPDATE todos SET search_terms = ? WHERE id = ?').bind(JSON.stringify(searchTerms), todoId).run();
+  return jsonResponse({ success: true });
 }
 
 // ==================== 路由分发 ====================
@@ -1071,6 +1187,18 @@ export async function handleV1Request(request, env, ctx) {
     return handleV1TodoToggle(env.DB, toggleMatch[1]);
   }
 
+  // /api/v1/todos/:id/subtasks
+  const subtasksMatch = path.match(/^\/api\/v1\/todos\/([a-zA-Z0-9_-]+)\/subtasks$/);
+  if (subtasksMatch && request.method === 'PATCH') {
+    return handleV1TodoSubtasks(request, env.DB, subtasksMatch[1]);
+  }
+
+  // /api/v1/todos/:id/search-terms
+  const searchTermsMatch = path.match(/^\/api\/v1\/todos\/([a-zA-Z0-9_-]+)\/search-terms$/);
+  if (searchTermsMatch && request.method === 'PATCH') {
+    return handleV1TodoSearchTerms(request, env.DB, searchTermsMatch[1]);
+  }
+
   // ---- Trash 路由 ----
   if (path === '/api/v1/trash' && request.method === 'GET') {
     return handleV1TrashList(env.DB, url);
@@ -1100,6 +1228,33 @@ export async function handleV1Request(request, env, ctx) {
     if (request.method === 'GET') return handleV1CategoryGet(env.DB, catId);
     if (request.method === 'PUT') return handleV1CategoryPut(request, env.DB, catId);
     if (request.method === 'DELETE') return handleV1CategoryDelete(env.DB, catId);
+    return apiError('Method Not Allowed', 405);
+  }
+
+  // ---- Settings 路由 ----
+  if (path === '/api/v1/settings') {
+    if (request.method === 'GET') return handleV1SettingsGet(env.DB);
+    if (request.method === 'POST') return handleV1SettingsPost(request, env.DB);
+    return apiError('Method Not Allowed', 405);
+  }
+
+  // ---- Custom Code 路由 ----
+  if (path === '/api/v1/custom-code') {
+    if (request.method === 'GET') return handleV1CustomCodeGet(env.DB);
+    if (request.method === 'POST') return handleV1CustomCodePost(request, env.DB);
+    return apiError('Method Not Allowed', 405);
+  }
+
+  // ---- Custom Header/Content/Colors 路由 ----
+  if (path === '/api/v1/custom-header' && request.method === 'GET') {
+    return handleV1CustomHeaderGet(env.DB);
+  }
+  if (path === '/api/v1/custom-content' && request.method === 'GET') {
+    return handleV1CustomContentGet(env.DB);
+  }
+  if (path === '/api/v1/custom-colors') {
+    if (request.method === 'GET') return handleV1CustomColorsGet(env.DB);
+    if (request.method === 'POST') return handleV1CustomColorsPost(request, env.DB);
     return apiError('Method Not Allowed', 405);
   }
 
