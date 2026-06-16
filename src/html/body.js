@@ -364,7 +364,7 @@ export function getBody(isAuthorized) {
             </div>
           </div>
           <div class="settings-text" style="border-top: 1px dashed #333; padding-top: 10px;">
-            <strong>使用方式：</strong><a href="https://github.com/moaradc/cf-todo/blob/main/API_Wiki.md" target="_blank" style="color: var(--accent); text-decoration: none;">API_Wiki</a>
+            <strong>使用方式：</strong><a href="https://github.com/moaradc/cf-todo/blob/main/API_Wiki.md" target="_blank" style="color: var(--accent); text-decoration: none;">API Wiki</a>
           </div>
       </div>
 
