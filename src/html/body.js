@@ -242,9 +242,9 @@ export function getBody(isAuthorized) {
             </div>
             <div class="scale-control">
               <div class="scale-slider-row">
-                <span class="scale-label-sm">A</span>
+                <span class="scale-label-sm">−</span>
                 <input type="range" id="scale-slider" min="0.75" max="1.25" step="0.01" value="1" oninput="onScaleSliderChange(this.value)">
-                <span class="scale-label-lg">A</span>
+                <span class="scale-label-lg">+</span>
                 <span class="scale-value" id="scale-value-display">100%</span>
               </div>
               <div class="scale-presets">
@@ -262,15 +262,14 @@ export function getBody(isAuthorized) {
             <div class="scale-control">
               <div class="scale-slider-row">
                 <span class="scale-label-sm" style="line-height:1;">☐</span>
-                <input type="range" id="displayscale-slider" min="0.8" max="1.2" step="0.05" value="1" oninput="onDisplayScaleSliderChange(this.value)">
+                <input type="range" id="displayscale-slider" min="0.9" max="1.1" step="0.01" value="1" oninput="onDisplayScaleSliderChange(this.value)">
                 <span class="scale-label-lg" style="line-height:1;">☐</span>
                 <span class="scale-value" id="displayscale-value-display">100%</span>
               </div>
               <div class="scale-presets">
-                <button class="scale-preset-btn" data-displayscale="0.85" onclick="setDisplayScalePreset(0.85)">紧凑</button>
+                <button class="scale-preset-btn" data-displayscale="0.9" onclick="setDisplayScalePreset(0.9)">小</button>
                 <button class="scale-preset-btn active" data-displayscale="1.0" onclick="setDisplayScalePreset(1.0)">默认</button>
-                <button class="scale-preset-btn" data-displayscale="1.1" onclick="setDisplayScalePreset(1.1)">舒适</button>
-                <button class="scale-preset-btn" data-displayscale="1.2" onclick="setDisplayScalePreset(1.2)">宽松</button>
+                <button class="scale-preset-btn" data-displayscale="1.1" onclick="setDisplayScalePreset(1.1)">大</button>
               </div>
             </div>
           </div>
@@ -290,7 +289,6 @@ export function getBody(isAuthorized) {
                 <button class="scale-preset-btn" data-fontsize="14" onclick="setFontSizePreset(14)">小</button>
                 <button class="scale-preset-btn active" data-fontsize="16" onclick="setFontSizePreset(16)">默认</button>
                 <button class="scale-preset-btn" data-fontsize="18" onclick="setFontSizePreset(18)">大</button>
-                <button class="scale-preset-btn" data-fontsize="20" onclick="setFontSizePreset(20)">特大</button>
               </div>
             </div>
           </div>
@@ -426,7 +424,7 @@ export function getBody(isAuthorized) {
       <div id="pwa-install-section" class="detail-label" style="display:none;">安装应用</div>
       <div id="pwa-install-card" class="settings-card" style="display:none;">
           <p id="pwa-install-desc" class="settings-text" style="margin-bottom: 0;">将应用安装到设备，获得类似原生应用的体验，支持离线访问。<span id="pwa-install-status"></span></p>
-          <button id="pwa-install-btn" class="btn-primary" style="width:100%;display:none;margin-top:12px;" onclick="installPwa()">安装应用</button>
+          <button id="pwa-install-btn" class="btn-danger" style="width:100%;display:none;margin-top:12px;" onclick="installPwa()">安装应用</button>
       </div>
 
       <div class="detail-label" style="color: var(--accent);">危险区域</div>

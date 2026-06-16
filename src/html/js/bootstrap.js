@@ -20,7 +20,10 @@ export const bootstrap = `
       }
       // Register Service Worker
       if ('serviceWorker' in navigator) {
-        navigator.serviceWorker.register('/sw.js').catch(function(e) {
+        navigator.serviceWorker.register('/sw.js').then(function(reg) {
+          // Force update on page load to ensure latest SW is active
+          reg.update();
+        }).catch(function(e) {
           console.warn('SW registration failed:', e);
         });
       }

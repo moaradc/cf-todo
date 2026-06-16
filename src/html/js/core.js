@@ -516,7 +516,7 @@ export const core = `
 
     function updateFontSizePresetButtons() {
       var btns = document.querySelectorAll('.scale-preset-btn[data-fontsize]');
-      var presets = [14, 16, 18, 20];
+      var presets = [14, 16, 18];
       btns.forEach(function(btn, i) {
         if (i < presets.length && tempBaseFontSize === presets[i]) {
           btn.classList.add('active');
@@ -543,9 +543,9 @@ export const core = `
 
     function updateDisplayScalePresetButtons() {
       var btns = document.querySelectorAll('.scale-preset-btn[data-displayscale]');
-      var presets = [0.85, 1.0, 1.1, 1.2];
+      var presets = [0.9, 1.0, 1.1];
       btns.forEach(function(btn, i) {
-        if (i < presets.length && Math.abs(tempDisplayScale - presets[i]) < 0.03) {
+        if (i < presets.length && Math.abs(tempDisplayScale - presets[i]) < 0.02) {
           btn.classList.add('active');
         } else {
           btn.classList.remove('active');
@@ -556,6 +556,11 @@ export const core = `
     function updateCombinedPreview() {
       var preview = document.getElementById('combined-preview');
       if (!preview) return;
+      var previewWrap = preview.closest('.scale-preview-wrap');
+      // Apply app scale (zoom) to the wrapper, display scale (zoom) and font size to the preview itself
+      if (previewWrap) {
+        previewWrap.style.zoom = tempAppScale;
+      }
       preview.style.zoom = tempDisplayScale;
       preview.style.fontSize = tempBaseFontSize + 'px';
     }

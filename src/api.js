@@ -501,7 +501,7 @@ self.addEventListener('fetch', (event) => {
         .catch(() => caches.match(event.request))
     );
   } else if (isNav) {
-    // Network-first for navigation: always try fresh, fall back to cache
+    // Network-first for navigation: always try fresh, fall back to cached HTML
     event.respondWith(
       fetch(event.request)
         .then((response) => {
@@ -511,7 +511,11 @@ self.addEventListener('fetch', (event) => {
           return response;
         })
         .catch(() =>
-          caches.match(event.request).then((cached) => cached || new Response('离线不可用', { status: 503 }))
+          caches.match(event.request).then((cached) => {
+            if (cached) return cached;
+            // Try any cached navigation page as fallback
+            return caches.match('/').then((rootCached) => rootCached || new Response('离线不可用', { status: 503 }));
+          })
         )
     );
   } else {

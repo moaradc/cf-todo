@@ -526,8 +526,8 @@ export const css = `
     /* === 缩放大小调整 === */
     .scale-control { width: 100%; }
     .scale-slider-row { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
-    .scale-slider-row .scale-label-sm { font-size: 0.7rem; color: #666; flex-shrink: 0; }
-    .scale-slider-row .scale-label-lg { font-size: 1.15rem; color: #666; font-weight: bold; flex-shrink: 0; }
+    .scale-slider-row .scale-label-sm { font-size: 0.85rem; color: #666; flex-shrink: 0; font-weight: bold; }
+    .scale-slider-row .scale-label-lg { font-size: 1.1rem; color: #666; font-weight: bold; flex-shrink: 0; }
     .scale-slider-row input[type="range"] {
       flex: 1; -webkit-appearance: none; appearance: none;
       height: 6px; background: #222; border-radius: 3px;
