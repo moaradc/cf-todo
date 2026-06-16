@@ -143,7 +143,7 @@ export const settings = `
       renderTodos();
       await clearPwaCache();
       restoreAllPreview()
-      location.reload();
+      window.location.href = '/';
     }
     
     function previewCustomCode() {
