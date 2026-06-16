@@ -1015,8 +1015,12 @@ V0 和 V1 的 Category 对象格式一致：
 
 ### cURL
 
+API Key 支持三种传递方式，V0 和 V1 通用：
+
 ```bash
-# V1: 获取待办列表（X-API-Key）
+# ──────────────── 方式1: X-API-Key Header ────────────────
+
+# V1: 获取待办列表
 curl -H "X-API-Key: cfk_your_key_here" \
      "https://your-app.workers.dev/api/v1/todos?date=2023-10-01"
 
@@ -1027,10 +1031,25 @@ curl -X POST \
      -d '{"date":"2023-10-01","text":"买牛奶","priority":"high"}' \
      "https://your-app.workers.dev/api/v1/todos"
 
-# V0: 使用 API Key 获取待办（Query 参数）
+# V0: 获取待办列表
+curl -H "X-API-Key: cfk_your_key_here" \
+     "https://your-app.workers.dev/api/todos?date=2023-10-01"
+
+# ──────────────── 方式2: Query 参数 ────────────────
+
+# V1: 获取待办列表
+curl "https://your-app.workers.dev/api/v1/todos?date=2023-10-01&api_key=cfk_your_key_here"
+
+# V0: 获取待办列表
 curl "https://your-app.workers.dev/api/todos?date=2023-10-01&api_key=cfk_your_key_here"
 
-# V0: 使用 API Key 获取待办（Bearer Token）
+# ──────────────── 方式3: Bearer Token ────────────────
+
+# V1: 获取待办列表
+curl -H "Authorization: Bearer cfk_your_key_here" \
+     "https://your-app.workers.dev/api/v1/todos?date=2023-10-01"
+
+# V0: 获取待办列表
 curl -H "Authorization: Bearer cfk_your_key_here" \
      "https://your-app.workers.dev/api/todos?date=2023-10-01"
 ```
@@ -1041,31 +1060,42 @@ curl -H "Authorization: Bearer cfk_your_key_here" \
 const API_KEY = 'cfk_your_key_here';
 const BASE_URL = 'https://your-app.workers.dev';
 
+// ──────────────── 方式1: X-API-Key Header ────────────────
+
 // V1: 获取待办列表
-const response = await fetch(`${BASE_URL}/api/v1/todos?date=2023-10-01`, {
+const v1Res = await fetch(`${BASE_URL}/api/v1/todos?date=2023-10-01`, {
   headers: { 'X-API-Key': API_KEY }
 });
-const data = await response.json();
+const v1Data = await v1Res.json();
 
 // V1: 创建待办
 await fetch(`${BASE_URL}/api/v1/todos`, {
   method: 'POST',
-  headers: {
-    'X-API-Key': API_KEY,
-    'Content-Type': 'application/json'
-  },
-  body: JSON.stringify({
-    date: '2023-10-01',
-    text: '新任务',
-    priority: 'high'
-  })
+  headers: { 'X-API-Key': API_KEY, 'Content-Type': 'application/json' },
+  body: JSON.stringify({ date: '2023-10-01', text: '新任务', priority: 'high' })
 });
 
-// V0: 使用 API Key 获取待办
-const v0Response = await fetch(`${BASE_URL}/api/todos?date=2023-10-01`, {
+// V0: 获取待办列表
+const v0Res = await fetch(`${BASE_URL}/api/todos?date=2023-10-01`, {
   headers: { 'X-API-Key': API_KEY }
 });
-const v0Data = await v0Response.json();
+const v0Data = await v0Res.json();
+
+// ──────────────── 方式2: Query 参数 ────────────────
+
+// V0: 获取待办列表
+const v0QueryRes = await fetch(
+  `${BASE_URL}/api/todos?date=2023-10-01&api_key=${API_KEY}`
+);
+const v0QueryData = await v0QueryRes.json();
+
+// ──────────────── 方式3: Bearer Token ────────────────
+
+// V0: 获取待办列表
+const v0BearerRes = await fetch(`${BASE_URL}/api/todos?date=2023-10-01`, {
+  headers: { 'Authorization': `Bearer ${API_KEY}` }
+});
+const v0BearerData = await v0BearerRes.json();
 ```
 
 ### Python
@@ -1075,6 +1105,8 @@ import requests
 
 API_KEY = 'cfk_your_key_here'
 BASE_URL = 'https://your-app.workers.dev'
+
+# ──────────────── 方式1: X-API-Key Header ────────────────
 
 headers = {'X-API-Key': API_KEY}
 
@@ -1087,15 +1119,26 @@ data = response.json()
 # V1: 创建待办
 response = requests.post(f'{BASE_URL}/api/v1/todos',
                          headers=headers,
-                         json={
-                             'date': '2023-10-01',
-                             'text': '新任务',
-                             'priority': 'high'
-                         })
+                         json={'date': '2023-10-01', 'text': '新任务', 'priority': 'high'})
 
-# V0: 使用 API Key 获取待办
+# V0: 获取待办列表
 response = requests.get(f'{BASE_URL}/api/todos',
                         headers=headers,
+                        params={'date': '2023-10-01'})
+data = response.json()
+
+# ──────────────── 方式2: Query 参数 ────────────────
+
+# V0: 获取待办列表
+response = requests.get(f'{BASE_URL}/api/todos',
+                        params={'date': '2023-10-01', 'api_key': API_KEY})
+data = response.json()
+
+# ──────────────── 方式3: Bearer Token ────────────────
+
+# V0: 获取待办列表
+response = requests.get(f'{BASE_URL}/api/todos',
+                        headers={'Authorization': f'Bearer {API_KEY}'},
                         params={'date': '2023-10-01'})
 data = response.json()
 ```
