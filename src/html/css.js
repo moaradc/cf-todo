@@ -20,7 +20,7 @@ export const css = `
     *::-webkit-scrollbar { display: none; }
     html { font-size: var(--base-font-size); }
     
-    #app-root { zoom: var(--display-scale); }
+    #app-root { zoom: var(--display-scale); width: 100%; display: flex; flex-direction: column; align-items: center; }
     
     body {
       background-color: var(--bg);
