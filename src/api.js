@@ -27,7 +27,7 @@ import {
   getPreviousDate,
   getNextDate,
 } from './recurring-engine.js';
-import { handleV1Request } from './api-v1.js';
+import { handleV1Request, verifyApiKey, extractApiKey } from './api-v1.js';
 
 let isDbInitialized = false;
 
@@ -256,14 +256,20 @@ async function handleRequest(request, env, ctx) {
 
     await initDb();
 
-    //  统一 API 鉴权拦截
+    //  统一 API 鉴权拦截（支持 API Key 或 Cookie）
     const publicApiPaths = ['/api/login', '/api/logout', '/api/hot-search'];
     const isApiRequest = url.pathname.startsWith('/api/');
     const isV1Request = url.pathname.startsWith('/api/v1/');
     if (isApiRequest && !publicApiPaths.includes(url.pathname) && !isV1Request) {
-      const { ok: apiAuthed } = await isAuthorized();
-      if (!apiAuthed) {
-        return apiError("UNAUTHORIZED", 401);
+      // 优先检查 API Key
+      const apiKey = extractApiKey(request, url);
+      if (apiKey) {
+        const valid = await verifyApiKey(env.DB, apiKey, env.JWT_SECRET);
+        if (!valid) return apiError("UNAUTHORIZED", 401);
+      } else {
+        // 无 API Key，回退到 Cookie 鉴权
+        const { ok: apiAuthed } = await isAuthorized();
+        if (!apiAuthed) return apiError("UNAUTHORIZED", 401);
       }
     }
 
