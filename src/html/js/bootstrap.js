@@ -8,6 +8,12 @@ export const bootstrap = `
         checkInterruptedImport();
         _navRestore();
       }
+      // Register Service Worker
+      if ('serviceWorker' in navigator) {
+        navigator.serviceWorker.register('/sw.js').catch(function(e) {
+          console.warn('SW registration failed:', e);
+        });
+      }
     }
     bootstrap();
 
@@ -159,6 +165,8 @@ export const bootstrap = `
       compareVersions: compareVersions,
       openChangelogModal: openChangelogModal,
       closeChangelogModal: closeChangelogModal,
+      // PWA
+      installPwa: installPwa,
       // SPA Router
       _navBack: _navBack,
       _navRestore: _navRestore,

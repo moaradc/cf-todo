@@ -58,6 +58,7 @@ export const settings = `
       loadSessions();
       loadApiKeys();
       checkUpdate();
+      updatePwaInstallUI();
       _navPush('settings-overlay', closeSettings, '/settings');
     }
 
@@ -184,5 +185,29 @@ export const settings = `
       localStorage.removeItem('preview_custom_header');
       localStorage.removeItem('preview_custom_content');
       window.location.href = window.location.pathname;
+    }
+
+    function updatePwaInstallUI() {
+      var section = document.getElementById('pwa-install-section');
+      var card = document.getElementById('pwa-install-card');
+      var btn = document.getElementById('pwa-install-btn');
+      var status = document.getElementById('pwa-install-status');
+      if (!section || !card) return;
+
+      var state = getPwaState();
+      if (state === 'standalone') {
+        section.style.display = '';
+        card.style.display = '';
+        if (btn) btn.style.display = 'none';
+        if (status) status.textContent = '已作为应用运行';
+      } else if (state === 'installable') {
+        section.style.display = '';
+        card.style.display = '';
+        if (btn) btn.style.display = '';
+        if (status) status.textContent = '支持安装';
+      } else {
+        section.style.display = 'none';
+        card.style.display = 'none';
+      }
     }
 `;

@@ -22,6 +22,11 @@ function renderHTML(isAuthorized, customHeader, customContent) {
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <meta name="theme-color" content="#0a0a0a">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="MOARA">
+  <link rel="manifest" href="/manifest.json">
   <title>MOARA 待办事项</title>
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <style>

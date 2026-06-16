@@ -274,7 +274,16 @@ export function getBody(isAuthorized) {
             </div>
           </div>
       </div>
-      
+
+      <div id="pwa-install-section" class="detail-label" style="display:none;">
+        安装应用
+        <span id="pwa-install-status" style="font-size:0.75rem;color:#888;margin-left:6px;"></span>
+      </div>
+      <div id="pwa-install-card" class="settings-card" style="display:none;">
+          <p class="settings-text" style="margin-bottom: 12px;">将应用安装到设备，获得类似原生应用的体验，支持离线访问。</p>
+          <button id="pwa-install-btn" class="btn-primary" style="width:100%;display:none;" onclick="installPwa()">安装应用</button>
+      </div>
+
       <div class="settings-card">
           <div class="setting-item" style="margin-bottom: 15px; border: none; padding: 0;">
               <span class="settings-text" style="margin:0;"><strong>启用前端定制注入</strong></span>

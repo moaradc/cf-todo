@@ -400,6 +400,95 @@ async function handleRequest(request, env, ctx) {
       return new Response(JSON.stringify({ success: true }), { headers });
     }
 
+    // PWA: Web App Manifest
+    if (url.pathname === '/manifest.json' && request.method === 'GET') {
+      const manifest = {
+        name: 'MOARA 待办事项',
+        short_name: 'MOARA',
+        description: '普通的待办事项管理',
+        start_url: '/',
+        display: 'standalone',
+        background_color: '#0a0a0a',
+        theme_color: '#0a0a0a',
+        orientation: 'any',
+        icons: [
+          { src: 'data:image/svg+xml,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><rect width="512" height="512" rx="80" fill="#0a0a0a"/><rect x="60" y="60" width="392" height="392" rx="40" fill="none" stroke="%23ff3300" stroke-width="16"/><path d="M160 256l50 50 142-142" fill="none" stroke="%2300ff41" stroke-width="32" stroke-linecap="round" stroke-linejoin="round"/></svg>'), sizes: '512x512', type: 'image/svg+xml', purpose: 'any maskable' },
+          { src: 'data:image/svg+xml,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 192 192"><rect width="192" height="192" rx="30" fill="#0a0a0a"/><rect x="22" y="22" width="148" height="148" rx="15" fill="none" stroke="%23ff3300" stroke-width="6"/><path d="M60 96l19 19 53-53" fill="none" stroke="%2300ff41" stroke-width="12" stroke-linecap="round" stroke-linejoin="round"/></svg>'), sizes: '192x192', type: 'image/svg+xml', purpose: 'any maskable' }
+        ]
+      };
+      return new Response(JSON.stringify(manifest), {
+        headers: { 'Content-Type': 'application/manifest+json' }
+      });
+    }
+
+    // PWA: Service Worker
+    if (url.pathname === '/sw.js' && request.method === 'GET') {
+      const swCode = `
+'use strict';
+const CACHE_NAME = 'moara-todo-v1';
+const STATIC_ASSETS = ['/'];
+
+self.addEventListener('install', (event) => {
+  event.waitUntil(
+    caches.open(CACHE_NAME).then((cache) => cache.addAll(STATIC_ASSETS))
+  );
+  self.skipWaiting();
+});
+
+self.addEventListener('activate', (event) => {
+  event.waitUntil(
+    caches.keys().then((names) =>
+      Promise.all(names.filter((n) => n !== CACHE_NAME).map((n) => caches.delete(n)))
+    )
+  );
+  self.clients.claim();
+});
+
+self.addEventListener('fetch', (event) => {
+  if (event.request.method !== 'GET') return;
+
+  const reqUrl = new URL(event.request.url);
+  const isSameOrigin = reqUrl.origin === self.location.origin;
+  const isApi = reqUrl.pathname.startsWith('/api/');
+
+  if (isApi) {
+    // Network-first for API: always try network, fall back to cache
+    event.respondWith(
+      fetch(event.request)
+        .then((response) => {
+          if (response.ok && isSameOrigin) {
+            const clone = response.clone();
+            caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone));
+          }
+          return response;
+        })
+        .catch(() => caches.match(event.request))
+    );
+  } else if (isSameOrigin) {
+    // Stale-while-revalidate for same-origin pages
+    event.respondWith(
+      caches.match(event.request).then((cached) => {
+        const fetchPromise = fetch(event.request)
+          .then((response) => {
+            if (response.ok) {
+              const clone = response.clone();
+              caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone));
+            }
+            return response;
+          })
+          .catch(() => cached || new Response('离线不可用', { status: 503 }));
+        return cached || fetchPromise;
+      })
+    );
+  }
+  // Cross-origin requests (CDN etc.) are not intercepted
+});
+`;
+      return new Response(swCode, {
+        headers: { 'Content-Type': 'application/javascript' }
+      });
+    }
+
     // SPA: serve the same HTML for all non-API GET requests
     const isSpaRoute = request.method === 'GET' && !url.pathname.startsWith('/api/') && !url.pathname.includes('.');
     if (isSpaRoute) {
