@@ -65,13 +65,7 @@ export const router = `
       if (!path || path === '/') return;
       if (path.indexOf('/detail') === 0) {
         var todoId = path.slice(8); // remove '/detail/'
-        if (todoId && typeof todos !== 'undefined' && Array.isArray(todos)) {
-          var idx = -1;
-          for (var i = 0; i < todos.length; i++) {
-            if (todos[i].id === todoId) { idx = i; break; }
-          }
-          if (idx !== -1) openDetail(idx);
-        }
+        if (todoId) openDetailById(todoId);
         return;
       }
       switch (path) {

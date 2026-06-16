@@ -535,4 +535,27 @@ export const detail = `
       }
     }
 
+    async function openDetailById(todoId) {
+      try {
+        const res = await fetch('/api/todo/' + encodeURIComponent(todoId));
+        if (!res.ok) return;
+        const task = await res.json();
+        if (task.deleted) return;
+        // Ensure the todo exists in the local array for index-based operations
+        var idx = -1;
+        for (var i = 0; i < todos.length; i++) {
+          if (todos[i].id === todoId) { idx = i; break; }
+        }
+        if (idx === -1) {
+          // Load the todo's date first so it's in the array
+          await loadTodos(task.date);
+          for (var i = 0; i < todos.length; i++) {
+            if (todos[i].id === todoId) { idx = i; break; }
+          }
+        }
+        if (idx === -1) return;
+        openDetail(idx);
+      } catch(e) {}
+    }
+
 `;
