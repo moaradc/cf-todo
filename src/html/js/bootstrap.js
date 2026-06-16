@@ -105,7 +105,6 @@ export const bootstrap = `
       exitBatchMode: exitBatchMode,
       // 详情
       openDetail: openDetail,
-      openDetailById: openDetailById,
       closeDetail: closeDetail,
       toggleEditMode: toggleEditMode,
       handleActionClick: handleActionClick,

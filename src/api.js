@@ -2134,38 +2134,6 @@ async function handleRequest(request, env, ctx) {
         return new Response(JSON.stringify({ success: true }), { headers: { 'Content-Type': 'application/json' } });
     }
 
-    if (url.pathname.startsWith('/api/todo/') && request.method === 'GET') {
-      const todoId = url.pathname.slice(10);
-      if (!todoId) return apiError('Todo ID required', 400);
-      const row = await env.DB.prepare('SELECT * FROM todos WHERE id = ?').bind(todoId).first();
-      if (!row) return apiError('Not found', 404);
-      let parsedSubtasks = [];
-      let parsedSearchTerms = [];
-      if (Array.isArray(row.subtasks)) { parsedSubtasks = row.subtasks; }
-      else { try { if (row.subtasks) parsedSubtasks = JSON.parse(row.subtasks); } catch(e) {} }
-      if (Array.isArray(row.search_terms)) { parsedSearchTerms = row.search_terms; }
-      else { try { if (row.search_terms) parsedSearchTerms = JSON.parse(row.search_terms); } catch(e) {} }
-      parsedSearchTerms = parsedSearchTerms.map(w => {
-        if (typeof w === 'string' && w.trim()) return { text: w, done: false };
-        if (w && typeof w === 'object' && w.text) return w;
-        return null;
-      }).filter(Boolean);
-      let rType = row.repeat_type || 'none';
-      if (rType !== 'none' && !['daily','weekly','monthly','yearly'].includes(rType)) rType = 'daily';
-      const result = {
-        ...row,
-        repeat_type: rType,
-        repeat_custom: row.repeat_custom || '',
-        repeat_end: row.repeat_end || '',
-        end_time: row.end_time || '',
-        isSeries: rType && rType !== 'none',
-        done: !!row.done,
-        subtasks: parsedSubtasks,
-        search_terms: parsedSearchTerms
-      };
-      return new Response(JSON.stringify(result), { headers: { 'Content-Type': 'application/json' } });
-    }
-
     return apiError('Not Found', 404);
     } catch (e) {
       return apiError(e instanceof Error ? e.message : String(e));
