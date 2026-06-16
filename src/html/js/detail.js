@@ -136,7 +136,7 @@ export const detail = `
 
       const detailView = document.getElementById('detail-view');
       detailView.classList.remove('closing'); detailView.classList.add('active');
-      _navPush('detail-view', closeDetail, '/detail/' + task.id);
+      _navPush('detail-view', closeDetail, '/detail');
     }
 
     function closeDetail() {

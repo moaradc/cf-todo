@@ -6,12 +6,8 @@ export const router = `
 
     // Deep linking: save initial path before replaceState
     var _initialPath = window.location.pathname;
-    function _isSpaRoute(p) {
-      if (['/settings','/stats','/trash','/add','/category','/view','/calendar','/changelog'].indexOf(p) !== -1) return true;
-      if (p.indexOf('/detail') === 0) return true;
-      return false;
-    }
-    if (_isSpaRoute(_initialPath)) {
+    var _spaRoutes = ['/settings','/stats','/trash','/add','/category','/view','/calendar','/changelog','/detail','/time'];
+    if (_spaRoutes.indexOf(_initialPath) !== -1) {
       try { sessionStorage.setItem('_spa_initial_path', _initialPath); } catch(e) {}
     }
 
@@ -63,17 +59,6 @@ export const router = `
       try { path = sessionStorage.getItem('_spa_initial_path') || ''; } catch(e) {}
       try { sessionStorage.removeItem('_spa_initial_path'); } catch(e) {}
       if (!path || path === '/') return;
-      if (path.indexOf('/detail') === 0) {
-        var todoId = path.slice(8); // remove '/detail/'
-        if (todoId && typeof todos !== 'undefined' && Array.isArray(todos)) {
-          var idx = -1;
-          for (var i = 0; i < todos.length; i++) {
-            if (todos[i].id === todoId) { idx = i; break; }
-          }
-          if (idx !== -1) openDetail(idx);
-        }
-        return;
-      }
       switch (path) {
         case '/settings': openSettings(); break;
         case '/stats': openStats(); break;
