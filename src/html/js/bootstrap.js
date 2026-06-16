@@ -6,6 +6,7 @@ export const bootstrap = `
       if (document.getElementById('login-view').classList.contains('hidden')) {
         loadTodos();
         checkInterruptedImport();
+        _navRestore();
       }
     }
     bootstrap();
@@ -160,5 +161,6 @@ export const bootstrap = `
       closeChangelogModal: closeChangelogModal,
       // SPA Router
       _navBack: _navBack,
+      _navRestore: _navRestore,
     });
 `;

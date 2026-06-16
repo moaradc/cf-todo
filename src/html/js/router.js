@@ -4,6 +4,13 @@ export const router = `
     var _popSkip = 0;
     var _isNavClosing = false;
 
+    // Deep linking: save initial path before replaceState
+    var _initialPath = window.location.pathname;
+    var _spaRoutes = ['/settings','/stats','/trash','/add','/category','/view','/calendar','/changelog','/detail','/time'];
+    if (_spaRoutes.indexOf(_initialPath) !== -1) {
+      try { sessionStorage.setItem('_spa_initial_path', _initialPath); } catch(e) {}
+    }
+
     function _navPush(id, closeFn, path) {
       _navStack.push({ id: id, closeFn: closeFn });
       history.pushState({ _nav: true }, '', path);
@@ -45,4 +52,22 @@ export const router = `
 
     // Replace initial history state to mark the base
     history.replaceState({}, '', '/');
+
+    // Deep linking: restore overlay from saved path (called after bootstrap)
+    function _navRestore() {
+      var path = '';
+      try { path = sessionStorage.getItem('_spa_initial_path') || ''; } catch(e) {}
+      try { sessionStorage.removeItem('_spa_initial_path'); } catch(e) {}
+      if (!path || path === '/') return;
+      switch (path) {
+        case '/settings': openSettings(); break;
+        case '/stats': openStats(); break;
+        case '/trash': openTrash(); break;
+        case '/add': openAddModal(); break;
+        case '/category': toggleCategoryMenu('search'); break;
+        case '/view': openViewModal(); break;
+        case '/calendar': openCalendar(); break;
+        case '/changelog': openChangelogModal(); break;
+      }
+    }
 `;
