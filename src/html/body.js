@@ -346,7 +346,7 @@ export function getBody(isAuthorized) {
           <p class="settings-text" style="margin-bottom: 12px;">API 密钥用于外部程序（如 OpenClaw、脚本等）通过 RESTful API 安全访问待办数据。最多 <strong>10</strong> 个密钥。</p>
           <div class="setting-item" style="margin-bottom: 12px;">
               <span class="flex-1">将秘钥作用于</span>
-              <div class="fake-input" onclick="toggleSettingPopover('apiKeyScope', this)" style="width: 90px; margin-bottom: 0; padding: 6px 8px; justify-content: space-between; border-radius: 4px;">
+              <div class="fake-input" onclick="toggleSettingPopover('apiKeyScope', this)" style="width: 80px; margin-bottom: 0; padding: 6px 8px; justify-content: space-between; border-radius: 4px;">
                   <span id="set-disp-apiKeyScope">v1</span>
                   <span style="font-size:0.8rem; margin-right: 4px;">▼</span>
               </div>
