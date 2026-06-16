@@ -47,6 +47,26 @@ export const bootstrap = `
       });
     }
 
+    async function resetFontSizeBrowserData() {
+      var currentUA = navigator.userAgent || '';
+      setFontSizeForUA(currentUA, 16);
+      tempBaseFontSize = 16;
+      var fontsizeSlider = document.getElementById('fontsize-slider');
+      var fontsizeDisplay = document.getElementById('fontsize-value-display');
+      var fontsizePreview = document.getElementById('fontsize-preview');
+      if (fontsizeSlider) fontsizeSlider.value = 16;
+      if (fontsizeDisplay) fontsizeDisplay.innerText = '16px';
+      if (fontsizePreview) fontsizePreview.style.fontSize = '16px';
+      updateFontSizePresetButtons();
+      applyBaseFontSize(16);
+
+      await fetch('/api/settings', {
+        method: 'POST',
+        body: JSON.stringify(appSettings),
+        headers: { 'Content-Type': 'application/json' }
+      });
+    }
+
     Object.assign(window, {
       // 登录
       login: login,
@@ -172,6 +192,9 @@ export const bootstrap = `
       onScaleSliderChange: onScaleSliderChange,
       setScalePreset: setScalePreset,
       resetScaleBrowserData: resetScaleBrowserData,
+      onFontSizeSliderChange: onFontSizeSliderChange,
+      setFontSizePreset: setFontSizePreset,
+      resetFontSizeBrowserData: resetFontSizeBrowserData,
       checkUpdate: checkUpdate,
       compareVersions: compareVersions,
       openChangelogModal: openChangelogModal,

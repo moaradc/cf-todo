@@ -236,7 +236,7 @@ export function getBody(isAuthorized) {
           </div>
           <div class="setting-item" style="flex-direction:column; align-items:stretch;">
             <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;">
-              <span>显示大小</span>
+              <span>缩放大小</span>
               <span class="md-code" style="cursor:pointer;margin-left:auto;" onclick="resetScaleBrowserData()">重置</span>
             </div>
             <div class="scale-control">
@@ -253,6 +253,46 @@ export function getBody(isAuthorized) {
               </div>
               <div class="scale-preview-wrap">
                 <div id="scale-preview" style="zoom:1;">
+                  <div class="todo-item" style="margin-bottom:5px;">
+                    <div class="checkbox"></div>
+                    <div class="item-meta">
+                      <div class="item-title">示例待办事项</div>
+                      <div class="item-info">
+                        <span class="badge badge-high">高</span>
+                        <span class="badge badge-time">09:00</span>
+                      </div>
+                    </div>
+                  </div>
+                  <div class="todo-item done">
+                    <div class="checkbox"></div>
+                    <div class="item-meta">
+                      <div class="item-title">已完成的任务</div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="setting-item" style="flex-direction:column; align-items:stretch;">
+            <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;">
+              <span>显示大小</span>
+              <span class="md-code" style="cursor:pointer;margin-left:auto;" onclick="resetFontSizeBrowserData()">重置</span>
+            </div>
+            <div class="scale-control">
+              <div class="scale-slider-row">
+                <span class="scale-label-sm">A</span>
+                <input type="range" id="fontsize-slider" min="12" max="22" step="1" value="16" oninput="onFontSizeSliderChange(this.value)">
+                <span class="scale-label-lg">A</span>
+                <span class="scale-value" id="fontsize-value-display">16px</span>
+              </div>
+              <div class="scale-presets">
+                <button class="scale-preset-btn" data-fontsize="14" onclick="setFontSizePreset(14)">小</button>
+                <button class="scale-preset-btn active" data-fontsize="16" onclick="setFontSizePreset(16)">默认</button>
+                <button class="scale-preset-btn" data-fontsize="18" onclick="setFontSizePreset(18)">大</button>
+                <button class="scale-preset-btn" data-fontsize="20" onclick="setFontSizePreset(20)">特大</button>
+              </div>
+              <div class="scale-preview-wrap fontsize-preview-wrap">
+                <div id="fontsize-preview" style="font-size:16px;">
                   <div class="todo-item" style="margin-bottom:5px;">
                     <div class="checkbox"></div>
                     <div class="item-meta">

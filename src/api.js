@@ -334,6 +334,9 @@ async function handleRequest(request, env, ctx) {
           if (!Array.isArray(appSettingsObj.scaleByBrowser)) {
             appSettingsObj.scaleByBrowser = [];
           }
+          if (!Array.isArray(appSettingsObj.fontSizeByBrowser)) {
+            appSettingsObj.fontSizeByBrowser = [];
+          }
           let uaExists = false;
           for (let i = 0; i < appSettingsObj.scaleByBrowser.length; i++) {
             if (appSettingsObj.scaleByBrowser[i].ua === loginUA) {
@@ -346,9 +349,22 @@ async function handleRequest(request, env, ctx) {
             while (appSettingsObj.scaleByBrowser.length > 3) {
               appSettingsObj.scaleByBrowser.shift();
             }
-            await env.DB.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('app_settings', ?)")
-              .bind(JSON.stringify(appSettingsObj)).run();
           }
+          let uaExistsFontSize = false;
+          for (let i = 0; i < appSettingsObj.fontSizeByBrowser.length; i++) {
+            if (appSettingsObj.fontSizeByBrowser[i].ua === loginUA) {
+              uaExistsFontSize = true;
+              break;
+            }
+          }
+          if (!uaExistsFontSize) {
+            appSettingsObj.fontSizeByBrowser.push({ ua: loginUA, fontSize: 16 });
+            while (appSettingsObj.fontSizeByBrowser.length > 3) {
+              appSettingsObj.fontSizeByBrowser.shift();
+            }
+          }
+          await env.DB.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('app_settings', ?)")
+            .bind(JSON.stringify(appSettingsObj)).run();
         }
 
         const headers = new Headers();
@@ -556,6 +572,9 @@ self.addEventListener('fetch', (event) => {
           if (!Array.isArray(appSettingsObj.scaleByBrowser)) {
             appSettingsObj.scaleByBrowser = [];
           }
+          if (!Array.isArray(appSettingsObj.fontSizeByBrowser)) {
+            appSettingsObj.fontSizeByBrowser = [];
+          }
           
           let replaced = false;
           for (let i = 0; i < appSettingsObj.scaleByBrowser.length; i++) {
@@ -583,6 +602,34 @@ self.addEventListener('fetch', (event) => {
     
           while (appSettingsObj.scaleByBrowser.length > 3) {
             appSettingsObj.scaleByBrowser.shift();
+          }
+
+          let replacedFontSize = false;
+          for (let i = 0; i < appSettingsObj.fontSizeByBrowser.length; i++) {
+            if (appSettingsObj.fontSizeByBrowser[i].ua === oldUA) {
+              appSettingsObj.fontSizeByBrowser[i].ua = currentUA;
+              replacedFontSize = true;
+              break;
+            }
+          }
+          if (!replacedFontSize) {
+            appSettingsObj.fontSizeByBrowser.push({ ua: currentUA, fontSize: 16 });
+          }
+
+          let foundCurrentUAFontSize = false;
+          appSettingsObj.fontSizeByBrowser = appSettingsObj.fontSizeByBrowser.filter(s => {
+            if (s.ua === currentUA) {
+              if (!foundCurrentUAFontSize) {
+                foundCurrentUAFontSize = true;
+                return true;
+              }
+              return false;
+            }
+            return true;
+          });
+
+          while (appSettingsObj.fontSizeByBrowser.length > 3) {
+            appSettingsObj.fontSizeByBrowser.shift();
           }
     
           batchStmts.push(
@@ -649,19 +696,31 @@ self.addEventListener('fetch', (event) => {
         ).run();
       }
 
-      // 同步清理 scaleByBrowser 中被删除的 UA
+      // 同步清理 scaleByBrowser / fontSizeByBrowser 中被删除的 UA
       if (action === 'DELETE' || action === 'DELETE_ALL') {
         try {
           const appSettingsRecord = await env.DB.prepare("SELECT value FROM settings WHERE key = 'app_settings'").first();
           if (appSettingsRecord && appSettingsRecord.value) {
             let appSettingsObj = JSON.parse(appSettingsRecord.value);
+            const remainingUAs = sessions.map(s => s.ua);
+            let changed = false;
             if (Array.isArray(appSettingsObj.scaleByBrowser)) {
-              const remainingUAs = sessions.map(s => s.ua);
               if (action === 'DELETE_ALL') {
                 appSettingsObj.scaleByBrowser = [];
               } else {
                 appSettingsObj.scaleByBrowser = appSettingsObj.scaleByBrowser.filter(item => remainingUAs.includes(item.ua));
               }
+              changed = true;
+            }
+            if (Array.isArray(appSettingsObj.fontSizeByBrowser)) {
+              if (action === 'DELETE_ALL') {
+                appSettingsObj.fontSizeByBrowser = [];
+              } else {
+                appSettingsObj.fontSizeByBrowser = appSettingsObj.fontSizeByBrowser.filter(item => remainingUAs.includes(item.ua));
+              }
+              changed = true;
+            }
+            if (changed) {
               await env.DB.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('app_settings', ?)")
                 .bind(JSON.stringify(appSettingsObj)).run();
             }

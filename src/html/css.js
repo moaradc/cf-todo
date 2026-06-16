@@ -11,11 +11,13 @@ export const css = `
       --panel: #141414;
       --font-main: 'Courier New', Courier, monospace;
       --app-scale: 1;
+      --base-font-size: 16px;
       --cat-color-default: #888888;
     }
 
     * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; scrollbar-width: none; -ms-overflow-style: none; }
     *::-webkit-scrollbar { display: none; }
+    html { font-size: var(--base-font-size); }
     
     body {
       background-color: var(--bg);
@@ -518,7 +520,7 @@ export const css = `
     [data-theme="light"] #preview-notice { background: #E1AC07; color: #1B1915; border-bottom: 2px solid #1B1915; }
     [data-theme="light"] #preview-notice .md-code { background: #1B1915; color: #E1AC07; border: 1px solid #1B1915; }
     
-    /* === 显示大小调整 === */
+    /* === 缩放大小调整 === */
     .scale-control { width: 100%; }
     .scale-slider-row { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
     .scale-slider-row .scale-label-sm { font-size: 0.7rem; color: #666; flex-shrink: 0; }
@@ -565,7 +567,7 @@ export const css = `
     }
     .scale-preview-wrap .todo-item { margin-bottom: 5px; pointer-events: none; }
 
-    /* Light 主题 - 显示大小调整 */
+    /* Light 主题 - 缩放大小调整 */
     [data-theme="light"] .scale-slider-row input[type="range"] { background: #E5E5E5; }
     [data-theme="light"] .scale-slider-row input[type="range"]::-webkit-slider-thumb {
       background: #5C960B; border-color: #1B1915; box-shadow: 2px 2px 0 #1B1915;
@@ -587,7 +589,16 @@ export const css = `
     [data-theme="light"] .scale-preview-wrap { background: #F0EEE2; border-color: #1B1915; }
     [data-theme="light"] .scale-label-sm,
     [data-theme="light"] .scale-label-lg { color: #1B1915; }
-    
+
+    /* === 显示大小调整 (font-size) === */
+    .fontsize-preview-wrap .todo-item { margin-bottom: 5px; pointer-events: none; }
+    #fontsize-preview { line-height: 1.5; }
+    #fontsize-preview .item-title { font-size: 1rem; }
+    #fontsize-preview .item-info { font-size: 0.75rem; }
+    #fontsize-preview .badge { font-size: 0.7rem; }
+
+    [data-theme="light"] .fontsize-preview-wrap { background: #F0EEE2; border-color: #1B1915; }
+
     .apikey-create-row { display: flex; gap: 8px; margin-bottom: 12px; align-items: stretch; }
     .apikey-create-row input { flex: 1; margin-bottom: 0; }
     .apikey-create-btn { padding: 8px 14px; white-space: nowrap; }

@@ -9,6 +9,7 @@ export const settings = `
       
       var currentUA = navigator.userAgent || '';
       tempAppScale = getScaleForUA(appSettings.scaleByBrowser, currentUA);
+      tempBaseFontSize = getFontSizeForUA(appSettings.fontSizeByBrowser, currentUA);
       
       var scaleSlider = document.getElementById('scale-slider');
       var scaleDisplay = document.getElementById('scale-value-display');
@@ -17,6 +18,14 @@ export const settings = `
       if (scaleDisplay) scaleDisplay.innerText = Math.round(tempAppScale * 100) + '%';
       if (scalePreview) scalePreview.style.zoom = tempAppScale;
       updateScalePresetButtons();
+
+      var fontsizeSlider = document.getElementById('fontsize-slider');
+      var fontsizeDisplay = document.getElementById('fontsize-value-display');
+      var fontsizePreview = document.getElementById('fontsize-preview');
+      if (fontsizeSlider) fontsizeSlider.value = tempBaseFontSize;
+      if (fontsizeDisplay) fontsizeDisplay.innerText = tempBaseFontSize + 'px';
+      if (fontsizePreview) fontsizePreview.style.fontSize = tempBaseFontSize + 'px';
+      updateFontSizePresetButtons();
       
       document.getElementById('custom-code-enabled-box').classList.toggle('checked', customCodeEnabled);
       updateCustomCodeUI();
@@ -117,6 +126,7 @@ export const settings = `
 
       var currentUA = navigator.userAgent || '';
       setScaleForUA(currentUA, tempAppScale);
+      setFontSizeForUA(currentUA, tempBaseFontSize);
     
       await fetch('/api/settings', {
         method: 'POST',
