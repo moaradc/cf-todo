@@ -170,6 +170,7 @@ export const core = `
     let tempSetProvider = 'auto';
     let tempSetSort = 'time';
     let tempSetSortAsc = true;
+    let tempSetApiKeyScope = 'v1';
     let customCodeEnabled = false;
     
     let sessionsList = [];
