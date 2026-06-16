@@ -275,15 +275,6 @@ export function getBody(isAuthorized) {
           </div>
       </div>
 
-      <div id="pwa-install-section" class="detail-label" style="display:none;">
-        安装应用
-        <span id="pwa-install-status" style="font-size:0.75rem;color:#888;margin-left:6px;"></span>
-      </div>
-      <div id="pwa-install-card" class="settings-card" style="display:none;">
-          <p class="settings-text" style="margin-bottom: 12px;">将应用安装到设备，获得类似原生应用的体验，支持离线访问。</p>
-          <button id="pwa-install-btn" class="btn-primary" style="width:100%;display:none;" onclick="installPwa()">安装应用</button>
-      </div>
-
       <div class="settings-card">
           <div class="setting-item" style="margin-bottom: 15px; border: none; padding: 0;">
               <span class="settings-text" style="margin:0;"><strong>启用前端定制注入</strong></span>
@@ -389,6 +380,12 @@ export function getBody(isAuthorized) {
           <p class="settings-text" style="margin-bottom:5px;display:flex;align-items:center;gap:6px;flex-wrap:wrap;"><strong>当前版本:</strong> <span id="app-version-display"></span> <span id="update-status"></span> <span class="md-code" style="font-size:0.75rem;"><a href="https://github.com/moaradc/cf-todo" target="_blank" style="color:inherit;text-decoration:none;">GitHub</a></span> <span class="md-code" style="cursor:pointer;font-size:0.75rem;" onclick="checkUpdate()">检查</span></p>
           <p class="settings-text" style="margin-bottom: 5px;"><strong>底层架构:</strong> Cloudflare Worker + D1 Database</p>
           <p class="settings-text"><strong>项目描述:</strong> 普通的待办事项管理</p>
+      </div>
+
+      <div id="pwa-install-section" class="detail-label" style="display:none;">安装应用</div>
+      <div id="pwa-install-card" class="settings-card" style="display:none;">
+          <p id="pwa-install-desc" class="settings-text" style="margin-bottom: 0;">将应用安装到设备，获得类似原生应用的体验，支持离线访问。<span id="pwa-install-status" style="color:var(--crt);"></span></p>
+          <button id="pwa-install-btn" class="btn-primary" style="width:100%;display:none;margin-top:12px;" onclick="installPwa()">安装应用</button>
       </div>
 
       <div class="detail-label" style="color: var(--accent);">危险区域</div>

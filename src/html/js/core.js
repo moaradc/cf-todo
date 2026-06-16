@@ -646,42 +646,21 @@ export const core = `
 
     // ==================== PWA 安装 ====================
     var _deferredInstallPrompt = null;
-    var _pwaInstallOutcome = null;
 
     window.addEventListener('beforeinstallprompt', function(e) {
       e.preventDefault();
       _deferredInstallPrompt = e;
-      var btn = document.getElementById('pwa-install-btn');
-      if (btn) btn.style.display = '';
-    });
-
-    window.addEventListener('appinstalled', function() {
-      _deferredInstallPrompt = null;
-      _pwaInstallOutcome = 'installed';
-      var btn = document.getElementById('pwa-install-btn');
-      if (btn) btn.style.display = 'none';
-      var status = document.getElementById('pwa-install-status');
-      if (status) status.textContent = '已安装';
     });
 
     async function installPwa() {
       if (!_deferredInstallPrompt) return;
       _deferredInstallPrompt.prompt();
-      var result = await _deferredInstallPrompt.userChoice;
-      _pwaInstallOutcome = result.outcome;
+      await _deferredInstallPrompt.userChoice;
       _deferredInstallPrompt = null;
-      if (result.outcome === 'accepted') {
-        var btn = document.getElementById('pwa-install-btn');
-        if (btn) btn.style.display = 'none';
-        var status = document.getElementById('pwa-install-status');
-        if (status) status.textContent = '已安装';
-      }
     }
 
     function getPwaState() {
-      if (window.matchMedia('(display-mode: standalone)').matches || navigator.standalone === true) {
-        return 'standalone';
-      }
+      if (window.matchMedia('(display-mode: standalone)').matches || navigator.standalone === true) return 'standalone';
       if (_deferredInstallPrompt) return 'installable';
       return 'unsupported';
     }

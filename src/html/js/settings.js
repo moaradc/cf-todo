@@ -199,12 +199,12 @@ export const settings = `
         section.style.display = '';
         card.style.display = '';
         if (btn) btn.style.display = 'none';
-        if (status) status.textContent = '已作为应用运行';
+        if (status) status.textContent = '— 已作为应用运行';
       } else if (state === 'installable') {
         section.style.display = '';
         card.style.display = '';
         if (btn) btn.style.display = '';
-        if (status) status.textContent = '支持安装';
+        if (status) status.textContent = '— 支持安装';
       } else {
         section.style.display = 'none';
         card.style.display = 'none';
