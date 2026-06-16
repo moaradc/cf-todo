@@ -27,7 +27,7 @@ import {
   getPreviousDate,
   getNextDate,
 } from './recurring-engine.js';
-import { handleV1Request, verifyApiKey, extractApiKey } from './api-v1.js';
+import { handleV1Request, verifyApiKey, extractApiKey, getApiKeyScope } from './api-v1.js';
 
 let isDbInitialized = false;
 
@@ -266,6 +266,10 @@ async function handleRequest(request, env, ctx) {
       if (apiKey) {
         const valid = await verifyApiKey(env.DB, apiKey, env.JWT_SECRET);
         if (!valid) return apiError("UNAUTHORIZED", 401);
+        // 检查 API Key 作用域
+        const scope = await getApiKeyScope(env.DB);
+        if (scope === 'disabled') return apiError("API Key 已被禁用", 403);
+        if (scope === 'v1') return apiError("API Key 仅允许访问 v1 接口", 403);
       } else {
         // 无 API Key，回退到 Cookie 鉴权
         const { ok: apiAuthed } = await isAuthorized();

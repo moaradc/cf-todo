@@ -669,6 +669,7 @@ export const core = `
             sortMethod: saved.sortMethod || 'time',
             sortAsc: saved.sortAsc !== undefined ? (saved.sortAsc === 'true' || saved.sortAsc === true) : true,
             customCodeEnabled: saved.customCodeEnabled !== undefined ? (saved.customCodeEnabled === 'true' || saved.customCodeEnabled === true) : false,
+            apiKeyScope: saved.apiKeyScope || 'v1',
             scaleByBrowser: scaleByBrowser
           };
           tempAppScale = matchedScale;
@@ -676,7 +677,7 @@ export const core = `
           throw new Error('Failed to load DB settings');
         }
       } catch (e) {
-        appSettings = { provider: 'auto', sortMethod: 'time', sortAsc: true, customCodeEnabled: false, scaleByBrowser: [] };
+        appSettings = { provider: 'auto', sortMethod: 'time', sortAsc: true, customCodeEnabled: false, apiKeyScope: 'v1', scaleByBrowser: [] };
         tempAppScale = 1.0;
       }
       

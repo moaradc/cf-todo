@@ -344,6 +344,13 @@ export function getBody(isAuthorized) {
       <div class="detail-label">API 密钥管理</div>
       <div class="settings-card">
           <p class="settings-text" style="margin-bottom: 12px;">API 密钥用于外部程序（如 OpenClaw、脚本等）通过 RESTful API 安全访问待办数据。最多 <strong>10</strong> 个密钥。</p>
+          <div class="setting-item" style="margin-bottom: 12px;">
+              <span class="flex-1">将秘钥作用于</span>
+              <div class="fake-input" onclick="toggleSettingPopover('apiKeyScope', this)" style="width: 145px; margin-bottom: 0; padding: 6px 8px; justify-content: space-between; border-radius: 4px;">
+                  <span id="set-disp-apiKeyScope">v1</span>
+                  <span style="font-size:0.8rem; margin-right: 4px;">▼</span>
+              </div>
+          </div>
           <div id="apikeys-list" style="margin-bottom: 12px;"></div>
           <div class="apikey-create-row">
             <input type="text" id="apikey-name-input" placeholder="密钥名称（可选）">
@@ -357,7 +364,7 @@ export function getBody(isAuthorized) {
             </div>
           </div>
           <div class="settings-text" style="border-top: 1px dashed #333; padding-top: 10px;">
-            <strong>使用方式：</strong>在请求头中添加 <span class="md-code">X-API-Key: cfk_xxx</span>，或使用 <span class="md-code">?api_key=cfk_xxx</span> 查询参数。
+            <strong>使用方式：</strong><a href="https://github.com/moaradc/cf-todo/blob/main/API_Wiki.md" target="_blank" style="color: var(--accent); text-decoration: none;">API_Wiki</a>
           </div>
       </div>
 
@@ -491,6 +498,12 @@ export function getBody(isAuthorized) {
   <div id="popover-set-sortAsc" class="popover-menu">
     <button onclick="selectSetting('sortAsc', 'true', '正序')">正序</button>
     <button onclick="selectSetting('sortAsc', 'false', '倒序')">倒序</button>
+  </div>
+  <div id="popover-set-apiKeyScope" class="popover-menu">
+    <button onclick="selectSetting('apiKeyScope', 'v1', 'v1')">v1</button>
+    <button onclick="selectSetting('apiKeyScope', 'v0', 'v0')">v0</button>
+    <button onclick="selectSetting('apiKeyScope', 'all', '全部')">全部</button>
+    <button onclick="selectSetting('apiKeyScope', 'disabled', '禁用')">禁用</button>
   </div>
 
   <div id="modal-calendar" class="modal-overlay" style="z-index:65;" onclick="if(event.target===this) closeCalendar()">
