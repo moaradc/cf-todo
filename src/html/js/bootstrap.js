@@ -3,7 +3,17 @@ export const bootstrap = `
       if (_previewRedirecting) return;
       await initSettings();
       initVersionDisplay();
-      if (document.getElementById('login-view').classList.contains('hidden')) {
+      var loginView = document.getElementById('login-view');
+      if (loginView && !loginView.classList.contains('hidden')) {
+        // Offline + previously logged in: show notice
+        if (!navigator.onLine && localStorage.getItem('moara_authed') === '1') {
+          var notice = document.createElement('p');
+          notice.style.cssText = 'color:var(--warn);font-size:0.85rem;margin-top:12px;text-align:center;';
+          notice.textContent = '当前处于离线状态，请恢复网络后访问。';
+          loginView.querySelector('div').appendChild(notice);
+        }
+      } else {
+        localStorage.setItem('moara_authed', '1');
         loadTodos();
         checkInterruptedImport();
         _navRestore();
@@ -41,6 +51,7 @@ export const bootstrap = `
       // 登录
       login: login,
       logout: async function() {
+        localStorage.removeItem('moara_authed');
         await fetch('/api/logout', { method: 'POST' });
         location.reload();
       },
@@ -167,6 +178,7 @@ export const bootstrap = `
       closeChangelogModal: closeChangelogModal,
       // PWA
       installPwa: installPwa,
+      clearPwaCache: clearPwaCache,
       // SPA Router
       _navBack: _navBack,
       _navRestore: _navRestore,

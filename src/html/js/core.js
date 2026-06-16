@@ -726,9 +726,27 @@ export const core = `
           body: JSON.stringify({ password: pwd }),
           headers: { 'Content-Type': 'application/json' }
         });
-        if (res.ok) { location.reload(); } 
+        if (res.ok) {
+          localStorage.setItem('moara_authed', '1');
+          location.reload();
+        } 
         else if (res.status === 429) { alert("连续尝试错误次数过多，IP已被锁定，请 15 分钟后再试！"); } 
         else { alert("密钥验证失败 / 访问被拒绝"); }
       } catch (e) { alert("网络连接失败"); }
+    }
+
+    function clearPwaCache() {
+      if (!navigator.serviceWorker || !navigator.serviceWorker.controller) return Promise.resolve();
+      return new Promise(function(resolve) {
+        var sw = navigator.serviceWorker.controller;
+        navigator.serviceWorker.addEventListener('message', function handler(msg) {
+          if (msg.data && msg.data.type === 'CACHE_CLEARED') {
+            navigator.serviceWorker.removeEventListener('message', handler);
+            resolve();
+          }
+        });
+        sw.postMessage({ type: 'CLEAR_CACHE' });
+        setTimeout(resolve, 3000);
+      });
     }
 `;

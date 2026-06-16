@@ -426,22 +426,24 @@ async function handleRequest(request, env, ctx) {
       const swCode = `
 'use strict';
 const CACHE_NAME = 'moara-todo-v1';
-const STATIC_ASSETS = ['/'];
 
-self.addEventListener('install', (event) => {
-  event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => cache.addAll(STATIC_ASSETS))
-  );
-  self.skipWaiting();
-});
-
+self.addEventListener('install', () => self.skipWaiting());
 self.addEventListener('activate', (event) => {
   event.waitUntil(
     caches.keys().then((names) =>
       Promise.all(names.filter((n) => n !== CACHE_NAME).map((n) => caches.delete(n)))
-    )
+    ).then(() => self.clients.claim())
   );
-  self.clients.claim();
+});
+
+self.addEventListener('message', (event) => {
+  if (event.data && event.data.type === 'CLEAR_CACHE') {
+    event.waitUntil(
+      caches.delete(CACHE_NAME).then(() => {
+        event.source.postMessage({ type: 'CACHE_CLEARED' });
+      })
+    );
+  }
 });
 
 self.addEventListener('fetch', (event) => {
@@ -449,39 +451,53 @@ self.addEventListener('fetch', (event) => {
 
   const reqUrl = new URL(event.request.url);
   const isSameOrigin = reqUrl.origin === self.location.origin;
+  if (!isSameOrigin) return;
+
   const isApi = reqUrl.pathname.startsWith('/api/');
+  const isNav = event.request.mode === 'navigate' || reqUrl.pathname === '/';
 
   if (isApi) {
-    // Network-first for API: always try network, fall back to cache
+    // Network-first for API
     event.respondWith(
       fetch(event.request)
         .then((response) => {
-          if (response.ok && isSameOrigin) {
-            const clone = response.clone();
-            caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone));
+          if (response.ok) {
+            caches.open(CACHE_NAME).then((cache) => cache.put(event.request, response.clone()));
           }
           return response;
         })
         .catch(() => caches.match(event.request))
     );
-  } else if (isSameOrigin) {
-    // Stale-while-revalidate for same-origin pages
+  } else if (isNav) {
+    // Network-first for navigation: always try fresh, fall back to cache
+    event.respondWith(
+      fetch(event.request)
+        .then((response) => {
+          if (response.ok) {
+            caches.open(CACHE_NAME).then((cache) => cache.put(event.request, response.clone()));
+          }
+          return response;
+        })
+        .catch(() =>
+          caches.match(event.request).then((cached) => cached || new Response('离线不可用', { status: 503 }))
+        )
+    );
+  } else {
+    // Stale-while-revalidate for other same-origin static assets
     event.respondWith(
       caches.match(event.request).then((cached) => {
         const fetchPromise = fetch(event.request)
           .then((response) => {
             if (response.ok) {
-              const clone = response.clone();
-              caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone));
+              caches.open(CACHE_NAME).then((cache) => cache.put(event.request, response.clone()));
             }
             return response;
           })
-          .catch(() => cached || new Response('离线不可用', { status: 503 }));
+          .catch(() => cached);
         return cached || fetchPromise;
       })
     );
   }
-  // Cross-origin requests (CDN etc.) are not intercepted
 });
 `;
       return new Response(swCode, {

@@ -384,7 +384,7 @@ export function getBody(isAuthorized) {
 
       <div id="pwa-install-section" class="detail-label" style="display:none;">安装应用</div>
       <div id="pwa-install-card" class="settings-card" style="display:none;">
-          <p id="pwa-install-desc" class="settings-text" style="margin-bottom: 0;">将应用安装到设备，获得类似原生应用的体验，支持离线访问。<span id="pwa-install-status" style="color:var(--crt);"></span></p>
+          <p id="pwa-install-desc" class="settings-text" style="margin-bottom: 0;">将应用安装到设备，获得类似原生应用的体验，支持离线访问。<span id="pwa-install-status"></span></p>
           <button id="pwa-install-btn" class="btn-primary" style="width:100%;display:none;margin-top:12px;" onclick="installPwa()">安装应用</button>
       </div>
 

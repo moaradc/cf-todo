@@ -141,6 +141,7 @@ export const settings = `
       updateViewBtnLabel();
       
       renderTodos();
+      await clearPwaCache();
       restoreAllPreview()
       location.reload();
     }
