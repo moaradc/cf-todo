@@ -214,7 +214,6 @@ export const bootstrap = `
       onDisplayScaleSliderChange: onDisplayScaleSliderChange,
       setDisplayScalePreset: setDisplayScalePreset,
       resetDisplayScaleBrowserData: resetDisplayScaleBrowserData,
-      previewSizeSettings: previewSizeSettings,
       checkUpdate: checkUpdate,
       compareVersions: compareVersions,
       openChangelogModal: openChangelogModal,

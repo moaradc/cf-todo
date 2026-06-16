@@ -205,21 +205,6 @@ export const settings = `
       window.location.href = window.location.pathname;
     }
 
-    async function previewSizeSettings() {
-      var currentUA = navigator.userAgent || '';
-      setScaleForUA(currentUA, tempAppScale);
-      setFontSizeForUA(currentUA, tempBaseFontSize);
-      setDisplayScaleForUA(currentUA, tempDisplayScale);
-
-      await fetch('/api/settings', {
-        method: 'POST',
-        body: JSON.stringify(appSettings),
-        headers: { 'Content-Type': 'application/json' }
-      });
-
-      window.location.href = window.location.pathname + '?preview=1';
-    }
-
     function updatePwaInstallUI() {
       var section = document.getElementById('pwa-install-section');
       var card = document.getElementById('pwa-install-card');
