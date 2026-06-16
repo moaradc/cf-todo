@@ -1,15 +1,15 @@
 export const calendar = `
-    function openCalendar() { calendarMode = 'navigate'; calDate = new Date(currentDate); calMode = 'date'; renderCalendar(); document.getElementById('modal-calendar').classList.add('active'); }
+    function openCalendar() { calendarMode = 'navigate'; calDate = new Date(currentDate); calMode = 'date'; renderCalendar(); document.getElementById('modal-calendar').classList.add('active'); _navPush('modal-calendar', closeCalendar, '/calendar'); }
     function calChange(offset) {
       if (calendarMode === 'repeat_end') { calDate.setMonth(calDate.getMonth() + offset); renderCalendarForRepeatEnd(); return; }
-      if (calMode === 'date') { calDate.setMonth(calDate.getMonth() + offset); renderCalendar(); } 
-      else if (calMode === 'year') { yearPickerStart += offset * 12; openYearPicker(yearPickerStart); } 
+      if (calMode === 'date') { calDate.setMonth(calDate.getMonth() + offset); renderCalendar(); }
+      else if (calMode === 'year') { yearPickerStart += offset * 12; openYearPicker(yearPickerStart); }
       else if (calMode === 'month') { calDate.setFullYear(calDate.getFullYear() + offset); openMonthPicker(); }
     }
-    
-    function openCalendarForAdd() { calendarMode = 'select'; calDate = new Date(tempAddDate || currentDate); renderCalendar(); document.getElementById('modal-calendar').classList.add('active');
+
+    function openCalendarForAdd() { calendarMode = 'select'; calDate = new Date(tempAddDate || currentDate); renderCalendar(); document.getElementById('modal-calendar').classList.add('active'); _navPush('modal-calendar', closeCalendar, '/calendar');
     }
-    function openCalendarForEdit() { calendarMode = 'edit_date'; calDate = new Date(tempEditDate || currentDate); renderCalendar(); document.getElementById('modal-calendar').classList.add('active'); }
+    function openCalendarForEdit() { calendarMode = 'edit_date'; calDate = new Date(tempEditDate || currentDate); renderCalendar(); document.getElementById('modal-calendar').classList.add('active'); _navPush('modal-calendar', closeCalendar, '/calendar'); }
 
     let calendarRepeatEndTarget = '';
     function openCalendarForRepeatEnd(mode) {
@@ -18,6 +18,7 @@ export const calendar = `
       calDate = tempRepeatEnd ? new Date(tempRepeatEnd) : new Date(tempAddDate || currentDate);
       renderCalendarForRepeatEnd();
       document.getElementById('modal-calendar').classList.add('active');
+      _navPush('modal-calendar', closeCalendar, '/calendar');
     }
 
     function renderCalendarForRepeatEnd() {
@@ -31,7 +32,7 @@ export const calendar = `
         } else {
           document.getElementById('edit-repeat-end-display').innerText = '循环截止: 永不';
         }
-        document.getElementById('modal-calendar').classList.remove('active');
+        closeCalendar();
       };
       document.getElementById('cal-prev').innerText = '< 上月'; document.getElementById('cal-next').innerText = '下月 >';
       document.getElementById('cal-title').innerHTML = \`<span class="cal-title-btn" onclick="openYearPicker()">\${year}年</span> <span class="cal-title-btn" onclick="openMonthPicker()">\${month + 1}月</span>\`;
@@ -52,7 +53,7 @@ export const calendar = `
           } else {
             document.getElementById('edit-repeat-end-display').innerText = '循环截止: ' + tempRepeatEnd;
           }
-          document.getElementById('modal-calendar').classList.remove('active');
+          closeCalendar();
         };
         grid.appendChild(el);
       }
@@ -62,10 +63,10 @@ export const calendar = `
       calMode = 'date';
       const year = calDate.getFullYear(); const month = calDate.getMonth();
       const actionBtn = document.getElementById('cal-action-btn'); actionBtn.innerText = '返回今日'; actionBtn.onclick = jumpToToday;
-      
+
       document.getElementById('cal-prev').innerText = '< 上月'; document.getElementById('cal-next').innerText = '下月 >';
       document.getElementById('cal-title').innerHTML = \`<span class="cal-title-btn" onclick="openYearPicker()">\${year}年</span> <span class="cal-title-btn" onclick="openMonthPicker()">\${month + 1}月</span>\`;
-      
+
       const grid = document.getElementById('cal-grid'); grid.style.gridTemplateColumns = 'repeat(7, 1fr)'; grid.innerHTML = '';
       const days = ['日','一','二','三','四','五','六']; days.forEach(d => grid.innerHTML += \`<div class="cal-day-name">\${d}</div>\`);
       const firstDay = new Date(year, month, 1).getDay(); const daysInMonth = new Date(year, month + 1, 0).getDate();
@@ -81,18 +82,18 @@ export const calendar = `
           if (calendarMode === 'select') {
             tempAddDate = formatDate(new Date(year, month, i));
             document.getElementById('add-date-display').innerText = tempAddDate;
-            document.getElementById('modal-calendar').classList.remove('active');
             calendarMode = 'navigate';
+            closeCalendar();
           } else if (calendarMode === 'edit_date') {
             tempEditDate = formatDate(new Date(year, month, i));
             document.getElementById('edit-date-display').innerText = tempEditDate;
-            document.getElementById('modal-calendar').classList.remove('active');
             calendarMode = 'navigate';
+            closeCalendar();
           } else {
             currentDate = new Date(year, month, i);
-            document.getElementById('modal-calendar').classList.remove('active');
             exitBatchMode();
             loadTodos();
+            closeCalendar();
           }
         };
         grid.appendChild(el);
@@ -132,27 +133,31 @@ export const calendar = `
       if (calendarMode === 'select') {
         tempAddDate = formatDate(new Date());
         document.getElementById('add-date-display').innerText = tempAddDate;
-        document.getElementById('modal-calendar').classList.remove('active');
         calendarMode = 'navigate';
+        closeCalendar();
       } else if (calendarMode === 'edit_date') {
         tempEditDate = formatDate(new Date());
         document.getElementById('edit-date-display').innerText = tempEditDate;
-        document.getElementById('modal-calendar').classList.remove('active');
         calendarMode = 'navigate';
+        closeCalendar();
       } else if (calendarMode === 'repeat_end') {
         calDate = new Date();
         renderCalendarForRepeatEnd();
       } else {
         exitBatchMode();
         currentDate = new Date();
-        document.getElementById('modal-calendar').classList.remove('active');
         loadTodos();
+        closeCalendar();
       }
     }
-    
+
     function closeCalendar() {
-      document.getElementById('modal-calendar').classList.remove('active');
-      calendarMode = 'navigate';
+      if (_isNavClosing) {
+        document.getElementById('modal-calendar').classList.remove('active');
+        calendarMode = 'navigate';
+        return;
+      }
+      _navClose('modal-calendar');
     }
 
     if (!CSS.supports || !CSS.supports('selector(:has(*))')) {
@@ -162,5 +167,5 @@ export const calendar = `
         document.body.style.touchAction = locked ? 'none' : '';
       }).observe(document.body, { subtree: true, attributes: true, attributeFilter: ['class'] });
     }
-    
+
 `;

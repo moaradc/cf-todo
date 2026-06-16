@@ -400,7 +400,9 @@ async function handleRequest(request, env, ctx) {
       return new Response(JSON.stringify({ success: true }), { headers });
     }
 
-    if (url.pathname === '/' && request.method === 'GET') {
+    // SPA: serve the same HTML for all non-API GET requests
+    const isSpaRoute = request.method === 'GET' && !url.pathname.startsWith('/api/') && !url.pathname.includes('.');
+    if (isSpaRoute) {
       const [authResult, settingsRecord] = await Promise.all([
         isAuthorized(),
         env.DB.prepare("SELECT value FROM settings WHERE key = 'app_settings'").first()

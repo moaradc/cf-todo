@@ -5,18 +5,23 @@ export const trash = `
       trashView.classList.remove('closing');
       trashView.classList.add('active');
       loadTrashData();
+      _navPush('trash-overlay', closeTrash, '/trash');
     }
 
     function closeTrash() {
-      exitTrashBatchMode();
-      const trashView = document.getElementById('trash-overlay'); 
-      trashView.classList.add('closing');
-      trashView.addEventListener('animationend', function handler() {
-        trashView.classList.remove('active'); 
-        trashView.classList.remove('closing'); 
-        trashView.removeEventListener('animationend', handler);
-      });
-      loadTodos(); 
+      if (_isNavClosing) {
+        exitTrashBatchMode();
+        const trashView = document.getElementById('trash-overlay');
+        trashView.classList.add('closing');
+        trashView.addEventListener('animationend', function handler() {
+          trashView.classList.remove('active');
+          trashView.classList.remove('closing');
+          trashView.removeEventListener('animationend', handler);
+        });
+        loadTodos();
+        return;
+      }
+      _navClose('trash-overlay');
     }
 
     async function loadTrashData() {

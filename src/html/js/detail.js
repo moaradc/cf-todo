@@ -28,6 +28,7 @@ export const detail = `
       document.getElementById('add-search-actions').classList.add('hidden');
 
       updateAddUI();
+      _navPush('modal-add', closeAddModal, '/add');
     }
     
     function updateAddUI() {
@@ -38,40 +39,35 @@ export const detail = `
     }
 
     function closeAddModal() {
-      hideAndRescuePopovers();
-      closeCategoryModal();
-      var modal = document.getElementById('modal-add');
-      if (!modal || !modal.classList.contains('active')) return;
-      
-      var content = modal.querySelector('.modal-content');
-      if (!content) { modal.classList.remove('active'); return; }
-      
-      modal.classList.add('closing-overlay');
-      content.classList.add('closing');
-      
-      var computedStyle = window.getComputedStyle(content);
-      var duration = parseFloat(computedStyle.animationDuration);
-      var name = computedStyle.animationName;
-      
-      var closed = false;
-      function doClose() {
-        if (closed) return;
-        closed = true;
-        modal.classList.remove('active', 'closing-overlay');
-        content.classList.remove('closing');
+      if (_isNavClosing) {
+        hideAndRescuePopovers();
+        var catModal = document.getElementById('modal-category');
+        if (catModal && catModal.classList.contains('active')) catModal.classList.remove('active');
+        var modal = document.getElementById('modal-add');
+        if (!modal || !modal.classList.contains('active')) return;
+        var content = modal.querySelector('.modal-content');
+        if (!content) { modal.classList.remove('active'); return; }
+        modal.classList.add('closing-overlay');
+        content.classList.add('closing');
+        var closed = false;
+        function doClose() {
+          if (closed) return;
+          closed = true;
+          modal.classList.remove('active', 'closing-overlay');
+          content.classList.remove('closing');
+        }
+        var computedStyle = window.getComputedStyle(content);
+        var duration = parseFloat(computedStyle.animationDuration);
+        var name = computedStyle.animationName;
+        if (name && name !== 'none' && duration > 0) {
+          content.addEventListener('animationend', function handler(e) {
+            if (e.target === content) { doClose(); content.removeEventListener('animationend', handler); }
+          });
+          setTimeout(doClose, duration * 1000 + 100);
+        } else { doClose(); }
+        return;
       }
-      
-      if (name && name !== 'none' && duration > 0) {
-        content.addEventListener('animationend', function handler(e) {
-          if (e.target === content) {
-            doClose();
-            content.removeEventListener('animationend', handler);
-          }
-        });
-        setTimeout(doClose, duration * 1000 + 100);
-      } else {
-        doClose();
-      }
+      _navClose('modal-add');
     }
 
     async function confirmAddTask() {
@@ -140,15 +136,21 @@ export const detail = `
 
       const detailView = document.getElementById('detail-view');
       detailView.classList.remove('closing'); detailView.classList.add('active');
+      _navPush('detail-view', closeDetail, '/detail');
     }
 
     function closeDetail() {
-      hideAndRescuePopovers();
-      closeCategoryModal();
-      const detailView = document.getElementById('detail-view'); detailView.classList.add('closing');
-      detailView.addEventListener('animationend', function handler() {
-        detailView.classList.remove('active'); detailView.classList.remove('closing'); detailView.removeEventListener('animationend', handler);
-      });
+      if (_isNavClosing) {
+        hideAndRescuePopovers();
+        var catModal = document.getElementById('modal-category');
+        if (catModal && catModal.classList.contains('active')) catModal.classList.remove('active');
+        const detailView = document.getElementById('detail-view'); detailView.classList.add('closing');
+        detailView.addEventListener('animationend', function handler() {
+          detailView.classList.remove('active'); detailView.classList.remove('closing'); detailView.removeEventListener('animationend', handler);
+        });
+        return;
+      }
+      _navClose('detail-view');
     }
 
     function renderDetailContent() {
@@ -394,6 +396,7 @@ export const detail = `
         const activeH = hCol.querySelector('.active'); if(activeH) activeH.scrollIntoView({block: "center"});
         const activeM = mCol.querySelector('.active'); if(activeM) activeM.scrollIntoView({block: "center"});
       }, 10);
+      _navPush('modal-time', closeTimePicker, '/time');
     }
 
     function updateTimePickerSelection() {
@@ -431,7 +434,13 @@ export const detail = `
       }
       closeTimePicker();
     }
-    function closeTimePicker() { document.getElementById('modal-time').classList.remove('active'); }
+    function closeTimePicker() {
+      if (_isNavClosing) {
+        document.getElementById('modal-time').classList.remove('active');
+        return;
+      }
+      _navClose('modal-time');
+    }
 
     function togglePriorityMenu(mode, triggerEl) {
       activeMode = mode; 

@@ -445,6 +445,7 @@ export const categories = `
       applyCategoryModeUI();
       renderCategoryModalList();
       document.getElementById('modal-category').classList.add('active');
+      _navPush('modal-category', closeCategoryModal, '/category');
       requestAnimationFrame(function() {
         var listEl = document.getElementById('category-modal-list');
         if (listEl) listEl.scrollTop = 0;
@@ -645,43 +646,47 @@ export const categories = `
     }
 
     function closeCategoryModal() {
-      document.getElementById('modal-category').classList.remove('active');
-      categoryMode = 'search';
-      editingCategoryId = '';
-      editingCategoryName = '';
-      isCatBatchMode = false;
-      selectedCatIds.clear();
-      isColorBatchMode = false;
-      selectedColors.clear();
-      categorySelectedColor = '';
-      categoryCustomColor = '';
-      var searchInput = document.getElementById('category-new-name');
-      if (searchInput) searchInput.value = '';
-      var createInput = document.getElementById('category-create-name');
-      if (createInput) { createInput.value = ''; createInput.placeholder = '新建分类...'; }
-      var searchRow = document.getElementById('category-search-row');
-      var createRow = document.getElementById('category-create-row');
-      var listEl = document.getElementById('category-modal-list');
-      var colorPresets = document.getElementById('category-color-presets');
-      var iconPlus = document.getElementById('category-toggle-icon-plus');
-      var iconSearch = document.getElementById('category-toggle-icon-search');
-      var titleEl = document.getElementById('category-modal-title');
-      var preview = document.getElementById('category-edit-preview');
-      var confirmBtn = document.getElementById('category-confirm-btn');
-      var batchBtn = document.getElementById('cat-batch-btn');
-      if (searchRow) searchRow.style.display = 'flex';
-      if (createRow) createRow.style.display = 'none';
-      if (listEl) listEl.style.display = 'flex';
-      if (colorPresets) colorPresets.style.display = 'none';
-      if (iconPlus) { iconPlus.style.opacity = '1'; iconPlus.style.transform = 'rotate(0deg)'; }
-      if (iconSearch) { iconSearch.style.opacity = '0'; iconSearch.style.transform = 'rotate(-90deg)'; }
-      if (titleEl) titleEl.textContent = '>> 选择分类';
-      if (preview) preview.style.display = 'none';
-      if (confirmBtn) confirmBtn.textContent = '创建';
-      if (batchBtn) batchBtn.style.display = 'none';
-      applyCatBatchUI();
-      var bodyEl = document.getElementById('category-modal-body');
-      if (bodyEl) { bodyEl.style.setProperty('transition','none','important'); bodyEl.style.height = 'auto'; }
+      if (_isNavClosing) {
+        document.getElementById('modal-category').classList.remove('active');
+        categoryMode = 'search';
+        editingCategoryId = '';
+        editingCategoryName = '';
+        isCatBatchMode = false;
+        selectedCatIds.clear();
+        isColorBatchMode = false;
+        selectedColors.clear();
+        categorySelectedColor = '';
+        categoryCustomColor = '';
+        var searchInput = document.getElementById('category-new-name');
+        if (searchInput) searchInput.value = '';
+        var createInput = document.getElementById('category-create-name');
+        if (createInput) { createInput.value = ''; createInput.placeholder = '新建分类...'; }
+        var searchRow = document.getElementById('category-search-row');
+        var createRow = document.getElementById('category-create-row');
+        var listEl = document.getElementById('category-modal-list');
+        var colorPresets = document.getElementById('category-color-presets');
+        var iconPlus = document.getElementById('category-toggle-icon-plus');
+        var iconSearch = document.getElementById('category-toggle-icon-search');
+        var titleEl = document.getElementById('category-modal-title');
+        var preview = document.getElementById('category-edit-preview');
+        var confirmBtn = document.getElementById('category-confirm-btn');
+        var batchBtn = document.getElementById('cat-batch-btn');
+        if (searchRow) searchRow.style.display = 'flex';
+        if (createRow) createRow.style.display = 'none';
+        if (listEl) listEl.style.display = 'flex';
+        if (colorPresets) colorPresets.style.display = 'none';
+        if (iconPlus) { iconPlus.style.opacity = '1'; iconPlus.style.transform = 'rotate(0deg)'; }
+        if (iconSearch) { iconSearch.style.opacity = '0'; iconSearch.style.transform = 'rotate(-90deg)'; }
+        if (titleEl) titleEl.textContent = '>> 选择分类';
+        if (preview) preview.style.display = 'none';
+        if (confirmBtn) confirmBtn.textContent = '创建';
+        if (batchBtn) batchBtn.style.display = 'none';
+        applyCatBatchUI();
+        var bodyEl = document.getElementById('category-modal-body');
+        if (bodyEl) { bodyEl.style.setProperty('transition','none','important'); bodyEl.style.height = 'auto'; }
+        return;
+      }
+      _navClose('modal-category');
     }
 
     function selectCategory(catId) {

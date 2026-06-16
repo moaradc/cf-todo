@@ -1,6 +1,7 @@
 import { APP_VERSION, CHANGELOG } from "../utils.js";
 import { css } from "./css.js";
 import { getBody } from "./body.js";
+import { router } from "./js/router.js";
 import { core } from "./js/core.js";
 import { todos } from "./js/todos.js";
 import { settings } from "./js/settings.js";
@@ -33,6 +34,8 @@ ${getBody(isAuthorized)}
   <script>
   (function() {
     'use strict';
+
+${router}
 
 ${core}
 

@@ -109,10 +109,15 @@ export const todos = `
       activateBtnGroup('view-sort-btns', sortMethod);
       activateBtnGroup('view-order-btns', sortAsc ? 'asc' : 'desc');
       document.getElementById('modal-view').classList.add('active');
+      _navPush('modal-view', closeViewModal, '/view');
     }
 
     function closeViewModal() {
-      document.getElementById('modal-view').classList.remove('active');
+      if (_isNavClosing) {
+        document.getElementById('modal-view').classList.remove('active');
+        return;
+      }
+      _navClose('modal-view');
     }
 
     function setViewFilter(method) {
