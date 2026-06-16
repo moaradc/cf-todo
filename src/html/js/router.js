@@ -54,11 +54,15 @@ export const router = `
     history.replaceState({}, '', '/');
 
     // Deep linking: restore overlay from saved path (called after bootstrap)
-    function _navRestore() {
+    async function _navRestore() {
       var path = '';
       try { path = sessionStorage.getItem('_spa_initial_path') || ''; } catch(e) {}
       try { sessionStorage.removeItem('_spa_initial_path'); } catch(e) {}
       if (!path || path === '/') return;
+      // Ensure categories are loaded before opening views that depend on them
+      if (path === '/category' || path === '/view') {
+        await loadCategories();
+      }
       switch (path) {
         case '/settings': openSettings(); break;
         case '/stats': openStats(); break;
