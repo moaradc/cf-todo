@@ -525,8 +525,6 @@ export const css = `
     
     /* === 缩放大小调整 === */
     .scale-control { width: 100%; }
-    .scale-sub-label { font-size: 0.8rem; color: #888; margin-bottom: 6px; margin-top: 10px; text-transform: uppercase; letter-spacing: 1px; }
-    .scale-sub-label:first-child { margin-top: 0; }
     .scale-slider-row { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
     .scale-slider-row .scale-label-sm { font-size: 0.7rem; color: #666; flex-shrink: 0; }
     .scale-slider-row .scale-label-lg { font-size: 1.15rem; color: #666; font-weight: bold; flex-shrink: 0; }
@@ -594,7 +592,6 @@ export const css = `
     [data-theme="light"] .scale-preview-wrap { background: #F0EEE2; border-color: #1B1915; }
     [data-theme="light"] .scale-label-sm,
     [data-theme="light"] .scale-label-lg { color: #1B1915; }
-    [data-theme="light"] .scale-sub-label { color: #666; }
 
     /* === 显示大小调整 (display density) === */
     .combined-preview-wrap .todo-item { margin-bottom: 5px; pointer-events: none; }
