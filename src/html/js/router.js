@@ -50,8 +50,8 @@ export const router = `
       _isNavClosing = false;
     });
 
-    // Replace initial history state to mark the base
-    history.replaceState({}, '', '/');
+    // Replace initial history state to mark the base (preserve query params like ?preview=1)
+    history.replaceState({}, '', '/' + (window.location.search || ''));
 
     // Deep linking: restore overlay from saved path (called after bootstrap)
     async function _navRestore() {
