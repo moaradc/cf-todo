@@ -33,10 +33,8 @@ export const bootstrap = `
       tempAppScale = 1.0;
       var scaleSlider = document.getElementById('scale-slider');
       var scaleDisplay = document.getElementById('scale-value-display');
-      var scalePreview = document.getElementById('scale-preview');
       if (scaleSlider) scaleSlider.value = 1.0;
       if (scaleDisplay) scaleDisplay.innerText = '100%';
-      if (scalePreview) scalePreview.style.zoom = 1.0;
       updateScalePresetButtons();
       applyAppScale(1.0);
     
@@ -53,12 +51,11 @@ export const bootstrap = `
       tempBaseFontSize = 16;
       var fontsizeSlider = document.getElementById('fontsize-slider');
       var fontsizeDisplay = document.getElementById('fontsize-value-display');
-      var fontsizePreview = document.getElementById('fontsize-preview');
       if (fontsizeSlider) fontsizeSlider.value = 16;
       if (fontsizeDisplay) fontsizeDisplay.innerText = '16px';
-      if (fontsizePreview) fontsizePreview.style.fontSize = '16px';
       updateFontSizePresetButtons();
       applyBaseFontSize(16);
+      updateCombinedPreview();
 
       await fetch('/api/settings', {
         method: 'POST',
@@ -73,12 +70,11 @@ export const bootstrap = `
       tempDisplayScale = 1.0;
       var displayscaleSlider = document.getElementById('displayscale-slider');
       var displayscaleDisplay = document.getElementById('displayscale-value-display');
-      var displayscalePreview = document.getElementById('displayscale-preview');
       if (displayscaleSlider) displayscaleSlider.value = 1.0;
       if (displayscaleDisplay) displayscaleDisplay.innerText = '100%';
-      if (displayscalePreview) displayscalePreview.style.zoom = 1.0;
       updateDisplayScalePresetButtons();
       applyDisplayScale(1.0);
+      updateCombinedPreview();
 
       await fetch('/api/settings', {
         method: 'POST',

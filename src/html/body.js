@@ -252,26 +252,6 @@ export function getBody(isAuthorized) {
                 <button class="scale-preset-btn active" data-scale="1.0" onclick="setScalePreset(1.0)">默认</button>
                 <button class="scale-preset-btn" data-scale="1.15" onclick="setScalePreset(1.15)">大</button>
               </div>
-              <div class="scale-preview-wrap">
-                <div id="scale-preview" style="zoom:1;">
-                  <div class="todo-item" style="margin-bottom:5px;">
-                    <div class="checkbox"></div>
-                    <div class="item-meta">
-                      <div class="item-title">示例待办事项</div>
-                      <div class="item-info">
-                        <span class="badge badge-high">高</span>
-                        <span class="badge badge-time">09:00</span>
-                      </div>
-                    </div>
-                  </div>
-                  <div class="todo-item done">
-                    <div class="checkbox"></div>
-                    <div class="item-meta">
-                      <div class="item-title">已完成的任务</div>
-                    </div>
-                  </div>
-                </div>
-              </div>
             </div>
           </div>
           <div class="setting-item" style="flex-direction:column; align-items:stretch;">
@@ -291,26 +271,6 @@ export function getBody(isAuthorized) {
                 <button class="scale-preset-btn active" data-displayscale="1.0" onclick="setDisplayScalePreset(1.0)">默认</button>
                 <button class="scale-preset-btn" data-displayscale="1.1" onclick="setDisplayScalePreset(1.1)">舒适</button>
                 <button class="scale-preset-btn" data-displayscale="1.2" onclick="setDisplayScalePreset(1.2)">宽松</button>
-              </div>
-              <div class="scale-preview-wrap displayscale-preview-wrap">
-                <div id="displayscale-preview" style="zoom:1;">
-                  <div class="todo-item" style="margin-bottom:5px;">
-                    <div class="checkbox"></div>
-                    <div class="item-meta">
-                      <div class="item-title">示例待办事项</div>
-                      <div class="item-info">
-                        <span class="badge badge-high">高</span>
-                        <span class="badge badge-time">09:00</span>
-                      </div>
-                    </div>
-                  </div>
-                  <div class="todo-item done">
-                    <div class="checkbox"></div>
-                    <div class="item-meta">
-                      <div class="item-title">已完成的任务</div>
-                    </div>
-                  </div>
-                </div>
               </div>
             </div>
           </div>
@@ -332,24 +292,24 @@ export function getBody(isAuthorized) {
                 <button class="scale-preset-btn" data-fontsize="18" onclick="setFontSizePreset(18)">大</button>
                 <button class="scale-preset-btn" data-fontsize="20" onclick="setFontSizePreset(20)">特大</button>
               </div>
-              <div class="scale-preview-wrap fontsize-preview-wrap">
-                <div id="fontsize-preview" style="font-size:16px;">
-                  <div class="todo-item" style="margin-bottom:5px;">
-                    <div class="checkbox"></div>
-                    <div class="item-meta">
-                      <div class="item-title">示例待办事项</div>
-                      <div class="item-info">
-                        <span class="badge badge-high">高</span>
-                        <span class="badge badge-time">09:00</span>
-                      </div>
-                    </div>
+            </div>
+          </div>
+          <div class="scale-preview-wrap combined-preview-wrap">
+            <div id="combined-preview" style="zoom:1; font-size:16px;">
+              <div class="todo-item" style="margin-bottom:5px;">
+                <div class="checkbox"></div>
+                <div class="item-meta">
+                  <div class="item-title">示例待办事项</div>
+                  <div class="item-info">
+                    <span class="badge badge-high">高</span>
+                    <span class="badge badge-time">09:00</span>
                   </div>
-                  <div class="todo-item done">
-                    <div class="checkbox"></div>
-                    <div class="item-meta">
-                      <div class="item-title">已完成的任务</div>
-                    </div>
-                  </div>
+                </div>
+              </div>
+              <div class="todo-item done">
+                <div class="checkbox"></div>
+                <div class="item-meta">
+                  <div class="item-title">已完成的任务</div>
                 </div>
               </div>
             </div>

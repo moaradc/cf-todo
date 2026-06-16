@@ -594,18 +594,13 @@ export const css = `
     [data-theme="light"] .scale-label-lg { color: #1B1915; }
 
     /* === 显示大小调整 (display density) === */
-    .displayscale-preview-wrap .todo-item { margin-bottom: 5px; pointer-events: none; }
+    .combined-preview-wrap .todo-item { margin-bottom: 5px; pointer-events: none; }
+    #combined-preview { line-height: 1.5; }
 
-    [data-theme="light"] .displayscale-preview-wrap { background: #F0EEE2; border-color: #1B1915; }
+    [data-theme="light"] .combined-preview-wrap { background: #F0EEE2; border-color: #1B1915; }
 
     /* === 字体大小调整 (font-size) === */
-    .fontsize-preview-wrap .todo-item { margin-bottom: 5px; pointer-events: none; }
-    #fontsize-preview { line-height: 1.5; }
-    #fontsize-preview .item-title { font-size: 1rem; }
-    #fontsize-preview .item-info { font-size: 0.75rem; }
-    #fontsize-preview .badge { font-size: 0.7rem; }
-
-    [data-theme="light"] .fontsize-preview-wrap { background: #F0EEE2; border-color: #1B1915; }
+    /* preview styles shared via combined-preview-wrap above */
 
     .apikey-create-row { display: flex; gap: 8px; margin-bottom: 12px; align-items: stretch; }
     .apikey-create-row input { flex: 1; margin-bottom: 0; }

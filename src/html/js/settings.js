@@ -14,27 +14,23 @@ export const settings = `
 
       var scaleSlider = document.getElementById('scale-slider');
       var scaleDisplay = document.getElementById('scale-value-display');
-      var scalePreview = document.getElementById('scale-preview');
       if (scaleSlider) scaleSlider.value = tempAppScale;
       if (scaleDisplay) scaleDisplay.innerText = Math.round(tempAppScale * 100) + '%';
-      if (scalePreview) scalePreview.style.zoom = tempAppScale;
       updateScalePresetButtons();
 
       var displayscaleSlider = document.getElementById('displayscale-slider');
       var displayscaleDisplay = document.getElementById('displayscale-value-display');
-      var displayscalePreview = document.getElementById('displayscale-preview');
       if (displayscaleSlider) displayscaleSlider.value = tempDisplayScale;
       if (displayscaleDisplay) displayscaleDisplay.innerText = Math.round(tempDisplayScale * 100) + '%';
-      if (displayscalePreview) displayscalePreview.style.zoom = tempDisplayScale;
       updateDisplayScalePresetButtons();
 
       var fontsizeSlider = document.getElementById('fontsize-slider');
       var fontsizeDisplay = document.getElementById('fontsize-value-display');
-      var fontsizePreview = document.getElementById('fontsize-preview');
       if (fontsizeSlider) fontsizeSlider.value = tempBaseFontSize;
       if (fontsizeDisplay) fontsizeDisplay.innerText = tempBaseFontSize + 'px';
-      if (fontsizePreview) fontsizePreview.style.fontSize = tempBaseFontSize + 'px';
       updateFontSizePresetButtons();
+
+      updateCombinedPreview();
       
       document.getElementById('custom-code-enabled-box').classList.toggle('checked', customCodeEnabled);
       updateCustomCodeUI();

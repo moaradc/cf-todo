@@ -475,8 +475,7 @@ export const core = `
     function onScaleSliderChange(val) {
       tempAppScale = parseFloat(val);
       document.getElementById('scale-value-display').innerText = Math.round(tempAppScale * 100) + '%';
-      var preview = document.getElementById('scale-preview');
-      if (preview) preview.style.zoom = tempAppScale;
+      updateCombinedPreview();
       updateScalePresetButtons();
     }
 
@@ -484,8 +483,7 @@ export const core = `
       tempAppScale = val;
       document.getElementById('scale-slider').value = val;
       document.getElementById('scale-value-display').innerText = Math.round(val * 100) + '%';
-      var preview = document.getElementById('scale-preview');
-      if (preview) preview.style.zoom = tempAppScale;
+      updateCombinedPreview();
       updateScalePresetButtons();
     }
 
@@ -504,8 +502,7 @@ export const core = `
     function onFontSizeSliderChange(val) {
       tempBaseFontSize = parseInt(val, 10);
       document.getElementById('fontsize-value-display').innerText = tempBaseFontSize + 'px';
-      var preview = document.getElementById('fontsize-preview');
-      if (preview) preview.style.fontSize = tempBaseFontSize + 'px';
+      updateCombinedPreview();
       updateFontSizePresetButtons();
     }
 
@@ -513,8 +510,7 @@ export const core = `
       tempBaseFontSize = val;
       document.getElementById('fontsize-slider').value = val;
       document.getElementById('fontsize-value-display').innerText = val + 'px';
-      var preview = document.getElementById('fontsize-preview');
-      if (preview) preview.style.fontSize = val + 'px';
+      updateCombinedPreview();
       updateFontSizePresetButtons();
     }
 
@@ -533,8 +529,7 @@ export const core = `
     function onDisplayScaleSliderChange(val) {
       tempDisplayScale = parseFloat(val);
       document.getElementById('displayscale-value-display').innerText = Math.round(tempDisplayScale * 100) + '%';
-      var preview = document.getElementById('displayscale-preview');
-      if (preview) preview.style.zoom = tempDisplayScale;
+      updateCombinedPreview();
       updateDisplayScalePresetButtons();
     }
 
@@ -542,8 +537,7 @@ export const core = `
       tempDisplayScale = val;
       document.getElementById('displayscale-slider').value = val;
       document.getElementById('displayscale-value-display').innerText = Math.round(val * 100) + '%';
-      var preview = document.getElementById('displayscale-preview');
-      if (preview) preview.style.zoom = tempDisplayScale;
+      updateCombinedPreview();
       updateDisplayScalePresetButtons();
     }
 
@@ -557,6 +551,13 @@ export const core = `
           btn.classList.remove('active');
         }
       });
+    }
+
+    function updateCombinedPreview() {
+      var preview = document.getElementById('combined-preview');
+      if (!preview) return;
+      preview.style.zoom = tempDisplayScale;
+      preview.style.fontSize = tempBaseFontSize + 'px';
     }
 
     function createTodoElement(todo, index) {
