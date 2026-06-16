@@ -7,6 +7,7 @@ export const stats = `
       currentStatsTab = 'weekly';
       updateStatsHeader();
       loadWeeklyStats();
+      _navPush('stats-overlay', closeStats, '/stats');
     }
 
     async function loadWeeklyStats() {
@@ -47,13 +48,17 @@ export const stats = `
     }
 
     function closeStats() {
-      const statsView = document.getElementById('stats-overlay');
-      statsView.classList.add('closing');
-      statsView.addEventListener('animationend', function handler() {
-        statsView.classList.remove('active');
-        statsView.classList.remove('closing');
-        statsView.removeEventListener('animationend', handler);
-      });
+      if (_isNavClosing) {
+        const statsView = document.getElementById('stats-overlay');
+        statsView.classList.add('closing');
+        statsView.addEventListener('animationend', function handler() {
+          statsView.classList.remove('active');
+          statsView.classList.remove('closing');
+          statsView.removeEventListener('animationend', handler);
+        });
+        return;
+      }
+      _navClose('stats-overlay');
     }
     
     function switchStatsTab() {

@@ -158,5 +158,7 @@ export const bootstrap = `
       compareVersions: compareVersions,
       openChangelogModal: openChangelogModal,
       closeChangelogModal: closeChangelogModal,
+      // SPA Router
+      _navBack: _navBack,
     });
 `;

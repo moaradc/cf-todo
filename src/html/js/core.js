@@ -287,11 +287,16 @@ export const core = `
       if (!html) html = '<div style="text-align:center;color:#888;padding:20px;">暂无更新日志</div>';
       body.innerHTML = html;
       overlay.classList.add('active');
+      _navPush('modal-changelog', closeChangelogModal, '/changelog');
     }
 
     function closeChangelogModal() {
-      var overlay = document.getElementById('modal-changelog');
-      if (overlay) overlay.classList.remove('active');
+      if (_isNavClosing) {
+        var overlay = document.getElementById('modal-changelog');
+        if (overlay) overlay.classList.remove('active');
+        return;
+      }
+      _navClose('modal-changelog');
     }
 
     async function loadSessions() {

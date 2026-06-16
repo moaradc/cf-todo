@@ -58,16 +58,21 @@ export const settings = `
       loadSessions();
       loadApiKeys();
       checkUpdate();
+      _navPush('settings-overlay', closeSettings, '/settings');
     }
 
     function closeSettings() {
-      const view = document.getElementById('settings-overlay');
-      view.classList.add('closing');
-      view.addEventListener('animationend', function handler() {
-        view.classList.remove('active'); 
-        view.classList.remove('closing'); 
-        view.removeEventListener('animationend', handler);
-      });
+      if (_isNavClosing) {
+        const view = document.getElementById('settings-overlay');
+        view.classList.add('closing');
+        view.addEventListener('animationend', function handler() {
+          view.classList.remove('active');
+          view.classList.remove('closing');
+          view.removeEventListener('animationend', handler);
+        });
+        return;
+      }
+      _navClose('settings-overlay');
     }
 
     function showPopover(popoverId, triggerEl, checkTriggerChildren) {
