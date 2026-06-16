@@ -142,7 +142,8 @@ export const settings = `
       
       renderTodos();
       await clearPwaCache();
-      restoreAllPreview()
+      localStorage.removeItem('preview_custom_header');
+      localStorage.removeItem('preview_custom_content');
       window.location.replace('/');
     }
     
