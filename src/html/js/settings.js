@@ -3,6 +3,7 @@ export const settings = `
       tempSetProvider = appSettings.provider || 'auto';
       tempSetSort = appSettings.sortMethod || 'time';
       tempSetSortAsc = appSettings.sortAsc !== undefined ? appSettings.sortAsc : true;
+      tempSetApiKeyScope = appSettings.apiKeyScope || 'v1';
       
       customCodeEnabled = appSettings.customCodeEnabled === true;
       
@@ -22,10 +23,12 @@ export const settings = `
     
       const pMap = {'auto':'自动 (随机源)', 'bilibili':'哔哩哔哩', 'weibo':'微博热搜', 'zhihu':'知乎热榜', 'baidu':'百度热搜'};
       const sMap = {'time':'按时间', 'priority':'按优先级'};
+      const akMap = {'v1':'v1', 'v0':'v0', 'all':'全部', 'disabled':'禁用'};
       
       document.getElementById('set-disp-provider').innerText = pMap[tempSetProvider];
       document.getElementById('set-disp-sort').innerText = sMap[tempSetSort];
       document.getElementById('set-disp-sort-asc').innerText = tempSetSortAsc ? '正序' : '倒序';
+      document.getElementById('set-disp-apiKeyScope').innerText = akMap[tempSetApiKeyScope];
     
       const headerEl = document.getElementById('custom-header-preview');
       const contentEl = document.getElementById('custom-content-preview');
@@ -95,6 +98,7 @@ export const settings = `
       if (type === 'provider') { tempSetProvider = value; document.getElementById('set-disp-provider').innerText = label; }
       else if (type === 'sort') { tempSetSort = value; document.getElementById('set-disp-sort').innerText = label; }
       else if (type === 'sortAsc') { tempSetSortAsc = value === 'true'; document.getElementById('set-disp-sort-asc').innerText = label; }
+      else if (type === 'apiKeyScope') { tempSetApiKeyScope = value; document.getElementById('set-disp-apiKeyScope').innerText = label; }
       document.getElementById(\`popover-set-\${type}\`).style.display = 'none';
     }
 
@@ -102,6 +106,7 @@ export const settings = `
       appSettings.provider = tempSetProvider;
       appSettings.sortMethod = tempSetSort;
       appSettings.sortAsc = tempSetSortAsc;
+      appSettings.apiKeyScope = tempSetApiKeyScope;
       appSettings.customCodeEnabled = customCodeEnabled;
 
       var currentUA = navigator.userAgent || '';

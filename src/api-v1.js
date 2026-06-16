@@ -27,6 +27,21 @@ import {
 const API_KEYS_SETTINGS_KEY = 'api_keys';
 
 /**
+ * 获取 API Key 作用域设置
+ * 返回: 'v1' | 'v0' | 'all' | 'disabled'
+ */
+async function getApiKeyScope(DB) {
+  try {
+    const row = await DB.prepare("SELECT value FROM settings WHERE key = 'app_settings'").first();
+    if (row && row.value) {
+      const obj = JSON.parse(row.value);
+      return obj.apiKeyScope || 'v1';
+    }
+  } catch (e) {}
+  return 'v1';
+}
+
+/**
  * 生成 API Key (前缀 cfk_ + 32字节随机)
  */
 function generateApiKey() {
@@ -1150,6 +1165,10 @@ export async function handleV1Request(request, env, ctx) {
   if (apiKey) {
     const valid = await verifyApiKey(env.DB, apiKey, env.JWT_SECRET);
     if (!valid) return apiError('Invalid API Key', 401);
+    // 检查 API Key 作用域
+    const scope = await getApiKeyScope(env.DB);
+    if (scope === 'disabled') return apiError('API Key 已被禁用', 403);
+    if (scope === 'v0') return apiError('API Key 仅允许访问 v0 接口', 403);
     // 更新最后使用时间（异步）
     ctx.waitUntil(touchApiKeyLastUsed(env.DB, apiKey));
   } else {
@@ -1262,4 +1281,4 @@ export async function handleV1Request(request, env, ctx) {
 }
 
 // 导出 verifyApiKey 供外部使用
-export { verifyApiKey, extractApiKey };
+export { verifyApiKey, extractApiKey, getApiKeyScope };
