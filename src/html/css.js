@@ -11,6 +11,7 @@ export const css = `
       --panel: #141414;
       --font-main: 'Courier New', Courier, monospace;
       --app-scale: 1;
+      --display-scale: 1;
       --base-font-size: 16px;
       --cat-color-default: #888888;
     }
@@ -18,6 +19,8 @@ export const css = `
     * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; scrollbar-width: none; -ms-overflow-style: none; }
     *::-webkit-scrollbar { display: none; }
     html { font-size: var(--base-font-size); }
+    
+    #app-root { zoom: var(--display-scale); }
     
     body {
       background-color: var(--bg);
@@ -40,7 +43,7 @@ export const css = `
       z-index: 100;
     }
 
-    .container { width: 100%; max-width: calc(600px / var(--app-scale)); padding: 15px; position: relative; z-index: 1; }
+    .container { width: 100%; max-width: calc(600px / var(--app-scale) / var(--display-scale)); padding: 15px; position: relative; z-index: 1; }
 
     .top-actions { position: absolute; top: 15px; right: 15px; display: flex; gap: 8px; z-index: 10; }
     .top-actions-left { position: absolute; top: 15px; left: 15px; display: flex; gap: 8px; z-index: 10; }
@@ -590,7 +593,12 @@ export const css = `
     [data-theme="light"] .scale-label-sm,
     [data-theme="light"] .scale-label-lg { color: #1B1915; }
 
-    /* === 显示大小调整 (font-size) === */
+    /* === 显示大小调整 (display density) === */
+    .displayscale-preview-wrap .todo-item { margin-bottom: 5px; pointer-events: none; }
+
+    [data-theme="light"] .displayscale-preview-wrap { background: #F0EEE2; border-color: #1B1915; }
+
+    /* === 字体大小调整 (font-size) === */
     .fontsize-preview-wrap .todo-item { margin-bottom: 5px; pointer-events: none; }
     #fontsize-preview { line-height: 1.5; }
     #fontsize-preview .item-title { font-size: 1rem; }

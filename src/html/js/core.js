@@ -457,10 +457,15 @@ export const core = `
     }
     
     let tempAppScale = 1.0;
+    let tempDisplayScale = 1.0;
     let tempBaseFontSize = 16;
 
     function applyAppScale(scale) {
       document.documentElement.style.setProperty('--app-scale', scale);
+    }
+
+    function applyDisplayScale(scale) {
+      document.documentElement.style.setProperty('--display-scale', scale);
     }
 
     function applyBaseFontSize(px) {
@@ -518,6 +523,35 @@ export const core = `
       var presets = [14, 16, 18, 20];
       btns.forEach(function(btn, i) {
         if (i < presets.length && tempBaseFontSize === presets[i]) {
+          btn.classList.add('active');
+        } else {
+          btn.classList.remove('active');
+        }
+      });
+    }
+
+    function onDisplayScaleSliderChange(val) {
+      tempDisplayScale = parseFloat(val);
+      document.getElementById('displayscale-value-display').innerText = Math.round(tempDisplayScale * 100) + '%';
+      var preview = document.getElementById('displayscale-preview');
+      if (preview) preview.style.zoom = tempDisplayScale;
+      updateDisplayScalePresetButtons();
+    }
+
+    function setDisplayScalePreset(val) {
+      tempDisplayScale = val;
+      document.getElementById('displayscale-slider').value = val;
+      document.getElementById('displayscale-value-display').innerText = Math.round(val * 100) + '%';
+      var preview = document.getElementById('displayscale-preview');
+      if (preview) preview.style.zoom = tempDisplayScale;
+      updateDisplayScalePresetButtons();
+    }
+
+    function updateDisplayScalePresetButtons() {
+      var btns = document.querySelectorAll('.scale-preset-btn[data-displayscale]');
+      var presets = [0.85, 1.0, 1.1, 1.2];
+      btns.forEach(function(btn, i) {
+        if (i < presets.length && Math.abs(tempDisplayScale - presets[i]) < 0.03) {
           btn.classList.add('active');
         } else {
           btn.classList.remove('active');
@@ -747,6 +781,30 @@ export const core = `
       }
     }
 
+    function getDisplayScaleForUA(arr, ua) {
+      if (!Array.isArray(arr)) return 1.0;
+      for (var i = 0; i < arr.length; i++) {
+        if (arr[i].ua === ua) return parseFloat(arr[i].displayScale) || 1.0;
+      }
+      return 1.0;
+    }
+
+    function setDisplayScaleForUA(ua, displayScale) {
+      if (!Array.isArray(appSettings.displayScaleByBrowser)) {
+        appSettings.displayScaleByBrowser = [];
+      }
+      for (var i = 0; i < appSettings.displayScaleByBrowser.length; i++) {
+        if (appSettings.displayScaleByBrowser[i].ua === ua) {
+          appSettings.displayScaleByBrowser[i].displayScale = displayScale;
+          return;
+        }
+      }
+      appSettings.displayScaleByBrowser.push({ ua: ua, displayScale: displayScale });
+      while (appSettings.displayScaleByBrowser.length > 3) {
+        appSettings.displayScaleByBrowser.shift();
+      }
+    }
+
     async function initSettings() {
       try {
         const res = await fetch('/api/settings');
@@ -757,6 +815,8 @@ export const core = `
           var matchedScale = getScaleForUA(scaleByBrowser, currentUA);
           var fontSizeByBrowser = Array.isArray(saved.fontSizeByBrowser) ? saved.fontSizeByBrowser : [];
           var matchedFontSize = getFontSizeForUA(fontSizeByBrowser, currentUA);
+          var displayScaleByBrowser = Array.isArray(saved.displayScaleByBrowser) ? saved.displayScaleByBrowser : [];
+          var matchedDisplayScale = getDisplayScaleForUA(displayScaleByBrowser, currentUA);
           appSettings = {
             provider: saved.provider || 'auto',
             sortMethod: saved.sortMethod || 'time',
@@ -764,17 +824,20 @@ export const core = `
             customCodeEnabled: saved.customCodeEnabled !== undefined ? (saved.customCodeEnabled === 'true' || saved.customCodeEnabled === true) : false,
             apiKeyScope: saved.apiKeyScope || 'v1',
             scaleByBrowser: scaleByBrowser,
-            fontSizeByBrowser: fontSizeByBrowser
+            fontSizeByBrowser: fontSizeByBrowser,
+            displayScaleByBrowser: displayScaleByBrowser
           };
           tempAppScale = matchedScale;
           tempBaseFontSize = matchedFontSize;
+          tempDisplayScale = matchedDisplayScale;
         } else {
           throw new Error('Failed to load DB settings');
         }
       } catch (e) {
-        appSettings = { provider: 'auto', sortMethod: 'time', sortAsc: true, customCodeEnabled: false, apiKeyScope: 'v1', scaleByBrowser: [], fontSizeByBrowser: [] };
+        appSettings = { provider: 'auto', sortMethod: 'time', sortAsc: true, customCodeEnabled: false, apiKeyScope: 'v1', scaleByBrowser: [], fontSizeByBrowser: [], displayScaleByBrowser: [] };
         tempAppScale = 1.0;
         tempBaseFontSize = 16;
+        tempDisplayScale = 1.0;
       }
 
       sortMethod = appSettings.sortMethod;
@@ -784,6 +847,7 @@ export const core = `
       updateViewBtnLabel();
       applyAppScale(tempAppScale);
       applyBaseFontSize(tempBaseFontSize);
+      applyDisplayScale(tempDisplayScale);
       loadCategories();
       loadCustomColors();
     }

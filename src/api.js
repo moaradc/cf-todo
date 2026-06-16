@@ -337,6 +337,9 @@ async function handleRequest(request, env, ctx) {
           if (!Array.isArray(appSettingsObj.fontSizeByBrowser)) {
             appSettingsObj.fontSizeByBrowser = [];
           }
+          if (!Array.isArray(appSettingsObj.displayScaleByBrowser)) {
+            appSettingsObj.displayScaleByBrowser = [];
+          }
           let uaExists = false;
           for (let i = 0; i < appSettingsObj.scaleByBrowser.length; i++) {
             if (appSettingsObj.scaleByBrowser[i].ua === loginUA) {
@@ -361,6 +364,19 @@ async function handleRequest(request, env, ctx) {
             appSettingsObj.fontSizeByBrowser.push({ ua: loginUA, fontSize: 16 });
             while (appSettingsObj.fontSizeByBrowser.length > 3) {
               appSettingsObj.fontSizeByBrowser.shift();
+            }
+          }
+          let uaExistsDisplayScale = false;
+          for (let i = 0; i < appSettingsObj.displayScaleByBrowser.length; i++) {
+            if (appSettingsObj.displayScaleByBrowser[i].ua === loginUA) {
+              uaExistsDisplayScale = true;
+              break;
+            }
+          }
+          if (!uaExistsDisplayScale) {
+            appSettingsObj.displayScaleByBrowser.push({ ua: loginUA, displayScale: 1.0 });
+            while (appSettingsObj.displayScaleByBrowser.length > 3) {
+              appSettingsObj.displayScaleByBrowser.shift();
             }
           }
           await env.DB.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('app_settings', ?)")
@@ -575,7 +591,10 @@ self.addEventListener('fetch', (event) => {
           if (!Array.isArray(appSettingsObj.fontSizeByBrowser)) {
             appSettingsObj.fontSizeByBrowser = [];
           }
-          
+          if (!Array.isArray(appSettingsObj.displayScaleByBrowser)) {
+            appSettingsObj.displayScaleByBrowser = [];
+          }
+
           let replaced = false;
           for (let i = 0; i < appSettingsObj.scaleByBrowser.length; i++) {
             if (appSettingsObj.scaleByBrowser[i].ua === oldUA) {
@@ -587,7 +606,7 @@ self.addEventListener('fetch', (event) => {
           if (!replaced) {
             appSettingsObj.scaleByBrowser.push({ ua: currentUA, scale: 1.0 });
           }
-          
+
           let foundCurrentUA = false;
           appSettingsObj.scaleByBrowser = appSettingsObj.scaleByBrowser.filter(s => {
             if (s.ua === currentUA) {
@@ -599,7 +618,7 @@ self.addEventListener('fetch', (event) => {
             }
             return true;
           });
-    
+
           while (appSettingsObj.scaleByBrowser.length > 3) {
             appSettingsObj.scaleByBrowser.shift();
           }
@@ -630,6 +649,34 @@ self.addEventListener('fetch', (event) => {
 
           while (appSettingsObj.fontSizeByBrowser.length > 3) {
             appSettingsObj.fontSizeByBrowser.shift();
+          }
+
+          let replacedDisplayScale = false;
+          for (let i = 0; i < appSettingsObj.displayScaleByBrowser.length; i++) {
+            if (appSettingsObj.displayScaleByBrowser[i].ua === oldUA) {
+              appSettingsObj.displayScaleByBrowser[i].ua = currentUA;
+              replacedDisplayScale = true;
+              break;
+            }
+          }
+          if (!replacedDisplayScale) {
+            appSettingsObj.displayScaleByBrowser.push({ ua: currentUA, displayScale: 1.0 });
+          }
+
+          let foundCurrentUADisplayScale = false;
+          appSettingsObj.displayScaleByBrowser = appSettingsObj.displayScaleByBrowser.filter(s => {
+            if (s.ua === currentUA) {
+              if (!foundCurrentUADisplayScale) {
+                foundCurrentUADisplayScale = true;
+                return true;
+              }
+              return false;
+            }
+            return true;
+          });
+
+          while (appSettingsObj.displayScaleByBrowser.length > 3) {
+            appSettingsObj.displayScaleByBrowser.shift();
           }
     
           batchStmts.push(
@@ -696,7 +743,7 @@ self.addEventListener('fetch', (event) => {
         ).run();
       }
 
-      // 同步清理 scaleByBrowser / fontSizeByBrowser 中被删除的 UA
+      // 同步清理 scaleByBrowser / fontSizeByBrowser / displayScaleByBrowser 中被删除的 UA
       if (action === 'DELETE' || action === 'DELETE_ALL') {
         try {
           const appSettingsRecord = await env.DB.prepare("SELECT value FROM settings WHERE key = 'app_settings'").first();
@@ -717,6 +764,14 @@ self.addEventListener('fetch', (event) => {
                 appSettingsObj.fontSizeByBrowser = [];
               } else {
                 appSettingsObj.fontSizeByBrowser = appSettingsObj.fontSizeByBrowser.filter(item => remainingUAs.includes(item.ua));
+              }
+              changed = true;
+            }
+            if (Array.isArray(appSettingsObj.displayScaleByBrowser)) {
+              if (action === 'DELETE_ALL') {
+                appSettingsObj.displayScaleByBrowser = [];
+              } else {
+                appSettingsObj.displayScaleByBrowser = appSettingsObj.displayScaleByBrowser.filter(item => remainingUAs.includes(item.ua));
               }
               changed = true;
             }

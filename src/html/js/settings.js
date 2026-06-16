@@ -10,7 +10,8 @@ export const settings = `
       var currentUA = navigator.userAgent || '';
       tempAppScale = getScaleForUA(appSettings.scaleByBrowser, currentUA);
       tempBaseFontSize = getFontSizeForUA(appSettings.fontSizeByBrowser, currentUA);
-      
+      tempDisplayScale = getDisplayScaleForUA(appSettings.displayScaleByBrowser, currentUA);
+
       var scaleSlider = document.getElementById('scale-slider');
       var scaleDisplay = document.getElementById('scale-value-display');
       var scalePreview = document.getElementById('scale-preview');
@@ -18,6 +19,14 @@ export const settings = `
       if (scaleDisplay) scaleDisplay.innerText = Math.round(tempAppScale * 100) + '%';
       if (scalePreview) scalePreview.style.zoom = tempAppScale;
       updateScalePresetButtons();
+
+      var displayscaleSlider = document.getElementById('displayscale-slider');
+      var displayscaleDisplay = document.getElementById('displayscale-value-display');
+      var displayscalePreview = document.getElementById('displayscale-preview');
+      if (displayscaleSlider) displayscaleSlider.value = tempDisplayScale;
+      if (displayscaleDisplay) displayscaleDisplay.innerText = Math.round(tempDisplayScale * 100) + '%';
+      if (displayscalePreview) displayscalePreview.style.zoom = tempDisplayScale;
+      updateDisplayScalePresetButtons();
 
       var fontsizeSlider = document.getElementById('fontsize-slider');
       var fontsizeDisplay = document.getElementById('fontsize-value-display');
@@ -127,6 +136,7 @@ export const settings = `
       var currentUA = navigator.userAgent || '';
       setScaleForUA(currentUA, tempAppScale);
       setFontSizeForUA(currentUA, tempBaseFontSize);
+      setDisplayScaleForUA(currentUA, tempDisplayScale);
     
       await fetch('/api/settings', {
         method: 'POST',

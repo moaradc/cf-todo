@@ -67,6 +67,26 @@ export const bootstrap = `
       });
     }
 
+    async function resetDisplayScaleBrowserData() {
+      var currentUA = navigator.userAgent || '';
+      setDisplayScaleForUA(currentUA, 1.0);
+      tempDisplayScale = 1.0;
+      var displayscaleSlider = document.getElementById('displayscale-slider');
+      var displayscaleDisplay = document.getElementById('displayscale-value-display');
+      var displayscalePreview = document.getElementById('displayscale-preview');
+      if (displayscaleSlider) displayscaleSlider.value = 1.0;
+      if (displayscaleDisplay) displayscaleDisplay.innerText = '100%';
+      if (displayscalePreview) displayscalePreview.style.zoom = 1.0;
+      updateDisplayScalePresetButtons();
+      applyDisplayScale(1.0);
+
+      await fetch('/api/settings', {
+        method: 'POST',
+        body: JSON.stringify(appSettings),
+        headers: { 'Content-Type': 'application/json' }
+      });
+    }
+
     Object.assign(window, {
       // 登录
       login: login,
@@ -195,6 +215,9 @@ export const bootstrap = `
       onFontSizeSliderChange: onFontSizeSliderChange,
       setFontSizePreset: setFontSizePreset,
       resetFontSizeBrowserData: resetFontSizeBrowserData,
+      onDisplayScaleSliderChange: onDisplayScaleSliderChange,
+      setDisplayScalePreset: setDisplayScalePreset,
+      resetDisplayScaleBrowserData: resetDisplayScaleBrowserData,
       checkUpdate: checkUpdate,
       compareVersions: compareVersions,
       openChangelogModal: openChangelogModal,

@@ -5,6 +5,7 @@ export function getBody(isAuthorized) {
   
   <div id="preview-notice" class="hidden" style="background:var(--warn);color:#000;padding:8px 15px;text-align:center;font-weight:bold;font-size:0.85rem;position:fixed;top:0;left:0;right:0;z-index:110;">⚠ 前端定制预览状态 — 自定义仅在本地生效 <span class="md-code" style="cursor:pointer;margin-left:8px;background:#000;color:var(--warn);" onclick="restoreAllPreview()">还原</span></div>
 
+  <div id="app-root">
   <div class="container">
     <div class="top-actions-left ${isAuthorized ? '' : 'hidden'}">
       <button class="theme-toggle-btn" onclick="openTrash()">回收站</button>
@@ -276,6 +277,46 @@ export function getBody(isAuthorized) {
           <div class="setting-item" style="flex-direction:column; align-items:stretch;">
             <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;">
               <span>显示大小</span>
+              <span class="md-code" style="cursor:pointer;margin-left:auto;" onclick="resetDisplayScaleBrowserData()">重置</span>
+            </div>
+            <div class="scale-control">
+              <div class="scale-slider-row">
+                <span class="scale-label-sm" style="line-height:1;">☐</span>
+                <input type="range" id="displayscale-slider" min="0.8" max="1.2" step="0.05" value="1" oninput="onDisplayScaleSliderChange(this.value)">
+                <span class="scale-label-lg" style="line-height:1;">☐</span>
+                <span class="scale-value" id="displayscale-value-display">100%</span>
+              </div>
+              <div class="scale-presets">
+                <button class="scale-preset-btn" data-displayscale="0.85" onclick="setDisplayScalePreset(0.85)">紧凑</button>
+                <button class="scale-preset-btn active" data-displayscale="1.0" onclick="setDisplayScalePreset(1.0)">默认</button>
+                <button class="scale-preset-btn" data-displayscale="1.1" onclick="setDisplayScalePreset(1.1)">舒适</button>
+                <button class="scale-preset-btn" data-displayscale="1.2" onclick="setDisplayScalePreset(1.2)">宽松</button>
+              </div>
+              <div class="scale-preview-wrap displayscale-preview-wrap">
+                <div id="displayscale-preview" style="zoom:1;">
+                  <div class="todo-item" style="margin-bottom:5px;">
+                    <div class="checkbox"></div>
+                    <div class="item-meta">
+                      <div class="item-title">示例待办事项</div>
+                      <div class="item-info">
+                        <span class="badge badge-high">高</span>
+                        <span class="badge badge-time">09:00</span>
+                      </div>
+                    </div>
+                  </div>
+                  <div class="todo-item done">
+                    <div class="checkbox"></div>
+                    <div class="item-meta">
+                      <div class="item-title">已完成的任务</div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="setting-item" style="flex-direction:column; align-items:stretch;">
+            <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;">
+              <span>字体大小</span>
               <span class="md-code" style="cursor:pointer;margin-left:auto;" onclick="resetFontSizeBrowserData()">重置</span>
             </div>
             <div class="scale-control">
@@ -589,6 +630,8 @@ export function getBody(isAuthorized) {
       <button onclick="closeChangelogModal()" style="width:100%; margin-top:12px; flex-shrink:0;">关闭</button>
     </div>
   </div>
+
+  </div><!-- /app-root -->
 
   `;
 }
