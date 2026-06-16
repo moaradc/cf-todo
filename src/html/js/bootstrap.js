@@ -83,6 +83,41 @@ export const bootstrap = `
       });
     }
 
+    async function resetAllSizeData() {
+      var currentUA = navigator.userAgent || '';
+      setScaleForUA(currentUA, 1.0);
+      setFontSizeForUA(currentUA, 16);
+      setDisplayScaleForUA(currentUA, 1.0);
+      tempAppScale = 1.0;
+      tempBaseFontSize = 16;
+      tempDisplayScale = 1.0;
+      var scaleSlider = document.getElementById('scale-slider');
+      var scaleDisplay = document.getElementById('scale-value-display');
+      if (scaleSlider) scaleSlider.value = 1.0;
+      if (scaleDisplay) scaleDisplay.innerText = '100%';
+      var fontsizeSlider = document.getElementById('fontsize-slider');
+      var fontsizeDisplay = document.getElementById('fontsize-value-display');
+      if (fontsizeSlider) fontsizeSlider.value = 16;
+      if (fontsizeDisplay) fontsizeDisplay.innerText = '16px';
+      var displayscaleSlider = document.getElementById('displayscale-slider');
+      var displayscaleDisplay = document.getElementById('displayscale-value-display');
+      if (displayscaleSlider) displayscaleSlider.value = 1.0;
+      if (displayscaleDisplay) displayscaleDisplay.innerText = '100%';
+      updateScalePresetButtons();
+      updateFontSizePresetButtons();
+      updateDisplayScalePresetButtons();
+      updateCombinedPreview();
+      applyAppScale(1.0);
+      applyBaseFontSize(16);
+      applyDisplayScale(1.0);
+
+      await fetch('/api/settings', {
+        method: 'POST',
+        body: JSON.stringify(appSettings),
+        headers: { 'Content-Type': 'application/json' }
+      });
+    }
+
     Object.assign(window, {
       // 登录
       login: login,
@@ -214,6 +249,7 @@ export const bootstrap = `
       onDisplayScaleSliderChange: onDisplayScaleSliderChange,
       setDisplayScalePreset: setDisplayScalePreset,
       resetDisplayScaleBrowserData: resetDisplayScaleBrowserData,
+      resetAllSizeData: resetAllSizeData,
       checkUpdate: checkUpdate,
       compareVersions: compareVersions,
       openChangelogModal: openChangelogModal,

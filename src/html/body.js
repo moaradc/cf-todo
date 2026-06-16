@@ -237,10 +237,11 @@ export function getBody(isAuthorized) {
           </div>
           <div class="setting-item" style="flex-direction:column; align-items:stretch;">
             <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;">
-              <span>缩放大小</span>
-              <span class="md-code" style="cursor:pointer;margin-left:auto;" onclick="resetScaleBrowserData()">重置</span>
+              <span>界面大小</span>
+              <span class="md-code" style="cursor:pointer;margin-left:auto;" onclick="resetAllSizeData()">全部重置</span>
             </div>
             <div class="scale-control">
+              <div class="scale-sub-label">缩放大小</div>
               <div class="scale-slider-row">
                 <span class="scale-label-sm">A</span>
                 <input type="range" id="scale-slider" min="0.75" max="1.25" step="0.01" value="1" oninput="onScaleSliderChange(this.value)">
@@ -252,14 +253,7 @@ export function getBody(isAuthorized) {
                 <button class="scale-preset-btn active" data-scale="1.0" onclick="setScalePreset(1.0)">默认</button>
                 <button class="scale-preset-btn" data-scale="1.15" onclick="setScalePreset(1.15)">大</button>
               </div>
-            </div>
-          </div>
-          <div class="setting-item" style="flex-direction:column; align-items:stretch;">
-            <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;">
-              <span>显示大小</span>
-              <span class="md-code" style="cursor:pointer;margin-left:auto;" onclick="resetDisplayScaleBrowserData()">重置</span>
-            </div>
-            <div class="scale-control">
+              <div class="scale-sub-label">显示大小</div>
               <div class="scale-slider-row">
                 <span class="scale-label-sm" style="line-height:1;">☐</span>
                 <input type="range" id="displayscale-slider" min="0.8" max="1.2" step="0.05" value="1" oninput="onDisplayScaleSliderChange(this.value)">
@@ -272,14 +266,7 @@ export function getBody(isAuthorized) {
                 <button class="scale-preset-btn" data-displayscale="1.1" onclick="setDisplayScalePreset(1.1)">舒适</button>
                 <button class="scale-preset-btn" data-displayscale="1.2" onclick="setDisplayScalePreset(1.2)">宽松</button>
               </div>
-            </div>
-          </div>
-          <div class="setting-item" style="flex-direction:column; align-items:stretch;">
-            <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;">
-              <span>字体大小</span>
-              <span class="md-code" style="cursor:pointer;margin-left:auto;" onclick="resetFontSizeBrowserData()">重置</span>
-            </div>
-            <div class="scale-control">
+              <div class="scale-sub-label">字体大小</div>
               <div class="scale-slider-row">
                 <span class="scale-label-sm">A</span>
                 <input type="range" id="fontsize-slider" min="12" max="22" step="1" value="16" oninput="onFontSizeSliderChange(this.value)">
@@ -293,23 +280,23 @@ export function getBody(isAuthorized) {
                 <button class="scale-preset-btn" data-fontsize="20" onclick="setFontSizePreset(20)">特大</button>
               </div>
             </div>
-          </div>
-          <div class="scale-preview-wrap combined-preview-wrap">
-            <div id="combined-preview" style="zoom:1; font-size:16px;">
-              <div class="todo-item" style="margin-bottom:5px;">
-                <div class="checkbox"></div>
-                <div class="item-meta">
-                  <div class="item-title">示例待办事项</div>
-                  <div class="item-info">
-                    <span class="badge badge-high">高</span>
-                    <span class="badge badge-time">09:00</span>
+            <div class="scale-preview-wrap combined-preview-wrap">
+              <div id="combined-preview" style="zoom:1; font-size:16px;">
+                <div class="todo-item" style="margin-bottom:5px;">
+                  <div class="checkbox"></div>
+                  <div class="item-meta">
+                    <div class="item-title">示例待办事项</div>
+                    <div class="item-info">
+                      <span class="badge badge-high">高</span>
+                      <span class="badge badge-time">09:00</span>
+                    </div>
                   </div>
                 </div>
-              </div>
-              <div class="todo-item done">
-                <div class="checkbox"></div>
-                <div class="item-meta">
-                  <div class="item-title">已完成的任务</div>
+                <div class="todo-item done">
+                  <div class="checkbox"></div>
+                  <div class="item-meta">
+                    <div class="item-title">已完成的任务</div>
+                  </div>
                 </div>
               </div>
             </div>
