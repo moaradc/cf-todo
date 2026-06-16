@@ -516,7 +516,7 @@ export const core = `
 
     function updateFontSizePresetButtons() {
       var btns = document.querySelectorAll('.scale-preset-btn[data-fontsize]');
-      var presets = [14, 16, 18, 20];
+      var presets = [14, 16, 18];
       btns.forEach(function(btn, i) {
         if (i < presets.length && tempBaseFontSize === presets[i]) {
           btn.classList.add('active');
@@ -543,7 +543,7 @@ export const core = `
 
     function updateDisplayScalePresetButtons() {
       var btns = document.querySelectorAll('.scale-preset-btn[data-displayscale]');
-      var presets = [0.85, 1.0, 1.1, 1.2];
+      var presets = [0.85, 1.0, 1.15];
       btns.forEach(function(btn, i) {
         if (i < presets.length && Math.abs(tempDisplayScale - presets[i]) < 0.03) {
           btn.classList.add('active');
@@ -554,10 +554,13 @@ export const core = `
     }
 
     function updateCombinedPreview() {
-      var preview = document.getElementById('combined-preview');
-      if (!preview) return;
-      preview.style.zoom = tempDisplayScale;
-      preview.style.fontSize = tempBaseFontSize + 'px';
+      var outer = document.getElementById('combined-preview-outer');
+      var inner = document.getElementById('combined-preview');
+      if (outer) outer.style.zoom = tempDisplayScale;
+      if (inner) {
+        inner.style.zoom = tempAppScale;
+        inner.style.fontSize = tempBaseFontSize + 'px';
+      }
     }
 
     function createTodoElement(todo, index) {

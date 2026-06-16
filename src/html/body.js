@@ -267,10 +267,9 @@ export function getBody(isAuthorized) {
                 <span class="scale-value" id="displayscale-value-display">100%</span>
               </div>
               <div class="scale-presets">
-                <button class="scale-preset-btn" data-displayscale="0.85" onclick="setDisplayScalePreset(0.85)">紧凑</button>
+                <button class="scale-preset-btn" data-displayscale="0.85" onclick="setDisplayScalePreset(0.85)">小</button>
                 <button class="scale-preset-btn active" data-displayscale="1.0" onclick="setDisplayScalePreset(1.0)">默认</button>
-                <button class="scale-preset-btn" data-displayscale="1.1" onclick="setDisplayScalePreset(1.1)">舒适</button>
-                <button class="scale-preset-btn" data-displayscale="1.2" onclick="setDisplayScalePreset(1.2)">宽松</button>
+                <button class="scale-preset-btn" data-displayscale="1.15" onclick="setDisplayScalePreset(1.15)">大</button>
               </div>
             </div>
           </div>
@@ -290,29 +289,33 @@ export function getBody(isAuthorized) {
                 <button class="scale-preset-btn" data-fontsize="14" onclick="setFontSizePreset(14)">小</button>
                 <button class="scale-preset-btn active" data-fontsize="16" onclick="setFontSizePreset(16)">默认</button>
                 <button class="scale-preset-btn" data-fontsize="18" onclick="setFontSizePreset(18)">大</button>
-                <button class="scale-preset-btn" data-fontsize="20" onclick="setFontSizePreset(20)">特大</button>
               </div>
             </div>
           </div>
           <div class="scale-preview-wrap combined-preview-wrap">
-            <div id="combined-preview" style="zoom:1; font-size:16px;">
-              <div class="todo-item" style="margin-bottom:5px;">
-                <div class="checkbox"></div>
-                <div class="item-meta">
-                  <div class="item-title">示例待办事项</div>
-                  <div class="item-info">
-                    <span class="badge badge-high">高</span>
-                    <span class="badge badge-time">09:00</span>
+            <div id="combined-preview-outer" style="zoom:1;">
+              <div id="combined-preview" style="zoom:1; font-size:16px;">
+                <div class="todo-item" style="margin-bottom:5px;">
+                  <div class="checkbox"></div>
+                  <div class="item-meta">
+                    <div class="item-title">示例待办事项</div>
+                    <div class="item-info">
+                      <span class="badge badge-high">高</span>
+                      <span class="badge badge-time">09:00</span>
+                    </div>
+                  </div>
+                </div>
+                <div class="todo-item done">
+                  <div class="checkbox"></div>
+                  <div class="item-meta">
+                    <div class="item-title">已完成的任务</div>
                   </div>
                 </div>
               </div>
-              <div class="todo-item done">
-                <div class="checkbox"></div>
-                <div class="item-meta">
-                  <div class="item-title">已完成的任务</div>
-                </div>
-              </div>
             </div>
+          </div>
+          <div style="text-align:center;margin-top:8px;">
+            <span class="md-code" style="cursor:pointer;" onclick="previewSizeSettings()">预览效果</span>
           </div>
       </div>
 
