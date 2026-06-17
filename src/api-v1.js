@@ -920,7 +920,7 @@ async function handleV1TrashAction(request, DB) {
         const task = await DB.prepare('SELECT text, time, priority, `desc`, url, copy_text, subtasks, search_terms, repeat_type, repeat_custom, end_time, category_id, repeat_interval FROM todos WHERE id=?').bind(id).first();
         if (task) {
           await DB.prepare(
-            'INSERT OR REPLACE INTO todo_templates (parent_id, text, time, priority, `desc`, url, copy_text, subtasks, search_terms, repeat_type, repeat_custom, repeat_end, end_time, anchor_date, exdates, category_id, repeat_interval) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)'
+            'INSERT OR REPLACE INTO todo_templates (parent_id, text, time, priority, `desc`, url, copy_text, subtasks, search_terms, repeat_type, repeat_custom, repeat_end, end_time, anchor_date, exdates, category_id, repeat_interval) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)'
           ).bind(t.parent_id, task.text, task.time, task.priority, task.desc, task.url, task.copy_text, task.subtasks, task.search_terms, task.repeat_type, task.repeat_custom || '', '', task.end_time, t.date, '[]', task.category_id, task.repeat_interval || 1).run();
         }
       }
