@@ -56,12 +56,24 @@ function icalTimeToDateStr(time) {
  * @param {string} anchorDate - 起始日期 YYYY-MM-DD
  * @param {string} [repeatEnd] - 结束日期 YYYY-MM-DD
  * @param {string} [repeatCustom] - 自定义RRULE字符串
+ * @param {number} [repeatInterval] - 重复间隔
  * @returns {string} RRULE字符串
  */
-function buildRRuleString(repeatType, anchorDate, repeatEnd, repeatCustom) {
+function buildRRuleString(repeatType, anchorDate, repeatEnd, repeatCustom, repeatInterval) {
   if (repeatCustom && repeatCustom.trim()) {
     let rrule = repeatCustom.trim();
     if (!rrule.startsWith('RRULE:')) rrule = 'RRULE:' + rrule;
+
+    // repeatInterval 参数覆盖 repeatCustom 中的 INTERVAL
+    if (repeatInterval && repeatInterval > 1) {
+      if (rrule.includes('INTERVAL=')) {
+        rrule = rrule.replace(/INTERVAL=\d+/, `INTERVAL=${repeatInterval}`);
+      } else {
+        // 在 FREQ 之后插入 INTERVAL
+        rrule = rrule.replace(/(FREQ=[A-Z]+)/, `$1;INTERVAL=${repeatInterval}`);
+      }
+    }
+
     if (repeatEnd && !rrule.includes('UNTIL')) {
       const untilStr = repeatEnd.replace(/-/g, '') + 'T235959Z';
       rrule = rrule + ';UNTIL=' + untilStr;
@@ -75,6 +87,11 @@ function buildRRuleString(repeatType, anchorDate, repeatEnd, repeatCustom) {
   if (!freq) return '';
 
   let parts = [`FREQ=${freq}`];
+
+  // INTERVAL 紧跟 FREQ（RFC 5545 标准顺序）
+  if (repeatInterval && repeatInterval > 1) {
+    parts.push(`INTERVAL=${repeatInterval}`);
+  }
 
   // weekly: 添加BYDAY
   if (repeatType === 'weekly') {
@@ -119,7 +136,8 @@ function createICALComponent(template) {
     template.repeat_type,
     template.anchor_date,
     template.repeat_end,
-    template.repeat_custom
+    template.repeat_custom,
+    template.repeat_interval
   );
   if (rruleStr) {
     // ical.js: RRULE属性需要使用ICAL.Recur对象
@@ -535,7 +553,7 @@ export function offsetDate(dateStr, days) {
 /**
  * 获取重复类型的中文标签 (对齐Google Calendar)
  */
-export function getRepeatLabel(repeatType, dateStr, repeatEnd) {
+export function getRepeatLabel(repeatType, dateStr, repeatEnd, repeatInterval) {
   const labels = {
     none: '不重复',
     daily: '每天',
@@ -544,23 +562,34 @@ export function getRepeatLabel(repeatType, dateStr, repeatEnd) {
     yearly: '',
   };
 
+  const n = repeatInterval && repeatInterval > 1 ? repeatInterval : null;
+
   if (repeatType === 'weekly' && dateStr) {
     const days = ['日', '一', '二', '三', '四', '五', '六'];
     const dayOfWeek = getDayOfWeek(dateStr);
-    return `每周${days[dayOfWeek]}`;
+    let label = n ? `每${n}周${days[dayOfWeek]}` : `每周${days[dayOfWeek]}`;
+    if (repeatEnd) label += `·至${repeatEnd}`;
+    return label;
   }
 
   if (repeatType === 'monthly' && dateStr) {
     const day = parseInt(dateStr.split('-')[2], 10);
-    return `每月${day}号`;
+    let label = n ? `每${n}月${day}号` : `每月${day}号`;
+    if (repeatEnd) label += `·至${repeatEnd}`;
+    return label;
   }
 
   if (repeatType === 'yearly' && dateStr) {
     const parts = dateStr.split('-');
-    return `每年${parseInt(parts[1], 10)}月${parseInt(parts[2], 10)}日`;
+    let label = n ? `每${n}年${parseInt(parts[1], 10)}月${parseInt(parts[2], 10)}日` : `每年${parseInt(parts[1], 10)}月${parseInt(parts[2], 10)}日`;
+    if (repeatEnd) label += `·至${repeatEnd}`;
+    return label;
   }
 
   let label = labels[repeatType] || '不重复';
+  if (n && repeatType === 'daily') {
+    label = `每${n}天`;
+  }
   if (repeatEnd && repeatType !== 'none') {
     label += `·至${repeatEnd}`;
   }

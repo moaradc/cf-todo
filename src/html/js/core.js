@@ -157,6 +157,7 @@ export const core = `
     let tempEndTime = '';
     let tempRepeatType = 'none';
     let tempRepeatEnd = '';
+    let tempRepeatInterval = 1;
     let tempAddDate = '';
     let tempEditDate = '';
     let tempCategoryId = '';
@@ -613,19 +614,20 @@ export const core = `
 
       if (todo.repeat_type && todo.repeat_type !== 'none') {
         var repeatLabel = '';
+        var n = todo.repeat_interval && todo.repeat_interval > 1 ? todo.repeat_interval : null;
         if (todo.repeat_type === 'daily') {
-          repeatLabel = '每天';
+          repeatLabel = n ? '每' + n + '天' : '每天';
         } else if (todo.repeat_type === 'weekly') {
           var days = ['日','一','二','三','四','五','六'];
           var parts = todo.date.split('-');
           var day = new Date(parts[0], parts[1]-1, parts[2]).getDay();
-          repeatLabel = '每周' + days[day];
+          repeatLabel = n ? '每' + n + '周' + days[day] : '每周' + days[day];
         } else if (todo.repeat_type === 'monthly') {
           var parts2 = todo.date.split('-');
-          repeatLabel = '每月' + parseInt(parts2[2], 10) + '号';
+          repeatLabel = n ? '每' + n + '月' + parseInt(parts2[2], 10) + '号' : '每月' + parseInt(parts2[2], 10) + '号';
         } else if (todo.repeat_type === 'yearly') {
           var parts3 = todo.date.split('-');
-          repeatLabel = '每年' + parseInt(parts3[1], 10) + '月' + parseInt(parts3[2], 10) + '日';
+          repeatLabel = n ? '每' + n + '年' + parseInt(parts3[1], 10) + '月' + parseInt(parts3[2], 10) + '日' : '每年' + parseInt(parts3[1], 10) + '月' + parseInt(parts3[2], 10) + '日';
         }
         if (todo.repeat_end) repeatLabel += '·至' + todo.repeat_end;
         badges += '<span class="badge" style="background:transparent;border:1px solid var(--fg);color:var(--fg);">' + repeatLabel + '</span> ';

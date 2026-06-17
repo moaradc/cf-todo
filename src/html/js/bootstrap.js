@@ -126,6 +126,11 @@ export const bootstrap = `
       closeTimePicker: closeTimePicker,
       selectPriority: selectPriority,
       togglePriorityMenu: togglePriorityMenu,
+      // 间隔选择器
+      openIntervalPicker: openIntervalPicker,
+      confirmInterval: confirmInterval,
+      resetInterval: resetInterval,
+      closeIntervalPicker: closeIntervalPicker,
       // 分类
       openCategoryManage: openCategoryManage,
       toggleCatBatchMode: toggleCatBatchMode,

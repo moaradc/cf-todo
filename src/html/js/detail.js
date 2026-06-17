@@ -7,12 +7,14 @@ export const detail = `
       tempTime = ''; tempPriority = 'low';
       tempEndTime = ''; tempRepeatType = 'none';
       tempRepeatEnd = ''; tempCategoryId = '';
+      tempRepeatInterval = 1;
       tempAddDate = formatDate(currentDate);
       document.getElementById('add-date-display').innerText = tempAddDate;
       document.getElementById('add-repeat-display').innerText = '重复: 不重复';
       document.getElementById('add-category-display').innerText = '分类: 无';
       document.getElementById('add-endtime-display').innerText = '结束 --:--';
-      document.getElementById('add-repeat-end-display').innerText = '循环截止: 永不';
+      document.getElementById('add-repeat-end-display').innerText = '截止: 永不';
+      document.getElementById('add-interval-display').innerText = '间隔: 每1天';
       document.getElementById('add-repeat-end-row').style.display = 'none';
       
       tempSubtasks =[]; tempSearchTerms =[]; addSearchState = false; 
@@ -36,6 +38,12 @@ export const detail = `
       document.getElementById('add-endtime-display').innerText = tempEndTime ? ('结束 ' + tempEndTime) : '结束 --:--';
       const pMap = {low:'优先级: 低', med:'优先级: 中', high:'优先级: 高'};
       document.getElementById('add-priority-display').innerText = pMap[tempPriority];
+    }
+
+    function getIntervalDisplayText(interval, repeatType) {
+      var unitMap = { daily: '天', weekly: '周', monthly: '月', yearly: '年' };
+      var unit = unitMap[repeatType] || '天';
+      return '间隔: 每' + (interval || 1) + unit;
     }
 
     function closeAddModal() {
@@ -81,6 +89,7 @@ export const detail = `
         repeat_type: tempRepeatType,
         repeat_custom: '',
         repeat_end: tempRepeatEnd,
+        repeat_interval: tempRepeatInterval || 1,
         category_id: tempCategoryId,
         desc: document.getElementById('add-desc').value, url: document.getElementById('add-url').value,
         copyText: document.getElementById('add-copy').value, done: false,
@@ -153,6 +162,27 @@ export const detail = `
       _navClose('detail-view');
     }
 
+    function getRepeatDisplayText(repeatType, dateStr, repeatEnd, repeatInterval) {
+      if (!repeatType || repeatType === 'none') return '不重复';
+      var days = ['日','一','二','三','四','五','六'];
+      var n = repeatInterval && repeatInterval > 1 ? repeatInterval : null;
+      var rText = '';
+      if (repeatType === 'daily') rText = n ? '每' + n + '天' : '每天';
+      else if (repeatType === 'weekly') {
+        var dp = (dateStr || '').split('-');
+        if (dp.length === 3) { var dw = new Date(dp[0], dp[1]-1, dp[2]).getDay(); rText = n ? '每' + n + '周' + days[dw] : '每周' + days[dw]; }
+        else rText = n ? '每' + n + '周' : '每周';
+      } else if (repeatType === 'monthly') {
+        var mp = (dateStr || '').split('-');
+        rText = n ? '每' + n + '月' + (mp.length === 3 ? parseInt(mp[2], 10) + '号' : '') : (mp.length === 3 ? '每月' + parseInt(mp[2], 10) + '号' : '每月');
+      } else if (repeatType === 'yearly') {
+        var yp = (dateStr || '').split('-');
+        rText = n ? '每' + n + '年' + (yp.length === 3 ? parseInt(yp[1], 10) + '月' + parseInt(yp[2], 10) + '日' : '') : (yp.length === 3 ? '每年' + parseInt(yp[1], 10) + '月' + parseInt(yp[2], 10) + '日' : '每年');
+      }
+      if (repeatEnd) rText += '·至' + repeatEnd;
+      return rText;
+    }
+
     function renderDetailContent() {
       hideAndRescuePopovers();
       const task = todos[currentDetailIndex]; const container = document.getElementById('detail-content');
@@ -207,23 +237,8 @@ export const detail = `
           \`;
         }
 
-        let rText = '不重复';
-        if (task.repeat_type && task.repeat_type !== 'none') {
-            var days = ['日','一','二','三','四','五','六'];
-            if (task.repeat_type === 'daily') rText = '每天';
-            else if (task.repeat_type === 'weekly') {
-              var dp = (task.date || '').split('-');
-              if (dp.length === 3) { var dw = new Date(dp[0], dp[1]-1, dp[2]).getDay(); rText = '每周' + days[dw]; }
-              else rText = '每周';
-            } else if (task.repeat_type === 'monthly') {
-              var mp = (task.date || '').split('-');
-              rText = mp.length === 3 ? '每月' + parseInt(mp[2], 10) + '号' : '每月';
-            } else if (task.repeat_type === 'yearly') {
-              var yp = (task.date || '').split('-');
-              rText = yp.length === 3 ? '每年' + parseInt(yp[1], 10) + '月' + parseInt(yp[2], 10) + '日' : '每年';
-            }
-            if (task.repeat_end) rText += '·至' + task.repeat_end;
-        } else if (task.isSeries) {
+        let rText = getRepeatDisplayText(task.repeat_type, task.date, task.repeat_end, task.repeat_interval);
+        if ((!task.repeat_type || task.repeat_type === 'none') && task.isSeries) {
             rText = '已停止重复';
         }
 
@@ -251,6 +266,7 @@ export const detail = `
         \`;
       } else {
         activeMode = 'edit';
+        var intervalText = getIntervalDisplayText(tempRepeatInterval, tempRepeatType);
         container.innerHTML = \`
           <input type="text" id="edit-text" value="\${task.text}" class="detail-value editable" placeholder="事项标题（必填）">
           
@@ -272,9 +288,13 @@ export const detail = `
               <span class="arrow">▼</span>
             </div>
           </div>
-          <div id="edit-repeat-end-row" class="modal-row" \${tempRepeatType !== 'none' ? '' : 'style="display:none;"'}>
-            <div class="fake-input detail-value editable" onclick="openCalendarForRepeatEnd('edit')">
-              <span id="edit-repeat-end-display">循环截止: \${tempRepeatEnd || '永不'}</span>
+          <div id="edit-repeat-end-row" class="row modal-row" \${tempRepeatType !== 'none' ? '' : 'style="display:none;"'}>
+            <div class="fake-input detail-value editable flex-1" onclick="openIntervalPicker('edit')">
+              <span id="edit-interval-display">\${intervalText}</span>
+              <span class="arrow">▼</span>
+            </div>
+            <div class="fake-input detail-value editable flex-1" onclick="openCalendarForRepeatEnd('edit')">
+              <span id="edit-repeat-end-display">截止: \${tempRepeatEnd || '永不'}</span>
               <span class="arrow">▼</span>
             </div>
           </div>
@@ -331,6 +351,7 @@ export const detail = `
         tempEndTime = task.end_time || '';
         tempRepeatType = task.repeat_type || 'none';
         tempRepeatEnd = task.repeat_end || '';
+        tempRepeatInterval = task.repeat_interval || 1;
         tempSubtasks = JSON.parse(JSON.stringify(task.subtasks ||[]));
         tempSearchTerms = JSON.parse(JSON.stringify(task.search_terms ||[]));
         tempSearchProvider = appSettings.provider || 'auto';
@@ -354,7 +375,7 @@ export const detail = `
     function selectProvider(val) {
       tempSearchProvider = val; 
       const pMap = {
-        'auto': '自动 (随机源)', 'bilibili': '哔哩哔哩', 'weibo': '微博热搜', 'zhihu': '知乎热榜', 'baidu': '百度热搜'
+        'auto': '自动 (随机源)', 'bilibili':'哔哩哔哩', 'weibo':'微博热搜', 'zhihu':'知乎热榜', 'baidu':'百度热搜'
       };
       if(activeMode === 'add') {
         const el = document.getElementById('add-search-provider-display');
@@ -442,6 +463,94 @@ export const detail = `
       _navClose('modal-time');
     }
 
+    // ==================== 间隔选择器 ====================
+
+    let intervalPickerCount = 1;
+    let intervalPickerUnitIndex = 0;
+    const INTERVAL_UNITS = ['天', '周', '月', '年'];
+    const INTERVAL_TYPE_MAP = ['daily', 'weekly', 'monthly', 'yearly'];
+
+    function openIntervalPicker(mode) {
+      activeMode = mode;
+      document.getElementById('modal-interval').classList.add('active');
+      
+      // 根据当前 repeatType 确定单位索引
+      var typeIdx = INTERVAL_TYPE_MAP.indexOf(tempRepeatType);
+      if (typeIdx === -1) typeIdx = 0;
+      intervalPickerUnitIndex = typeIdx;
+      intervalPickerCount = tempRepeatInterval || 1;
+      
+      var countCol = document.getElementById('interval-col-count'); countCol.innerHTML = '';
+      for (let i = 1; i <= 99; i++) {
+        const div = document.createElement('div');
+        div.className = 'time-cell';
+        div.innerText = i;
+        div.onclick = () => { intervalPickerCount = i; updateIntervalPickerSelection(); };
+        countCol.appendChild(div);
+      }
+      
+      var unitCol = document.getElementById('interval-col-unit'); unitCol.innerHTML = '';
+      for (let i = 0; i < INTERVAL_UNITS.length; i++) {
+        const div = document.createElement('div');
+        div.className = 'time-cell';
+        div.innerText = INTERVAL_UNITS[i];
+        div.onclick = () => { intervalPickerUnitIndex = i; updateIntervalPickerSelection(); };
+        unitCol.appendChild(div);
+      }
+      
+      setTimeout(() => {
+        updateIntervalPickerSelection();
+        var activeCount = countCol.querySelector('.active');
+        if (activeCount) activeCount.scrollIntoView({block: "center"});
+        var activeUnit = unitCol.querySelector('.active');
+        if (activeUnit) activeUnit.scrollIntoView({block: "center"});
+      }, 10);
+      
+      _navPush('modal-interval', closeIntervalPicker, '/interval');
+    }
+
+    function updateIntervalPickerSelection() {
+      var countCells = document.getElementById('interval-col-count').children;
+      Array.from(countCells).forEach((c, i) => c.className = (i + 1 === intervalPickerCount) ? 'time-cell active' : 'time-cell');
+      var unitCells = document.getElementById('interval-col-unit').children;
+      Array.from(unitCells).forEach((c, i) => c.className = (i === intervalPickerUnitIndex) ? 'time-cell active' : 'time-cell');
+    }
+
+    function confirmInterval() {
+      tempRepeatInterval = intervalPickerCount;
+      tempRepeatType = INTERVAL_TYPE_MAP[intervalPickerUnitIndex];
+      var intervalText = getIntervalDisplayText(tempRepeatInterval, tempRepeatType);
+      var rMap = { none: '不重复', daily: '每天', weekly: '每周', monthly: '每月', yearly: '每年' };
+      
+      if (activeMode === 'add') {
+        document.getElementById('add-interval-display').innerText = intervalText;
+        document.getElementById('add-repeat-display').innerText = '重复: ' + rMap[tempRepeatType];
+      } else if (activeMode === 'edit') {
+        document.getElementById('edit-interval-display').innerText = intervalText;
+        document.getElementById('edit-repeat-display').innerText = '重复: ' + rMap[tempRepeatType];
+      }
+      closeIntervalPicker();
+    }
+
+    function resetInterval() {
+      tempRepeatInterval = 1;
+      var intervalText = getIntervalDisplayText(1, tempRepeatType);
+      if (activeMode === 'add') {
+        document.getElementById('add-interval-display').innerText = intervalText;
+      } else if (activeMode === 'edit') {
+        document.getElementById('edit-interval-display').innerText = intervalText;
+      }
+      closeIntervalPicker();
+    }
+
+    function closeIntervalPicker() {
+      if (_isNavClosing) {
+        document.getElementById('modal-interval').classList.remove('active');
+        return;
+      }
+      _navClose('modal-interval');
+    }
+
     function togglePriorityMenu(mode, triggerEl) {
       activeMode = mode; 
       showPopover('popover-priority', triggerEl, false);
@@ -505,6 +614,7 @@ export const detail = `
           task.repeat_type = tempRepeatType;
           task.repeat_custom = '';
           task.repeat_end = tempRepeatEnd;
+          task.repeat_interval = tempRepeatInterval || 1;
           if (tempRepeatType === 'none') {
             task.isSeries = false;
           }
@@ -512,6 +622,7 @@ export const detail = `
           task.repeat_type = tempRepeatType;
           task.repeat_custom = '';
           task.repeat_end = tempRepeatEnd;
+          task.repeat_interval = tempRepeatInterval || 1;
           if (tempRepeatType === 'none') {
             task.isSeries = false;
           }

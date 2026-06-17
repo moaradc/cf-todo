@@ -28,9 +28,9 @@ export const calendar = `
       actionBtn.innerText = '清除截止日期'; actionBtn.onclick = function() {
         tempRepeatEnd = '';
         if (calendarRepeatEndTarget === 'add') {
-          document.getElementById('add-repeat-end-display').innerText = '循环截止: 永不';
+          document.getElementById('add-repeat-end-display').innerText = '截止: 永不';
         } else {
-          document.getElementById('edit-repeat-end-display').innerText = '循环截止: 永不';
+          document.getElementById('edit-repeat-end-display').innerText = '截止: 永不';
         }
         closeCalendar();
       };
@@ -49,9 +49,9 @@ export const calendar = `
         el.onclick = () => {
           tempRepeatEnd = formatDate(new Date(year, month, i));
           if (calendarRepeatEndTarget === 'add') {
-            document.getElementById('add-repeat-end-display').innerText = '循环截止: ' + tempRepeatEnd;
+            document.getElementById('add-repeat-end-display').innerText = '截止: ' + tempRepeatEnd;
           } else {
-            document.getElementById('edit-repeat-end-display').innerText = '循环截止: ' + tempRepeatEnd;
+            document.getElementById('edit-repeat-end-display').innerText = '截止: ' + tempRepeatEnd;
           }
           closeCalendar();
         };

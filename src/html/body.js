@@ -82,9 +82,13 @@ export function getBody(isAuthorized) {
           <span class="arrow">▼</span>
         </div>
       </div>
-      <div id="add-repeat-end-row" class="modal-row" style="display:none;">
-        <div class="fake-input" onclick="openCalendarForRepeatEnd('add')">
-          <span id="add-repeat-end-display">循环截止: 永不</span>
+      <div id="add-repeat-end-row" class="row modal-row" style="display:none;">
+        <div class="fake-input flex-1" onclick="openIntervalPicker('add')">
+          <span id="add-interval-display">间隔: 每1天</span>
+          <span class="arrow">▼</span>
+        </div>
+        <div class="fake-input flex-1" onclick="openCalendarForRepeatEnd('add')">
+          <span id="add-repeat-end-display">截止: 永不</span>
           <span class="arrow">▼</span>
         </div>
       </div>
@@ -577,6 +581,24 @@ export function getBody(isAuthorized) {
       <div class="row">
         <button class="flex-1" onclick="clearTime()">清除</button>
         <button class="flex-1 btn-primary" onclick="confirmTime()">确认</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="modal-interval" class="modal-overlay" onclick="if(event.target===this) closeIntervalPicker()">
+    <div class="modal-content">
+      <h3 style="text-align:center; margin-bottom:10px;">选择间隔</h3>
+      <div class="row">
+        <div class="flex-1"><div class="time-label">次数</div></div>
+        <div class="flex-1"><div class="time-label">单位</div></div>
+      </div>
+      <div class="time-picker-container">
+        <div class="time-col" id="interval-col-count"></div>
+        <div class="time-col" id="interval-col-unit"></div>
+      </div>
+      <div class="row">
+        <button class="flex-1" onclick="resetInterval()">重置</button>
+        <button class="flex-1 btn-primary" onclick="confirmInterval()">确认</button>
       </div>
     </div>
   </div>

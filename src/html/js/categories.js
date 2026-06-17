@@ -98,14 +98,31 @@ export const categories = `
 
     function selectRepeat(val, label) {
       tempRepeatType = val;
-      if (activeMode === 'add') {
-        document.getElementById('add-repeat-display').innerText = '重复: ' + label;
-        var endRow = document.getElementById('add-repeat-end-row');
-        if (endRow) endRow.style.display = (val !== 'none') ? '' : 'none';
-      } else if (activeMode === 'edit') {
-        document.getElementById('edit-repeat-display').innerText = '重复: ' + label;
-        var endRow = document.getElementById('edit-repeat-end-row');
-        if (endRow) endRow.style.display = (val !== 'none') ? '' : 'none';
+      if (val !== 'none') {
+        // 切换重复类型时更新间隔显示
+        var intervalText = getIntervalDisplayText(tempRepeatInterval || 1, val);
+        if (activeMode === 'add') {
+          document.getElementById('add-repeat-display').innerText = '重复: ' + label;
+          document.getElementById('add-interval-display').innerText = intervalText;
+          var endRow = document.getElementById('add-repeat-end-row');
+          if (endRow) endRow.style.display = '';
+        } else if (activeMode === 'edit') {
+          document.getElementById('edit-repeat-display').innerText = '重复: ' + label;
+          var editIntervalEl = document.getElementById('edit-interval-display');
+          if (editIntervalEl) editIntervalEl.innerText = intervalText;
+          var endRow = document.getElementById('edit-repeat-end-row');
+          if (endRow) endRow.style.display = '';
+        }
+      } else {
+        if (activeMode === 'add') {
+          document.getElementById('add-repeat-display').innerText = '重复: ' + label;
+          var endRow = document.getElementById('add-repeat-end-row');
+          if (endRow) endRow.style.display = 'none';
+        } else if (activeMode === 'edit') {
+          document.getElementById('edit-repeat-display').innerText = '重复: ' + label;
+          var endRow = document.getElementById('edit-repeat-end-row');
+          if (endRow) endRow.style.display = 'none';
+        }
       }
       document.getElementById('popover-repeat').style.display = 'none';
     }
