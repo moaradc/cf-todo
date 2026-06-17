@@ -2167,18 +2167,21 @@ self.addEventListener('fetch', (event) => {
           const newDate = task.date || date;
           const dateChanged = newDate !== date;
           const parentId = task.parentId || task.parent_id;
-          const isSeries = task.isSeries || (rptType && rptType !== 'none');
 
-          // 获取原始任务数据，用于检测重复规则变更
+          // 获取原始任务数据，用于检测重复规则变更和正确判断 isSeries
           let originalTask = task;
-          if (isSeries) {
-            try {
-              const orig = await env.DB.prepare('SELECT repeat_type, repeat_interval FROM todos WHERE id = ?').bind(task.id).first();
-              if (orig) {
-                originalTask = { ...task, repeat_type: orig.repeat_type, repeat_interval: orig.repeat_interval };
-              }
-            } catch(e) {}
-          }
+          try {
+            const orig = await env.DB.prepare('SELECT repeat_type, repeat_interval FROM todos WHERE id = ?').bind(task.id).first();
+            if (orig) {
+              originalTask = { ...task, repeat_type: orig.repeat_type, repeat_interval: orig.repeat_interval };
+            }
+          } catch(e) {}
+
+          // isSeries 基于数据库原始数据判断，而非前端提交的新值
+          // 前端可能已将 repeat_type 改为 'none'，但原始任务仍是循环的
+          const isSeries = originalTask.repeat_type && originalTask.repeat_type !== 'none';
+          // 循环任务未指定 scope 时，默认 scope=this（仅更新此实例）
+          const effectiveScope = isSeries && (!scope || scope === 'none') ? 'this' : (scope || 'none');
 
           const newValues = {
             text: task.text,
@@ -2198,7 +2201,8 @@ self.addEventListener('fetch', (event) => {
             repeat_interval: task.repeat_interval || 1,
           };
 
-          if (!isSeries || !scope || scope === 'none') {
+          if (!isSeries) {
+            // 原始任务不是循环的
             if (rptType !== 'none') {
               // 单次任务 → 重复：更新 todo 并创建模板
               await env.DB.prepare(
@@ -2210,18 +2214,6 @@ self.addEventListener('fetch', (event) => {
                 task.id, task.text, task.time || '', task.priority || 'low', task.desc || '', task.url || '', task.copyText || '',
                 subtasksStr, searchTermsStr, rptType, '', repeatEnd, endTime, newDate, '[]', categoryId, task.repeat_interval || 1
               ).run();
-            } else if (parentId && parentId !== task.id) {
-              // 重复 → 单次：脱离系列，parent_id 设为自身
-              await env.DB.prepare(
-                'UPDATE todos SET parent_id=?, date=?, text=?, time=?, priority=?, desc=?, url=?, copy_text=?, subtasks=?, search_terms=?, repeat_type=\'none\', repeat_custom=\'\', repeat_end=\'\', end_time=?, category_id=?, repeat_interval=1 WHERE id=?'
-              ).bind(task.id, newDate, task.text, task.time || '', task.priority || 'low', task.desc || '', task.url || '', task.copyText || '', subtasksStr, searchTermsStr, endTime, categoryId, task.id).run();
-              // 从旧模板中移除此日期（EXDATE）
-              const tpl = await env.DB.prepare('SELECT exdates FROM todo_templates WHERE parent_id = ?').bind(parentId).first();
-              if (tpl) {
-                const currentExdates = tpl.exdates || '[]';
-                const newExdates = addExdate(currentExdates, date);
-                await env.DB.prepare('UPDATE todo_templates SET exdates = ? WHERE parent_id = ?').bind(newExdates, parentId).run();
-              }
             } else {
               // 普通单次任务更新
               await env.DB.prepare(
@@ -2229,7 +2221,7 @@ self.addEventListener('fetch', (event) => {
               ).bind(newDate, task.text, task.time || '', task.priority || 'low', task.desc || '', task.url || '', task.copyText || '', subtasksStr, searchTermsStr, rptType, '', repeatEnd, endTime, categoryId, task.repeat_interval || 1, task.id).run();
             }
           } else {
-            const actions = computeUpdateActions({ task: originalTask, date, scope, newValues, newDate });
+            const actions = computeUpdateActions({ task: originalTask, date, scope: effectiveScope, newValues, newDate });
 
             // Split 系列时生成新 parent_id
             let splitNewPid = null;
@@ -2273,7 +2265,7 @@ self.addEventListener('fetch', (event) => {
             }
 
             // Handle future instances for thisAndFuture/all
-            if (scope === 'thisAndFuture') {
+            if (effectiveScope === 'thisAndFuture') {
               if (rptType !== 'none') {
                 // Split: 删除旧系列中当前及之后的实例（新模板会重新生成）
                 await env.DB.prepare(
@@ -2285,7 +2277,7 @@ self.addEventListener('fetch', (event) => {
                   'DELETE FROM todos WHERE parent_id=? AND id != ? AND date > ? AND deleted = 0'
                 ).bind(parentId, task.id, date).run();
               }
-            } else if (scope === 'all') {
+            } else if (effectiveScope === 'all') {
               if (rptType !== 'none') {
                 const tmpl = actions.template;
                 // 重复规则变更或日期变更时：删除其他实例，由模板重新生成
@@ -2362,9 +2354,16 @@ self.addEventListener('fetch', (event) => {
         }
         else if (action === 'DELETE') {
           const parentId = task.parentId || task.parent_id;
-          const isSeries = task.isSeries || (rptType && rptType !== 'none');
+          // 从数据库获取原始 repeat_type，确保 isSeries 判断正确
+          let deleteIsSeries = task.isSeries || (rptType && rptType !== 'none');
+          try {
+            const orig = await env.DB.prepare('SELECT repeat_type FROM todos WHERE id = ?').bind(task.id).first();
+            if (orig) {
+              deleteIsSeries = orig.repeat_type && orig.repeat_type !== 'none';
+            }
+          } catch(e) {}
 
-          if (!isSeries || !scope) {
+          if (!deleteIsSeries || !scope) {
             // 非循环任务: 直接软删除
             await env.DB.prepare('UPDATE todos SET deleted = 1 WHERE id = ?').bind(task.id).run();
           } else {
