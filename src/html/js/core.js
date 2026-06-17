@@ -1,4 +1,26 @@
 export const core = `
+    var _isOffline = !navigator.onLine;
+    // 统一通知条：复用 preview-notice，合并预览/离线提示
+    function _updateNoticeBar() {
+      var notice = document.getElementById('preview-notice');
+      if (!notice) return;
+      var hasPreview = !!sessionStorage.getItem('preview_html');
+      var parts = [];
+      if (hasPreview) parts.push('⚠ 前端定制预览状态 — 自定义仅在本地生效 <span class="md-code" style="cursor:pointer;margin-left:8px;background:#000;color:var(--warn);" onclick="restoreAllPreview()">还原</span>');
+      if (_isOffline) parts.push('离线模式 — 数据为上次缓存');
+      if (parts.length > 0) {
+        notice.innerHTML = parts.join(' &nbsp;|&nbsp; ');
+        notice.classList.remove('hidden');
+        document.body.style.paddingTop = '40px';
+      } else {
+        notice.classList.add('hidden');
+        notice.innerHTML = '';
+        document.body.style.paddingTop = '';
+      }
+    }
+    window.addEventListener('online', function() { _isOffline = false; _updateNoticeBar(); });
+    window.addEventListener('offline', function() { _isOffline = true; _updateNoticeBar(); });
+
     function _injectPreview(target, html) {
       if (!html) return;
       var temp = document.createElement('div');
@@ -36,9 +58,8 @@ export const core = `
       if (hasPreview) {
         if (ph !== null) { try { _injectPreview(document.head, ph); } catch(e){ console.error('Preview header inject error:', e); } }
         if (pc !== null) { try { _injectPreview(document.body, pc); } catch(e){ console.error('Preview content inject error:', e); } }
-        var notice = document.getElementById('preview-notice');
-        if (notice) { notice.classList.remove('hidden'); document.body.style.paddingTop = '40px'; }
       }
+      _updateNoticeBar();
     })();
     
     async function generateSearchTerms(provider = 'auto') {

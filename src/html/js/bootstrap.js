@@ -1,33 +1,4 @@
 export const bootstrap = `
-    // ===== 离线状态检测 =====
-    var _isOffline = !navigator.onLine;
-    function updateOfflineUI() {
-      var wasOffline = _isOffline;
-      _isOffline = !navigator.onLine;
-      var bar = document.getElementById('offline-notice');
-      if (_isOffline) {
-        if (!bar) {
-          bar = document.createElement('div');
-          bar.id = 'offline-notice';
-          bar.style.cssText = 'background:var(--warn);color:#000;padding:6px 15px;text-align:center;font-weight:bold;font-size:0.8rem;position:fixed;top:0;left:0;right:0;z-index:109;';
-          bar.textContent = '离线模式 — 数据为上次缓存';
-          document.body.prepend(bar);
-          // 如果预览通知也在，把离线条放在它下面
-          var previewNotice = document.getElementById('preview-notice');
-          if (previewNotice && !previewNotice.classList.contains('hidden')) {
-            bar.style.top = '32px';
-          }
-        }
-      } else {
-        if (bar) {
-          bar.remove();
-        }
-      }
-    }
-    window.addEventListener('online', updateOfflineUI);
-    window.addEventListener('offline', updateOfflineUI);
-    updateOfflineUI();
-
     async function bootstrap() {
       if (_previewRedirecting) return;
       await initSettings();
