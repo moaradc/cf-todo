@@ -4,16 +4,22 @@ export const router = `
     var _popSkip = 0;
     var _isNavClosing = false;
 
+    // Routes that are internal-only: no address bar change, no deep linking
+    var _navBlacklist = ['/add','/detail','/time','/view','/calendar'];
+
     // Deep linking: save initial path before replaceState
     var _initialPath = window.location.pathname;
-    var _spaRoutes = ['/settings','/stats','/trash','/add','/category','/view','/calendar','/changelog','/detail','/time'];
+    var _spaRoutes = ['/settings','/stats','/trash','/category','/changelog'];
     if (_spaRoutes.indexOf(_initialPath) !== -1) {
       try { sessionStorage.setItem('_spa_initial_path', _initialPath); } catch(e) {}
     }
 
     function _navPush(id, closeFn, path) {
       _navStack.push({ id: id, closeFn: closeFn });
-      history.pushState({ _nav: true }, '', path);
+      var target = _navBlacklist.indexOf(path) !== -1
+        ? window.location.pathname + (window.location.search || '')
+        : path;
+      history.pushState({ _nav: true }, '', target);
     }
 
     function _navClose(id) {
@@ -60,17 +66,14 @@ export const router = `
       try { sessionStorage.removeItem('_spa_initial_path'); } catch(e) {}
       if (!path || path === '/') return;
       // Ensure categories are loaded before opening views that depend on them
-      if (path === '/category' || path === '/view') {
+      if (path === '/category') {
         await loadCategories();
       }
       switch (path) {
         case '/settings': openSettings(); break;
         case '/stats': openStats(); break;
         case '/trash': openTrash(); break;
-        case '/add': openAddModal(); break;
         case '/category': toggleCategoryMenu('search'); break;
-        case '/view': openViewModal(); break;
-        case '/calendar': openCalendar(); break;
         case '/changelog': openChangelogModal(); break;
       }
     }
