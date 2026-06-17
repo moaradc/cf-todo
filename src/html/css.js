@@ -211,7 +211,7 @@ export const css = `
       padding: 20px; box-shadow: 0 0 30px rgba(0,255,65,0.1); position: relative;
     }
 
-    #modal-time { z-index: 90; }
+    #modal-time, #modal-interval { z-index: 90; }
 
     .calendar-header { display: flex; justify-content: space-between; margin-bottom: 15px; color: var(--accent); font-weight: bold; align-items: center; }
     .calendar-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 5px; text-align: center; }
