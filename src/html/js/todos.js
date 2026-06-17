@@ -54,11 +54,23 @@ export const todos = `
       document.getElementById('todo-list').innerHTML = '<div style="padding:20px;text-align:center;">数据拉取中...</div>';
       try {
         const res = await fetch(\`/api/todos?date=\${dateStr}\`);
+        if (res.status === 503) {
+          // SW返回503表示离线且无缓存
+          document.getElementById('todo-list').innerHTML = '<div style="padding:20px;text-align:center;color:var(--warn);">离线 — 无缓存数据</div>';
+          return;
+        }
         if (res.ok) {
           todos = await res.json();
           renderTodos();
         }
-      } catch (e) { console.error(e); }
+      } catch (e) {
+        // 网络错误且SW未拦截
+        if (!navigator.onLine) {
+          document.getElementById('todo-list').innerHTML = '<div style="padding:20px;text-align:center;color:var(--warn);">离线 — 无缓存数据</div>';
+        } else {
+          console.error(e);
+        }
+      }
     }
 
     function updateViewBtnLabel() {
