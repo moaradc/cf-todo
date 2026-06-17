@@ -382,6 +382,12 @@ export function computeUpdateActions({ task, date, scope, newValues }) {
   const rptType = newValues.repeat_type || task.repeat_type || 'none';
   const isRecurring = rptType !== 'none';
 
+  // 检测重复规则是否变更（频率、间隔）
+  const originalRepeatType = task.repeat_type || 'none';
+  const originalInterval = task.repeat_interval || 1;
+  const newInterval = newValues.repeat_interval || 1;
+  const recurrenceChanged = (originalRepeatType !== rptType) || (originalInterval !== newInterval);
+
   const actions = {
     currentTodo: null,
     futureTodos: null,
@@ -416,15 +422,42 @@ export function computeUpdateActions({ task, date, scope, newValues }) {
     }
 
     case 'thisAndFuture': {
-      // 修改此实例及以后: 更新模板的anchor_date和属性
-      // 过去的实例保持不变，但设置repeat_end
+      // 标准规则（CalConnect / RFC 5545 Split）：
+      // 系列分裂为两个独立系列：
+      //   - 旧系列：截断（设置 repeat_end 到当前日期前一天）
+      //   - 新系列：从当前日期开始，使用新的重复属性（频率、间隔、截止等）
       if (isRecurring) {
-        actions.currentTodo = { ...newValues, isRecurring: true };
+        actions.currentTodo = {
+          ...newValues,
+          isRecurring: true,
+          detachFromSeries: true,
+          splitSeries: true,
+        };
         actions.pastTodos = { type: 'set_repeat_end', date: date, parentId: parentId };
-        actions.template = { type: 'update_from_date', date: date, parentId: parentId, newValues: newValues };
+        // 旧模板：截断
+        actions.template = { type: 'set_repeat_end', date: date, parentId: parentId };
+        // 新模板：api.js 负责生成 newParentId 并创建
+        actions.insertTemplate = {
+          text: newValues.text,
+          time: newValues.time,
+          priority: newValues.priority,
+          desc: newValues.desc,
+          url: newValues.url,
+          copy_text: newValues.copyText || newValues.copy_text || '',
+          subtasks: newValues.subtasks,
+          search_terms: newValues.search_terms,
+          repeat_type: rptType,
+          repeat_custom: '',
+          repeat_end: newValues.repeat_end || '',
+          end_time: newValues.end_time || '',
+          anchor_date: date,
+          exdates: '[]',
+          category_id: newValues.category_id || '',
+          repeat_interval: newInterval,
+        };
       } else {
         // 改为不重复: 当前项脱离系列变单次，未来项删除，模板保留并设repeat_end
-        actions.currentTodo = { ...newValues, repeat_type: 'none', isRecurring: false, detachFromSeries: true };
+        actions.currentTodo = { ...newValues, repeat_type: 'none', repeat_interval: 1, isRecurring: false, detachFromSeries: true };
         actions.pastTodos = { type: 'set_repeat_end', date: date, parentId: parentId };
         actions.template = { type: 'set_repeat_end', date: date, parentId: parentId };
       }
@@ -435,10 +468,11 @@ export function computeUpdateActions({ task, date, scope, newValues }) {
       // 修改所有实例: 更新模板
       if (isRecurring) {
         actions.currentTodo = { ...newValues, isRecurring: true };
-        actions.template = { type: 'update_all', parentId: parentId, newValues: newValues };
+        // 传递 recurrenceChanged 标志，让 api.js 决定是否需要删除旧实例重新生成
+        actions.template = { type: 'update_all', parentId: parentId, newValues: newValues, recurrenceChanged: recurrenceChanged };
       } else {
         // 改为不重复: 当前项脱离系列变单次，所有其他实例删除，模板删除
-        actions.currentTodo = { ...newValues, repeat_type: 'none', isRecurring: false, detachFromSeries: true };
+        actions.currentTodo = { ...newValues, repeat_type: 'none', repeat_interval: 1, isRecurring: false, detachFromSeries: true };
         actions.template = { type: 'delete', parentId: parentId };
       }
       break;

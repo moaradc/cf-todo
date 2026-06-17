@@ -2169,6 +2169,17 @@ self.addEventListener('fetch', (event) => {
           const parentId = task.parentId || task.parent_id;
           const isSeries = task.isSeries || (parentId && parentId !== task.id);
 
+          // 获取原始任务数据，用于检测重复规则变更
+          let originalTask = task;
+          if (isSeries) {
+            try {
+              const orig = await env.DB.prepare('SELECT repeat_type, repeat_interval FROM todos WHERE id = ?').bind(task.id).first();
+              if (orig) {
+                originalTask = { ...task, repeat_type: orig.repeat_type, repeat_interval: orig.repeat_interval };
+              }
+            } catch(e) {}
+          }
+
           const newValues = {
             text: task.text,
             time: task.time || '',
@@ -2218,13 +2229,24 @@ self.addEventListener('fetch', (event) => {
               ).bind(newDate, task.text, task.time || '', task.priority || 'low', task.desc || '', task.url || '', task.copyText || '', subtasksStr, searchTermsStr, rptType, '', repeatEnd, endTime, categoryId, task.repeat_interval || 1, task.id).run();
             }
           } else {
-            const actions = computeUpdateActions({ task, date, scope, newValues });
+            const actions = computeUpdateActions({ task: originalTask, date, scope, newValues });
+
+            // Split 系列时生成新 parent_id
+            let splitNewPid = null;
+            if (actions.currentTodo && actions.currentTodo.splitSeries) {
+              splitNewPid = Date.now().toString() + Math.random().toString().slice(2, 6);
+            }
 
             // Execute currentTodo action
             if (actions.currentTodo) {
               const cv = actions.currentTodo;
-              if (cv.detachFromSeries) {
-                // 脱离系列，变为单次任务（"仅此项"始终走此分支）
+              if (cv.splitSeries) {
+                // Split: 脱离旧系列，加入新系列（thisAndFuture + isRecurring）
+                await env.DB.prepare(
+                  'UPDATE todos SET parent_id=?, date=?, text=?, time=?, priority=?, desc=?, url=?, copy_text=?, subtasks=?, search_terms=?, repeat_type=?, repeat_custom=?, repeat_end=?, end_time=?, category_id=?, repeat_interval=? WHERE id=?'
+                ).bind(splitNewPid, newDate, task.text, task.time || '', task.priority || 'low', task.desc || '', task.url || '', task.copyText || '', subtasksStr, searchTermsStr, rptType, '', repeatEnd, endTime, categoryId, task.repeat_interval || 1, task.id).run();
+              } else if (cv.detachFromSeries) {
+                // 脱离系列，变为单次任务（"仅此项"或 thisAndFuture 改为不重复）
                 await env.DB.prepare(
                   'UPDATE todos SET parent_id=?, date=?, text=?, time=?, priority=?, desc=?, url=?, copy_text=?, subtasks=?, search_terms=?, repeat_type=\'none\', repeat_custom=\'\', repeat_end=\'\', end_time=?, category_id=?, repeat_interval=1 WHERE id=?'
                 ).bind(task.id, newDate, task.text, task.time || '', task.priority || 'low', task.desc || '', task.url || '', task.copyText || '', subtasksStr, searchTermsStr, endTime, categoryId, task.id).run();
@@ -2253,17 +2275,10 @@ self.addEventListener('fetch', (event) => {
             // Handle future instances for thisAndFuture/all
             if (scope === 'thisAndFuture') {
               if (rptType !== 'none') {
-                if (dateChanged) {
-                  // 日期变了：删除当前之后的其他非回收站实例
-                  await env.DB.prepare(
-                    'DELETE FROM todos WHERE parent_id=? AND id != ? AND date >= ? AND deleted = 0'
-                  ).bind(parentId, task.id, date).run();
-                } else {
-                  // 日期没变：更新当前之后的其他非回收站实例
-                  await env.DB.prepare(
-                    'UPDATE todos SET text=?, time=?, priority=?, desc=?, url=?, copy_text=?, subtasks=?, search_terms=?, repeat_type=?, repeat_custom=?, repeat_end=?, end_time=?, category_id=?, repeat_interval=? WHERE parent_id=? AND id != ? AND date >= ? AND deleted = 0'
-                  ).bind(task.text, task.time || '', task.priority || 'low', task.desc || '', task.url || '', task.copyText || '', subtasksStr, searchTermsStr, rptType, '', repeatEnd, endTime, categoryId, task.repeat_interval || 1, parentId, task.id, date).run();
-                }
+                // Split: 删除旧系列中当前及之后的实例（新模板会重新生成）
+                await env.DB.prepare(
+                  'DELETE FROM todos WHERE parent_id=? AND id != ? AND date >= ? AND deleted = 0'
+                ).bind(parentId, task.id, date).run();
               } else {
                 // 改为不重复：未来非回收站项真删除
                 await env.DB.prepare(
@@ -2272,13 +2287,14 @@ self.addEventListener('fetch', (event) => {
               }
             } else if (scope === 'all') {
               if (rptType !== 'none') {
-                if (dateChanged) {
-                  // 日期变了：删除其他非回收站实例
+                const tmpl = actions.template;
+                // 重复规则变更或日期变更时：删除其他实例，由模板重新生成
+                // 仅非重复属性变更时：原地更新其他实例
+                if (dateChanged || (tmpl && tmpl.recurrenceChanged)) {
                   await env.DB.prepare(
                     'DELETE FROM todos WHERE parent_id=? AND id != ? AND deleted = 0'
                   ).bind(parentId, task.id).run();
                 } else {
-                  // 日期没变：更新其他非回收站实例
                   await env.DB.prepare(
                     'UPDATE todos SET text=?, time=?, priority=?, desc=?, url=?, copy_text=?, subtasks=?, search_terms=?, repeat_type=?, repeat_custom=?, repeat_end=?, end_time=?, category_id=?, repeat_interval=? WHERE parent_id=? AND id != ? AND deleted = 0'
                   ).bind(task.text, task.time || '', task.priority || 'low', task.desc || '', task.url || '', task.copyText || '', subtasksStr, searchTermsStr, rptType, '', repeatEnd, endTime, categoryId, task.repeat_interval || 1, parentId, task.id).run();
@@ -2303,11 +2319,11 @@ self.addEventListener('fetch', (event) => {
                   await env.DB.prepare('UPDATE todo_templates SET exdates = ? WHERE parent_id = ?').bind(newExdates, parentId).run();
                 }
               } else if (tmpl.type === 'set_repeat_end') {
-                // "thisAndFuture" + 改为不重复: 模板保留，设repeat_end
+                // 旧模板截断：设置 repeat_end
                 const prevDate = getPreviousDate(date);
                 await env.DB.prepare('UPDATE todo_templates SET repeat_end=? WHERE parent_id=?').bind(prevDate, parentId).run();
-              } else if (tmpl.type === 'update_from_date' || tmpl.type === 'update_all') {
-                // thisAndFuture or all: update template
+              } else if (tmpl.type === 'update_all') {
+                // all scope: 更新模板
                 if (rptType !== 'none') {
                   let existingExdates = '[]';
                   try {
@@ -2329,6 +2345,18 @@ self.addEventListener('fetch', (event) => {
               } else if (tmpl.type === 'delete') {
                 await env.DB.prepare('DELETE FROM todo_templates WHERE parent_id=?').bind(parentId).run();
               }
+            }
+
+            // Execute insertTemplate action (Split: 创建新系列模板)
+            if (actions.insertTemplate && splitNewPid) {
+              const it = actions.insertTemplate;
+              await env.DB.prepare(
+                'INSERT OR REPLACE INTO todo_templates (parent_id, text, time, priority, desc, url, copy_text, subtasks, search_terms, repeat_type, repeat_custom, repeat_end, end_time, anchor_date, exdates, category_id, repeat_interval) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+              ).bind(
+                splitNewPid, it.text, it.time, it.priority, it.desc, it.url, it.copy_text,
+                it.subtasks, it.search_terms, it.repeat_type, it.repeat_custom, it.repeat_end,
+                it.end_time, it.anchor_date, it.exdates, it.category_id, it.repeat_interval
+              ).run();
             }
           }
         }
