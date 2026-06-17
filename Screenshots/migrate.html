@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>数据迁移工具 - v2.6.x → v2.7.2</title>
+  <title>数据迁移工具 - v2.6.x → v2.7.5</title>
   <style>
     :root {
       --bg: #0a0a0a;
@@ -122,7 +122,7 @@
 <body>
   <div class="container">
     <h1>数据迁移工具</h1>
-    <p class="sub">v2.6.x → v2.7.2</p>
+    <p class="sub">v2.6.x → v2.7.5</p>
 
     <div class="drop-zone" id="dropZone">
       <div class="icon">📁</div>
@@ -366,6 +366,14 @@
     var missingIsException = data.todos.filter(function(t) { return t.is_exception === undefined; });
     // 检测缺少 exdates 的 templates
     var missingExdates = data.templates.filter(function(t) { return t.exdates === undefined; });
+    // 检测缺少 repeat_interval 的 todos / templates（schema 4）
+    var missingIntervalTodos = data.todos.filter(function(t) { return t.repeat_interval === undefined; });
+    var missingIntervalTpls = data.templates.filter(function(t) { return t.repeat_interval === undefined; });
+    // 检测缺少 repeat_end / end_time 的 todos / templates（schema 1 引入）
+    var missingRepeatEndTodos = data.todos.filter(function(t) { return t.repeat_end === undefined; });
+    var missingEndTimeTodos = data.todos.filter(function(t) { return t.end_time === undefined; });
+    var missingRepeatEndTpls = data.templates.filter(function(t) { return t.repeat_end === undefined; });
+    var missingEndTimeTpls = data.templates.filter(function(t) { return t.end_time === undefined; });
 
     // 数据概览
     statsGrid.innerHTML =
@@ -376,16 +384,17 @@
       statCard(repeatingTodos.length, '重复事项') +
       statCard(exceptionTodos.length, '例外事项(repeat=-1)') +
       statCard(dirtyRepeat.length, '脏数据修复') +
-      statCard(oldFormatCustomTodos.length + oldFormatCustomTpls.length + unsyncedCustom.length, 'repeat_custom 迁移');
+      statCard(oldFormatCustomTodos.length + oldFormatCustomTpls.length + unsyncedCustom.length, 'repeat_custom 迁移') +
+      statCard(missingIntervalTodos.length + missingIntervalTpls.length, 'repeat_interval 补全');
 
     // 动态生成迁移差异（完整覆盖所有迁移操作）
     var diffList = document.getElementById('diffList');
     diffList.innerHTML = '';
 
-    if (!needMigration && dirtyRepeat.length === 0 && exceptionTodos.length === 0 && unsyncedCustom.length === 0 && missingRecurrenceId.length === 0 && missingIsException.length === 0 && missingExdates.length === 0) {
+    if (!needMigration && dirtyRepeat.length === 0 && exceptionTodos.length === 0 && unsyncedCustom.length === 0 && missingRecurrenceId.length === 0 && missingIsException.length === 0 && missingExdates.length === 0 && missingIntervalTodos.length === 0 && missingIntervalTpls.length === 0 && missingRepeatEndTodos.length === 0 && missingEndTimeTodos.length === 0 && missingRepeatEndTpls.length === 0 && missingEndTimeTpls.length === 0) {
       diffList.innerHTML = '<div class="diff-item" style="border-color:#1a3a1a;"><div class="diff-desc" style="color:var(--crt);">此文件已是新版格式，无需迁移</div></div>';
       migrateBtn.disabled = true;
-      addLog('此文件已是 v2.7.2 格式，无需迁移', 'ok');
+      addLog('此文件已是 v2.7.5 格式，无需迁移', 'ok');
       renderLogs();
       return;
     }
@@ -410,6 +419,24 @@
     }
     if (missingExdates.length > 0) {
       diffList.innerHTML += diffItem('templates', '<span class="added">exdates</span> 新增', '排除日期字段，默认空数组', missingExdates.length);
+    }
+    if (missingRepeatEndTodos.length > 0) {
+      diffList.innerHTML += diffItem('todos', '<span class="added">repeat_end</span> 新增', '循环截止日期，默认空字符串', missingRepeatEndTodos.length);
+    }
+    if (missingEndTimeTodos.length > 0) {
+      diffList.innerHTML += diffItem('todos', '<span class="added">end_time</span> 新增', '结束时间，默认空字符串', missingEndTimeTodos.length);
+    }
+    if (missingRepeatEndTpls.length > 0) {
+      diffList.innerHTML += diffItem('templates', '<span class="added">repeat_end</span> 新增', '循环截止日期，默认空字符串', missingRepeatEndTpls.length);
+    }
+    if (missingEndTimeTpls.length > 0) {
+      diffList.innerHTML += diffItem('templates', '<span class="added">end_time</span> 新增', '结束时间，默认空字符串', missingEndTimeTpls.length);
+    }
+    if (missingIntervalTodos.length > 0) {
+      diffList.innerHTML += diffItem('todos', '<span class="added">repeat_interval</span> 新增', '重复间隔，schema 4 新增，默认 1', missingIntervalTodos.length);
+    }
+    if (missingIntervalTpls.length > 0) {
+      diffList.innerHTML += diffItem('templates', '<span class="added">repeat_interval</span> 新增', '重复间隔，schema 4 新增，默认 1', missingIntervalTpls.length);
     }
 
     // 数据修复
@@ -458,6 +485,9 @@
     }
     if (hasRepeat) {
       addLog('数据包含旧版 repeat 字段，迁移后将移除', 'info');
+    }
+    if (missingIntervalTodos.length > 0 || missingIntervalTpls.length > 0) {
+      addLog('发现缺少 repeat_interval 字段，将补全为默认值 1（schema 4）', 'info');
     }
 
     addLog('数据解析完成，可以执行迁移', 'ok');
@@ -616,6 +646,16 @@
         m.is_exception = 0;
         addLog('新增 id:' + m.id + ' is_exception=0', 'info', 'newFields');
       }
+      if (m.repeat_end === undefined) {
+        m.repeat_end = '';
+      }
+      if (m.end_time === undefined) {
+        m.end_time = '';
+      }
+      if (m.repeat_interval === undefined) {
+        m.repeat_interval = 1;
+        addLog('新增 id:' + m.id + ' repeat_interval=1', 'info', 'newFields');
+      }
       if (!m.repeat_custom) m.repeat_custom = '';
 
       migratedTodos.push(m);
@@ -633,6 +673,16 @@
       } else if (!mt.exdates) {
         mt.exdates = '[]';
         addLog('新增 模板 parent_id:' + mt.parent_id + ' exdates=[]', 'info', 'newFields');
+      }
+      if (mt.repeat_end === undefined) {
+        mt.repeat_end = '';
+      }
+      if (mt.end_time === undefined) {
+        mt.end_time = '';
+      }
+      if (mt.repeat_interval === undefined) {
+        mt.repeat_interval = 1;
+        addLog('新增 模板 parent_id:' + mt.parent_id + ' repeat_interval=1', 'info', 'newFields');
       }
 
       var rootTodo = rootTodoMap[mt.parent_id];
@@ -751,7 +801,7 @@
       var writable = await handle.createWritable();
       await writable.write(content);
       await writable.close();
-      addLog('文件已保存，请在 v2.7.2 的导入功能中使用【覆盖模式】导入', 'ok');
+      addLog('文件已保存，请在 v2.7.5 的导入功能中使用【覆盖模式】导入', 'ok');
       renderLogs();
     } catch (err) {
       if (err.name === 'AbortError') return; // 用户取消
@@ -771,7 +821,7 @@
     a.click();
     document.body.removeChild(a);
     setTimeout(function() { URL.revokeObjectURL(url); }, 10000);
-    addLog('文件已下载，请在 v2.7.2 的导入功能中使用【覆盖模式】导入', 'ok');
+    addLog('文件已下载，请在 v2.7.5 的导入功能中使用【覆盖模式】导入', 'ok');
     renderLogs();
   }
 
