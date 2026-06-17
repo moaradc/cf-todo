@@ -11,7 +11,7 @@ export const core = `
       if (parts.length > 0) {
         notice.innerHTML = parts.join(' &nbsp;|&nbsp; ');
         notice.classList.remove('hidden');
-        document.body.style.paddingTop = '24px';
+        document.body.style.paddingTop = '40px';
       } else {
         notice.classList.add('hidden');
         notice.innerHTML = '';

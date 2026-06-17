@@ -3,7 +3,7 @@ export function getBody(isAuthorized) {
 <body>
   <div class="scanlines"></div>
   
-  <div id="preview-notice" class="hidden" style="background:var(--warn);color:#000;text-align:center;font-weight:bold;font-size:0.85rem;position:fixed;top:0;left:0;right:0;z-index:50;"></div>
+  <div id="preview-notice" class="hidden" style="background:var(--warn);color:#000;padding:8px 15px;text-align:center;font-weight:bold;font-size:0.85rem;position:fixed;top:0;left:0;right:0;z-index:50;"></div>
 
   <div id="app-root">
   <div class="container">
