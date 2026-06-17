@@ -15,11 +15,11 @@ export const router = `
     }
 
     function _navPush(id, closeFn, path) {
-      _navStack.push({ id: id, closeFn: closeFn });
-      var target = _navBlacklist.indexOf(path) !== -1
-        ? window.location.pathname + (window.location.search || '')
-        : path;
-      history.pushState({ _nav: true }, '', target);
+      var noPush = _navBlacklist.indexOf(path) !== -1;
+      _navStack.push({ id: id, closeFn: closeFn, noPush: noPush });
+      if (!noPush) {
+        history.pushState({ _nav: true }, '', path);
+      }
     }
 
     function _navClose(id) {
@@ -29,30 +29,44 @@ export const router = `
         if (_navStack[i].id === id) { idx = i; break; }
       }
       if (idx === -1) return;
-      var count = _navStack.length - idx;
       var items = _navStack.splice(idx);
       _isNavClosing = true;
       for (var j = items.length - 1; j >= 0; j--) {
         items[j].closeFn();
       }
       _isNavClosing = false;
-      if (count > 0) {
-        _popSkip = count;
-        history.go(-count);
+      var histCount = 0;
+      for (var k = 0; k < items.length; k++) {
+        if (!items[k].noPush) histCount++;
+      }
+      if (histCount > 0) {
+        _popSkip = histCount;
+        history.go(-histCount);
       }
     }
 
     function _navBack() {
       if (_navStack.length === 0) return;
-      history.back();
+      if (_navStack[_navStack.length - 1].noPush) {
+        var entry = _navStack.pop();
+        _isNavClosing = true;
+        entry.closeFn();
+        _isNavClosing = false;
+      } else {
+        history.back();
+      }
     }
 
     window.addEventListener('popstate', function(e) {
       if (_popSkip > 0) { _popSkip--; return; }
       if (_navStack.length === 0) return;
-      var state = _navStack.pop();
       _isNavClosing = true;
-      state.closeFn();
+      while (_navStack.length > 0 && _navStack[_navStack.length - 1].noPush) {
+        _navStack.pop().closeFn();
+      }
+      if (_navStack.length > 0) {
+        _navStack.pop().closeFn();
+      }
       _isNavClosing = false;
     });
 
