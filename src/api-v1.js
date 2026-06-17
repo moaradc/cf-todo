@@ -524,7 +524,7 @@ async function handleV1TodoPut(request, DB, todoId) {
 
   const body = await request.json();
   const parentId = existing.parent_id; // 始终使用数据库中的 parent_id，不可被用户篡改
-  const isSeries = existing.repeat_type && existing.repeat_type !== 'none' && parentId && parentId !== existing.id;
+  const isSeries = existing.repeat_type && existing.repeat_type !== 'none';
   // 重复 todo 未指定 scope 时，默认 scope=this（仅更新此实例）
   const scope = isSeries && (!body.scope || body.scope === 'none') ? 'this' : (body.scope || 'none');
 
@@ -694,7 +694,7 @@ async function handleV1TodoDelete(DB, todoId, scope) {
   if (!existing) return apiError('Todo 不存在', 404);
 
   const parentId = existing.parent_id;
-  const isSeries = existing.repeat_type && existing.repeat_type !== 'none' && parentId && parentId !== todoId;
+  const isSeries = existing.repeat_type && existing.repeat_type !== 'none';
   const date = existing.date;
 
   // 重复 todo 未指定 scope 时，默认 scope=this（仅删除此实例，加 exdate 防止重新生成）

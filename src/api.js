@@ -2167,7 +2167,7 @@ self.addEventListener('fetch', (event) => {
           const newDate = task.date || date;
           const dateChanged = newDate !== date;
           const parentId = task.parentId || task.parent_id;
-          const isSeries = task.isSeries || (parentId && parentId !== task.id);
+          const isSeries = task.isSeries || (rptType && rptType !== 'none');
 
           // 获取原始任务数据，用于检测重复规则变更
           let originalTask = task;
@@ -2362,7 +2362,7 @@ self.addEventListener('fetch', (event) => {
         }
         else if (action === 'DELETE') {
           const parentId = task.parentId || task.parent_id;
-          const isSeries = task.isSeries || (parentId && parentId !== task.id);
+          const isSeries = task.isSeries || (rptType && rptType !== 'none');
 
           if (!isSeries || !scope) {
             // 非循环任务: 直接软删除

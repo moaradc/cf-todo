@@ -322,7 +322,7 @@ export function getOccurrencesBetween(template, startDate, endDate, limit = 365)
  */
 export function computeDeleteActions({ task, date, scope }) {
   const parentId = task.parentId || task.parent_id;
-  const isSeries = task.isSeries || (parentId && parentId !== task.id);
+  const isSeries = task.isSeries || (task.repeat_type && task.repeat_type !== 'none');
 
   const actions = {
     deleteTodoIds: [],
@@ -378,7 +378,7 @@ export function computeDeleteActions({ task, date, scope }) {
  */
 export function computeUpdateActions({ task, date, scope, newValues, newDate }) {
   const parentId = task.parentId || task.parent_id;
-  const isSeries = task.isSeries || (parentId && parentId !== task.id);
+  const isSeries = task.isSeries || (task.repeat_type && task.repeat_type !== 'none');
   const rptType = newValues.repeat_type || task.repeat_type || 'none';
   const isRecurring = rptType !== 'none';
 
