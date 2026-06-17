@@ -4,7 +4,7 @@ export const core = `
     function _updateNoticeBar() {
       var notice = document.getElementById('preview-notice');
       if (!notice) return;
-      var hasPreview = !!sessionStorage.getItem('preview_html');
+      var hasPreview = localStorage.getItem('preview_custom_header') !== null || localStorage.getItem('preview_custom_content') !== null;
       var parts = [];
       if (hasPreview) parts.push('⚠ 前端定制预览状态 — 自定义仅在本地生效 <span class="md-code" style="cursor:pointer;margin-left:8px;background:#000;color:var(--warn);" onclick="restoreAllPreview()">还原</span>');
       if (_isOffline) parts.push('离线模式 — 数据为上次缓存');
