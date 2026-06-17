@@ -369,6 +369,11 @@
     // 检测缺少 repeat_interval 的 todos / templates（schema 4）
     var missingIntervalTodos = data.todos.filter(function(t) { return t.repeat_interval === undefined; });
     var missingIntervalTpls = data.templates.filter(function(t) { return t.repeat_interval === undefined; });
+    // 检测缺少 repeat_end / end_time 的 todos / templates（schema 1 引入）
+    var missingRepeatEndTodos = data.todos.filter(function(t) { return t.repeat_end === undefined; });
+    var missingEndTimeTodos = data.todos.filter(function(t) { return t.end_time === undefined; });
+    var missingRepeatEndTpls = data.templates.filter(function(t) { return t.repeat_end === undefined; });
+    var missingEndTimeTpls = data.templates.filter(function(t) { return t.end_time === undefined; });
 
     // 数据概览
     statsGrid.innerHTML =
@@ -386,7 +391,7 @@
     var diffList = document.getElementById('diffList');
     diffList.innerHTML = '';
 
-    if (!needMigration && dirtyRepeat.length === 0 && exceptionTodos.length === 0 && unsyncedCustom.length === 0 && missingRecurrenceId.length === 0 && missingIsException.length === 0 && missingExdates.length === 0 && missingIntervalTodos.length === 0 && missingIntervalTpls.length === 0) {
+    if (!needMigration && dirtyRepeat.length === 0 && exceptionTodos.length === 0 && unsyncedCustom.length === 0 && missingRecurrenceId.length === 0 && missingIsException.length === 0 && missingExdates.length === 0 && missingIntervalTodos.length === 0 && missingIntervalTpls.length === 0 && missingRepeatEndTodos.length === 0 && missingEndTimeTodos.length === 0 && missingRepeatEndTpls.length === 0 && missingEndTimeTpls.length === 0) {
       diffList.innerHTML = '<div class="diff-item" style="border-color:#1a3a1a;"><div class="diff-desc" style="color:var(--crt);">此文件已是新版格式，无需迁移</div></div>';
       migrateBtn.disabled = true;
       addLog('此文件已是 v2.7.5 格式，无需迁移', 'ok');
@@ -414,6 +419,18 @@
     }
     if (missingExdates.length > 0) {
       diffList.innerHTML += diffItem('templates', '<span class="added">exdates</span> 新增', '排除日期字段，默认空数组', missingExdates.length);
+    }
+    if (missingRepeatEndTodos.length > 0) {
+      diffList.innerHTML += diffItem('todos', '<span class="added">repeat_end</span> 新增', '循环截止日期，默认空字符串', missingRepeatEndTodos.length);
+    }
+    if (missingEndTimeTodos.length > 0) {
+      diffList.innerHTML += diffItem('todos', '<span class="added">end_time</span> 新增', '结束时间，默认空字符串', missingEndTimeTodos.length);
+    }
+    if (missingRepeatEndTpls.length > 0) {
+      diffList.innerHTML += diffItem('templates', '<span class="added">repeat_end</span> 新增', '循环截止日期，默认空字符串', missingRepeatEndTpls.length);
+    }
+    if (missingEndTimeTpls.length > 0) {
+      diffList.innerHTML += diffItem('templates', '<span class="added">end_time</span> 新增', '结束时间，默认空字符串', missingEndTimeTpls.length);
     }
     if (missingIntervalTodos.length > 0) {
       diffList.innerHTML += diffItem('todos', '<span class="added">repeat_interval</span> 新增', '重复间隔，schema 4 新增，默认 1', missingIntervalTodos.length);
@@ -629,6 +646,12 @@
         m.is_exception = 0;
         addLog('新增 id:' + m.id + ' is_exception=0', 'info', 'newFields');
       }
+      if (m.repeat_end === undefined) {
+        m.repeat_end = '';
+      }
+      if (m.end_time === undefined) {
+        m.end_time = '';
+      }
       if (m.repeat_interval === undefined) {
         m.repeat_interval = 1;
         addLog('新增 id:' + m.id + ' repeat_interval=1', 'info', 'newFields');
@@ -650,6 +673,12 @@
       } else if (!mt.exdates) {
         mt.exdates = '[]';
         addLog('新增 模板 parent_id:' + mt.parent_id + ' exdates=[]', 'info', 'newFields');
+      }
+      if (mt.repeat_end === undefined) {
+        mt.repeat_end = '';
+      }
+      if (mt.end_time === undefined) {
+        mt.end_time = '';
       }
       if (mt.repeat_interval === undefined) {
         mt.repeat_interval = 1;
