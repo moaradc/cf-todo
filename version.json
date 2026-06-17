@@ -1,7 +1,8 @@
 {
-  "version": "2.7.4",
+  "version": "2.7.5",
   "db_schema": 4,
   "changelog": [
+    { "version": "2.7.5", "date": "2026-06-17", "notes": "新增重复间隔（repeat_interval）功能，支持每 N 天/周/月/年重复，db_schema 升级至 4\n循环引擎增强：buildRRuleString 支持 repeatInterval 参数注入 INTERVAL；computeUpdateActions 支持重复规则变更检测与系列拆分（newDate）\n显示设置增强：独立控制显示大小与字体大小，新增预设与重置\n统一通知条：合并前端定制预览与离线模式提示\n精简 db_schema 版本迁移逻辑，移除 schema 1-3 旧版迁移（由 migrate.html 离线迁移工具承接），保留 schema 4: repeat_interval\n更新 Screenshots/migrate.html 数据迁移工具，支持迁移至 v2.7.5，新增 repeat_interval 字段迁移" },
     { "version": "2.7.4", "date": "2026-06-12", "notes": "新增 RESTful API v1（/api/v1/），支持 API Key 鉴权（X-API-Key / Bearer / Query）及 Cookie 鉴权\n新增 API Key 管理功能（创建/删除/启用/禁用/重命名，最多10个，恒定时间比较防时序攻击）\n新增 Todo CRUD\n设置页面新增 API 密钥管理面板\n新增 API_Wiki.md\n新增 OpenClaw Skill" },
     { "version": "2.7.3", "date": "2025-06-07", "notes": "覆盖模式导入后备份保留10分钟供手动恢复，到期自动清除\n移除导入字段校验（由数据库约束兜底）\n导入中断恢复支持保留备份（keepBackup）或丢弃备份（discard）\n修复中断恢复弹窗点取消时错误恢复备份的bug" },
     { "version": "2.7.2", "date": "2025-06-06", "notes": "RFC 5545 大型重构\nical.js 替换 rrule.js，完整支持 RRULE/EXDATE/RDATE\n循环事件操作对齐 Google Calendar 标准：仅此事件/此事件及之后/整个系列\n修复 ical.js DTSTART 不匹配 RRULE 时跳过首实例的问题\n版本化增量数据库迁移，彻底移除冗余 blacklist/repeat 列\n修复 repeat=-1 但 repeat_type=none 的脏数据" },
