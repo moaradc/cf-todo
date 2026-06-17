@@ -2229,7 +2229,7 @@ self.addEventListener('fetch', (event) => {
               ).bind(newDate, task.text, task.time || '', task.priority || 'low', task.desc || '', task.url || '', task.copyText || '', subtasksStr, searchTermsStr, rptType, '', repeatEnd, endTime, categoryId, task.repeat_interval || 1, task.id).run();
             }
           } else {
-            const actions = computeUpdateActions({ task: originalTask, date, scope, newValues });
+            const actions = computeUpdateActions({ task: originalTask, date, scope, newValues, newDate });
 
             // Split 系列时生成新 parent_id
             let splitNewPid = null;

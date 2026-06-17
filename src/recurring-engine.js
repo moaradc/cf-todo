@@ -376,7 +376,7 @@ export function computeDeleteActions({ task, date, scope }) {
  * @param {Object} params.newValues - 新值
  * @returns {Object} 操作描述
  */
-export function computeUpdateActions({ task, date, scope, newValues }) {
+export function computeUpdateActions({ task, date, scope, newValues, newDate }) {
   const parentId = task.parentId || task.parent_id;
   const isSeries = task.isSeries || (parentId && parentId !== task.id);
   const rptType = newValues.repeat_type || task.repeat_type || 'none';
@@ -450,7 +450,7 @@ export function computeUpdateActions({ task, date, scope, newValues }) {
           repeat_custom: '',
           repeat_end: newValues.repeat_end || '',
           end_time: newValues.end_time || '',
-          anchor_date: date,
+          anchor_date: newDate || date,
           exdates: '[]',
           category_id: newValues.category_id || '',
           repeat_interval: newInterval,

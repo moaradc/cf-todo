@@ -579,7 +579,7 @@ async function handleV1TodoPut(request, DB, todoId) {
       ).bind(newDate, newValues.text, newValues.time, newValues.priority, newValues.desc, newValues.url, newValues.copyText, subtasksStr, searchTermsStr, rptType, '', newValues.repeat_end, newValues.end_time, newValues.category_id, newValues.repeat_interval, todoId).run();
     }
   } else {
-    const actions = computeUpdateActions({ task: { ...existing, parentId, isSeries }, date, scope, newValues });
+    const actions = computeUpdateActions({ task: { ...existing, parentId, isSeries }, date, scope, newValues, newDate });
 
     // Split 系列时生成新 parent_id
     let splitNewPid = null;
