@@ -584,18 +584,10 @@ async function handleV1TodoPut(request, DB, todoId) {
     if (actions.currentTodo) {
       const cv = actions.currentTodo;
       if (cv.detachFromSeries) {
-        if (cv.newSeries) {
-          await DB.prepare(
-            'UPDATE todos SET parent_id=?, date=?, text=?, time=?, priority=?, desc=?, url=?, copy_text=?, subtasks=?, search_terms=?, repeat_type=?, repeat_custom=?, repeat_end=?, end_time=?, category_id=?, repeat_interval=? WHERE id=?'
-          ).bind(todoId, newDate, newValues.text, newValues.time, newValues.priority, newValues.desc, newValues.url, newValues.copyText, subtasksStr, searchTermsStr, rptType, '', newValues.repeat_end, newValues.end_time, newValues.category_id, newValues.repeat_interval, todoId).run();
-          await DB.prepare(
-            'INSERT OR REPLACE INTO todo_templates (parent_id, text, time, priority, desc, url, copy_text, subtasks, search_terms, repeat_type, repeat_custom, repeat_end, end_time, anchor_date, exdates, category_id, repeat_interval) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
-          ).bind(todoId, newValues.text, newValues.time, newValues.priority, newValues.desc, newValues.url, newValues.copyText, subtasksStr, searchTermsStr, rptType, '', newValues.repeat_end, newValues.end_time, newDate, '[]', newValues.category_id, newValues.repeat_interval).run();
-        } else {
-          await DB.prepare(
-            'UPDATE todos SET parent_id=?, date=?, text=?, time=?, priority=?, desc=?, url=?, copy_text=?, subtasks=?, search_terms=?, repeat_type=\'none\', repeat_custom=\'\', repeat_end=\'\', end_time=?, category_id=?, repeat_interval=1 WHERE id=?'
-          ).bind(todoId, newDate, newValues.text, newValues.time, newValues.priority, newValues.desc, newValues.url, newValues.copyText, subtasksStr, searchTermsStr, newValues.end_time, newValues.category_id, todoId).run();
-        }
+        // 脱离系列，变为单次任务（"仅此项"始终走此分支）
+        await DB.prepare(
+          'UPDATE todos SET parent_id=?, date=?, text=?, time=?, priority=?, desc=?, url=?, copy_text=?, subtasks=?, search_terms=?, repeat_type=\'none\', repeat_custom=\'\', repeat_end=\'\', end_time=?, category_id=?, repeat_interval=1 WHERE id=?'
+        ).bind(todoId, newDate, newValues.text, newValues.time, newValues.priority, newValues.desc, newValues.url, newValues.copyText, subtasksStr, searchTermsStr, newValues.end_time, newValues.category_id, todoId).run();
       } else if (cv.isRecurring) {
         await DB.prepare(
           'UPDATE todos SET date=?, text=?, time=?, priority=?, desc=?, url=?, copy_text=?, subtasks=?, search_terms=?, repeat_type=?, repeat_custom=?, repeat_end=?, end_time=?, category_id=?, repeat_interval=? WHERE id=?'

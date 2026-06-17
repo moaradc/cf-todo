@@ -399,24 +399,18 @@ export function computeUpdateActions({ task, date, scope, newValues }) {
 
   switch (scope) {
     case 'this': {
-      // 仅修改此实例: 脱离模板
-      if (isRecurring) {
-        // 改为新的重复类型: 脱离旧系列，创建新系列
-        actions.currentTodo = {
-          ...newValues,
-          isRecurring: true,
-          detachFromSeries: true,
-          newSeries: true,
-        };
-      } else {
-        // 改为不重复: 脱离旧系列，变为单次任务
-        actions.currentTodo = {
-          ...newValues,
-          repeat_type: 'none',
-          isRecurring: false,
-          detachFromSeries: true,
-        };
-      }
+      // 仅修改此实例: 脱离模板，变为非重复单次事项
+      // 遵循标准规则（Google Calendar / RFC 5545）：
+      // "仅此项"忽略所有重复属性变更（间隔、频率、截止），实例脱离系列变为单次
+      actions.currentTodo = {
+        ...newValues,
+        repeat_type: 'none',
+        repeat_custom: '',
+        repeat_end: '',
+        repeat_interval: 1,
+        isRecurring: false,
+        detachFromSeries: true,
+      };
       actions.template = { type: 'add_exdate', date: date, parentId: parentId };
       break;
     }

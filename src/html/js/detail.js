@@ -609,16 +609,17 @@ export const detail = `
         task.subtasks = tempSubtasks; task.search_terms = tempSearchTerms;
         task.category_id = tempCategoryId;
         
-        // scope='this' 时：脱离旧系列
+        // 根据scope处理重复属性
         if (scope === 'this' && task.isSeries) {
-          task.repeat_type = tempRepeatType;
+          // 仅此项：脱离系列，变为非重复单次事项
+          // 重复相关变更（间隔、频率、截止）对"仅此项"无意义，遵循标准规则
+          task.repeat_type = 'none';
           task.repeat_custom = '';
-          task.repeat_end = tempRepeatEnd;
-          task.repeat_interval = tempRepeatInterval || 1;
-          if (tempRepeatType === 'none') {
-            task.isSeries = false;
-          }
+          task.repeat_end = '';
+          task.repeat_interval = 1;
+          task.isSeries = false;
         } else {
+          // 此项及之后 / 所有日程：应用重复变更
           task.repeat_type = tempRepeatType;
           task.repeat_custom = '';
           task.repeat_end = tempRepeatEnd;
