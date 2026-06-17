@@ -222,7 +222,6 @@ export const settings = `
         section.style.display = '';
         card.style.display = '';
         if (btn) btn.style.display = '';
-        if (status) status.textContent = '— 支持安装';
       } else {
         section.style.display = 'none';
         card.style.display = 'none';
