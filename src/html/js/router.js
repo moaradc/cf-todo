@@ -5,7 +5,7 @@ export const router = `
     var _isNavClosing = false;
 
     // Routes that are internal-only: no address bar change, no deep linking
-    var _navBlacklist = ['/add','/detail','/time','/view','/calendar'];
+    var _navBlacklist = ['/add','/detail','/time','/view','/calendar','/interval'];
 
     // Deep linking: save initial path before replaceState
     var _initialPath = window.location.pathname;

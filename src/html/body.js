@@ -83,12 +83,12 @@ export function getBody(isAuthorized) {
         </div>
       </div>
       <div id="add-repeat-end-row" class="row modal-row" style="display:none;">
-        <div class="fake-input flex-1" onclick="openIntervalPicker('add')">
-          <span id="add-interval-display">间隔: 每1天</span>
-          <span class="arrow">▼</span>
-        </div>
         <div class="fake-input flex-1" onclick="openCalendarForRepeatEnd('add')">
           <span id="add-repeat-end-display">截止: 永不</span>
+          <span class="arrow">▼</span>
+        </div>
+        <div class="fake-input flex-1" onclick="openIntervalPicker('add')">
+          <span id="add-interval-display">间隔: 每1天</span>
           <span class="arrow">▼</span>
         </div>
       </div>

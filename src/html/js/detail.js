@@ -163,7 +163,7 @@ export const detail = `
     }
 
     function getRepeatDisplayText(repeatType, dateStr, repeatEnd, repeatInterval) {
-      if (!repeatType || repeatType === 'none') return '不重复';
+      if (!repeatType || repeatType === 'none') return '单次任务';
       var days = ['日','一','二','三','四','五','六'];
       var n = repeatInterval && repeatInterval > 1 ? repeatInterval : null;
       var rText = '';
@@ -289,12 +289,12 @@ export const detail = `
             </div>
           </div>
           <div id="edit-repeat-end-row" class="row modal-row" \${tempRepeatType !== 'none' ? '' : 'style="display:none;"'}>
-            <div class="fake-input detail-value editable flex-1" onclick="openIntervalPicker('edit')">
-              <span id="edit-interval-display">\${intervalText}</span>
-              <span class="arrow">▼</span>
-            </div>
             <div class="fake-input detail-value editable flex-1" onclick="openCalendarForRepeatEnd('edit')">
               <span id="edit-repeat-end-display">截止: \${tempRepeatEnd || '永不'}</span>
+              <span class="arrow">▼</span>
+            </div>
+            <div class="fake-input detail-value editable flex-1" onclick="openIntervalPicker('edit')">
+              <span id="edit-interval-display">\${intervalText}</span>
               <span class="arrow">▼</span>
             </div>
           </div>
