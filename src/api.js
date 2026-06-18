@@ -2278,6 +2278,7 @@ self.addEventListener('fetch', (event) => {
           }
         }
         else if (action === 'DELETE') {
+          const rptType = task.repeat_type || 'none';
           const parentId = task.parentId || task.parent_id;
           // 从数据库获取原始 repeat_type，确保 isSeries 判断正确
           let deleteIsSeries = task.isSeries || (rptType && rptType !== 'none');
