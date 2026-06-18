@@ -73,12 +73,13 @@ export const settings = `
       loadApiKeys();
       checkUpdate();
       updatePwaInstallUI();
-      refreshCacheSize();
       _navPush('settings-overlay', closeSettings, '/settings');
     }
 
     // 应用缓存大小计算与清空
-    // 性能：仅读取 content-length 头，不读取响应体；无 content-length 的条目跳过（显示"≈"）
+    // 性能权衡：仅在用户主动点击「刷新」或「清空缓存」时计算，不随设置页打开自动触发
+    // 准确性优先：优先读 content-length 头（O(1)），缺失时回退到 response.blob().size（读取完整响应体）
+    // 因此显示结果不再带「≈」，但首次计算可能稍慢（取决于缓存条目数与无 content-length 的比例）
     function formatCacheSize(bytes) {
       if (bytes < 1024) return bytes + ' B';
       if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
@@ -94,13 +95,18 @@ export const settings = `
         var requests = await cache.keys();
         for (var j = 0; j < requests.length; j++) {
           var response = await cache.match(requests[j]);
-          if (response) {
-            var len = response.headers.get('content-length');
-            if (len) {
-              var n = parseInt(len, 10);
-              if (!isNaN(n)) total += n;
-            }
+          if (!response) continue;
+          // 优先 content-length 头（不读响应体，开销最低）
+          var len = response.headers.get('content-length');
+          if (len) {
+            var n = parseInt(len, 10);
+            if (!isNaN(n) && n >= 0) { total += n; continue; }
           }
+          // 回退：读取响应体获取实际字节数（仅对缺失 content-length 的条目）
+          try {
+            var blob = await response.clone().blob();
+            total += blob.size;
+          } catch (e) { /* 跳过无法读取的条目 */ }
         }
       }
       return total;
@@ -113,7 +119,7 @@ export const settings = `
       display.textContent = '计算中...';
       try {
         var bytes = await getCacheSize();
-        display.textContent = '≈ ' + formatCacheSize(bytes);
+        display.textContent = formatCacheSize(bytes);
       } catch (e) {
         display.textContent = '计算失败';
       }
@@ -128,7 +134,9 @@ export const settings = `
         }
         // 通知 Service Worker 清理其内存中的缓存引用
         try { await clearPwaCache(); } catch(e) {}
-        await refreshCacheSize();
+        // 清空后立即刷新显示（此时应为 0 B）
+        var display = document.getElementById('cache-size-display');
+        if (display) display.textContent = '0 B';
       } catch (e) {
         alert('清空缓存失败：' + (e && e.message ? e.message : e));
       }

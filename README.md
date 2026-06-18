@@ -165,8 +165,13 @@ input::placeholder,textarea::placeholder{color:var(--ycy-t3)!important}
 .modal-row .fake-input{margin-bottom:0!important}
 .modal-row .detail-value.editable{margin-bottom:0!important}
 .modal-subtask-row{margin-bottom:10px!important;align-items:stretch!important}
-.modal-subtask-row input{margin-bottom:0!important;height:42px!important}
-.modal-subtask-row button{margin:0!important;height:42px!important}
+.modal-subtask-row input{margin-bottom:0!important}
+.modal-subtask-row button{margin:0!important}
+/* 子任务 +/- 图标按钮：方形、粗号、与同行输入框等高（依赖 flex stretch） */
+.subtask-icon-btn{width:38px!important;flex-shrink:0!important;padding:0!important;font-size:1.25rem!important;font-weight:900!important;line-height:1!important;display:flex!important;align-items:center!important;justify-content:center!important;text-transform:none!important}
+.subtask-icon-btn.danger{color:var(--ycy-ac)!important;border-color:var(--ycy-ac)!important}
+.subtask-icon-btn.danger:hover{background:var(--ycy-ac)!important;color:#000!important}
+.subtask-edit-item .subtask-icon-btn{width:30px!important;height:28px!important;font-size:1.1rem!important}
 
 /* ── date-bar ── */
 .date-bar{background:rgba(255,255,255,.55)!important;border:1px solid var(--ycy-bd)!important;border-radius:var(--ycy-r)!important;box-shadow:var(--ycy-sh-lg)!important}
