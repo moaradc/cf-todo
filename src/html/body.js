@@ -390,7 +390,7 @@ export function getBody(isAuthorized) {
               <span class="flex-1">缓存大小 <span class="md-code" id="cache-size-display">未计算</span></span>
               <button style="font-size:0.8rem;padding:6px 10px;" onclick="refreshCacheSize()">计算</button>
           </div>
-          <p class="settings-text" style="margin-bottom: 12px;">点击「计算」扫描 Service Worker 缓存的页面与 API 响应并统计实际占用（缺失 content-length 头的条目将读取响应体以获得精确大小，可能稍慢）。清空缓存不影响您的待办数据，下次访问将自动重建。</p>
+          <p class="settings-text" style="margin-bottom: 12px;">清除页面与数据缓存，不影响您的待办事项。</p>
           <button class="btn-danger" style="width:100%" onclick="clearAppCache()">清空缓存</button>
       </div>
 

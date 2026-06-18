@@ -126,10 +126,9 @@ export const settings = `
     }
 
     async function clearAppCache() {
-      var msg = '确定清空应用缓存吗？\\n\\n将清理：\\n• Service Worker 缓存的页面与 API 响应\\n• 前端定制预览状态（如处于预览模式将退出）\\n\\n不会清理：登录状态、主题偏好、待办数据。';
-      if (!confirm(msg)) return;
-      // 捕获清理前是否处于预览模式（决定是否需要重载退出预览）
-      var wasInPreview = localStorage.getItem('preview_custom_header') !== null || localStorage.getItem('preview_custom_content') !== null;
+      // 清理前端定制预览状态（保留 moara_authed 登录态与 themeMode 主题偏好）
+      localStorage.removeItem('preview_custom_header');
+      localStorage.removeItem('preview_custom_content');
       try {
         // 1. 清空 Service Worker Cache API
         if ('caches' in window) {
@@ -138,22 +137,10 @@ export const settings = `
         }
         // 2. 通知 Service Worker 释放其内部引用
         try { await clearPwaCache(); } catch(e) {}
-        // 3. 清理前端定制预览状态（保留 moara_authed 登录态与 themeMode 主题偏好）
-        localStorage.removeItem('preview_custom_header');
-        localStorage.removeItem('preview_custom_content');
-        // 4. 反馈与重载
-        // 与 saveAndCloseSettings 行为对齐：使用 window.location.replace('/') 跳到根路径
-        // 避免重载后停留在 /settings 路由（用户已离开此面板的语义）
-        // 若处于预览模式，重载到根路径还能完全卸载已注入的自定义代码
-        if (wasInPreview) {
-          alert('缓存与预览状态已清空，将刷新页面以完全退出预览模式。');
-        } else {
-          alert('应用缓存已清空。');
-        }
-        window.location.replace('/');
-      } catch (e) {
-        alert('清空缓存失败：' + (e && e.message ? e.message : e));
-      }
+      } catch (e) { /* 忽略，仍重载 */ }
+      // 3. 直接重载到根路径，与 saveAndCloseSettings 行为一致
+      // 避免停留在 /settings 路由；若处于预览模式，重载还能完全卸载已注入的自定义代码
+      window.location.replace('/');
     }
 
     function closeSettings() {
