@@ -76,7 +76,15 @@ export const todos = `
     function updateViewBtnLabel() {
       var fMap = { 'all': '全部', 'todo': '未完成', 'done': '已完成' };
       var sMap = { 'time': '时间', 'priority': '优先级' };
-      var catLabel = filterCategoryId ? getCategoryName(filterCategoryId) : '全部分类';
+      var catLabel;
+      if (filterCategoryIds.size === 0) {
+        catLabel = '全部分类';
+      } else if (filterCategoryIds.size === 1) {
+        var onlyId = filterCategoryIds.values().next().value;
+        catLabel = getCategoryName(onlyId) || '已选 1 个';
+      } else {
+        catLabel = '已选 ' + filterCategoryIds.size + ' 个';
+      }
       var el;
       el = document.getElementById('view-tag-filter');
       if (el) el.textContent = fMap[filterMethod];
@@ -91,14 +99,14 @@ export const todos = `
       if (!container) return;
       container.innerHTML = '';
       var allBtn = document.createElement('div');
-      allBtn.className = 'category-modal-item' + (!filterCategoryId ? ' selected' : '');
+      allBtn.className = 'category-modal-item' + (filterCategoryIds.size === 0 ? ' selected' : '');
       allBtn.innerHTML = '<span class="cat-name">全部</span>';
       allBtn.onclick = function() { setViewCategory(''); };
       container.appendChild(allBtn);
       for (var i = 0; i < categoriesList.length; i++) {
         var cat = categoriesList[i];
         var btn = document.createElement('div');
-        btn.className = 'category-modal-item' + (filterCategoryId === cat.id ? ' selected' : '');
+        btn.className = 'category-modal-item' + (filterCategoryIds.has(cat.id) ? ' selected' : '');
         btn.innerHTML = '<span class="badge-category-icon" style="background:' + (cat.color || CATEGORY_COLOR_PRESETS[0]) + '"></span><span class="cat-name">' + escapeHtml(cat.name) + '</span>';
         btn.onclick = (function(cid) { return function() { setViewCategory(cid); }; })(cat.id);
         container.appendChild(btn);
@@ -140,7 +148,14 @@ export const todos = `
     }
 
     function setViewCategory(catId) {
-      filterCategoryId = catId || '';
+      // 空字符串 = "全部" 按钮，清空选择集
+      if (!catId) {
+        filterCategoryIds.clear();
+      } else if (filterCategoryIds.has(catId)) {
+        filterCategoryIds.delete(catId);
+      } else {
+        filterCategoryIds.add(catId);
+      }
       renderViewCategoryBtns();
       updateViewBtnLabel();
       renderTodos();
@@ -168,7 +183,7 @@ export const todos = `
       var filteredTodos = todos;
       if (filterMethod === 'todo') filteredTodos = todos.filter(function(t){ return !t.done; });
       else if (filterMethod === 'done') filteredTodos = todos.filter(function(t){ return t.done; });
-      if (filterCategoryId) filteredTodos = filteredTodos.filter(function(t){ return t.category_id === filterCategoryId; });
+      if (filterCategoryIds.size > 0) filteredTodos = filteredTodos.filter(function(t){ return filterCategoryIds.has(t.category_id); });
 
       var listEl = document.getElementById('todo-list');
 
@@ -258,7 +273,7 @@ export const todos = `
       let filteredTodos = todos;
       if (filterMethod === 'todo') filteredTodos = todos.filter(t => !t.done);
       else if (filterMethod === 'done') filteredTodos = todos.filter(t => t.done);
-      if (filterCategoryId) filteredTodos = filteredTodos.filter(t => t.category_id === filterCategoryId);
+      if (filterCategoryIds.size > 0) filteredTodos = filteredTodos.filter(t => filterCategoryIds.has(t.category_id));
 
       const visibleIndices = filteredTodos.map(t => todos.indexOf(t));
       const allSelected = visibleIndices.length > 0 && visibleIndices.every(idx => selectedTasks.has(idx));

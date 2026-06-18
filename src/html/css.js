@@ -273,10 +273,21 @@ export const css = `
     .modal-row .fake-input { margin-bottom: 0; }
     .modal-row .detail-value.editable { margin-bottom: 0; }
     .modal-subtask-row { margin-bottom: 10px; align-items: stretch; }
-    .modal-subtask-row input { margin-bottom: 0; height: 42px; }
-    .modal-subtask-row button { margin: 0; height: 42px; }
+    .modal-subtask-row input { margin-bottom: 0; }
+    .modal-subtask-row button { margin: 0; }
     .fake-input .arrow { font-size: 0.8rem; }
     .fake-input .arrow-r { font-size: 0.8rem; margin-right: 8px; }
+
+    /* 子任务 +/- 图标按钮：方形、粗号、与同行输入框等高（依赖 flex stretch） */
+    .subtask-icon-btn {
+      width: 38px; flex-shrink: 0; padding: 0;
+      font-size: 1.25rem; font-weight: 900; line-height: 1;
+      display: flex; align-items: center; justify-content: center;
+      text-transform: none;
+    }
+    .subtask-icon-btn.danger { color: var(--accent); border-color: var(--accent); }
+    .subtask-icon-btn.danger:hover { background: var(--accent); color: #000; }
+    .subtask-edit-item .subtask-icon-btn { width: 30px; height: 28px; font-size: 1.1rem; }
 
     .subtask-view-item {
       display: flex; align-items: center; background: rgba(255,255,255,0.05);

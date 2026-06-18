@@ -144,8 +144,8 @@ export const core = `
     let currentDetailIndex = -1;
     let isEditMode = false;
     let pendingAction = null; 
-    let filterMethod = 'all'; 
-    let filterCategoryId = '';
+    let filterMethod = 'all';
+    let filterCategoryIds = new Set();
     
     let tempSubtasks =[];
     let tempSearchTerms =[];

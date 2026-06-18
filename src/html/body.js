@@ -67,7 +67,7 @@ export function getBody(isAuthorized) {
       <div class="detail-label modal-section">子任务</div>
       <div class="row modal-subtask-row">
         <input type="text" id="add-subtask-input" placeholder="输入子任务（可选）" class="flex-1">
-        <button onclick="addTempSubtask('add')">添加</button>
+        <button class="subtask-icon-btn" onclick="addTempSubtask('add')" aria-label="添加子任务">+</button>
       </div>
       <div id="add-subtasks-list" style="margin-bottom:15px;"></div>
 
@@ -384,6 +384,16 @@ export function getBody(isAuthorized) {
           </div>
       </div>
 
+      <div class="detail-label">应用缓存</div>
+      <div class="settings-card">
+          <div class="setting-item" style="margin-bottom: 12px;">
+              <span class="flex-1">缓存大小 <span class="md-code" id="cache-size-display">--</span></span>
+              <button style="font-size:0.8rem;padding:6px 10px;" onclick="refreshCacheSize()">刷新</button>
+          </div>
+          <p class="settings-text" style="margin-bottom: 12px;">清空 Service Worker 缓存的页面与 API 响应。不影响您的待办数据，下次访问将自动从网络重新拉取。</p>
+          <button class="btn-danger" style="width:100%" onclick="clearAppCache()">清空缓存</button>
+      </div>
+
       <div class="detail-label">API 密钥管理</div>
       <div class="settings-card">
           <p class="settings-text" style="margin-bottom: 12px;">API 密钥用于外部程序（如 OpenClaw、脚本等）通过 RESTful API 安全访问待办数据。最多 <strong>10</strong> 个密钥。</p>
@@ -517,7 +527,7 @@ export function getBody(isAuthorized) {
         <div class="category-modal-item" data-val="todo" onclick="setViewFilter('todo')"><span class="cat-name">未完成</span></div>
         <div class="category-modal-item" data-val="done" onclick="setViewFilter('done')"><span class="cat-name">已完成</span></div>
       </div>
-      <div class="detail-label">分类</div>
+      <div class="detail-label">分类（可多选）</div>
       <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px;max-height:120px;overflow-y:auto;" id="view-category-btns"></div>
       <div class="detail-label">排序</div>
       <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px;" id="view-sort-btns">

@@ -73,7 +73,65 @@ export const settings = `
       loadApiKeys();
       checkUpdate();
       updatePwaInstallUI();
+      refreshCacheSize();
       _navPush('settings-overlay', closeSettings, '/settings');
+    }
+
+    // 应用缓存大小计算与清空
+    // 性能：仅读取 content-length 头，不读取响应体；无 content-length 的条目跳过（显示"≈"）
+    function formatCacheSize(bytes) {
+      if (bytes < 1024) return bytes + ' B';
+      if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+      return (bytes / (1024 * 1024)).toFixed(2) + ' MB';
+    }
+
+    async function getCacheSize() {
+      if (!('caches' in window)) return 0;
+      var total = 0;
+      var names = await caches.keys();
+      for (var i = 0; i < names.length; i++) {
+        var cache = await caches.open(names[i]);
+        var requests = await cache.keys();
+        for (var j = 0; j < requests.length; j++) {
+          var response = await cache.match(requests[j]);
+          if (response) {
+            var len = response.headers.get('content-length');
+            if (len) {
+              var n = parseInt(len, 10);
+              if (!isNaN(n)) total += n;
+            }
+          }
+        }
+      }
+      return total;
+    }
+
+    async function refreshCacheSize() {
+      var display = document.getElementById('cache-size-display');
+      if (!display) return;
+      if (!('caches' in window)) { display.textContent = '不可用'; return; }
+      display.textContent = '计算中...';
+      try {
+        var bytes = await getCacheSize();
+        display.textContent = '≈ ' + formatCacheSize(bytes);
+      } catch (e) {
+        display.textContent = '计算失败';
+      }
+    }
+
+    async function clearAppCache() {
+      if (!confirm('确定清空应用缓存吗？\\n缓存将在下次访问时自动重建，不影响您的待办数据。')) return;
+      try {
+        if ('caches' in window) {
+          var names = await caches.keys();
+          await Promise.all(names.map(function(n) { return caches.delete(n); }));
+        }
+        // 通知 Service Worker 清理其内存中的缓存引用
+        try { await clearPwaCache(); } catch(e) {}
+        await refreshCacheSize();
+      } catch (e) {
+        alert('清空缓存失败：' + (e && e.message ? e.message : e));
+      }
     }
 
     function closeSettings() {

@@ -22,7 +22,7 @@ export const categories = `
       list.innerHTML = tempSubtasks.map((st, i) => \`
         <div class="subtask-edit-item">
           <span class="flex-1" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">\${st.text}</span>
-          <button class="btn-danger" style="padding:4px 8px;" onclick="removeTempSubtask('\${mode}', \${i})">删</button>
+          <button class="subtask-icon-btn danger" onclick="removeTempSubtask('\${mode}', \${i})" aria-label="删除子任务">−</button>
         </div>
       \`).join('');
     }

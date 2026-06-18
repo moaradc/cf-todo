@@ -273,7 +273,7 @@ export const detail = `
           <div class="detail-label modal-section">子任务</div>
           <div class="row modal-subtask-row">
             <input type="text" id="edit-subtask-input" placeholder="输入子任务（可选）" class="detail-value editable flex-1">
-            <button onclick="addTempSubtask('edit')">添加</button>
+            <button class="subtask-icon-btn" onclick="addTempSubtask('edit')" aria-label="添加子任务">+</button>
           </div>
           <div id="edit-subtasks-list" style="margin-bottom:15px;"></div>
 
