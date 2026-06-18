@@ -834,6 +834,23 @@ function fixAddModalChildren() {
   for (var i = 0; i < nodesToMove.length; i++) {
     body.appendChild(nodesToMove[i]);
   }
+
+  // 移动端隐藏 ">> 新建事项" 标题
+  var _isMobileAdd = window.matchMedia && window.matchMedia('(max-width: 1024px)').matches;
+  var _addTitle = body.querySelector('h3') || mc.querySelector('h3');
+  if (_addTitle) {
+    if (_isMobileAdd) {
+      _addTitle.style.display = 'none';
+      _addTitle.style.margin = '0';
+      _addTitle.style.border = 'none';
+      _addTitle.style.padding = '0';
+    } else {
+      _addTitle.style.display = '';
+      _addTitle.style.margin = '';
+      _addTitle.style.border = '';
+      _addTitle.style.padding = '';
+    }
+  }
 }
 
 var addModalObs = new MutationObserver(function() {
@@ -872,6 +889,7 @@ _ycyForceSync.observe(document.documentElement,{
 });
 })();
 </script>
+
 ```
 </details>
 
