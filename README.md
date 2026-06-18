@@ -288,7 +288,8 @@ html.bg-dark #modal-add .modal-content{box-shadow: 0 16px 56px rgba(0,0,0,.32), 
 
 /* ── CALENDAR & TIME MODALS ── */
 #modal-calendar.modal-overlay,
-#modal-time.modal-overlay{background:rgba(0,0,0,.22)!important}
+#modal-time.modal-overlay,
+#modal-interval.modal-overlay{background:rgba(0,0,0,.22)!important}
 .modal-content{background:var(--ycy-panel-s)!important;border:1px solid var(--ycy-bd)!important;border-radius:var(--ycy-r)!important;box-shadow:var(--ycy-sh-lg)!important;color:var(--ycy-t)!important}
 .modal-content h3{color:var(--ycy-t)!important;border-bottom:1px solid var(--ycy-bd2)!important;padding-bottom:8px!important}
 
