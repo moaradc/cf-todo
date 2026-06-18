@@ -720,14 +720,23 @@ async function handleV1TodoDelete(DB, todoId, scope) {
           await DB.prepare('UPDATE todo_templates SET exdates = ? WHERE parent_id = ?').bind(newExdates, parentId).run();
         }
       } else if (tmpl.type === 'set_repeat_end') {
+        // thisAndFuture: 截断模板，软删除当前及以后实例并脱钩为单次快照
+        // 关键修复: 被删实例在回收站中 repeat_type='none', parent_id=id，恢复时不再重新激活循环
+        // 对齐 Google Tasks "停止重复后不可再循环" + RFC 5545 RANGE=THISANDFUTURE 语义
         const prevDate = getPreviousDate(date);
         if (tmpl.alsoDeleteFuture) {
-          await DB.prepare('UPDATE todos SET deleted = 1 WHERE parent_id=? AND date >= ?').bind(parentId, date).run();
+          await DB.prepare(
+            'UPDATE todos SET deleted = 1, repeat_type=\'none\', repeat_custom=\'\', repeat_end=\'\', repeat_interval=1, parent_id=id WHERE parent_id=? AND date >= ?'
+          ).bind(parentId, date).run();
         }
         await DB.prepare('UPDATE todos SET repeat_end=? WHERE parent_id=? AND date < ? AND repeat_type != \'none\'').bind(prevDate, parentId, date).run();
         await DB.prepare('UPDATE todo_templates SET repeat_end=? WHERE parent_id=?').bind(prevDate, parentId).run();
       } else if (tmpl.type === 'delete_all') {
-        await DB.prepare('UPDATE todos SET deleted = 1 WHERE parent_id=?').bind(parentId).run();
+        // all: 软删除所有实例(含回收站同系列项)并脱钩为单次快照，删除模板
+        // 关键修复: 避免恢复时从回收站行重建整个循环系列
+        await DB.prepare(
+          'UPDATE todos SET deleted = 1, repeat_type=\'none\', repeat_custom=\'\', repeat_end=\'\', repeat_interval=1, parent_id=id WHERE parent_id=?'
+        ).bind(parentId).run();
         await DB.prepare('DELETE FROM todo_templates WHERE parent_id=?').bind(parentId).run();
       }
     }
