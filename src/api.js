@@ -1744,7 +1744,10 @@ self.addEventListener('fetch', (event) => {
       if (action === 'RESTORE') {
         const t = await env.DB.prepare('SELECT parent_id, date, repeat_type, repeat_end FROM todos WHERE id = ?').bind(id).first();
         await env.DB.prepare('UPDATE todos SET deleted = 0 WHERE id = ?').bind(id).run();
-        if (t && t.repeat_type && t.repeat_type !== 'none' && t.parent_id) {
+        // 仅当回收站行仍携带循环属性时才需判定 (this-scope 删除, 或旧版未脱钩的 thisAndFuture/all 行)
+        // 新版 thisAndFuture/all 删除已在删除时脱钩为单次快照 (repeat_type='none', parent_id=id)，此处直接跳过。
+        // 对齐 RFC 5545 + Google Tasks 标准：停止/删除系列后恢复，实例为单次任务，不再重新激活循环。
+        if (t && t.repeat_type && t.repeat_type !== 'none' && t.parent_id && t.parent_id !== id) {
           // 检查同日期是否已有活跃实例（避免恢复后出现重复）
           const existing = await env.DB.prepare(
             'SELECT id FROM todos WHERE parent_id = ? AND date = ? AND deleted = 0 AND id != ? LIMIT 1'
@@ -1752,34 +1755,21 @@ self.addEventListener('fetch', (event) => {
           if (existing) {
             // 同日期已有活跃实例，恢复的实例脱离模板变为单次任务
             await env.DB.prepare(
-              'UPDATE todos SET parent_id=?, repeat_type=\'none\', repeat_custom=\'\', repeat_end=\'\' WHERE id=?'
+              'UPDATE todos SET parent_id=?, repeat_type=\'none\', repeat_custom=\'\', repeat_end=\'\', repeat_interval=1 WHERE id=?'
             ).bind(id, id).run();
-          } else if (t.repeat_end && t.repeat_end !== '') {
-            // 恢复被终止的系列项：检查模板是否仍活跃
-            const tpl = await env.DB.prepare('SELECT repeat_end FROM todo_templates WHERE parent_id = ?').bind(t.parent_id).first();
-            if (tpl && tpl.repeat_end && tpl.repeat_end < t.date) {
-              // 模板已终止且早于此日期，恢复的实例脱离模板变为单次任务
-              await env.DB.prepare(
-                'UPDATE todos SET parent_id=?, repeat_type=\'none\', repeat_custom=\'\', repeat_end=\'\' WHERE id=?'
-              ).bind(id, id).run();
+          } else {
+            // 以模板的 repeat_end 为准判定系列是否仍覆盖此日期 (旧版按实例 repeat_end 判定，但实例 repeat_end 常为空导致漏判)
+            const tpl = await env.DB.prepare('SELECT repeat_end, exdates FROM todo_templates WHERE parent_id = ?').bind(t.parent_id).first();
+            if (tpl && (tpl.repeat_end === '' || tpl.repeat_end == null || tpl.repeat_end >= t.date)) {
+              // 模板仍覆盖此日期: 视为"仅此日程"删除的恢复，从EXDATE移除此日期，重新并入系列
+              const currentExdates = tpl.exdates || '[]';
+              const newExdates = removeExdate(currentExdates, t.date);
+              await env.DB.prepare('UPDATE todo_templates SET exdates = ? WHERE parent_id = ?').bind(newExdates, t.parent_id).run();
             } else {
-              // 模板仍活跃或无终止，重新激活重复（清除repeat_end）
-              await env.DB.prepare('UPDATE todos SET repeat_end=\'\' WHERE id=?').bind(id).run();
-            }
-          }
-          // 从exdates中移除此日期
-          const tpl = await env.DB.prepare('SELECT exdates FROM todo_templates WHERE parent_id = ?').bind(t.parent_id).first();
-          if (tpl) {
-            const currentExdates = tpl.exdates || '[]';
-            const newExdates = removeExdate(currentExdates, t.date);
-            await env.DB.prepare('UPDATE todo_templates SET exdates = ? WHERE parent_id = ?').bind(newExdates, t.parent_id).run();
-          } else if (!tpl && t.repeat_type && t.repeat_type !== 'none') {
-            // 模板不存在时重建（删除scope=thisAndFuture/all时模板被删了）
-            const task = await env.DB.prepare('SELECT text, time, priority, `desc`, url, copy_text, subtasks, search_terms, repeat_type, repeat_custom, end_time, category_id, repeat_interval FROM todos WHERE id=?').bind(id).first();
-            if (task) {
+              // 模板已删除(旧版 all)或已截断至此日期之前(旧版 thisAndFuture): 无法并入系列，脱钩为单次任务
               await env.DB.prepare(
-                'INSERT OR REPLACE INTO todo_templates (parent_id, text, time, priority, `desc`, url, copy_text, subtasks, search_terms, repeat_type, repeat_custom, repeat_end, end_time, anchor_date, exdates, category_id, repeat_interval) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)'
-              ).bind(t.parent_id, task.text, task.time, task.priority, task.desc, task.url, task.copy_text, task.subtasks, task.search_terms, task.repeat_type, task.repeat_custom || '', '', task.end_time, t.date, '[]', task.category_id, task.repeat_interval || 1).run();
+                'UPDATE todos SET parent_id=?, repeat_type=\'none\', repeat_custom=\'\', repeat_end=\'\', repeat_interval=1 WHERE id=?'
+              ).bind(id, id).run();
             }
           }
         }
@@ -1792,40 +1782,35 @@ self.addEventListener('fetch', (event) => {
           const placeholders = ids.map(() => '?').join(',');
           const tasks = await env.DB.prepare(`SELECT id, parent_id, date, repeat_type, repeat_end FROM todos WHERE id IN (${placeholders})`).bind(...ids).all();
           await env.DB.prepare(`UPDATE todos SET deleted = 0 WHERE id IN (${placeholders})`).bind(...ids).run();
-          // 恢复被终止的系列项：检查同日期是否已有活跃实例
-          const reviveIds = [];
+          // 仅回收站行仍携带循环属性的 (this-scope 删除或旧版未脱钩行) 需要判定
+          // 新版 thisAndFuture/all 删除时已脱钩为单次 (repeat_type='none', parent_id=id)，跳过
+          // 对齐 RFC 5545 + Google Tasks: 模板已删除/截断的，恢复为单次任务，不重建系列
           const detachIds = [];
+          const exdateUpdates = {};  // parent_id -> [dates] (并入系列时需从EXDATE移除)
           for (const t of tasks.results) {
-            if (t.repeat_type && t.repeat_type !== 'none' && t.repeat_end && t.repeat_end !== '') {
-              const existing = await env.DB.prepare(
-                'SELECT id FROM todos WHERE parent_id = ? AND date = ? AND deleted = 0 AND id != ? LIMIT 1'
-              ).bind(t.parent_id, t.date, t.id).first();
-              if (existing) {
-                detachIds.push(t.id);
-              } else {
-                const tpl = await env.DB.prepare('SELECT repeat_end FROM todo_templates WHERE parent_id = ?').bind(t.parent_id).first();
-                if (tpl && tpl.repeat_end && tpl.repeat_end < t.date) {
-                  detachIds.push(t.id);
-                } else {
-                  reviveIds.push(t.id);
-                }
-              }
+            if (!(t.repeat_type && t.repeat_type !== 'none' && t.parent_id && t.parent_id !== t.id)) continue;
+            // 检查同日期是否已有活跃实例
+            const existing = await env.DB.prepare(
+              'SELECT id FROM todos WHERE parent_id = ? AND date = ? AND deleted = 0 AND id != ? LIMIT 1'
+            ).bind(t.parent_id, t.date, t.id).first();
+            if (existing) {
+              detachIds.push(t.id);
+              continue;
             }
-          }
-          if (reviveIds.length > 0) {
-            const ph = reviveIds.map(() => '?').join(',');
-            await env.DB.prepare(`UPDATE todos SET repeat_end='' WHERE id IN (${ph})`).bind(...reviveIds).run();
+            // 以模板 repeat_end 为准判定系列是否仍覆盖此日期
+            const tpl = await env.DB.prepare('SELECT repeat_end FROM todo_templates WHERE parent_id = ?').bind(t.parent_id).first();
+            if (tpl && (tpl.repeat_end === '' || tpl.repeat_end == null || tpl.repeat_end >= t.date)) {
+              // 模板仍覆盖此日期: 并入系列，记录需移除的EXDATE
+              if (!exdateUpdates[t.parent_id]) exdateUpdates[t.parent_id] = [];
+              exdateUpdates[t.parent_id].push(t.date);
+            } else {
+              // 模板已删除或已截断至此日期之前: 脱钩为单次任务
+              detachIds.push(t.id);
+            }
           }
           if (detachIds.length > 0) {
             const ph = detachIds.map(() => '?').join(',');
-            await env.DB.prepare(`UPDATE todos SET parent_id=id, repeat_type='none', repeat_custom='', repeat_end='' WHERE id IN (${ph})`).bind(...detachIds).run();
-          }
-          const exdateUpdates = {};
-          for (const t of tasks.results) {
-            if (t.repeat_type && t.repeat_type !== 'none' && t.parent_id) {
-              if (!exdateUpdates[t.parent_id]) exdateUpdates[t.parent_id] = [];
-              exdateUpdates[t.parent_id].push(t.date);
-            }
+            await env.DB.prepare(`UPDATE todos SET parent_id=id, repeat_type='none', repeat_custom='', repeat_end='', repeat_interval=1 WHERE id IN (${ph})`).bind(...detachIds).run();
           }
           for (const pid of Object.keys(exdateUpdates)) {
             const tpl = await env.DB.prepare('SELECT exdates FROM todo_templates WHERE parent_id = ?').bind(pid).first();
@@ -1840,17 +1825,6 @@ self.addEventListener('fetch', (event) => {
                 }
               }
               if (changed) await env.DB.prepare('UPDATE todo_templates SET exdates = ? WHERE parent_id = ?').bind(currentExdates, pid).run();
-            } else if (!tpl) {
-              // 模板不存在时从第一个有效任务重建
-              const firstTask = tasks.results.find(t => t.parent_id === pid && t.repeat_type && t.repeat_type !== 'none');
-              if (firstTask) {
-                const task = await env.DB.prepare('SELECT text, time, priority, `desc`, url, copy_text, subtasks, search_terms, repeat_type, repeat_custom, end_time, category_id, repeat_interval FROM todos WHERE id=?').bind(firstTask.id).first();
-                if (task) {
-                  await env.DB.prepare(
-                    'INSERT OR REPLACE INTO todo_templates (parent_id, text, time, priority, `desc`, url, copy_text, subtasks, search_terms, repeat_type, repeat_custom, repeat_end, end_time, anchor_date, exdates, category_id, repeat_interval) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)'
-                  ).bind(pid, task.text, task.time, task.priority, task.desc, task.url, task.copy_text, task.subtasks, task.search_terms, task.repeat_type, task.repeat_custom || '', '', task.end_time, firstTask.date, '[]', task.category_id, task.repeat_interval || 1).run();
-                }
-              }
             }
           }
         }
@@ -2314,18 +2288,26 @@ self.addEventListener('fetch', (event) => {
                   await env.DB.prepare('UPDATE todo_templates SET exdates = ? WHERE parent_id = ?').bind(newExdates, parentId).run();
                 }
               } else if (tmpl.type === 'set_repeat_end') {
-                // "thisAndFuture" scope: set repeat_end on template, soft delete current and future
+                // "thisAndFuture" scope: 截断模板 repeat_end，软删除当前及以后实例
+                // 关键修复: 被软删除的实例在回收站中脱钩为单次任务快照 (repeat_type='none', parent_id=id)
+                // 这样恢复时不会重新激活循环，对齐 Google Tasks "停止重复后不可再循环" 的标准语义
+                // (RFC 5545 RANGE=THISANDFUTURE 等价: 模板 UNTIL 截断，被删实例视为脱离系列的冻结快照)
                 const prevDate = getPreviousDate(date);
                 if (tmpl.alsoDeleteFuture) {
-                  await env.DB.prepare('UPDATE todos SET deleted = 1 WHERE parent_id=? AND date >= ?').bind(parentId, date).run();
+                  await env.DB.prepare(
+                    'UPDATE todos SET deleted = 1, repeat_type=\'none\', repeat_custom=\'\', repeat_end=\'\', repeat_interval=1, parent_id=id WHERE parent_id=? AND date >= ?'
+                  ).bind(parentId, date).run();
                 }
-                // Set repeat_end on past instances (系列截止到前一天，当前日期已不属于系列)
+                // 过去实例保持活跃，设置 repeat_end 用于显示"每天·至日期"
                 await env.DB.prepare('UPDATE todos SET repeat_end=? WHERE parent_id=? AND date < ? AND repeat_type != \'none\'').bind(prevDate, parentId, date).run();
-                // Update template repeat_end
+                // 截断模板
                 await env.DB.prepare('UPDATE todo_templates SET repeat_end=? WHERE parent_id=?').bind(prevDate, parentId).run();
               } else if (tmpl.type === 'delete_all') {
-                // "all" scope: soft delete all instances and delete template
-                await env.DB.prepare('UPDATE todos SET deleted = 1 WHERE parent_id=?').bind(parentId).run();
+                // "all" scope: 软删除所有实例并删除模板
+                // 关键修复: 所有实例 (含回收站中已有的同系列项) 脱钩为单次任务快照，避免恢复时重建整个循环系列
+                await env.DB.prepare(
+                  'UPDATE todos SET deleted = 1, repeat_type=\'none\', repeat_custom=\'\', repeat_end=\'\', repeat_interval=1, parent_id=id WHERE parent_id=?'
+                ).bind(parentId).run();
                 await env.DB.prepare('DELETE FROM todo_templates WHERE parent_id=?').bind(parentId).run();
               }
             }
