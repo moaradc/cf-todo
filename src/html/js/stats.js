@@ -1324,19 +1324,28 @@ export const stats = `
     }
 
     // ---------- 主题切换 hook ----------
-    // applyTheme 在 core.js 中每 60s 调用一次，主题不变时仅刷新按钮文案。
-    // 仅当面板处于 active 且主题键真正变化时才触发刷新。
-    function _refreshStatsOnThemeChange() {
-      var overlay = document.getElementById('stats-overlay');
-      if (!overlay || !overlay.classList.contains('active')) return;
-      var newKey = document.documentElement.getAttribute('data-theme') === 'light' ? 'light' : 'dark';
-      if (newKey === cachedThemeKey) return;
-      cachedThemeKey = newKey;
-      if (currentStatsTab === 'weekly') {
-        _loadRangeStats(currentStatsRange);
-      } else if (currentStatsTab === 'annual') {
-        loadAnnualReport();
-      }
+    // 用 MutationObserver 监听 documentElement 的 data-theme 属性变化，
+    // 真正切换时才触发 stats 重绘。替代原先 applyTheme 每 60s 轮询通知的方式，
+    // 消除"面板打开时每隔一段时间自动刷新"的副作用。
+    // 注意：observer 始终运行（轻量），但回调内会判断 stats 面板是否打开，
+    // 关闭时直接 return，不产生任何网络请求。
+    if (typeof MutationObserver !== 'undefined') {
+      var _themeObserver = new MutationObserver(function(mutations) {
+        var overlay = document.getElementById('stats-overlay');
+        if (!overlay || !overlay.classList.contains('active')) return;
+        var newKey = document.documentElement.getAttribute('data-theme') === 'light' ? 'light' : 'dark';
+        if (newKey === cachedThemeKey) return;
+        cachedThemeKey = newKey;
+        if (currentStatsTab === 'weekly') {
+          _loadRangeStats(currentStatsRange);
+        } else if (currentStatsTab === 'annual') {
+          loadAnnualReport();
+        }
+      });
+      _themeObserver.observe(document.documentElement, {
+        attributes: true,
+        attributeFilter: ['data-theme']
+      });
     }
 
     // 窗口尺寸变化时同步 ECharts 实例（仅在 stats 面板打开时）

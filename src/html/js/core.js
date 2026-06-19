@@ -115,19 +115,19 @@ export const core = `
       else if (currentThemeMode === 'dark') isLight = false;
       else {
         const hour = new Date().getHours();
-        isLight = hour >= 6 && hour < 18; 
+        isLight = hour >= 6 && hour < 18;
       }
       if (isLight) document.documentElement.setAttribute('data-theme', 'light');
       else document.documentElement.removeAttribute('data-theme');
-      
+
       const btn = document.getElementById('theme-toggle-btn');
       if (btn) {
         if (currentThemeMode === 'auto') btn.innerText = '自动';
         else if (currentThemeMode === 'light') btn.innerText = '亮色';
         else btn.innerText = '暗色';
       }
-      // 通知统计页主题变化：仅当 stats 面板打开且主题键变化时才重绘
-      try { if (typeof _refreshStatsOnThemeChange === 'function') _refreshStatsOnThemeChange(); } catch(e) {}
+      // 注：不再在此处通知统计页。stats.js 用 MutationObserver 监听
+      // documentElement 的 data-theme 属性变化，真正切换时才重绘 ECharts。
     }
 
     function toggleTheme() {
@@ -138,7 +138,24 @@ export const core = `
       applyTheme();
     }
     applyTheme();
-    setInterval(applyTheme, 60000); 
+    // auto 模式下检查是否跨越 6:00 / 18:00 临界点；手动模式无需轮询。
+    // 收益：消除原 setInterval(applyTheme, 60000) 的每分钟空跑，
+    // 仅在主题真正需要切换时才调 applyTheme → data-theme 变化 →
+    // stats.js 的 MutationObserver 触发 ECharts 重绘。
+    var _lastAutoHour = (currentThemeMode === 'auto') ? new Date().getHours() : -1;
+    setInterval(function() {
+      if (currentThemeMode !== 'auto') return;
+      var h = new Date().getHours();
+      // 检测是否跨越临界点（6 或 18）：上一小时与当前小时分属不同区间
+      var prevDay = (_lastAutoHour >= 6 && _lastAutoHour < 18);
+      var curDay = (h >= 6 && h < 18);
+      if (prevDay !== curDay) {
+        _lastAutoHour = h;
+        applyTheme();
+      } else {
+        _lastAutoHour = h;
+      }
+    }, 60000);
     setInterval(function() { if (todos.some(function(t){ return !t.done && t.end_time && t.time && t.date; })) renderTodos(); }, 60000);
 
     let currentDate = new Date();
