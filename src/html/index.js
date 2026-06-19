@@ -1,4 +1,4 @@
-import { APP_VERSION, CHANGELOG } from "../utils.js";
+import { APP_VERSION } from "../utils.js";
 import { css } from "./css.js";
 import { getBody } from "./body.js";
 import { router } from "./js/router.js";
@@ -70,7 +70,7 @@ ${bootstrap}
   `;
 
   html = html.replaceAll('${APP_VERSION}', APP_VERSION);
-  html = html.replaceAll('${CHANGELOG_JSON}', JSON.stringify(CHANGELOG).replace(/<\//g, '<\\/'));
+  // 注：changelog 不再构建时注入，openChangelogModal 实时从 GitHub 拉取最新版本
 
   html = html.replace(
     '<script>/*CUSTOM_HEADER_PLACEHOLDER*/</script>',
