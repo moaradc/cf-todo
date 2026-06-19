@@ -28,7 +28,7 @@ function renderHTML(isAuthorized, customHeader, customContent) {
   <meta name="apple-mobile-web-app-title" content="MOARA">
   <link rel="manifest" href="/manifest.json">
   <title>MOARA 待办事项</title>
-  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/echarts@5.4.3/dist/echarts.min.js"></script>
   <style>
 ${css}
   </style>

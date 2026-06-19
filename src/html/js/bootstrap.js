@@ -190,6 +190,7 @@ export const bootstrap = `
       openStats: openStats,
       closeStats: closeStats,
       switchStatsTab: switchStatsTab,
+      switchStatsRange: switchStatsRange,
       loadAnnualReport: loadAnnualReport,
       // 设置
       openSettings: openSettings,

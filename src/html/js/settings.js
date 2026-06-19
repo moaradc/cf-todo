@@ -165,6 +165,8 @@ export const settings = `
       popover.style.top = (triggerEl.offsetTop + triggerEl.offsetHeight + 5) + 'px';
       popover.style.left = triggerEl.offsetLeft + 'px';
       popover.style.right = 'auto';
+      // 显示后测量实际宽度，避免在窄屏溢出父容器/视口右侧
+      _clampPopoverWithinParent(popover, triggerEl);
       const closeHandler = (e) => {
         const outsidePopover = !popover.contains(e.target);
         const isTrigger = e.target === triggerEl;
@@ -175,6 +177,29 @@ export const settings = `
         }
       };
       setTimeout(() => document.addEventListener('click', closeHandler), 0);
+    }
+
+    // 将 popover 限制在父容器宽度内：若右侧溢出则向左对齐到右边界；若左侧仍溢出则压缩宽度
+    function _clampPopoverWithinParent(popover, triggerEl) {
+      try {
+        var parent = triggerEl.parentNode;
+        var parentW = parent.clientWidth;
+        var popW = popover.offsetWidth;
+        var left = parseInt(popover.style.left, 10) || 0;
+        // 右溢出：贴右边
+        if (left + popW > parentW - 4) {
+          popover.style.left = 'auto';
+          popover.style.right = '4px';
+          // 重新测量，若仍超出（极窄屏），强制收窄宽度
+          var newLeft = parentW - popover.offsetWidth - 4;
+          if (newLeft < 0) {
+            popover.style.right = 'auto';
+            popover.style.left = '0';
+            popover.style.maxWidth = (parentW - 8) + 'px';
+            popover.style.width = (parentW - 8) + 'px';
+          }
+        }
+      } catch(e) {}
     }
 
     function toggleSettingPopover(type, triggerEl) {

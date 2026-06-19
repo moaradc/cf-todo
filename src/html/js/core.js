@@ -126,6 +126,8 @@ export const core = `
         else if (currentThemeMode === 'light') btn.innerText = '亮色';
         else btn.innerText = '暗色';
       }
+      // 通知统计页主题变化：仅当 stats 面板打开且主题键变化时才重绘
+      try { if (typeof _refreshStatsOnThemeChange === 'function') _refreshStatsOnThemeChange(); } catch(e) {}
     }
 
     function toggleTheme() {
@@ -735,11 +737,13 @@ export const core = `
         if (actionRow) actionRow.style.display = customCodeEnabled ? 'flex' : 'none';
     }
     
-    let chartInstanceBar = null;
-    let chartInstancePri = null;
-    let chartInstanceStat = null;
+    // ECharts 实例集中管理：切换 tab / 关闭面板时统一 dispose
+    let chartInstances = {};
     let currentStatsTab = 'weekly';
+    let currentStatsRange = '7d'; // 7d / 12w / 12m / year
     let annualYear = null;
+    let cachedCategories = null; // 首次进入统计页后缓存，避免重复请求
+    let cachedThemeKey = '';     // 主题切换时强制重绘
 
     // ==================== PWA 安装 ====================
     var _deferredInstallPrompt = null;
