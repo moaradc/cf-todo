@@ -367,11 +367,31 @@ html.bg-dark #modal-add .modal-content{box-shadow: 0 16px 56px rgba(0,0,0,.32), 
 
 /* ── chart ── */
 .chart-container{background:var(--ycy-panel)!important;border:1px dashed var(--ycy-bd)!important;border-radius:var(--ycy-r-s)!important;box-shadow:none!important}
+.chart-container-tall,.chart-container-mid{background:var(--ycy-panel)!important;border:1px dashed var(--ycy-bd)!important;border-radius:var(--ycy-r-s)!important;box-shadow:none!important}
+.chart-title{color:var(--ycy-ac)!important;border-bottom:1px dashed var(--ycy-bd2)!important}
+.annual-chart-block{background:var(--ycy-panel)!important;border:1px dashed var(--ycy-bd)!important;border-radius:var(--ycy-r-s)!important;box-shadow:none!important}
+.annual-chart-title{color:var(--ycy-ac)!important;border-bottom:1px dashed var(--ycy-bd2)!important}
+
+/* ── stats range tabs (新) ── */
+.stats-range-tabs{border:1px solid var(--ycy-bd)!important;border-radius:0!important;overflow:hidden!important}
+.stats-range-tab{color:var(--ycy-t2)!important;background:transparent!important;border:none!important;border-radius:0!important;box-shadow:none!important}
+.stats-range-tab.active{background:var(--ycy-ac)!important;color:#fff!important;font-weight:700!important}
+
+/* ── stats summary (新) ── */
+.stats-summary-card{background:var(--ycy-panel)!important;border:1px solid var(--ycy-bd)!important;border-radius:var(--ycy-r-xs)!important;box-shadow:none!important}
+.stats-summary-value{color:var(--ycy-gn)!important}
+.stats-summary-label{color:var(--ycy-t3)!important}
+
+/* ── category rank (新) ── */
+.category-rank-item{background:var(--ycy-panel)!important;border:1px solid var(--ycy-bd)!important;border-radius:var(--ycy-r-xs)!important;box-shadow:none!important}
+.category-rank-rank{color:var(--ycy-gn)!important}
+.category-rank-name{color:var(--ycy-t)!important}
+.category-rank-count{color:var(--ycy-t2)!important}
+.category-rank-bar-wrap{background:var(--ycy-panel-w)!important;border-color:var(--ycy-bd2)!important;border-radius:3px!important}
+.category-rank-bar-total{background:rgba(128,128,128,.10)!important}
+.category-rank-bar-done{background:var(--ycy-gn)!important;border-radius:3px!important;opacity:.7!important}
 
 /* ── annual ── */
-.stats-tabs{border:1px solid var(--ycy-bd)!important;border-radius:var(--ycy-r-xs)!important;overflow:hidden!important}
-.stats-tab{color:var(--ycy-t2)!important;background:transparent!important;border:none!important;border-radius:0!important;box-shadow:none!important}
-.stats-tab.active{background:var(--ycy-ac)!important;color:#fff!important}
 .annual-hero{background:var(--ycy-panel-s)!important;border:1px solid var(--ycy-bd)!important;border-radius:var(--ycy-r)!important;box-shadow:var(--ycy-sh-lg)!important}
 .annual-hero::before{background:linear-gradient(90deg,var(--ycy-ac),var(--ycy-wn),var(--ycy-gn))!important;height:3px!important}
 .annual-ending-title{color:var(--ycy-ac)!important}
@@ -395,6 +415,21 @@ html.bg-dark #modal-add .modal-content{box-shadow: 0 16px 56px rgba(0,0,0,.32), 
 .annual-pri-bar-bg{background:var(--ycy-panel)!important;border-color:var(--ycy-bd)!important;border-radius:3px!important}
 .annual-pri-label,.annual-pri-count{color:var(--ycy-t2)!important}
 .annual-report-time{border-top:1px dashed var(--ycy-bd)!important;color:var(--ycy-t3)!important}
+
+/* ── annual compare cards (新) ── */
+.annual-compare-card{background:var(--ycy-panel)!important;border:1px solid var(--ycy-bd)!important;border-radius:var(--ycy-r-xs)!important;box-shadow:none!important}
+.annual-compare-card.winner{border-color:var(--ycy-gn)!important;box-shadow:0 0 0 1px var(--ycy-gn) inset!important}
+.annual-compare-card-label{color:var(--ycy-t3)!important}
+.annual-compare-card-value{color:var(--ycy-gn)!important}
+.annual-compare-card-sub{color:var(--ycy-t2)!important}
+.annual-compare-card-bar{background:var(--ycy-panel-w)!important;border-radius:3px!important}
+.annual-compare-card-bar-fill{background:var(--ycy-gn)!important;opacity:.7!important}
+
+/* ── annual rank list (新) ── */
+.annual-rank-item{background:var(--ycy-panel)!important;border:1px solid var(--ycy-bd)!important;border-radius:var(--ycy-r-xs)!important;box-shadow:none!important}
+.annual-rank-rank{color:var(--ycy-gn)!important}
+.annual-rank-name{color:var(--ycy-t)!important}
+.annual-rank-count{color:var(--ycy-t2)!important}
 
 /* ── session ── */
 .session-item{background:var(--ycy-panel)!important;border:1px solid var(--ycy-bd)!important;border-radius:var(--ycy-r-xs)!important;box-shadow:none!important}
