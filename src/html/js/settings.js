@@ -76,6 +76,73 @@ export const settings = `
       _navPush('settings-overlay', closeSettings, '/settings');
     }
 
+    // 应用缓存大小计算与清空
+    // 性能权衡：仅在用户主动点击「刷新」或「清空缓存」时计算，不随设置页打开自动触发
+    // 准确性优先：优先读 content-length 头（O(1)），缺失时回退到 response.blob().size（读取完整响应体）
+    // 因此显示结果不再带「≈」，但首次计算可能稍慢（取决于缓存条目数与无 content-length 的比例）
+    function formatCacheSize(bytes) {
+      if (bytes < 1024) return bytes + ' B';
+      if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+      return (bytes / (1024 * 1024)).toFixed(2) + ' MB';
+    }
+
+    async function getCacheSize() {
+      if (!('caches' in window)) return 0;
+      var total = 0;
+      var names = await caches.keys();
+      for (var i = 0; i < names.length; i++) {
+        var cache = await caches.open(names[i]);
+        var requests = await cache.keys();
+        for (var j = 0; j < requests.length; j++) {
+          var response = await cache.match(requests[j]);
+          if (!response) continue;
+          // 优先 content-length 头（不读响应体，开销最低）
+          var len = response.headers.get('content-length');
+          if (len) {
+            var n = parseInt(len, 10);
+            if (!isNaN(n) && n >= 0) { total += n; continue; }
+          }
+          // 回退：读取响应体获取实际字节数（仅对缺失 content-length 的条目）
+          try {
+            var blob = await response.clone().blob();
+            total += blob.size;
+          } catch (e) { /* 跳过无法读取的条目 */ }
+        }
+      }
+      return total;
+    }
+
+    async function refreshCacheSize() {
+      var display = document.getElementById('cache-size-display');
+      if (!display) return;
+      if (!('caches' in window)) { display.textContent = '不可用'; return; }
+      display.textContent = '计算中...';
+      try {
+        var bytes = await getCacheSize();
+        display.textContent = formatCacheSize(bytes);
+      } catch (e) {
+        display.textContent = '计算失败';
+      }
+    }
+
+    async function clearAppCache() {
+      // 清理前端定制预览状态（保留 moara_authed 登录态与 themeMode 主题偏好）
+      localStorage.removeItem('preview_custom_header');
+      localStorage.removeItem('preview_custom_content');
+      try {
+        // 1. 清空 Service Worker Cache API
+        if ('caches' in window) {
+          var names = await caches.keys();
+          await Promise.all(names.map(function(n) { return caches.delete(n); }));
+        }
+        // 2. 通知 Service Worker 释放其内部引用
+        try { await clearPwaCache(); } catch(e) {}
+      } catch (e) { /* 忽略，仍重载 */ }
+      // 3. 直接重载到根路径，与 saveAndCloseSettings 行为一致
+      // 避免停留在 /settings 路由；若处于预览模式，重载还能完全卸载已注入的自定义代码
+      window.location.replace('/');
+    }
+
     function closeSettings() {
       if (_isNavClosing) {
         const view = document.getElementById('settings-overlay');

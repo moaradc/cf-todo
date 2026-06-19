@@ -228,6 +228,9 @@ export const bootstrap = `
       // PWA
       installPwa: installPwa,
       clearPwaCache: clearPwaCache,
+      // 应用缓存
+      refreshCacheSize: refreshCacheSize,
+      clearAppCache: clearAppCache,
       // SPA Router
       _navBack: _navBack,
       _navRestore: _navRestore,
