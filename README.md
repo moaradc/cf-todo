@@ -367,20 +367,27 @@ html.bg-dark #modal-add .modal-content{box-shadow: 0 16px 56px rgba(0,0,0,.32), 
 
 /* ── chart ── */
 .chart-container{background:var(--ycy-panel)!important;border:1px dashed var(--ycy-bd)!important;border-radius:var(--ycy-r-s)!important;box-shadow:none!important}
-.chart-container-tall,.chart-container-mid{background:var(--ycy-panel)!important;border:1px dashed var(--ycy-bd)!important;border-radius:var(--ycy-r-s)!important;box-shadow:none!important}
-.chart-title{color:var(--ycy-ac)!important;border-bottom:1px dashed var(--ycy-bd2)!important}
-.annual-chart-block{background:var(--ycy-panel)!important;border:1px dashed var(--ycy-bd)!important;border-radius:var(--ycy-r-s)!important;box-shadow:none!important}
-.annual-chart-title{color:var(--ycy-ac)!important;border-bottom:1px dashed var(--ycy-bd2)!important}
+[data-theme="light"] .chart-container,html.bg-dark .chart-container{background:var(--ycy-panel)!important;border:1px dashed var(--ycy-bd)!important;border-radius:var(--ycy-r-s)!important;box-shadow:none!important}
+[data-theme="light"] .chart-container-tall,[data-theme="light"] .chart-container-mid,html.bg-dark .chart-container-tall,html.bg-dark .chart-container-mid{background:var(--ycy-panel)!important;border:1px dashed var(--ycy-bd)!important;border-radius:var(--ycy-r-s)!important;box-shadow:none!important}
+[data-theme="light"] .chart-title,html.bg-dark .chart-title{color:var(--ycy-ac)!important;border-bottom:1px dashed var(--ycy-bd2)!important}
+[data-theme="light"] .annual-chart-block,html.bg-dark .annual-chart-block{background:var(--ycy-panel)!important;border:1px dashed var(--ycy-bd)!important;border-radius:var(--ycy-r-s)!important;box-shadow:none!important}
+[data-theme="light"] .annual-chart-title,html.bg-dark .annual-chart-title{color:var(--ycy-ac)!important;border-bottom:1px dashed var(--ycy-bd2)!important}
 
 /* ── stats range tabs (新) ── */
 .stats-range-tabs{border:1px solid var(--ycy-bd)!important;border-radius:0!important;overflow:hidden!important}
 .stats-range-tab{color:var(--ycy-t2)!important;background:transparent!important;border:none!important;border-radius:0!important;box-shadow:none!important}
 .stats-range-tab.active{background:var(--ycy-ac)!important;color:#fff!important;font-weight:700!important}
+[data-theme="light"] .stats-range-tabs,html.bg-dark .stats-range-tabs{border:1px solid var(--ycy-bd)!important;border-radius:0!important;overflow:hidden!important}
+[data-theme="light"] .stats-range-tab,html.bg-dark .stats-range-tab{color:var(--ycy-t2)!important;background:transparent!important;border:none!important;border-radius:0!important;box-shadow:none!important}
+[data-theme="light"] .stats-range-tab.active,html.bg-dark .stats-range-tab.active{background:var(--ycy-ac)!important;color:#fff!important;font-weight:700!important}
 
 /* ── stats summary (新) ── */
 .stats-summary-card{background:var(--ycy-panel)!important;border:1px solid var(--ycy-bd)!important;border-radius:var(--ycy-r-xs)!important;box-shadow:none!important}
 .stats-summary-value{color:var(--ycy-gn)!important}
 .stats-summary-label{color:var(--ycy-t3)!important}
+[data-theme="light"] .stats-summary-card,html.bg-dark .stats-summary-card{background:var(--ycy-panel)!important;border:1px solid var(--ycy-bd)!important;border-radius:var(--ycy-r-xs)!important;box-shadow:none!important}
+[data-theme="light"] .stats-summary-value,html.bg-dark .stats-summary-value{color:var(--ycy-gn)!important}
+[data-theme="light"] .stats-summary-label,html.bg-dark .stats-summary-label{color:var(--ycy-t3)!important}
 
 /* ── category rank (新) ── */
 .category-rank-item{background:var(--ycy-panel)!important;border:1px solid var(--ycy-bd)!important;border-radius:var(--ycy-r-xs)!important;box-shadow:none!important}
@@ -390,6 +397,13 @@ html.bg-dark #modal-add .modal-content{box-shadow: 0 16px 56px rgba(0,0,0,.32), 
 .category-rank-bar-wrap{background:var(--ycy-panel-w)!important;border-color:var(--ycy-bd2)!important;border-radius:3px!important}
 .category-rank-bar-total{background:rgba(128,128,128,.10)!important}
 .category-rank-bar-done{background:var(--ycy-gn)!important;border-radius:3px!important;opacity:.7!important}
+[data-theme="light"] .category-rank-item,html.bg-dark .category-rank-item{background:var(--ycy-panel)!important;border:1px solid var(--ycy-bd)!important;border-radius:var(--ycy-r-xs)!important;box-shadow:none!important}
+[data-theme="light"] .category-rank-rank,html.bg-dark .category-rank-rank{color:var(--ycy-gn)!important}
+[data-theme="light"] .category-rank-name,html.bg-dark .category-rank-name{color:var(--ycy-t)!important}
+[data-theme="light"] .category-rank-count,html.bg-dark .category-rank-count{color:var(--ycy-t2)!important}
+[data-theme="light"] .category-rank-bar-wrap,html.bg-dark .category-rank-bar-wrap{background:var(--ycy-panel-w)!important;border-color:var(--ycy-bd2)!important;border-radius:3px!important}
+[data-theme="light"] .category-rank-bar-total,html.bg-dark .category-rank-bar-total{background:rgba(128,128,128,.10)!important}
+[data-theme="light"] .category-rank-bar-done,html.bg-dark .category-rank-bar-done{background:var(--ycy-gn)!important;border-radius:3px!important;opacity:.7!important}
 
 /* ── annual ── */
 .annual-hero{background:var(--ycy-panel-s)!important;border:1px solid var(--ycy-bd)!important;border-radius:var(--ycy-r)!important;box-shadow:var(--ycy-sh-lg)!important}
@@ -415,6 +429,22 @@ html.bg-dark #modal-add .modal-content{box-shadow: 0 16px 56px rgba(0,0,0,.32), 
 .annual-pri-bar-bg{background:var(--ycy-panel)!important;border-color:var(--ycy-bd)!important;border-radius:3px!important}
 .annual-pri-label,.annual-pri-count{color:var(--ycy-t2)!important}
 .annual-report-time{border-top:1px dashed var(--ycy-bd)!important;color:var(--ycy-t3)!important}
+[data-theme="light"] .annual-hero,html.bg-dark .annual-hero{background:var(--ycy-panel-s)!important;border:1px solid var(--ycy-bd)!important;border-radius:var(--ycy-r)!important;box-shadow:var(--ycy-sh-lg)!important}
+[data-theme="light"] .annual-ending-title,html.bg-dark .annual-ending-title{color:var(--ycy-ac)!important}
+[data-theme="light"] .annual-ending-subtitle,html.bg-dark .annual-ending-subtitle{color:var(--ycy-t2)!important}
+[data-theme="light"] .annual-ending-desc,html.bg-dark .annual-ending-desc{border-top:1px dashed var(--ycy-bd)!important;color:var(--ycy-t)!important}
+[data-theme="light"] .annual-stat-card,html.bg-dark .annual-stat-card{background:var(--ycy-panel)!important;border:1px solid var(--ycy-bd)!important;border-radius:var(--ycy-r-s)!important;box-shadow:none!important}
+[data-theme="light"] .annual-stat-value,html.bg-dark .annual-stat-value{color:var(--ycy-gn)!important}
+[data-theme="light"] .annual-stat-label,html.bg-dark .annual-stat-label{color:var(--ycy-t3)!important}
+[data-theme="light"] .annual-section-title,html.bg-dark .annual-section-title{color:var(--ycy-ac)!important;border-bottom:1px dashed var(--ycy-bd)!important}
+[data-theme="light"] .annual-month-bar-bg,html.bg-dark .annual-month-bar-bg{background:var(--ycy-panel)!important;border-color:var(--ycy-bd)!important;border-radius:3px!important}
+[data-theme="light"] .annual-month-bar-total,html.bg-dark .annual-month-bar-total{background:rgba(128,128,128,.08)!important}
+[data-theme="light"] .annual-month-bar-done,html.bg-dark .annual-month-bar-done{background:var(--ycy-gn)!important;border-radius:3px!important;opacity:.7!important}
+[data-theme="light"] .annual-month-label,[data-theme="light"] .annual-month-count,html.bg-dark .annual-month-label,html.bg-dark .annual-month-count{color:var(--ycy-t2)!important}
+[data-theme="light"] .annual-narrative,html.bg-dark .annual-narrative{background:var(--ycy-panel)!important;border:1px dashed var(--ycy-bd)!important;border-radius:var(--ycy-r-s)!important;box-shadow:none!important;color:var(--ycy-t)!important}
+[data-theme="light"] .annual-divider,html.bg-dark .annual-divider{color:var(--ycy-t3)!important}
+[data-theme="light"] .annual-year-title span,html.bg-dark .annual-year-title span{color:var(--ycy-gn)!important;text-shadow:none!important}
+[data-theme="light"] .annual-report-time,html.bg-dark .annual-report-time{border-top:1px dashed var(--ycy-bd)!important;color:var(--ycy-t3)!important}
 
 /* ── annual compare cards (新) ── */
 .annual-compare-card{background:var(--ycy-panel)!important;border:1px solid var(--ycy-bd)!important;border-radius:var(--ycy-r-xs)!important;box-shadow:none!important}
@@ -424,12 +454,23 @@ html.bg-dark #modal-add .modal-content{box-shadow: 0 16px 56px rgba(0,0,0,.32), 
 .annual-compare-card-sub{color:var(--ycy-t2)!important}
 .annual-compare-card-bar{background:var(--ycy-panel-w)!important;border-radius:3px!important}
 .annual-compare-card-bar-fill{background:var(--ycy-gn)!important;opacity:.7!important}
+[data-theme="light"] .annual-compare-card,html.bg-dark .annual-compare-card{background:var(--ycy-panel)!important;border:1px solid var(--ycy-bd)!important;border-radius:var(--ycy-r-xs)!important;box-shadow:none!important}
+[data-theme="light"] .annual-compare-card.winner,html.bg-dark .annual-compare-card.winner{border-color:var(--ycy-gn)!important;box-shadow:0 0 0 1px var(--ycy-gn) inset!important}
+[data-theme="light"] .annual-compare-card-label,html.bg-dark .annual-compare-card-label{color:var(--ycy-t3)!important}
+[data-theme="light"] .annual-compare-card-value,html.bg-dark .annual-compare-card-value{color:var(--ycy-gn)!important}
+[data-theme="light"] .annual-compare-card-sub,html.bg-dark .annual-compare-card-sub{color:var(--ycy-t2)!important}
+[data-theme="light"] .annual-compare-card-bar,html.bg-dark .annual-compare-card-bar{background:var(--ycy-panel-w)!important;border-radius:3px!important}
+[data-theme="light"] .annual-compare-card-bar-fill,html.bg-dark .annual-compare-card-bar-fill{background:var(--ycy-gn)!important;opacity:.7!important}
 
 /* ── annual rank list (新) ── */
 .annual-rank-item{background:var(--ycy-panel)!important;border:1px solid var(--ycy-bd)!important;border-radius:var(--ycy-r-xs)!important;box-shadow:none!important}
 .annual-rank-rank{color:var(--ycy-gn)!important}
 .annual-rank-name{color:var(--ycy-t)!important}
 .annual-rank-count{color:var(--ycy-t2)!important}
+[data-theme="light"] .annual-rank-item,html.bg-dark .annual-rank-item{background:var(--ycy-panel)!important;border:1px solid var(--ycy-bd)!important;border-radius:var(--ycy-r-xs)!important;box-shadow:none!important}
+[data-theme="light"] .annual-rank-rank,html.bg-dark .annual-rank-rank{color:var(--ycy-gn)!important}
+[data-theme="light"] .annual-rank-name,html.bg-dark .annual-rank-name{color:var(--ycy-t)!important}
+[data-theme="light"] .annual-rank-count,html.bg-dark .annual-rank-count{color:var(--ycy-t2)!important}
 
 /* ── session ── */
 .session-item{background:var(--ycy-panel)!important;border:1px solid var(--ycy-bd)!important;border-radius:var(--ycy-r-xs)!important;box-shadow:none!important}
