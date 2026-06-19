@@ -179,6 +179,18 @@ async function handleRequest(request, env, ctx) {
           try { await env.DB.prepare(`ALTER TABLE todo_templates ADD COLUMN repeat_interval INTEGER NOT NULL DEFAULT 1`).run(); } catch (e) {}
         }
 
+        // --- schema 5: 统计查询覆盖索引 ---
+        // /api/stats 的所有 GROUP BY 查询都基于 (date, deleted) 过滤 + 读取 (priority, done, category_id, time)
+        // 用一个覆盖索引让 D1 仅扫索引即可完成查询，避免回表（random IO 到主表）
+        // 注意：D1 仍按 rows read 计费（覆盖索引也算 rows read），但省掉了主表行扫描的开销
+        if (currentSchema < 5) {
+          try {
+            await env.DB.prepare(
+              `CREATE INDEX IF NOT EXISTS idx_todos_stats ON todos(date, deleted, priority, done, category_id, time)`
+            ).run();
+          } catch (e) {}
+        }
+
         // 写入当前 schema 版本号（整数）
         await env.DB.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('db_schema_version', ?)").bind(String(DB_SCHEMA)).run();
         isDbInitialized = true;
@@ -790,12 +802,117 @@ self.addEventListener('fetch', (event) => {
       const start = url.searchParams.get('start');
       const end = url.searchParams.get('end');
       if (!start || !end) return apiError("Date required", 400);
-      // date/priority/done 为原有字段；category_id/time 为统计页新增字段
-      // D1 按 row 计费，增加 column 不增加读取费用；保持单次查询
-      const { results } = await env.DB.prepare(
-        'SELECT date, priority, done, category_id, time FROM todos WHERE date >= ? AND date <= ? AND deleted = 0'
-      ).bind(start, end).all();
-      return new Response(JSON.stringify(results), { headers: { 'Content-Type': 'application/json' } });
+
+      // 服务端聚合：用 D1 batch 一次往返跑 6 条 GROUP BY 查询，
+      // 把「数万行原始数据」压缩为「几十行聚合结果」。
+      // 收益：
+      //   - D1 rows read：仍按原表行数计费（GROUP BY 不省 rows read），
+      //     但 rows returned 大幅减少 → 网络出口字节、Worker 内存、JSON 序列化 CPU 全部下降一个数量级
+      //   - Worker 内存：从 O(N) 降为 O(log N)（N = 原始行数）
+      //   - 客户端解析：从 O(N) 降为 O(log N)
+      // 索引依赖：idx_todos_date_done 覆盖 (date, deleted) + include (priority, done, category_id, time)
+      // 注意：D1 batch 是顺序执行的（非并行），但只占一次 HTTP 往返
+      const baseWhere = 'FROM todos WHERE date >= ?1 AND date <= ?2 AND deleted = 0';
+
+      const batchResults = await env.DB.batch([
+        // 1) 按日期聚合：dailyCounts[date] = { total, done }
+        env.DB.prepare(
+          `SELECT date, COUNT(*) AS total, SUM(CASE WHEN done = 1 THEN 1 ELSE 0 END) AS done ${baseWhere} GROUP BY date`
+        ).bind(start, end),
+        // 2) 按 分类聚合：categoryCounts[category_id] = { total, done }（空 category_id 归为 ''）
+        env.DB.prepare(
+          `SELECT COALESCE(NULLIF(category_id, ''), '') AS category_id, COUNT(*) AS total, SUM(CASE WHEN done = 1 THEN 1 ELSE 0 END) AS done ${baseWhere} GROUP BY COALESCE(NULLIF(category_id, ''), '')`
+        ).bind(start, end),
+        // 3) 按 优先级 × 完成度 聚合：4 个组合
+        env.DB.prepare(
+          `SELECT priority, done, COUNT(*) AS cnt ${baseWhere} GROUP BY priority, done`
+        ).bind(start, end),
+        // 4) 按周日 × 完成度聚合：用于年度报告工作日 vs 周末完成率对比（精确值）
+        //    strftime('%w', date) 对 ISO8601 日期字符串返回 '0'-'6'（0=周日）
+        env.DB.prepare(
+          `SELECT CAST(strftime('%w', date) AS INTEGER) AS weekday, done, COUNT(*) AS cnt ${baseWhere} GROUP BY weekday, done`
+        ).bind(start, end),
+        // 5) 按时段聚合：hourBuckets[0..3]（0=凌晨0-6, 1=上午6-12, 2=下午12-18, 3=晚上18-24）
+        //    time 字段为 'HH:MM' 文本，取前两位转 int 后分桶
+        //    用 CASE WHEN 在 SQL 里直接算出 bucket，比拉回 JS 算更省传输
+        env.DB.prepare(
+          `SELECT CASE` +
+          ` WHEN time IS NULL OR time = '' THEN -1` +
+          ` WHEN CAST(substr(time, 1, 2) AS INTEGER) < 6 THEN 0` +
+          ` WHEN CAST(substr(time, 1, 2) AS INTEGER) < 12 THEN 1` +
+          ` WHEN CAST(substr(time, 1, 2) AS INTEGER) < 18 THEN 2` +
+          ` ELSE 3 END AS bucket,` +
+          ` COUNT(*) AS cnt ${baseWhere} GROUP BY bucket`
+        ).bind(start, end),
+        // 6) 总量汇总：total / done / undone / activeDays
+        env.DB.prepare(
+          `SELECT COUNT(*) AS total,` +
+          ` SUM(CASE WHEN done = 1 THEN 1 ELSE 0 END) AS done,` +
+          ` SUM(CASE WHEN done = 0 THEN 1 ELSE 0 END) AS undone,` +
+          ` COUNT(DISTINCT date) AS active_days ${baseWhere}`
+        ).bind(start, end),
+      ]);
+
+      // 组装响应：保持紧凑，字段名与前端 _aggregate 一致
+      const dailyCounts = {};
+      for (const r of (batchResults[0].results || [])) {
+        dailyCounts[r.date] = { total: r.total, done: r.done };
+      }
+      const categoryCounts = {};
+      let noCategoryCount = { total: 0, done: 0 };
+      for (const r of (batchResults[1].results || [])) {
+        if (r.category_id === '') {
+          noCategoryCount = { total: r.total, done: r.done };
+        } else {
+          categoryCounts[r.category_id] = { total: r.total, done: r.done };
+        }
+      }
+      // 优先级 × 完成度
+      const priCounts = { high: 0, med: 0, low: 0 };
+      const priDone = { high: 0, med: 0, low: 0 };
+      for (const r of (batchResults[2].results || [])) {
+        const p = (r.priority === 'high' || r.priority === 'med' || r.priority === 'low') ? r.priority : 'low';
+        priCounts[p] += r.cnt;
+        if (r.done === 1) priDone[p] += r.cnt;
+      }
+      // 周日分布：weekdayCounts[0..6] 总数 + weekdayDone[0..6] 完成数
+      const weekdayCounts = [0, 0, 0, 0, 0, 0, 0];
+      const weekdayDone = [0, 0, 0, 0, 0, 0, 0];
+      for (const r of (batchResults[3].results || [])) {
+        if (r.weekday >= 0 && r.weekday <= 6) {
+          weekdayCounts[r.weekday] += r.cnt;
+          if (r.done === 1) weekdayDone[r.weekday] += r.cnt;
+        }
+      }
+      // 时段分布：默认 0；bucket = -1 表示无 time 字段，不计入任何桶
+      const hourBuckets = [0, 0, 0, 0];
+      for (const r of (batchResults[4].results || [])) {
+        if (r.bucket >= 0 && r.bucket <= 3) hourBuckets[r.bucket] = r.cnt;
+      }
+      // 总量
+      const summary = (batchResults[5].results || [])[0] || { total: 0, done: 0, undone: 0, active_days: 0 };
+
+      const payload = {
+        aggregated: true,
+        range: { start, end },
+        summary: {
+          total: summary.total || 0,
+          done: summary.done || 0,
+          undone: summary.undone || 0,
+          activeDays: summary.active_days || 0,
+        },
+        dailyCounts,
+        categoryCounts,
+        noCategoryCount,
+        priCounts,
+        priDone,
+        weekdayCounts,
+        weekdayDone,
+        hourBuckets,
+      };
+      return new Response(JSON.stringify(payload), {
+        headers: { 'Content-Type': 'application/json' }
+      });
     }
 
     if (url.pathname === '/api/export' && request.method === 'GET') {

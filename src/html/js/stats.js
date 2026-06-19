@@ -64,16 +64,17 @@ export const stats = `
     }
 
     // ---------- 时间范围 ----------
-    // 'week'  = 本周（周一至今天）
-    // '12w'   = 近 12 周（含本周）= 84 天
-    // '6m'    = 近 6 月（含本月）
+    // 'week'  = 本周（周一至今天），仅限今年
+    // '12w'   = 近 12 周（含本周）= 84 天，仅限今年
+    // '6m'    = 近 6 月（含本月），仅限今年
     // 'year'  = 今年（1/1 起）
+    // 所有范围都强制以今年 1/1 为下限，避免回退到去年数据
     function _rangeBounds(range) {
       var end = new Date(); end.setHours(0, 0, 0, 0);
       var start = new Date(end);
       var bucket = 'day';
       if (range === 'week') {
-        // 本周：周一为起点（若今天是周一则仅今天）
+        // 本周：周一为起点
         var wd = end.getDay();
         var back = (wd === 0 ? 6 : wd - 1);
         start.setDate(start.getDate() - back);
@@ -97,6 +98,9 @@ export const stats = `
         start.setDate(start.getDate() - back2);
         bucket = 'day';
       }
+      // 关键：以今年 1/1 为下限，所有 range 都不回退到去年
+      var yearStart = new Date(end.getFullYear(), 0, 1);
+      if (start < yearStart) start = new Date(yearStart);
       return { start: start, end: end, bucket: bucket };
     }
 
@@ -239,10 +243,15 @@ export const stats = `
     }
 
     // ---------- 客户端聚合 ----------
+    // 兼容两种 API 响应：
+    //   - 旧版：rawData 为行数组 [{date, priority, done, category_id, time}, ...]
+    //   - 新版：rawData 为聚合对象 { aggregated: true, summary, dailyCounts, ... }
+    // 新版下不再遍历行，直接复用服务端聚合结果，CPU/内存均 O(log N)
     function _aggregate(rawData, range, bounds) {
       var r = {
         total: 0, done: 0, undone: 0,
         priCounts: { high: 0, med: 0, low: 0 },
+        priDone: { high: 0, med: 0, low: 0 },
         weekdayCounts: [0,0,0,0,0,0,0],
         hourBuckets: [0,0,0,0],
         dailyCounts: {},
@@ -250,16 +259,47 @@ export const stats = `
         noCategoryCount: { total: 0, done: 0 },
         range: range, bounds: bounds
       };
-      if (!Array.isArray(rawData)) return r;
+
+      if (rawData && rawData.aggregated) {
+        // 服务端聚合响应：直接复用，避免遍历行
+        r.total = rawData.summary.total || 0;
+        r.done = rawData.summary.done || 0;
+        r.undone = rawData.summary.undone || 0;
+        r.priCounts = {
+          high: (rawData.priCounts && rawData.priCounts.high) || 0,
+          med: (rawData.priCounts && rawData.priCounts.med) || 0,
+          low: (rawData.priCounts && rawData.priCounts.low) || 0
+        };
+        r.priDone = {
+          high: (rawData.priDone && rawData.priDone.high) || 0,
+          med: (rawData.priDone && rawData.priDone.med) || 0,
+          low: (rawData.priDone && rawData.priDone.low) || 0
+        };
+        r.weekdayCounts = (rawData.weekdayCounts && rawData.weekdayCounts.length === 7)
+          ? rawData.weekdayCounts.slice() : [0,0,0,0,0,0,0];
+        r.hourBuckets = (rawData.hourBuckets && rawData.hourBuckets.length === 4)
+          ? rawData.hourBuckets.slice() : [0,0,0,0];
+        r.dailyCounts = rawData.dailyCounts || {};
+        r.categoryCounts = rawData.categoryCounts || {};
+        r.noCategoryCount = rawData.noCategoryCount || { total: 0, done: 0 };
+        r.trendBuckets = _buildTrendBuckets(bounds, r.dailyCounts);
+        return r;
+      }
+
+      // 兜底：旧版行数组响应（兼容未升级的部署）
+      if (!Array.isArray(rawData)) {
+        r.trendBuckets = _buildTrendBuckets(bounds, {});
+        return r;
+      }
 
       for (var i = 0; i < rawData.length; i++) {
         var row = rawData[i];
         r.total++;
         if (row.done === 1) r.done++; else r.undone++;
 
-        if (row.priority === 'high') r.priCounts.high++;
-        else if (row.priority === 'med') r.priCounts.med++;
-        else r.priCounts.low++;
+        if (row.priority === 'high') { r.priCounts.high++; if (row.done === 1) r.priDone.high++; }
+        else if (row.priority === 'med') { r.priCounts.med++; if (row.done === 1) r.priDone.med++; }
+        else { r.priCounts.low++; if (row.done === 1) r.priDone.low++; }
 
         var d = _statsParseDate(row.date);
         if (!isNaN(d.getTime())) {
@@ -284,7 +324,7 @@ export const stats = `
           if (row.done === 1) r.categoryCounts[catId].done++;
         }
       }
-      r.trendBuckets = _buildTrendBuckets(bounds, rawData);
+      r.trendBuckets = _buildTrendBuckets(bounds, r.dailyCounts);
       return r;
     }
 
@@ -300,9 +340,12 @@ export const stats = `
       return 3;
     }
 
-    function _buildTrendBuckets(bounds, rawData) {
+    // 基于已聚合的 dailyCounts 构建趋势桶（不再遍历原始行）
+    // dailyCounts: { 'YYYY-MM-DD': { total, done }, ... }
+    function _buildTrendBuckets(bounds, dailyCounts) {
       var buckets = [];
       var bucket = bounds.bucket;
+      dailyCounts = dailyCounts || {};
 
       if (bucket === 'day') {
         var cur = new Date(bounds.start);
@@ -346,17 +389,17 @@ export const stats = `
         }
       }
 
-      // 填充
+      // 填充：遍历 dailyCounts 而非原始行
       var bStart = buckets[0] && buckets[0].start;
       var bEnd = buckets[buckets.length - 1] && buckets[buckets.length - 1].end;
       if (!bStart || !bEnd) return buckets;
 
-      for (var k = 0; k < rawData.length; k++) {
-        var row = rawData[k];
-        var d = _statsParseDate(row.date);
+      for (var dateKey in dailyCounts) {
+        if (!Object.prototype.hasOwnProperty.call(dailyCounts, dateKey)) continue;
+        var d = _statsParseDate(dateKey);
         if (isNaN(d.getTime())) continue;
         if (d < bStart || d > bEnd) continue;
-        // 二分定位最近桶（buckets 是按时间递增的）
+        // 二分定位最近桶
         var lo = 0, hi = buckets.length - 1, idx = -1;
         while (lo <= hi) {
           var mid = (lo + hi) >> 1;
@@ -364,8 +407,9 @@ export const stats = `
           if (d < buckets[mid].start) hi = mid - 1; else lo = mid + 1;
         }
         if (idx >= 0) {
-          buckets[idx].total++;
-          if (row.done === 1) buckets[idx].done++;
+          var dc = dailyCounts[dateKey];
+          buckets[idx].total += dc.total || 0;
+          buckets[idx].done += dc.done || 0;
         }
       }
       return buckets;
@@ -742,7 +786,62 @@ export const stats = `
         categoryRanking: []
       };
       for (var mi = 0; mi < 12; mi++) agg.monthData.push({ total: 0, done: 0 });
-      if (!Array.isArray(rawData)) return agg;
+
+      // 服务端聚合响应：直接复用，仅派生年度报告专用维度（月度/季度/上下半年/工作日 vs 周末）
+      if (rawData && rawData.aggregated) {
+        agg.total = rawData.summary.total || 0;
+        agg.done = rawData.summary.done || 0;
+        agg.undone = rawData.summary.undone || 0;
+        agg.priCounts = {
+          high: (rawData.priCounts && rawData.priCounts.high) || 0,
+          med: (rawData.priCounts && rawData.priCounts.med) || 0,
+          low: (rawData.priCounts && rawData.priCounts.low) || 0
+        };
+        agg.priDone = {
+          high: (rawData.priDone && rawData.priDone.high) || 0,
+          med: (rawData.priDone && rawData.priDone.med) || 0,
+          low: (rawData.priDone && rawData.priDone.low) || 0
+        };
+        agg.weekdayCounts = (rawData.weekdayCounts && rawData.weekdayCounts.length === 7)
+          ? rawData.weekdayCounts.slice() : [0,0,0,0,0,0,0];
+        var serverWeekdayDone = (rawData.weekdayDone && rawData.weekdayDone.length === 7)
+          ? rawData.weekdayDone.slice() : [0,0,0,0,0,0,0];
+        agg.hourBuckets = (rawData.hourBuckets && rawData.hourBuckets.length === 4)
+          ? rawData.hourBuckets.slice() : [0,0,0,0];
+        agg.dailyCounts = rawData.dailyCounts || {};
+        agg.categoryCounts = rawData.categoryCounts || {};
+        agg.noCategoryCount = rawData.noCategoryCount || { total: 0, done: 0 };
+
+        // 工作日 vs 周末：weekdayCounts[0]=周日, [1..5]=周一至周五, [6]=周六
+        agg.weekendTotal = agg.weekdayCounts[0] + agg.weekdayCounts[6];
+        agg.weekdayTotal = agg.weekdayCounts[1] + agg.weekdayCounts[2] + agg.weekdayCounts[3] + agg.weekdayCounts[4] + agg.weekdayCounts[5];
+        // 精确完成数（来自服务端 weekday × done 聚合）
+        agg.weekendDone = serverWeekdayDone[0] + serverWeekdayDone[6];
+        agg.weekdayDone = serverWeekdayDone[1] + serverWeekdayDone[2] + serverWeekdayDone[3] + serverWeekdayDone[4] + serverWeekdayDone[5];
+
+        // 月度/季度/上下半年：从 dailyCounts 派生
+        for (var dateKey in agg.dailyCounts) {
+          if (!Object.prototype.hasOwnProperty.call(agg.dailyCounts, dateKey)) continue;
+          var dc = agg.dailyCounts[dateKey];
+          var month = parseInt((dateKey || '').slice(5, 7), 10) - 1;
+          if (month >= 0 && month < 12) {
+            agg.monthData[month].total += dc.total || 0;
+            agg.monthData[month].done += dc.done || 0;
+            var q = Math.floor(month / 3);
+            agg.quarterTotals[q] += dc.total || 0;
+            agg.quarterDones[q] += dc.done || 0;
+            if (month < 6) agg.firstHalf += dc.total || 0; else agg.secondHalf += dc.total || 0;
+          }
+        }
+        _finalizeAnnualAgg(agg);
+        return agg;
+      }
+
+      // 兜底：旧版行数组响应
+      if (!Array.isArray(rawData)) {
+        _finalizeAnnualAgg(agg);
+        return agg;
+      }
 
       for (var i = 0; i < rawData.length; i++) {
         var row = rawData[i];
@@ -788,10 +887,15 @@ export const stats = `
         }
       }
 
+      _finalizeAnnualAgg(agg);
+      return agg;
+    }
+
+    // 年度报告聚合结果的派生计算：完成率 / 活跃天数 / 最长连续 / 最忙月日 / 分类排行
+    function _finalizeAnnualAgg(agg) {
       agg.doneRate = agg.total > 0 ? (agg.done / agg.total * 100) : 0;
       agg.activeDays = Object.keys(agg.dailyCounts).length;
       agg.avgPerActiveDay = agg.activeDays > 0 ? (agg.total / agg.activeDays) : 0;
-
       for (var mi2 = 0; mi2 < 12; mi2++) {
         if (agg.monthData[mi2].total > agg.busiestMonthCount) {
           agg.busiestMonthCount = agg.monthData[mi2].total;
@@ -799,6 +903,7 @@ export const stats = `
         }
       }
       for (var dk in agg.dailyCounts) {
+        if (!Object.prototype.hasOwnProperty.call(agg.dailyCounts, dk)) continue;
         if (agg.dailyCounts[dk].total > agg.busiestDateCount) {
           agg.busiestDateCount = agg.dailyCounts[dk].total;
           agg.busiestDate = dk;
@@ -823,7 +928,6 @@ export const stats = `
         });
       }
       agg.categoryRanking.sort(function(a, b) { return b.total - a.total; });
-      return agg;
     }
 
     function _computeMaxStreak(dailyCounts) {
