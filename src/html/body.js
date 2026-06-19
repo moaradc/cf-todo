@@ -366,16 +366,6 @@ export function getBody(isAuthorized) {
           </div>
       </div>
 
-      <div class="detail-label">应用缓存</div>
-      <div class="settings-card">
-          <div class="setting-item" style="margin-bottom: 12px;">
-              <span class="flex-1">缓存大小 <span class="md-code" id="cache-size-display">未计算</span></span>
-              <button style="font-size:0.8rem;padding:6px 10px;" onclick="refreshCacheSize()">计算</button>
-          </div>
-          <p class="settings-text" style="margin-bottom: 12px;">清除页面与数据缓存，不影响您的待办事项。</p>
-          <button style="width:100%" onclick="clearAppCache()">清空缓存</button>
-      </div>
-
       <div class="detail-label">前端定制注入</div>
       <div class="settings-card">
           <div class="setting-item" style="margin-bottom: 15px; border: none; padding: 0;">
@@ -438,7 +428,9 @@ export function getBody(isAuthorized) {
       <div class="settings-card">
           <p class="settings-text" style="margin-bottom: 12px;">最多支持 <strong>3</strong> 个浏览器UA同时登录。达到上限后新登录将自动替换最早（靠上）登录的会话。</p>
           <div id="sessions-list" style="margin-bottom: 12px;"></div>
-          <button style="width:100%" onclick="deleteAllSessions()">全部删除</button>
+          <button style="width:100%; margin-bottom: 10px;" onclick="deleteAllSessions()">全部删除</button>
+          <p class="settings-text" style="margin-bottom: 10px; padding-top: 10px; border-top: 1px dashed #333;">退出当前登录会话，需重新输入密钥接入系统。您的数据不会消失。</p>
+          <button style="width:100%" onclick="logout()">退出登录</button>
       </div>
 
       <div class="detail-label">关于 MOARA 待办事项</div>
@@ -446,6 +438,16 @@ export function getBody(isAuthorized) {
           <p class="settings-text" style="margin-bottom:5px;display:flex;align-items:center;gap:6px;flex-wrap:wrap;"><strong>当前版本:</strong> <span id="app-version-display"></span> <span id="update-status"></span> <span class="md-code" style="font-size:0.75rem;"><a href="https://github.com/moaradc/cf-todo" target="_blank" style="color:inherit;text-decoration:none;">GitHub</a></span> <span class="md-code" style="cursor:pointer;font-size:0.75rem;" onclick="checkUpdate()">检查</span></p>
           <p class="settings-text" style="margin-bottom: 5px;"><strong>底层架构:</strong> Cloudflare Worker + D1 Database</p>
           <p class="settings-text"><strong>项目描述:</strong> 普通的待办事项管理</p>
+      </div>
+
+      <div class="detail-label">应用缓存</div>
+      <div class="settings-card">
+          <div class="setting-item" style="margin-bottom: 12px;">
+              <span class="flex-1">缓存大小 <span class="md-code" id="cache-size-display">未计算</span></span>
+              <button style="font-size:0.8rem;padding:6px 10px;" onclick="refreshCacheSize()">计算</button>
+          </div>
+          <p class="settings-text" style="margin-bottom: 12px;">清除页面与数据缓存，不影响您的待办事项。</p>
+          <button style="width:100%" onclick="clearAppCache()">清空缓存</button>
       </div>
 
       <div id="pwa-install-section" class="detail-label" style="display:none;">安装应用</div>
@@ -456,10 +458,7 @@ export function getBody(isAuthorized) {
 
       <div class="detail-label" style="color: var(--accent);">危险区域</div>
       <div class="settings-card danger">
-          <div class="settings-text" style="margin-bottom: 10px;">退出当前登录会话，需重新输入密钥接入系统。您的数据不会消失。</div>
-          <button class="btn-danger" style="width:100%" onclick="logout()">退出登录</button>
-          
-          <p class="settings-text" style="margin-bottom: 15px; margin-top: 20px; padding-top: 20px; border-top: 1px dashed var(--accent);">执行此操作将不可逆地清空所有的系统记录、回收站数据并重置偏好设置。建议提前导出备份。</p>
+          <p class="settings-text" style="margin-bottom: 15px;">执行此操作将不可逆地清空所有的系统记录、回收站数据并重置偏好设置。建议提前导出备份。</p>
           <button class="btn-danger" style="width:100%" onclick="factoryReset()">恢复出厂设置</button>
       </div>
 

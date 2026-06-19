@@ -619,6 +619,10 @@ export const css = `
     /* === 显示大小调整 (display density) === */
     .combined-preview-wrap .todo-item { margin-bottom: 5px; pointer-events: none; }
     #combined-preview { line-height: 1.5; }
+    /* 让预览内部元素跟随 #combined-preview 的 font-size 缩放（覆盖 rem 改用 em） */
+    #combined-preview .item-title { font-size: 1em; }
+    #combined-preview .item-info { font-size: 0.75em; }
+    #combined-preview .badge { font-size: 0.7em; }
 
     [data-theme="light"] .combined-preview-wrap { background: #F0EEE2; border-color: #1B1915; }
 
