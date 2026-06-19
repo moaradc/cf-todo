@@ -103,7 +103,7 @@ Endpoints under `/api/v1/keys` require **Cookie auth only** (web UI session), no
 | POST | `/api/v1/trash-action` | `BATCH_DELETE_PERMANENT` 批量永久删除 | **不可恢复**，需确认；需 `ids` 数组 |
 | POST | `/api/v1/trash-action` | `CLEAR_ALL_DATA` 清空所有数据 | **危险** 清空 todos、templates、settings、categories；**不可恢复** |
 | **Stats** | | | |
-| GET | `/api/v1/stats?start=&end=` | 统计数据 | 必填 `start`, `end`；返回 total/done/undone/byPriority/byDate |
+| GET | `/api/v1/stats?start=&end=` | 统计数据 | 必填 `start`, `end`；服务端聚合返回 total/done/undone/activeDays/byDate/byCategory/noCategoryCount/byPriority/byPriorityDone/byWeekday/byWeekdayDone/byHourBucket |
 | **Settings** | | | |
 | GET | `/api/v1/settings` | 获取应用配置 | 返回 `app_settings` 键值 |
 | POST | `/api/v1/settings` | 保存应用配置 | 整体覆盖 |
@@ -754,7 +754,7 @@ Response:
 curl -s -H "X-API-Key: $CF_TODO_API_KEY" "$CF_TODO_API_URL/api/v1/stats?start=2026-06-01&end=2026-06-12"
 ```
 
-Required: `start`, `end` (YYYY-MM-DD). Only counts non-deleted todos.
+Required: `start`, `end` (YYYY-MM-DD). Only counts non-deleted todos. Server-side aggregation via D1 batch (6 GROUP BY queries in one round-trip), so even tens of thousands of todos return a compact aggregated payload.
 
 Response:
 
@@ -762,17 +762,36 @@ Response:
 {
   "success": true,
   "data": {
-    "total": 20,
-    "done": 15,
-    "undone": 5,
-    "byPriority": {"low": 10, "med": 5, "high": 5},
+    "total": 510,
+    "done": 272,
+    "undone": 238,
+    "activeDays": 170,
     "byDate": {
       "2026-06-12": {"total": 3, "done": 2},
       "2026-06-11": {"total": 5, "done": 4}
-    }
+    },
+    "byCategory": {
+      "<category_id>": {"total": 80, "done": 40}
+    },
+    "noCategoryCount": {"total": 100, "done": 50},
+    "byPriority": {"high": 68, "med": 306, "low": 136},
+    "byPriorityDone": {"high": 30, "med": 150, "low": 70},
+    "byWeekday": [71, 72, 73, 74, 75, 75, 70],
+    "byWeekdayDone": [38, 38, 39, 40, 40, 40, 37],
+    "byHourBucket": [0, 68, 204, 136]
   }
 }
 ```
+
+Field reference:
+- `total` / `done` / `undone`: total / completed / incomplete counts
+- `activeDays`: number of distinct dates with at least one todo
+- `byDate`: per-date `{ total, done }`
+- `byCategory`: per-category `{ total, done }` (excludes uncategorized)
+- `noCategoryCount`: `{ total, done }` for todos without a category
+- `byPriority` / `byPriorityDone`: per-priority total / completed (`high`, `med`, `low`)
+- `byWeekday` / `byWeekdayDone`: 7-element arrays indexed by weekday (0=Sun, 1=Mon, ..., 6=Sat)
+- `byHourBucket`: 4-element array (0=00-06, 1=06-12, 2=12-18, 3=18-24; todos without `time` are not counted in any bucket)
 
 ### Update subtasks independently
 

@@ -1020,31 +1020,105 @@ async function handleV1TrashAction(request, DB) {
 // ==================== 统计 ====================
 
 // GET /api/v1/stats - 获取统计数据
+// 服务端聚合：D1 batch 一次往返跑 6 条 GROUP BY 查询，把数万行原始数据
+// 压缩为几十行聚合结果，Worker 内存与网络出口字节下降一个数量级。
+// 索引依赖：idx_todos_stats(date, deleted, priority, done, category_id, time)
 async function handleV1Stats(DB, url) {
   const start = url.searchParams.get('start');
   const end = url.searchParams.get('end');
   if (!start || !end) return apiError('start 和 end 为必填参数 (YYYY-MM-DD)', 400);
 
-  const { results } = await DB.prepare(
-    'SELECT date, priority, done FROM todos WHERE date >= ? AND date <= ? AND deleted = 0'
-  ).bind(start, end).all();
+  const baseWhere = 'FROM todos WHERE date >= ?1 AND date <= ?2 AND deleted = 0';
+
+  const batchResults = await DB.batch([
+    // 1) 按日期聚合：byDate[date] = { total, done }
+    DB.prepare(
+      `SELECT date, COUNT(*) AS total, SUM(CASE WHEN done = 1 THEN 1 ELSE 0 END) AS done ${baseWhere} GROUP BY date`
+    ).bind(start, end),
+    // 2) 按分类聚合：byCategory[category_id] = { total, done }（空 category_id 归为 ''）
+    DB.prepare(
+      `SELECT COALESCE(NULLIF(category_id, ''), '') AS category_id, COUNT(*) AS total, SUM(CASE WHEN done = 1 THEN 1 ELSE 0 END) AS done ${baseWhere} GROUP BY COALESCE(NULLIF(category_id, ''), '')`
+    ).bind(start, end),
+    // 3) 按优先级 × 完成度聚合
+    DB.prepare(
+      `SELECT priority, done, COUNT(*) AS cnt ${baseWhere} GROUP BY priority, done`
+    ).bind(start, end),
+    // 4) 按周日 × 完成度聚合：weekdayCounts[0..6]（0=周日）
+    DB.prepare(
+      `SELECT CAST(strftime('%w', date) AS INTEGER) AS weekday, done, COUNT(*) AS cnt ${baseWhere} GROUP BY weekday, done`
+    ).bind(start, end),
+    // 5) 按时段聚合：hourBuckets[0..3]（0=凌晨0-6, 1=上午6-12, 2=下午12-18, 3=晚上18-24）
+    DB.prepare(
+      `SELECT CASE` +
+      ` WHEN time IS NULL OR time = '' THEN -1` +
+      ` WHEN CAST(substr(time, 1, 2) AS INTEGER) < 6 THEN 0` +
+      ` WHEN CAST(substr(time, 1, 2) AS INTEGER) < 12 THEN 1` +
+      ` WHEN CAST(substr(time, 1, 2) AS INTEGER) < 18 THEN 2` +
+      ` ELSE 3 END AS bucket,` +
+      ` COUNT(*) AS cnt ${baseWhere} GROUP BY bucket`
+    ).bind(start, end),
+    // 6) 总量汇总
+    DB.prepare(
+      `SELECT COUNT(*) AS total,` +
+      ` SUM(CASE WHEN done = 1 THEN 1 ELSE 0 END) AS done,` +
+      ` SUM(CASE WHEN done = 0 THEN 1 ELSE 0 END) AS undone,` +
+      ` COUNT(DISTINCT date) AS active_days ${baseWhere}`
+    ).bind(start, end),
+  ]);
+
+  // 组装响应：保持 v1 字段名风格（byDate/byPriority/byCategory），新增更多维度
+  const byDate = {};
+  for (const r of (batchResults[0].results || [])) {
+    byDate[r.date] = { total: r.total, done: r.done };
+  }
+  const byCategory = {};
+  let noCategoryCount = { total: 0, done: 0 };
+  for (const r of (batchResults[1].results || [])) {
+    if (r.category_id === '') {
+      noCategoryCount = { total: r.total, done: r.done };
+    } else {
+      byCategory[r.category_id] = { total: r.total, done: r.done };
+    }
+  }
+  // 优先级 × 完成度
+  const byPriority = { high: 0, med: 0, low: 0 };
+  const byPriorityDone = { high: 0, med: 0, low: 0 };
+  for (const r of (batchResults[2].results || [])) {
+    const p = (r.priority === 'high' || r.priority === 'med' || r.priority === 'low') ? r.priority : 'low';
+    byPriority[p] += r.cnt;
+    if (r.done === 1) byPriorityDone[p] += r.cnt;
+  }
+  // 周日分布
+  const byWeekday = [0, 0, 0, 0, 0, 0, 0];
+  const byWeekdayDone = [0, 0, 0, 0, 0, 0, 0];
+  for (const r of (batchResults[3].results || [])) {
+    if (r.weekday >= 0 && r.weekday <= 6) {
+      byWeekday[r.weekday] += r.cnt;
+      if (r.done === 1) byWeekdayDone[r.weekday] += r.cnt;
+    }
+  }
+  // 时段分布
+  const byHourBucket = [0, 0, 0, 0];
+  for (const r of (batchResults[4].results || [])) {
+    if (r.bucket >= 0 && r.bucket <= 3) byHourBucket[r.bucket] = r.cnt;
+  }
+  // 总量
+  const summary = (batchResults[5].results || [])[0] || { total: 0, done: 0, undone: 0, active_days: 0 };
 
   const stats = {
-    total: results.length,
-    done: results.filter(r => r.done).length,
-    undone: results.filter(r => !r.done).length,
-    byPriority: {
-      low: results.filter(r => r.priority === 'low').length,
-      med: results.filter(r => r.priority === 'med').length,
-      high: results.filter(r => r.priority === 'high').length,
-    },
-    byDate: {},
+    total: summary.total || 0,
+    done: summary.done || 0,
+    undone: summary.undone || 0,
+    activeDays: summary.active_days || 0,
+    byDate,
+    byCategory,
+    noCategoryCount,
+    byPriority,
+    byPriorityDone,
+    byWeekday,
+    byWeekdayDone,
+    byHourBucket,
   };
-  for (const r of results) {
-    if (!stats.byDate[r.date]) stats.byDate[r.date] = { total: 0, done: 0 };
-    stats.byDate[r.date].total++;
-    if (r.done) stats.byDate[r.date].done++;
-  }
   return jsonResponse({ success: true, data: stats });
 }
 
