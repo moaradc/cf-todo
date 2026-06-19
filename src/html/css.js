@@ -581,6 +581,17 @@ export const css = `
     }
     .scale-preview-wrap .todo-item { margin-bottom: 5px; pointer-events: none; }
 
+    /* 显示与字体 卡片内分区（小标题分隔，无虚线） */
+    .scale-section { margin-bottom: 18px; }
+    .scale-section:last-child { margin-bottom: 0; }
+    .scale-section-label {
+      display: flex; align-items: center; gap: 8px;
+      color: #777; font-size: 0.72rem; font-weight: bold;
+      text-transform: uppercase; letter-spacing: 0.5px;
+      margin-bottom: 10px;
+    }
+    .scale-section-label .md-code { font-weight: normal; }
+
     /* Light 主题 - 缩放大小调整 */
     [data-theme="light"] .scale-slider-row input[type="range"] { background: #E5E5E5; }
     [data-theme="light"] .scale-slider-row input[type="range"]::-webkit-slider-thumb {
@@ -603,10 +614,15 @@ export const css = `
     [data-theme="light"] .scale-preview-wrap { background: #F0EEE2; border-color: #1B1915; }
     [data-theme="light"] .scale-label-sm,
     [data-theme="light"] .scale-label-lg { color: #1B1915; }
+    [data-theme="light"] .scale-section-label { color: #1B1915; }
 
     /* === 显示大小调整 (display density) === */
     .combined-preview-wrap .todo-item { margin-bottom: 5px; pointer-events: none; }
     #combined-preview { line-height: 1.5; }
+    /* 让预览内部元素跟随 #combined-preview 的 font-size 缩放（覆盖 rem 改用 em） */
+    #combined-preview .item-title { font-size: 1em; }
+    #combined-preview .item-info { font-size: 0.75em; }
+    #combined-preview .badge { font-size: 0.7em; }
 
     [data-theme="light"] .combined-preview-wrap { background: #F0EEE2; border-color: #1B1915; }
 

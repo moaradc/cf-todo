@@ -418,6 +418,7 @@ html.bg-dark #modal-add .modal-content{box-shadow: 0 16px 56px rgba(0,0,0,.32), 
 .scale-preset-btn.active{border-color:var(--ycy-gn)!important;color:var(--ycy-gn)!important;background:var(--ycy-ac-l)!important}
 .scale-preview-wrap{background:var(--ycy-panel-w)!important;border-color:var(--ycy-bd)!important;border-radius:var(--ycy-r-xs)!important}
 .scale-label-sm,.scale-label-lg{color:var(--ycy-t3)!important}
+.scale-section-label{color:var(--ycy-t3)!important;font-weight:700!important;text-transform:uppercase!important;letter-spacing:.5px!important}
 
 /* ── custom textarea ── */
 #custom-header-preview,#custom-content-preview{background:var(--ycy-panel-s)!important;color:var(--ycy-t)!important;border:1px solid var(--ycy-bd)!important;border-radius:var(--ycy-r-xs)!important;box-shadow:none!important}
