@@ -790,8 +790,10 @@ self.addEventListener('fetch', (event) => {
       const start = url.searchParams.get('start');
       const end = url.searchParams.get('end');
       if (!start || !end) return apiError("Date required", 400);
+      // date/priority/done 为原有字段；category_id/time 为统计页新增字段
+      // D1 按 row 计费，增加 column 不增加读取费用；保持单次查询
       const { results } = await env.DB.prepare(
-        'SELECT date, priority, done FROM todos WHERE date >= ? AND date <= ? AND deleted = 0'
+        'SELECT date, priority, done, category_id, time FROM todos WHERE date >= ? AND date <= ? AND deleted = 0'
       ).bind(start, end).all();
       return new Response(JSON.stringify(results), { headers: { 'Content-Type': 'application/json' } });
     }

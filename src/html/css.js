@@ -348,6 +348,133 @@ export const css = `
     .chart-container-bar { height: 250px; }
     .chart-container-pie { height: 200px; display: flex; justify-content: center; align-items: center; }
 
+    /* === 统计页：时间范围 tabs / 图表标题 / 热力图 / 分类排行 === */
+    .stats-range-tabs {
+      display: flex; gap: 0; margin-bottom: 15px;
+      border: 1px solid var(--fg); overflow: hidden;
+    }
+    .stats-range-tab {
+      flex: 1; padding: 7px 6px; font-size: 0.8rem; border: none !important;
+      background: transparent !important; color: var(--fg) !important; cursor: pointer;
+      letter-spacing: 0.5px; box-shadow: none !important;
+    }
+    .stats-range-tab.active { background: var(--accent) !important; color: #000 !important; font-weight: bold; }
+    .stats-summary-row {
+      display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px;
+    }
+    .stats-summary-card {
+      background: var(--panel); border: 1px solid #333; padding: 10px 6px; text-align: center;
+    }
+    .stats-summary-value { font-size: 1.15rem; font-weight: bold; color: var(--crt); line-height: 1.2; }
+    .stats-summary-label { font-size: 0.65rem; color: #666; margin-top: 3px; letter-spacing: 0.5px; }
+    .chart-title {
+      font-size: 0.8rem; color: var(--accent); text-transform: uppercase;
+      letter-spacing: 1.5px; margin-bottom: 8px; padding-bottom: 4px;
+      border-bottom: 1px dashed #444;
+    }
+    .chart-canvas { width: 100%; height: 100%; min-height: 200px; }
+    .chart-container-tall { padding: 15px; }
+    .chart-container-tall .chart-canvas { height: 260px; }
+    .chart-container-mid { padding: 15px; }
+    .chart-container-mid .chart-canvas { height: 220px; }
+    .chart-container-tall.hidden-by-range,
+    .chart-container-mid.hidden-by-range,
+    .chart-container.hidden-by-range { display: none !important; }
+
+    /* GitHub 热力图：calendar 模式需要更大高度 */
+    #chart-heatmap { height: 220px; }
+    .stats-heatmap-legend {
+      display: flex; align-items: center; gap: 6px;
+      font-size: 0.7rem; color: #888; margin-top: 6px; justify-content: flex-end;
+    }
+    .stats-heatmap-legend .swatch {
+      width: 10px; height: 10px; display: inline-block; border-radius: 2px;
+    }
+
+    /* 分类排行对比卡片 */
+    .category-rank-list { display: flex; flex-direction: column; gap: 10px; }
+    .category-rank-item {
+      display: grid; grid-template-columns: 22px 1fr auto; gap: 10px; align-items: center;
+      padding: 8px 6px; border: 1px solid #333; background: rgba(255,255,255,0.02);
+    }
+    .category-rank-rank { font-size: 0.85rem; font-weight: bold; color: var(--crt); text-align: center; }
+    .category-rank-name {
+      font-size: 0.85rem; color: var(--fg); display: flex; align-items: center; gap: 6px;
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
+    .category-rank-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+    .category-rank-bar-wrap {
+      grid-column: 2 / 4; height: 8px; background: #111; position: relative; overflow: hidden;
+      border: 1px solid #222; margin-top: 2px;
+    }
+    .category-rank-bar-total { position: absolute; top: 0; left: 0; height: 100%; background: rgba(255,255,255,0.08); }
+    .category-rank-bar-done { position: absolute; top: 0; left: 0; height: 100%; background: var(--crt); opacity: 0.7; }
+    .category-rank-count { font-size: 0.75rem; color: #aaa; }
+    .category-rank-empty { text-align: center; color: #666; font-size: 0.85rem; padding: 20px; }
+
+    [data-theme="light"] .stats-range-tabs { border: 2px solid #1B1915; border-radius: 4px; }
+    [data-theme="light"] .stats-range-tab { color: #1B1915 !important; }
+    [data-theme="light"] .stats-range-tab.active { background: #1B1915 !important; color: #5C960B !important; }
+    [data-theme="light"] .stats-summary-card { background: #FEFEFE; border: 2px solid #1B1915; box-shadow: 2px 2px 0 #E5E5E5; border-radius: 4px; }
+    [data-theme="light"] .stats-summary-value { color: #5C960B; }
+    [data-theme="light"] .stats-summary-label { color: #1B1915; font-weight: bold; }
+    [data-theme="light"] .chart-title { color: #CE2424; border-bottom-color: #1B1915; }
+    [data-theme="light"] .category-rank-item { background: #FEFEFE; border: 2px solid #1B1915; box-shadow: 2px 2px 0 #E5E5E5; border-radius: 4px; }
+    [data-theme="light"] .category-rank-bar-wrap { background: #F0F0F0; border-color: #CCC; }
+    [data-theme="light"] .category-rank-bar-total { background: rgba(0,0,0,0.08); }
+    [data-theme="light"] .category-rank-bar-done { background: #5C960B; }
+    [data-theme="light"] .category-rank-rank { color: #5C960B; }
+    [data-theme="light"] .category-rank-name { color: #1B1915; }
+    [data-theme="light"] .category-rank-count { color: #1B1915; }
+
+    /* 年度报告新增：对比卡片网格 */
+    .annual-compare-grid {
+      display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; margin-bottom: 20px;
+    }
+    .annual-compare-card {
+      background: var(--panel); border: 1px solid #333; padding: 12px 10px;
+      display: flex; flex-direction: column; gap: 6px;
+    }
+    .annual-compare-card.winner { border-color: var(--crt); box-shadow: 0 0 0 1px var(--crt) inset; }
+    .annual-compare-card-label { font-size: 0.7rem; color: #888; letter-spacing: 1px; text-transform: uppercase; }
+    .annual-compare-card-value { font-size: 1.4rem; font-weight: bold; color: var(--crt); }
+    .annual-compare-card-sub { font-size: 0.7rem; color: #666; }
+    .annual-compare-card-bar { height: 6px; background: #111; position: relative; overflow: hidden; }
+    .annual-compare-card-bar-fill { position: absolute; top: 0; left: 0; height: 100%; background: var(--crt); opacity: 0.7; }
+    .annual-rank-list { display: flex; flex-direction: column; gap: 6px; }
+    .annual-rank-item {
+      display: grid; grid-template-columns: 22px 1fr auto; gap: 8px; align-items: center;
+      padding: 6px 8px; border: 1px solid #2a2a2a; background: rgba(255,255,255,0.02);
+    }
+    .annual-rank-rank { font-size: 0.8rem; font-weight: bold; color: var(--crt); text-align: center; }
+    .annual-rank-name { font-size: 0.8rem; color: var(--fg); }
+    .annual-rank-count { font-size: 0.75rem; color: #aaa; }
+    .annual-chart-block { background: var(--panel); border: 1px dashed var(--fg); padding: 15px; margin-bottom: 20px; }
+    .annual-chart-block .chart-canvas { height: 220px; }
+    .annual-chart-title {
+      font-size: 0.8rem; color: var(--accent); text-transform: uppercase;
+      letter-spacing: 1.5px; margin-bottom: 8px; padding-bottom: 4px;
+      border-bottom: 1px dashed #444;
+    }
+    [data-theme="light"] .annual-compare-card { background: #FEFEFE; border: 2px solid #1B1915; box-shadow: 2px 2px 0 #E5E5E5; border-radius: 4px; }
+    [data-theme="light"] .annual-compare-card.winner { border-color: #5C960B; box-shadow: 0 0 0 2px #5C960B inset, 2px 2px 0 #1B1915; }
+    [data-theme="light"] .annual-compare-card-label { color: #1B1915; font-weight: bold; }
+    [data-theme="light"] .annual-compare-card-value { color: #5C960B; }
+    [data-theme="light"] .annual-compare-card-sub { color: #1B1915; }
+    [data-theme="light"] .annual-compare-card-bar { background: #F0F0F0; }
+    [data-theme="light"] .annual-compare-card-bar-fill { background: #5C960B; }
+    [data-theme="light"] .annual-rank-item { background: #FEFEFE; border: 1px solid #1B1915; border-radius: 4px; }
+    [data-theme="light"] .annual-rank-rank { color: #5C960B; }
+    [data-theme="light"] .annual-rank-name { color: #1B1915; }
+    [data-theme="light"] .annual-rank-count { color: #1B1915; }
+    [data-theme="light"] .annual-chart-block { background: #FEFEFE; border: 2px dashed #1B1915; border-radius: 4px; }
+    [data-theme="light"] .annual-chart-title { color: #CE2424; border-bottom-color: #1B1915; }
+
+    @media (max-width: 600px) {
+      .stats-summary-row { grid-template-columns: repeat(2, 1fr); }
+      .annual-compare-grid { grid-template-columns: 1fr; }
+    }
+
     /* =========================================
        ISOLATED THEME: LIGHT CASSETTE FUTURISM
        ========================================= */[data-theme="light"] body { background-color: #F0EEE2; color: #1B1915; }[data-theme="light"] .scanlines { display: none !important; }[data-theme="light"] .theme-toggle-btn {

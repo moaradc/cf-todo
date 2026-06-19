@@ -187,14 +187,51 @@ export function getBody(isAuthorized) {
     </div>
     <div style="flex:1; overflow-y:auto; padding-bottom: 20px;">
       <div id="stats-weekly">
+        <div id="stats-range-tabs" class="stats-range-tabs">
+          <button class="stats-range-tab active" data-range="7d" onclick="switchStatsRange('7d')">7天</button>
+          <button class="stats-range-tab" data-range="12w" onclick="switchStatsRange('12w')">12周</button>
+          <button class="stats-range-tab" data-range="12m" onclick="switchStatsRange('12m')">12月</button>
+          <button class="stats-range-tab" data-range="year" onclick="switchStatsRange('year')">今年</button>
+        </div>
         <div id="stats-loading" style="text-align:center; padding:40px; color:var(--fg);">数据拉取中...</div>
         <div id="stats-content" class="hidden">
           <div class="stats-grid">
-            <div class="chart-container chart-container-bar"><canvas id="chart-bar"></canvas></div>
-            <div style="text-align: center; color: var(--crt); font-weight: bold; font-size: 1.1rem; margin: 5px 0;" id="stats-total-info">近7天总完成数: 0</div>
+            <div class="stats-summary-row" id="stats-summary-row"></div>
+            <div class="chart-container chart-container-tall" id="chart-heatmap-wrap">
+              <div class="chart-title">活跃热力图</div>
+              <div id="chart-heatmap" class="chart-canvas"></div>
+            </div>
+            <div class="chart-container chart-container-tall">
+              <div class="chart-title">完成趋势</div>
+              <div id="chart-trend" class="chart-canvas"></div>
+            </div>
+            <div class="chart-container chart-container-tall" id="chart-bar-wrap">
+              <div class="chart-title">每日事项分布</div>
+              <div id="chart-bar" class="chart-canvas"></div>
+            </div>
             <div class="stats-row-bottom">
-              <div class="chart-container chart-container-pie"><canvas id="chart-pie-priority"></canvas></div>
-              <div class="chart-container chart-container-pie"><canvas id="chart-pie-status"></canvas></div>
+              <div class="chart-container chart-container-mid">
+                <div class="chart-title">周日分布</div>
+                <div id="chart-weekday" class="chart-canvas"></div>
+              </div>
+              <div class="chart-container chart-container-mid">
+                <div class="chart-title">时段分布</div>
+                <div id="chart-hour" class="chart-canvas"></div>
+              </div>
+            </div>
+            <div class="stats-row-bottom">
+              <div class="chart-container chart-container-mid">
+                <div class="chart-title">优先级占比</div>
+                <div id="chart-pie-priority" class="chart-canvas"></div>
+              </div>
+              <div class="chart-container chart-container-mid">
+                <div class="chart-title">事项完成率</div>
+                <div id="chart-pie-status" class="chart-canvas"></div>
+              </div>
+            </div>
+            <div class="chart-container" id="chart-category-wrap">
+              <div class="chart-title">分类排行对比</div>
+              <div id="chart-category-list" class="category-rank-list"></div>
             </div>
           </div>
         </div>
