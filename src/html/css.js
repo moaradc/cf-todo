@@ -494,6 +494,10 @@ export const css = `
 
       /* 下方两列布局在窄屏改为单列堆叠 */
       .stats-row-bottom { grid-template-columns: 1fr; gap: 12px; }
+      /* 例外:饼图(优先级占比 + 事项完成率)始终并排,饼图结构简单,窄屏也足够 */
+      .stats-row-pies { grid-template-columns: 1fr 1fr; gap: 10px; }
+      .stats-row-pies .chart-container-mid { padding: 10px 6px; }
+      .stats-row-pies .chart-canvas { height: 160px; }
 
       /* 分类排行卡片更紧凑 */
       .category-rank-item { padding: 6px 4px; gap: 6px; grid-template-columns: 18px 1fr auto; }

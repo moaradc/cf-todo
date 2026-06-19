@@ -219,7 +219,7 @@ export function getBody(isAuthorized) {
                 <div id="chart-hour" class="chart-canvas"></div>
               </div>
             </div>
-            <div class="stats-row-bottom">
+            <div class="stats-row-bottom stats-row-pies">
               <div class="chart-container chart-container-mid">
                 <div class="chart-title">优先级占比</div>
                 <div id="chart-pie-priority" class="chart-canvas"></div>
