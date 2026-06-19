@@ -217,7 +217,7 @@ export function getBody(isAuthorized) {
     <div style="flex:1; overflow-y:auto; padding-bottom: 20px;">
       
       <div class="detail-label">偏好设置</div>
-      <div style="margin-bottom: 20px;">
+      <div class="settings-card">
           <div class="setting-item">
               <span class="flex-1">每日搜索源</span>
               <div class="fake-input" onclick="toggleSettingPopover('provider', this)" style="width: 145px; margin-bottom: 0; padding: 6px 8px; justify-content: space-between; border-radius: 4px;">
@@ -232,15 +232,19 @@ export function getBody(isAuthorized) {
                   <span style="font-size:0.8rem; margin-right: 4px;">▼</span>
               </div>
           </div>
-          <div class="setting-item">
+          <div class="setting-item" style="margin-bottom: 0;">
               <span class="flex-1">排序顺序</span>
               <div class="fake-input" onclick="toggleSettingPopover('sortAsc', this)" style="width: 145px; margin-bottom: 0; padding: 6px 8px; justify-content: space-between; border-radius: 4px;">
                   <span id="set-disp-sort-asc">正序</span>
                   <span style="font-size:0.8rem; margin-right: 4px;">▼</span>
               </div>
           </div>
-          <div class="setting-item" style="flex-direction:column; align-items:stretch;">
-            <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;">
+      </div>
+
+      <div class="detail-label">显示与字体</div>
+      <div class="settings-card">
+          <div class="scale-section">
+            <div class="scale-section-label">
               <span>缩放大小</span>
               <span class="md-code" style="cursor:pointer;margin-left:auto;" onclick="resetScaleBrowserData()">重置</span>
             </div>
@@ -258,8 +262,9 @@ export function getBody(isAuthorized) {
               </div>
             </div>
           </div>
-          <div class="setting-item" style="flex-direction:column; align-items:stretch;">
-            <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;">
+
+          <div class="scale-section">
+            <div class="scale-section-label">
               <span>显示大小</span>
               <span class="md-code" style="cursor:pointer;margin-left:auto;" onclick="resetDisplayScaleBrowserData()">重置</span>
             </div>
@@ -277,8 +282,9 @@ export function getBody(isAuthorized) {
               </div>
             </div>
           </div>
-          <div class="setting-item" style="flex-direction:column; align-items:stretch;">
-            <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;">
+
+          <div class="scale-section">
+            <div class="scale-section-label">
               <span>字体大小</span>
               <span class="md-code" style="cursor:pointer;margin-left:auto;" onclick="resetFontSizeBrowserData()">重置</span>
             </div>
@@ -296,55 +302,31 @@ export function getBody(isAuthorized) {
               </div>
             </div>
           </div>
-          <div class="scale-preview-wrap combined-preview-wrap">
-            <div id="combined-preview" style="zoom:1; font-size:16px;">
-              <div class="todo-item" style="margin-bottom:5px;">
-                <div class="checkbox"></div>
-                <div class="item-meta">
-                  <div class="item-title">示例待办事项</div>
-                  <div class="item-info">
-                    <span class="badge badge-high">高</span>
-                    <span class="badge badge-time">09:00</span>
+
+          <div class="scale-section" style="margin-bottom: 0;">
+            <div class="scale-section-label">
+              <span>示例预览</span>
+            </div>
+            <div class="scale-preview-wrap combined-preview-wrap">
+              <div id="combined-preview" style="zoom:1; font-size:16px;">
+                <div class="todo-item" style="margin-bottom:5px;">
+                  <div class="checkbox"></div>
+                  <div class="item-meta">
+                    <div class="item-title">示例待办事项</div>
+                    <div class="item-info">
+                      <span class="badge badge-high">高</span>
+                      <span class="badge badge-time">09:00</span>
+                    </div>
+                  </div>
+                </div>
+                <div class="todo-item done">
+                  <div class="checkbox"></div>
+                  <div class="item-meta">
+                    <div class="item-title">已完成的任务</div>
                   </div>
                 </div>
               </div>
-              <div class="todo-item done">
-                <div class="checkbox"></div>
-                <div class="item-meta">
-                  <div class="item-title">已完成的任务</div>
-                </div>
-              </div>
             </div>
-          </div>
-      </div>
-
-      <div class="settings-card">
-          <div class="setting-item" style="margin-bottom: 15px; border: none; padding: 0;">
-              <span class="settings-text" style="margin:0;"><strong>启用前端定制注入</strong></span>
-              <div class="switch-label" onclick="toggleCustomCodeEnabled()" style="margin-bottom: 0;">
-                  <div class="switch-box" id="custom-code-enabled-box"></div>
-              </div>
-          </div>
-
-          <p class="settings-text" style="margin-bottom: 12px;">关闭后将不再注入自定义代码，但代码仍会保留在数据库中。</p>
-          
-         <div class="detail-label" style="margin-top: 6px;">自定义头部</div>
-        <textarea id="custom-header-preview" rows="5"
-          style="resize:vertical; font-size:0.8rem; margin-bottom: 12px;"
-          placeholder="未配置或已关闭 — 将注入到 &lt;head&gt; 内"></textarea>
-          <div class="detail-label">自定义内容</div>
-          <textarea id="custom-content-preview" rows="5"
-            style="resize:vertical; font-size:0.8rem; margin-bottom: 12px;"
-            placeholder="未配置或已关闭 — 将注入到 &lt;/body&gt; 前"></textarea>
-          <div id="custom-action-row" style="display:none; gap:10px; margin-bottom:12px;">
-              <span class="md-code" style="cursor:pointer; flex:1; text-align:center;" onclick="previewCustomCode()">预览</span>
-              <span class="md-code" style="cursor:pointer; flex:1; text-align:center;" onclick="resetCustomCode()">重置</span>
-              <span class="md-code" style="cursor:pointer; color:var(--accent); flex:1; text-align:center; display:none;" id="restore-custom-btn" onclick="restoreAllPreview()">还原</span>
-          </div>
-          <div class="settings-text" style="border-top: 1px dashed #333; padding-top: 10px;">
-            <strong>说明：</strong>通过编辑区注入自定义 HTML/CSS/JS，存储在 D1 数据库中。（可留空）<br>
-            <strong>自定义头部</strong> — 注入到 <span class="md-code">&lt;head&gt;</span> 内（适合放 <span class="md-code">&lt;style&gt;</span>、外部 CSS、meta 标签等）<br>
-            <strong>自定义内容</strong> — 注入到 <span class="md-code">&lt;/body&gt;</span> 前（适合放 <span class="md-code">&lt;script&gt;</span>、HTML 片段等）
           </div>
       </div>
 
@@ -391,7 +373,38 @@ export function getBody(isAuthorized) {
               <button style="font-size:0.8rem;padding:6px 10px;" onclick="refreshCacheSize()">计算</button>
           </div>
           <p class="settings-text" style="margin-bottom: 12px;">清除页面与数据缓存，不影响您的待办事项。</p>
-          <button class="btn-danger" style="width:100%" onclick="clearAppCache()">清空缓存</button>
+          <button style="width:100%" onclick="clearAppCache()">清空缓存</button>
+      </div>
+
+      <div class="detail-label">前端定制注入</div>
+      <div class="settings-card">
+          <div class="setting-item" style="margin-bottom: 15px; border: none; padding: 0;">
+              <span class="settings-text" style="margin:0;"><strong>启用前端定制注入</strong></span>
+              <div class="switch-label" onclick="toggleCustomCodeEnabled()" style="margin-bottom: 0;">
+                  <div class="switch-box" id="custom-code-enabled-box"></div>
+              </div>
+          </div>
+
+          <p class="settings-text" style="margin-bottom: 12px;">关闭后将不再注入自定义代码，但代码仍会保留在数据库中。</p>
+          
+         <div class="detail-label" style="margin-top: 6px;">自定义头部</div>
+        <textarea id="custom-header-preview" rows="5"
+          style="resize:vertical; font-size:0.8rem; margin-bottom: 12px;"
+          placeholder="未配置或已关闭 — 将注入到 &lt;head&gt; 内"></textarea>
+          <div class="detail-label">自定义内容</div>
+          <textarea id="custom-content-preview" rows="5"
+            style="resize:vertical; font-size:0.8rem; margin-bottom: 12px;"
+            placeholder="未配置或已关闭 — 将注入到 &lt;/body&gt; 前"></textarea>
+          <div id="custom-action-row" style="display:none; gap:10px; margin-bottom:12px;">
+              <span class="md-code" style="cursor:pointer; flex:1; text-align:center;" onclick="previewCustomCode()">预览</span>
+              <span class="md-code" style="cursor:pointer; flex:1; text-align:center;" onclick="resetCustomCode()">重置</span>
+              <span class="md-code" style="cursor:pointer; color:var(--accent); flex:1; text-align:center; display:none;" id="restore-custom-btn" onclick="restoreAllPreview()">还原</span>
+          </div>
+          <div class="settings-text" style="border-top: 1px dashed #333; padding-top: 10px;">
+            <strong>说明：</strong>通过编辑区注入自定义 HTML/CSS/JS，存储在 D1 数据库中。（可留空）<br>
+            <strong>自定义头部</strong> — 注入到 <span class="md-code">&lt;head&gt;</span> 内（适合放 <span class="md-code">&lt;style&gt;</span>、外部 CSS、meta 标签等）<br>
+            <strong>自定义内容</strong> — 注入到 <span class="md-code">&lt;/body&gt;</span> 前（适合放 <span class="md-code">&lt;script&gt;</span>、HTML 片段等）
+          </div>
       </div>
 
       <div class="detail-label">API 密钥管理</div>
@@ -425,7 +438,7 @@ export function getBody(isAuthorized) {
       <div class="settings-card">
           <p class="settings-text" style="margin-bottom: 12px;">最多支持 <strong>3</strong> 个浏览器UA同时登录。达到上限后新登录将自动替换最早（靠上）登录的会话。</p>
           <div id="sessions-list" style="margin-bottom: 12px;"></div>
-          <button class="btn-danger" style="width:100%" onclick="deleteAllSessions()">全部删除</button>
+          <button style="width:100%" onclick="deleteAllSessions()">全部删除</button>
       </div>
 
       <div class="detail-label">关于 MOARA 待办事项</div>
@@ -438,7 +451,7 @@ export function getBody(isAuthorized) {
       <div id="pwa-install-section" class="detail-label" style="display:none;">安装应用</div>
       <div id="pwa-install-card" class="settings-card" style="display:none;">
           <p id="pwa-install-desc" class="settings-text" style="margin-bottom: 0;">将应用安装到设备，获得类似原生应用的体验，支持离线访问。<span id="pwa-install-status"></span></p>
-          <button id="pwa-install-btn" class="btn-danger" style="width:100%;display:none;margin-top:12px;" onclick="installPwa()">安装应用</button>
+          <button id="pwa-install-btn" style="width:100%;display:none;margin-top:12px;" onclick="installPwa()">安装应用</button>
       </div>
 
       <div class="detail-label" style="color: var(--accent);">危险区域</div>
