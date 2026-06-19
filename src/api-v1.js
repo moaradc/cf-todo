@@ -283,6 +283,7 @@ function normalizePriority(val) {
 
 /**
  * 格式化 todo 记录为 API 响应格式
+ * 字段名与 v0 (Web API /api/todos) 保持一致，均使用 snake_case
  */
 function formatTodo(row) {
   const subtasks = parseJsonField(row.subtasks).map(s => {
@@ -301,27 +302,27 @@ function formatTodo(row) {
 
   return {
     id: row.id,
-    parentId: row.parent_id,
+    parent_id: row.parent_id,
     date: row.date,
     text: row.text,
     time: row.time || '',
     priority: normalizePriority(row.priority || 'low'),
     desc: row.desc || '',
     url: row.url || '',
-    copyText: row.copy_text || '',
+    copy_text: row.copy_text || '',
     subtasks,
-    searchTerms,
+    search_terms: searchTerms,
     done: !!row.done,
     deleted: !!row.deleted,
-    repeatType: rType,
-    repeatCustom: row.repeat_custom || '',
-    repeatEnd: row.repeat_end || '',
-    endTime: row.end_time || '',
-    categoryId: row.category_id || '',
-    recurrenceId: row.recurrence_id || '',
-    isException: !!row.is_exception,
+    repeat_type: rType,
+    repeat_custom: row.repeat_custom || '',
+    repeat_end: row.repeat_end || '',
+    end_time: row.end_time || '',
+    category_id: row.category_id || '',
+    recurrence_id: row.recurrence_id || '',
+    is_exception: !!row.is_exception,
     isSeries: rType !== 'none',
-    repeatInterval: row.repeat_interval || 1,
+    repeat_interval: row.repeat_interval || 1,
   };
 }
 
@@ -452,9 +453,10 @@ async function handleV1Todos(request, env, url) {
   }
 
   // POST /api/v1/todos - 创建 todo
+  // 请求体字段名与 v0 (Web API) 保持一致，均使用 snake_case
   if (request.method === 'POST') {
     const body = await request.json();
-    const { date, text, time, priority, desc, url, copyText, subtasks, searchTerms, repeatType, repeatEnd, endTime, categoryId, repeatInterval } = body;
+    const { date, text, time, priority, desc, url, copy_text, subtasks, search_terms, repeat_type, repeat_end, end_time, category_id, repeat_interval } = body;
 
     if (!date || !text) {
       return apiError('date 和 text 为必填项', 400);
@@ -464,11 +466,11 @@ async function handleV1Todos(request, env, url) {
     }
 
     const id = crypto.randomUUID();
-    const rptType = repeatType || 'none';
-    const catId = categoryId || '';
-    const rEnd = repeatEnd || '';
-    const eTime = endTime || '';
-    const rInterval = repeatInterval || 1;
+    const rptType = repeat_type || 'none';
+    const catId = category_id || '';
+    const rEnd = repeat_end || '';
+    const eTime = end_time || '';
+    const rInterval = repeat_interval || 1;
     const normPriority = normalizePriority(priority || 'low');
     // 规范化 subtasks：字符串→{text, done:false} 对象
     const normalizedSubtasks = (subtasks || []).map(s => {
@@ -476,7 +478,7 @@ async function handleV1Todos(request, env, url) {
       if (s && typeof s === 'object' && s.text) return s;
       return null;
     }).filter(Boolean);
-    const normalizedSearchTerms = (searchTerms || []).map(w => {
+    const normalizedSearchTerms = (search_terms || []).map(w => {
       if (typeof w === 'string') return { text: w, done: false };
       if (w && typeof w === 'object' && w.text) return w;
       return null;
@@ -488,7 +490,7 @@ async function handleV1Todos(request, env, url) {
       'INSERT INTO todos (id, parent_id, date, text, time, priority, desc, url, copy_text, subtasks, search_terms, done, deleted, repeat_type, repeat_custom, repeat_end, end_time, category_id, repeat_interval) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
     ).bind(
       id, id, date, text, time || '', normPriority,
-      desc || '', url || '', copyText || '', subtasksStr, searchTermsStr,
+      desc || '', url || '', copy_text || '', subtasksStr, searchTermsStr,
       0, 0, rptType, '', rEnd, eTime, catId, rInterval
     ).run();
 
@@ -496,14 +498,14 @@ async function handleV1Todos(request, env, url) {
       await DB.prepare(
         'INSERT INTO todo_templates (parent_id, text, time, priority, desc, url, copy_text, subtasks, search_terms, repeat_type, repeat_custom, repeat_end, end_time, anchor_date, exdates, category_id, repeat_interval) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
       ).bind(
-        id, text, time || '', normPriority, desc || '', url || '', copyText || '',
+        id, text, time || '', normPriority, desc || '', url || '', copy_text || '',
         subtasksStr, searchTermsStr, rptType, '', rEnd, eTime, date, '[]', catId, rInterval
       ).run();
     }
 
     return jsonResponse({
       success: true,
-      data: { id, date, text, repeatType: rptType, categoryId: catId }
+      data: { id, date, text, repeat_type: rptType, category_id: catId }
     }, 201);
   }
 
@@ -518,6 +520,7 @@ async function handleV1TodoGet(DB, todoId) {
 }
 
 // PUT /api/v1/todos/:id - 更新 todo
+// 请求体字段名与 v0 (Web API) 保持一致，均使用 snake_case
 async function handleV1TodoPut(request, DB, todoId) {
   const existing = await DB.prepare('SELECT * FROM todos WHERE id = ?').bind(todoId).first();
   if (!existing) return apiError('Todo 不存在', 404);
@@ -534,16 +537,16 @@ async function handleV1TodoPut(request, DB, todoId) {
     priority: body.priority !== undefined ? normalizePriority(body.priority) : normalizePriority(existing.priority || 'low'),
     desc: body.desc !== undefined ? body.desc : (existing.desc || ''),
     url: body.url !== undefined ? body.url : (existing.url || ''),
-    copyText: body.copyText !== undefined ? body.copyText : (existing.copy_text || ''),
+    copy_text: body.copy_text !== undefined ? body.copy_text : (existing.copy_text || ''),
     subtasks: JSON.stringify(body.subtasks !== undefined ? body.subtasks : parseJsonField(existing.subtasks)),
-    search_terms: JSON.stringify(body.searchTerms !== undefined ? body.searchTerms : parseJsonField(existing.search_terms)),
-    repeat_type: body.repeatType !== undefined ? body.repeatType : (existing.repeat_type || 'none'),
+    search_terms: JSON.stringify(body.search_terms !== undefined ? body.search_terms : parseJsonField(existing.search_terms)),
+    repeat_type: body.repeat_type !== undefined ? body.repeat_type : (existing.repeat_type || 'none'),
     repeat_custom: '',
-    repeat_end: body.repeatEnd !== undefined ? body.repeatEnd : (existing.repeat_end || ''),
-    end_time: body.endTime !== undefined ? body.endTime : (existing.end_time || ''),
-    category_id: body.categoryId !== undefined ? body.categoryId : (existing.category_id || ''),
+    repeat_end: body.repeat_end !== undefined ? body.repeat_end : (existing.repeat_end || ''),
+    end_time: body.end_time !== undefined ? body.end_time : (existing.end_time || ''),
+    category_id: body.category_id !== undefined ? body.category_id : (existing.category_id || ''),
     date: body.date !== undefined ? body.date : existing.date,
-    repeat_interval: body.repeatInterval !== undefined ? body.repeatInterval : (existing.repeat_interval || 1),
+    repeat_interval: body.repeat_interval !== undefined ? body.repeat_interval : (existing.repeat_interval || 1),
   };
 
   const date = existing.date;
@@ -558,15 +561,15 @@ async function handleV1TodoPut(request, DB, todoId) {
       // 单次 → 重复
       await DB.prepare(
         'UPDATE todos SET date=?, text=?, time=?, priority=?, desc=?, url=?, copy_text=?, subtasks=?, search_terms=?, repeat_type=?, repeat_custom=?, repeat_end=?, end_time=?, category_id=?, repeat_interval=? WHERE id=?'
-      ).bind(newDate, newValues.text, newValues.time, newValues.priority, newValues.desc, newValues.url, newValues.copyText, subtasksStr, searchTermsStr, rptType, '', newValues.repeat_end, newValues.end_time, newValues.category_id, newValues.repeat_interval, todoId).run();
+      ).bind(newDate, newValues.text, newValues.time, newValues.priority, newValues.desc, newValues.url, newValues.copy_text, subtasksStr, searchTermsStr, rptType, '', newValues.repeat_end, newValues.end_time, newValues.category_id, newValues.repeat_interval, todoId).run();
       await DB.prepare(
         'INSERT OR REPLACE INTO todo_templates (parent_id, text, time, priority, desc, url, copy_text, subtasks, search_terms, repeat_type, repeat_custom, repeat_end, end_time, anchor_date, exdates, category_id, repeat_interval) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
-      ).bind(todoId, newValues.text, newValues.time, newValues.priority, newValues.desc, newValues.url, newValues.copyText, subtasksStr, searchTermsStr, rptType, '', newValues.repeat_end, newValues.end_time, newDate, '[]', newValues.category_id, newValues.repeat_interval).run();
+      ).bind(todoId, newValues.text, newValues.time, newValues.priority, newValues.desc, newValues.url, newValues.copy_text, subtasksStr, searchTermsStr, rptType, '', newValues.repeat_end, newValues.end_time, newDate, '[]', newValues.category_id, newValues.repeat_interval).run();
     } else if (parentId && parentId !== todoId) {
       // 重复 → 单次：脱离系列
       await DB.prepare(
         'UPDATE todos SET parent_id=?, date=?, text=?, time=?, priority=?, desc=?, url=?, copy_text=?, subtasks=?, search_terms=?, repeat_type=\'none\', repeat_custom=\'\', repeat_end=\'\', end_time=?, category_id=?, repeat_interval=1 WHERE id=?'
-      ).bind(todoId, newDate, newValues.text, newValues.time, newValues.priority, newValues.desc, newValues.url, newValues.copyText, subtasksStr, searchTermsStr, newValues.end_time, newValues.category_id, todoId).run();
+      ).bind(todoId, newDate, newValues.text, newValues.time, newValues.priority, newValues.desc, newValues.url, newValues.copy_text, subtasksStr, searchTermsStr, newValues.end_time, newValues.category_id, todoId).run();
       const tpl = await DB.prepare('SELECT exdates FROM todo_templates WHERE parent_id = ?').bind(parentId).first();
       if (tpl) {
         const newExdates = addExdate(tpl.exdates || '[]', date);
@@ -576,10 +579,10 @@ async function handleV1TodoPut(request, DB, todoId) {
       // 普通更新
       await DB.prepare(
         'UPDATE todos SET date=?, text=?, time=?, priority=?, desc=?, url=?, copy_text=?, subtasks=?, search_terms=?, repeat_type=?, repeat_custom=?, repeat_end=?, end_time=?, category_id=?, repeat_interval=? WHERE id=?'
-      ).bind(newDate, newValues.text, newValues.time, newValues.priority, newValues.desc, newValues.url, newValues.copyText, subtasksStr, searchTermsStr, rptType, '', newValues.repeat_end, newValues.end_time, newValues.category_id, newValues.repeat_interval, todoId).run();
+      ).bind(newDate, newValues.text, newValues.time, newValues.priority, newValues.desc, newValues.url, newValues.copy_text, subtasksStr, searchTermsStr, rptType, '', newValues.repeat_end, newValues.end_time, newValues.category_id, newValues.repeat_interval, todoId).run();
     }
   } else {
-    const actions = computeUpdateActions({ task: { ...existing, parentId, isSeries }, date, scope, newValues, newDate });
+    const actions = computeUpdateActions({ task: { ...existing, parent_id: parentId, isSeries }, date, scope, newValues, newDate });
 
     // Split 系列时生成新 parent_id
     let splitNewPid = null;
@@ -593,20 +596,20 @@ async function handleV1TodoPut(request, DB, todoId) {
         // Split: 脱离旧系列，加入新系列（thisAndFuture + isRecurring）
         await DB.prepare(
           'UPDATE todos SET parent_id=?, date=?, text=?, time=?, priority=?, desc=?, url=?, copy_text=?, subtasks=?, search_terms=?, repeat_type=?, repeat_custom=?, repeat_end=?, end_time=?, category_id=?, repeat_interval=? WHERE id=?'
-        ).bind(splitNewPid, newDate, newValues.text, newValues.time, newValues.priority, newValues.desc, newValues.url, newValues.copyText, subtasksStr, searchTermsStr, rptType, '', newValues.repeat_end, newValues.end_time, newValues.category_id, newValues.repeat_interval, todoId).run();
+        ).bind(splitNewPid, newDate, newValues.text, newValues.time, newValues.priority, newValues.desc, newValues.url, newValues.copy_text, subtasksStr, searchTermsStr, rptType, '', newValues.repeat_end, newValues.end_time, newValues.category_id, newValues.repeat_interval, todoId).run();
       } else if (cv.detachFromSeries) {
         // 脱离系列，变为单次任务（"仅此项"或 thisAndFuture 改为不重复）
         await DB.prepare(
           'UPDATE todos SET parent_id=?, date=?, text=?, time=?, priority=?, desc=?, url=?, copy_text=?, subtasks=?, search_terms=?, repeat_type=\'none\', repeat_custom=\'\', repeat_end=\'\', end_time=?, category_id=?, repeat_interval=1 WHERE id=?'
-        ).bind(todoId, newDate, newValues.text, newValues.time, newValues.priority, newValues.desc, newValues.url, newValues.copyText, subtasksStr, searchTermsStr, newValues.end_time, newValues.category_id, todoId).run();
+        ).bind(todoId, newDate, newValues.text, newValues.time, newValues.priority, newValues.desc, newValues.url, newValues.copy_text, subtasksStr, searchTermsStr, newValues.end_time, newValues.category_id, todoId).run();
       } else if (cv.isRecurring) {
         await DB.prepare(
           'UPDATE todos SET date=?, text=?, time=?, priority=?, desc=?, url=?, copy_text=?, subtasks=?, search_terms=?, repeat_type=?, repeat_custom=?, repeat_end=?, end_time=?, category_id=?, repeat_interval=? WHERE id=?'
-        ).bind(newDate, newValues.text, newValues.time, newValues.priority, newValues.desc, newValues.url, newValues.copyText, subtasksStr, searchTermsStr, rptType, '', newValues.repeat_end, newValues.end_time, newValues.category_id, newValues.repeat_interval, todoId).run();
+        ).bind(newDate, newValues.text, newValues.time, newValues.priority, newValues.desc, newValues.url, newValues.copy_text, subtasksStr, searchTermsStr, rptType, '', newValues.repeat_end, newValues.end_time, newValues.category_id, newValues.repeat_interval, todoId).run();
       } else {
         await DB.prepare(
           'UPDATE todos SET date=?, text=?, time=?, priority=?, desc=?, url=?, copy_text=?, subtasks=?, search_terms=?, repeat_type=\'none\', repeat_custom=\'\', repeat_end=\'\', category_id=?, repeat_interval=1 WHERE id=?'
-        ).bind(newDate, newValues.text, newValues.time, newValues.priority, newValues.desc, newValues.url, newValues.copyText, subtasksStr, searchTermsStr, newValues.category_id, todoId).run();
+        ).bind(newDate, newValues.text, newValues.time, newValues.priority, newValues.desc, newValues.url, newValues.copy_text, subtasksStr, searchTermsStr, newValues.category_id, todoId).run();
       }
     }
 
@@ -637,7 +640,7 @@ async function handleV1TodoPut(request, DB, todoId) {
         } else {
           await DB.prepare(
             'UPDATE todos SET text=?, time=?, priority=?, desc=?, url=?, copy_text=?, subtasks=?, search_terms=?, repeat_type=?, repeat_custom=?, repeat_end=?, end_time=?, category_id=?, repeat_interval=? WHERE parent_id=? AND id != ? AND deleted = 0'
-          ).bind(newValues.text, newValues.time, newValues.priority, newValues.desc, newValues.url, newValues.copyText, subtasksStr, searchTermsStr, rptType, '', newValues.repeat_end, newValues.end_time, newValues.category_id, newValues.repeat_interval, parentId, todoId).run();
+          ).bind(newValues.text, newValues.time, newValues.priority, newValues.desc, newValues.url, newValues.copy_text, subtasksStr, searchTermsStr, rptType, '', newValues.repeat_end, newValues.end_time, newValues.category_id, newValues.repeat_interval, parentId, todoId).run();
         }
       } else {
         await DB.prepare('DELETE FROM todos WHERE parent_id=? AND id != ? AND deleted = 0').bind(parentId, todoId).run();
@@ -664,7 +667,7 @@ async function handleV1TodoPut(request, DB, todoId) {
           } catch (e) {}
           await DB.prepare(
             'INSERT OR REPLACE INTO todo_templates (parent_id, text, time, priority, desc, url, copy_text, subtasks, search_terms, repeat_type, repeat_custom, repeat_end, end_time, anchor_date, exdates, category_id, repeat_interval) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
-          ).bind(parentId, newValues.text, newValues.time, newValues.priority, newValues.desc, newValues.url, newValues.copyText, subtasksStr, searchTermsStr, rptType, '', newValues.repeat_end, newValues.end_time, newDate, existingExdates, newValues.category_id, newValues.repeat_interval).run();
+          ).bind(parentId, newValues.text, newValues.time, newValues.priority, newValues.desc, newValues.url, newValues.copy_text, subtasksStr, searchTermsStr, rptType, '', newValues.repeat_end, newValues.end_time, newDate, existingExdates, newValues.category_id, newValues.repeat_interval).run();
         }
       } else if (tmpl.type === 'delete') {
         await DB.prepare('DELETE FROM todo_templates WHERE parent_id=?').bind(parentId).run();
@@ -703,7 +706,7 @@ async function handleV1TodoDelete(DB, todoId, scope) {
   if (!isSeries || !effectiveScope) {
     await DB.prepare('UPDATE todos SET deleted = 1 WHERE id = ?').bind(todoId).run();
   } else {
-    const actions = computeDeleteActions({ task: { ...existing, parentId, isSeries }, date, scope: effectiveScope });
+    const actions = computeDeleteActions({ task: { ...existing, parent_id: parentId, isSeries }, date, scope: effectiveScope });
 
     if (actions.deleteTodoIds && actions.deleteTodoIds.length > 0) {
       for (const id of actions.deleteTodoIds) {
@@ -907,30 +910,32 @@ async function handleV1TrashAction(request, DB) {
     const t = await DB.prepare('SELECT parent_id, date, repeat_type, repeat_end FROM todos WHERE id = ?').bind(id).first();
     if (!t) return apiError('待办不存在', 404);
     await DB.prepare('UPDATE todos SET deleted = 0 WHERE id = ?').bind(id).run();
-    if (t.repeat_type && t.repeat_type !== 'none' && t.parent_id) {
+    // 仅当回收站行仍携带循环属性时才需判定 (this-scope 删除, 或旧版未脱钩的 thisAndFuture/all 行)
+    // 新版 thisAndFuture/all 删除已在删除时脱钩为单次快照 (repeat_type='none', parent_id=id)，此处直接跳过。
+    // 对齐 RFC 5545 + Google Tasks 标准：停止/删除系列后恢复，实例为单次任务，不再重新激活循环。
+    if (t.repeat_type && t.repeat_type !== 'none' && t.parent_id && t.parent_id !== id) {
+      // 检查同日期是否已有活跃实例（避免恢复后出现重复）
       const existing = await DB.prepare(
         'SELECT id FROM todos WHERE parent_id = ? AND date = ? AND deleted = 0 AND id != ? LIMIT 1'
       ).bind(t.parent_id, t.date, id).first();
       if (existing) {
-        await DB.prepare('UPDATE todos SET parent_id=?, repeat_type=\'none\', repeat_custom=\'\', repeat_end=\'\' WHERE id=?').bind(id, id).run();
-      } else if (t.repeat_end && t.repeat_end !== '') {
-        const tpl = await DB.prepare('SELECT repeat_end FROM todo_templates WHERE parent_id = ?').bind(t.parent_id).first();
-        if (tpl && tpl.repeat_end && tpl.repeat_end < t.date) {
-          await DB.prepare('UPDATE todos SET parent_id=?, repeat_type=\'none\', repeat_custom=\'\', repeat_end=\'\' WHERE id=?').bind(id, id).run();
+        // 同日期已有活跃实例，恢复的实例脱离模板变为单次任务
+        await DB.prepare(
+          'UPDATE todos SET parent_id=?, repeat_type=\'none\', repeat_custom=\'\', repeat_end=\'\', repeat_interval=1 WHERE id=?'
+        ).bind(id, id).run();
+      } else {
+        // 以模板的 repeat_end 为准判定系列是否仍覆盖此日期 (旧版按实例 repeat_end 判定，但实例 repeat_end 常为空导致漏判)
+        const tpl = await DB.prepare('SELECT repeat_end, exdates FROM todo_templates WHERE parent_id = ?').bind(t.parent_id).first();
+        if (tpl && (tpl.repeat_end === '' || tpl.repeat_end == null || tpl.repeat_end >= t.date)) {
+          // 模板仍覆盖此日期: 视为"仅此日程"删除的恢复，从EXDATE移除此日期，重新并入系列
+          const currentExdates = tpl.exdates || '[]';
+          const newExdates = removeExdate(currentExdates, t.date);
+          await DB.prepare('UPDATE todo_templates SET exdates = ? WHERE parent_id = ?').bind(newExdates, t.parent_id).run();
         } else {
-          await DB.prepare('UPDATE todos SET repeat_end=\'\' WHERE id=?').bind(id).run();
-        }
-      }
-      const tpl = await DB.prepare('SELECT exdates FROM todo_templates WHERE parent_id = ?').bind(t.parent_id).first();
-      if (tpl) {
-        const newExdates = removeExdate(tpl.exdates || '[]', t.date);
-        await DB.prepare('UPDATE todo_templates SET exdates = ? WHERE parent_id = ?').bind(newExdates, t.parent_id).run();
-      } else if (!tpl && t.repeat_type && t.repeat_type !== 'none') {
-        const task = await DB.prepare('SELECT text, time, priority, `desc`, url, copy_text, subtasks, search_terms, repeat_type, repeat_custom, end_time, category_id, repeat_interval FROM todos WHERE id=?').bind(id).first();
-        if (task) {
+          // 模板已删除(旧版 all)或已截断至此日期之前(旧版 thisAndFuture): 无法并入系列，脱钩为单次任务
           await DB.prepare(
-            'INSERT OR REPLACE INTO todo_templates (parent_id, text, time, priority, `desc`, url, copy_text, subtasks, search_terms, repeat_type, repeat_custom, repeat_end, end_time, anchor_date, exdates, category_id, repeat_interval) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)'
-          ).bind(t.parent_id, task.text, task.time, task.priority, task.desc, task.url, task.copy_text, task.subtasks, task.search_terms, task.repeat_type, task.repeat_custom || '', '', task.end_time, t.date, '[]', task.category_id, task.repeat_interval || 1).run();
+            'UPDATE todos SET parent_id=?, repeat_type=\'none\', repeat_custom=\'\', repeat_end=\'\', repeat_interval=1 WHERE id=?'
+          ).bind(id, id).run();
         }
       }
     }
@@ -963,34 +968,35 @@ async function handleV1TrashAction(request, DB) {
     const placeholders = ids.map(() => '?').join(',');
     const tasks = await DB.prepare(`SELECT id, parent_id, date, repeat_type, repeat_end FROM todos WHERE id IN (${placeholders})`).bind(...ids).all();
     await DB.prepare(`UPDATE todos SET deleted = 0 WHERE id IN (${placeholders})`).bind(...ids).run();
-
-    const reviveIds = [];
+    // 仅回收站行仍携带循环属性的 (this-scope 删除或旧版未脱钩行) 需要判定
+    // 新版 thisAndFuture/all 删除时已脱钩为单次 (repeat_type='none', parent_id=id)，跳过
+    // 对齐 RFC 5545 + Google Tasks: 模板已删除/截断的，恢复为单次任务，不重建系列
     const detachIds = [];
+    const exdateUpdates = {};  // parent_id -> [dates] (并入系列时需从EXDATE移除)
     for (const t of (tasks.results || [])) {
-      if (t.repeat_type && t.repeat_type !== 'none' && t.repeat_end && t.repeat_end !== '') {
-        const existing = await DB.prepare('SELECT id FROM todos WHERE parent_id = ? AND date = ? AND deleted = 0 AND id != ? LIMIT 1').bind(t.parent_id, t.date, t.id).first();
-        if (existing) { detachIds.push(t.id); }
-        else {
-          const tpl = await DB.prepare('SELECT repeat_end FROM todo_templates WHERE parent_id = ?').bind(t.parent_id).first();
-          if (tpl && tpl.repeat_end && tpl.repeat_end < t.date) { detachIds.push(t.id); }
-          else { reviveIds.push(t.id); }
-        }
+      if (!(t.repeat_type && t.repeat_type !== 'none' && t.parent_id && t.parent_id !== t.id)) continue;
+      // 检查同日期是否已有活跃实例
+      const existing = await DB.prepare(
+        'SELECT id FROM todos WHERE parent_id = ? AND date = ? AND deleted = 0 AND id != ? LIMIT 1'
+      ).bind(t.parent_id, t.date, t.id).first();
+      if (existing) {
+        detachIds.push(t.id);
+        continue;
       }
-    }
-    if (reviveIds.length > 0) {
-      const ph = reviveIds.map(() => '?').join(',');
-      await DB.prepare(`UPDATE todos SET repeat_end='' WHERE id IN (${ph})`).bind(...reviveIds).run();
+      // 以模板 repeat_end 为准判定系列是否仍覆盖此日期
+      const tpl = await DB.prepare('SELECT repeat_end FROM todo_templates WHERE parent_id = ?').bind(t.parent_id).first();
+      if (tpl && (tpl.repeat_end === '' || tpl.repeat_end == null || tpl.repeat_end >= t.date)) {
+        // 模板仍覆盖此日期: 并入系列，记录需移除的EXDATE
+        if (!exdateUpdates[t.parent_id]) exdateUpdates[t.parent_id] = [];
+        exdateUpdates[t.parent_id].push(t.date);
+      } else {
+        // 模板已删除或已截断至此日期之前: 脱钩为单次任务
+        detachIds.push(t.id);
+      }
     }
     if (detachIds.length > 0) {
       const ph = detachIds.map(() => '?').join(',');
-      await DB.prepare(`UPDATE todos SET parent_id=id, repeat_type='none', repeat_custom='', repeat_end='' WHERE id IN (${ph})`).bind(...detachIds).run();
-    }
-    const exdateUpdates = {};
-    for (const t of (tasks.results || [])) {
-      if (t.repeat_type && t.repeat_type !== 'none' && t.parent_id) {
-        if (!exdateUpdates[t.parent_id]) exdateUpdates[t.parent_id] = [];
-        exdateUpdates[t.parent_id].push(t.date);
-      }
+      await DB.prepare(`UPDATE todos SET parent_id=id, repeat_type='none', repeat_custom='', repeat_end='', repeat_interval=1 WHERE id IN (${ph})`).bind(...detachIds).run();
     }
     for (const pid of Object.keys(exdateUpdates)) {
       const tpl = await DB.prepare('SELECT exdates FROM todo_templates WHERE parent_id = ?').bind(pid).first();
@@ -999,7 +1005,10 @@ async function handleV1TrashAction(request, DB) {
         let changed = false;
         for (const d of exdateUpdates[pid]) {
           const newExdates = removeExdate(currentExdates, d);
-          if (newExdates !== currentExdates) { currentExdates = newExdates; changed = true; }
+          if (newExdates !== currentExdates) {
+            currentExdates = newExdates;
+            changed = true;
+          }
         }
         if (changed) await DB.prepare('UPDATE todo_templates SET exdates = ? WHERE parent_id = ?').bind(currentExdates, pid).run();
       }
@@ -1239,12 +1248,13 @@ async function handleV1TodoSubtasks(request, DB, todoId) {
 }
 
 // PATCH /api/v1/todos/:id/search-terms - 更新搜索词
+// 请求体字段名与 v0 保持一致：search_terms
 async function handleV1TodoSearchTerms(request, DB, todoId) {
-  const { searchTerms } = await request.json();
-  if (!Array.isArray(searchTerms)) return apiError('searchTerms 必须为数组', 400);
+  const { search_terms } = await request.json();
+  if (!Array.isArray(search_terms)) return apiError('search_terms 必须为数组', 400);
   const existing = await DB.prepare('SELECT id FROM todos WHERE id = ?').bind(todoId).first();
   if (!existing) return apiError('待办不存在', 404);
-  await DB.prepare('UPDATE todos SET search_terms = ? WHERE id = ?').bind(JSON.stringify(searchTerms), todoId).run();
+  await DB.prepare('UPDATE todos SET search_terms = ? WHERE id = ?').bind(JSON.stringify(search_terms), todoId).run();
   return jsonResponse({ success: true });
 }
 
