@@ -584,10 +584,52 @@ export const detail = `
 
       const btn = e.target; btn.parentNode.style.position = 'relative'; btn.parentNode.appendChild(popover);
       popover.style.display = 'flex'; popover.style.top = 'auto'; popover.style.bottom = (btn.parentNode.offsetHeight - btn.offsetTop + 5) + 'px';
-      if (btn.offsetLeft > btn.parentNode.offsetWidth / 2) { popover.style.right = (btn.parentNode.offsetWidth - btn.offsetLeft - btn.offsetWidth) + 'px'; popover.style.left = 'auto'; } else { popover.style.left = btn.offsetLeft + 'px'; popover.style.right = 'auto'; }
+      // 先按原逻辑设置左右锚点，再调用 clamp 兜底，避免在窄屏溢出父容器/视口
+      if (btn.offsetLeft > btn.parentNode.offsetWidth / 2) {
+        popover.style.right = (btn.parentNode.offsetWidth - btn.offsetLeft - btn.offsetWidth) + 'px';
+        popover.style.left = 'auto';
+      } else {
+        popover.style.left = btn.offsetLeft + 'px';
+        popover.style.right = 'auto';
+      }
+      _clampActionPopoverWithinParent(popover, btn);
 
       const closeHandler = (event) => { if (!popover.contains(event.target) && event.target !== e.target) { popover.style.display = 'none'; document.removeEventListener('click', closeHandler); } };
       setTimeout(() => document.addEventListener('click', closeHandler), 0);
+    }
+
+    // 详情页 action popover 边界兜底：若左右锚点导致溢出父容器则贴边并按需收窄
+    function _clampActionPopoverWithinParent(popover, btn) {
+      try {
+        var parent = btn.parentNode;
+        var parentW = parent.clientWidth;
+        var popW = popover.offsetWidth;
+        // 当前左边界（基于 left 或 right 反推）
+        var currentLeft;
+        if (popover.style.left !== 'auto' && popover.style.left !== '') {
+          currentLeft = parseInt(popover.style.left, 10) || 0;
+        } else {
+          var rightVal = parseInt(popover.style.right, 10) || 0;
+          currentLeft = parentW - popW - rightVal;
+        }
+        if (currentLeft + popW > parentW - 4) {
+          // 右溢出：贴右边
+          popover.style.left = 'auto';
+          popover.style.right = '4px';
+          popW = popover.offsetWidth;
+          var newLeft = parentW - popW - 4;
+          if (newLeft < 0) {
+            // 极窄屏：贴左 + 收窄宽度
+            popover.style.right = 'auto';
+            popover.style.left = '0';
+            popover.style.maxWidth = (parentW - 8) + 'px';
+            popover.style.width = (parentW - 8) + 'px';
+          }
+        } else if (currentLeft < 0) {
+          popover.style.right = 'auto';
+          popover.style.left = '0';
+        }
+      } catch(e) {}
     }
 
     async function confirmAction(scope) {

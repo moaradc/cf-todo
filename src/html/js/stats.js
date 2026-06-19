@@ -64,32 +64,44 @@ export const stats = `
     }
 
     // ---------- 时间范围 ----------
+    // 'week'  = 本周（周一至今天）
+    // '12w'   = 近 12 周（含本周）= 84 天
+    // '6m'    = 近 6 月（含本月）
+    // 'year'  = 今年（1/1 起）
     function _rangeBounds(range) {
       var end = new Date(); end.setHours(0, 0, 0, 0);
       var start = new Date(end);
       var bucket = 'day';
-      if (range === '7d') {
-        start.setDate(start.getDate() - 6);
+      if (range === 'week') {
+        // 本周：周一为起点（若今天是周一则仅今天）
+        var wd = end.getDay();
+        var back = (wd === 0 ? 6 : wd - 1);
+        start.setDate(start.getDate() - back);
+        bucket = 'day';
       } else if (range === '12w') {
         // 近 12 周（含本周）= 84 天
         start.setDate(start.getDate() - 83);
         bucket = 'week';
-      } else if (range === '12m') {
-        // 近 12 月（含本月），从当月 1 日向前推 11 个月
-        start.setMonth(start.getMonth() - 11);
+      } else if (range === '6m') {
+        // 近 6 月（含本月），从当月 1 日向前推 5 个月
+        start.setMonth(start.getMonth() - 5);
         start.setDate(1);
         bucket = 'month';
       } else if (range === 'year') {
         start = new Date(end.getFullYear(), 0, 1);
         bucket = 'month';
       } else {
-        start.setDate(start.getDate() - 6);
+        // 兜底：本周
+        var wd2 = end.getDay();
+        var back2 = (wd2 === 0 ? 6 : wd2 - 1);
+        start.setDate(start.getDate() - back2);
+        bucket = 'day';
       }
       return { start: start, end: end, bucket: bucket };
     }
 
     function _rangeLabel(range) {
-      return { '7d': '7天', '12w': '12周', '12m': '12月', 'year': '今年' }[range] || '7天';
+      return { 'week': '本周', '12w': '12周', '6m': '6月', 'year': '今年' }[range] || '本周';
     }
 
     // ---------- 入口 ----------
@@ -99,10 +111,10 @@ export const stats = `
       statsView.classList.add('active');
 
       currentStatsTab = 'weekly';
-      currentStatsRange = '7d';
-      _applyRangeTabActive('7d');
+      currentStatsRange = 'week';
+      _applyRangeTabActive('week');
       updateStatsHeader();
-      _loadRangeStats('7d');
+      _loadRangeStats('week');
       _navPush('stats-overlay', closeStats, '/stats');
     }
 
@@ -367,11 +379,14 @@ export const stats = `
       var agg = _aggregate(rawData, range, bounds);
 
       _renderSummary(agg, range);
-      _toggleVisible('chart-heatmap-wrap', range !== '7d');
-      if (range !== '7d') _renderHeatmap(agg, t, range, bounds);
+      // 本周：显示每日柱状图，不显示热力图（数据量太小不直观）
+      // 12周/6月/今年：显示热力图，隐藏每日柱状图
+      var showHeatmap = (range !== 'week');
+      _toggleVisible('chart-heatmap-wrap', showHeatmap);
+      if (showHeatmap) _renderHeatmap(agg, t, range, bounds);
       _renderTrend(agg, t, range);
-      _toggleVisible('chart-bar-wrap', range === '7d');
-      if (range === '7d') _renderDailyBar(agg, t);
+      _toggleVisible('chart-bar-wrap', range === 'week');
+      if (range === 'week') _renderDailyBar(agg, t);
       _renderWeekday(agg, t, 'chart-weekday');
       _renderHour(agg, t, 'chart-hour');
       _renderPriorityPie(agg, t);
@@ -417,30 +432,52 @@ export const stats = `
       var maxV = 1;
       for (var i = 0; i < data.length; i++) if (data[i][1] > maxV) maxV = data[i][1];
 
+      // 响应式：根据容器宽度选择 cellSize，避免在窄屏挤压
+      var wrap = document.getElementById('chart-heatmap');
+      var wrapW = wrap ? wrap.clientWidth : 600;
+      var isNarrow = wrapW < 420;
+      // 6m/year 数据较多时 cellSize 自动缩小
+      var cellSize = 13;
+      if (range === '12w') cellSize = isNarrow ? 11 : 14;
+      else if (range === '6m') cellSize = isNarrow ? 9 : 11;
+      else if (range === 'year') cellSize = isNarrow ? 7 : 10;
+      else cellSize = isNarrow ? 11 : 13;
+
       inst.setOption({
-        tooltip: { formatter: function(p) { return p.data[0] + '<br/>事项数：' + p.data[1]; } },
+        tooltip: {
+          formatter: function(p) { return p.data[0] + '<br/>事项数：' + p.data[1]; },
+          confine: true,           // 限制在容器内，避免溢出
+          appendToBody: false
+        },
         visualMap: {
           min: 0, max: maxV, calculable: false, orient: 'horizontal',
-          left: 'center', bottom: 0, show: true,
-          itemWidth: 12, itemHeight: 60,
+          left: 'center', bottom: 0, show: !isNarrow,   // 窄屏隐藏图例避免遮挡
+          itemWidth: 12, itemHeight: 50,
           inRange: { color: [t.heat0, t.heat1, t.heat2, t.heat3, t.heat4] },
           textStyle: { color: t.text, fontSize: 10 }
         },
         calendar: {
-          top: 35, left: 40, right: 20, bottom: 35,
+          top: 20, left: isNarrow ? 25 : 40, right: isNarrow ? 8 : 20, bottom: isNarrow ? 10 : 30,
           range: [formatDate(bounds.start), formatDate(bounds.end)],
-          cellSize: (range === '12w') ? 14 : 13,
+          cellSize: cellSize,
           itemStyle: { color: t.heat0, borderColor: t.isLight ? '#cccccc' : '#0a0a0a', borderWidth: 1 },
           splitLine: { show: false },
           yearLabel: { show: false },
-          monthLabel: { color: t.gray, fontSize: 10, nameMap: 'cn' },
-          dayLabel: { color: t.gray, fontSize: 9, firstDay: 1, nameMap: 'cn' }
+          monthLabel: { color: t.gray, fontSize: isNarrow ? 9 : 10, nameMap: 'cn' },
+          dayLabel: { color: t.gray, fontSize: isNarrow ? 8 : 9, firstDay: 1, nameMap: 'cn' }
         },
         series: [{
           type: 'heatmap', coordinateSystem: 'calendar', data: data,
           itemStyle: { borderColor: t.isLight ? '#cccccc' : '#0a0a0a', borderWidth: 1 }
         }]
       }, true);
+    }
+
+    // 容器宽度判断：用于响应式字号/边距
+    function _isNarrowView() {
+      var root = document.getElementById('stats-overlay');
+      if (!root) return false;
+      return root.clientWidth < 480;
     }
 
     function _renderTrend(agg, t, range) {
@@ -454,26 +491,29 @@ export const stats = `
         dones.push(b.done);
         rates.push(b.total > 0 ? Math.round(b.done / b.total * 100) : 0);
       }
+      var isNarrow = _isNarrowView();
+      // 窄屏：减少标签数量避免拥挤（隔点显示）
+      var xInterval = isNarrow ? Math.max(0, Math.floor(labels.length / 6) - 1) : 0;
       inst.setOption({
-        tooltip: { trigger: 'axis' },
-        legend: { data: ['总事项', '已完成', '完成率'], top: 0, textStyle: { color: t.text, fontSize: 11 }, itemWidth: 14, itemHeight: 8 },
-        grid: { top: 30, left: 40, right: 40, bottom: 25 },
+        tooltip: { trigger: 'axis', confine: true },
+        legend: { data: ['总事项', '已完成', '完成率'], top: 0, textStyle: { color: t.text, fontSize: isNarrow ? 10 : 11 }, itemWidth: 12, itemHeight: 8 },
+        grid: { top: 30, left: isNarrow ? 32 : 40, right: isNarrow ? 32 : 40, bottom: 25 },
         xAxis: {
           type: 'category', data: labels,
-          axisLabel: { color: t.text, fontSize: 10 },
+          axisLabel: { color: t.text, fontSize: isNarrow ? 9 : 10, interval: xInterval },
           axisLine: { lineStyle: { color: t.border } }
         },
         yAxis: [
           {
-            type: 'value', name: '事项数', nameTextStyle: { color: t.gray, fontSize: 10 },
-            axisLabel: { color: t.text, fontSize: 10 },
+            type: 'value', name: '事项数', nameTextStyle: { color: t.gray, fontSize: 9 },
+            axisLabel: { color: t.text, fontSize: isNarrow ? 9 : 10 },
             splitLine: { lineStyle: { color: t.splitLine } },
             axisLine: { show: false }
           },
           {
             type: 'value', name: '完成率(%)', min: 0, max: 100,
-            nameTextStyle: { color: t.gray, fontSize: 10 },
-            axisLabel: { color: t.text, fontSize: 10, formatter: '{value}%' },
+            nameTextStyle: { color: t.gray, fontSize: 9 },
+            axisLabel: { color: t.text, fontSize: isNarrow ? 9 : 10, formatter: '{value}%' },
             splitLine: { show: false }, axisLine: { show: false }
           }
         ],
@@ -498,12 +538,13 @@ export const stats = `
         totals.push(agg.dailyCounts[keys[i]].total);
         dones.push(agg.dailyCounts[keys[i]].done);
       }
+      var isNarrow = _isNarrowView();
       inst.setOption({
-        tooltip: { trigger: 'axis' },
-        legend: { data: ['当日总事项', '当日完成事项'], top: 0, textStyle: { color: t.text, fontSize: 11 }, itemWidth: 14, itemHeight: 8 },
-        grid: { top: 30, left: 35, right: 15, bottom: 25 },
-        xAxis: { type: 'category', data: labels, axisLabel: { color: t.text, fontSize: 10 }, axisLine: { lineStyle: { color: t.border } } },
-        yAxis: { type: 'value', minInterval: 1, axisLabel: { color: t.text, fontSize: 10 }, splitLine: { lineStyle: { color: t.splitLine } }, axisLine: { show: false } },
+        tooltip: { trigger: 'axis', confine: true },
+        legend: { data: ['当日总事项', '当日完成事项'], top: 0, textStyle: { color: t.text, fontSize: isNarrow ? 10 : 11 }, itemWidth: 12, itemHeight: 8 },
+        grid: { top: 30, left: isNarrow ? 30 : 35, right: 12, bottom: 25 },
+        xAxis: { type: 'category', data: labels, axisLabel: { color: t.text, fontSize: isNarrow ? 9 : 10 }, axisLine: { lineStyle: { color: t.border } } },
+        yAxis: { type: 'value', minInterval: 1, axisLabel: { color: t.text, fontSize: isNarrow ? 9 : 10 }, splitLine: { lineStyle: { color: t.splitLine } }, axisLine: { show: false } },
         series: [
           { name: '当日总事项', type: 'bar', data: totals, itemStyle: { color: t.panel, borderColor: t.border, borderWidth: 1 } },
           { name: '当日完成事项', type: 'bar', data: dones, itemStyle: { color: t.accent } }
@@ -520,30 +561,35 @@ export const stats = `
         var idx = (i === 7) ? 0 : i;
         data.push(agg.weekdayCounts[idx]);
       }
+      var isNarrow = _isNarrowView();
       inst.setOption({
-        tooltip: { trigger: 'axis' },
-        grid: { top: 15, left: 35, right: 15, bottom: 25 },
-        xAxis: { type: 'category', data: labels, axisLabel: { color: t.text, fontSize: 10 }, axisLine: { lineStyle: { color: t.border } } },
-        yAxis: { type: 'value', minInterval: 1, axisLabel: { color: t.text, fontSize: 10 }, splitLine: { lineStyle: { color: t.splitLine } }, axisLine: { show: false } },
-        series: [{ type: 'bar', data: data, itemStyle: { color: t.accent }, label: { show: true, position: 'top', color: t.text, fontSize: 10 } }]
+        tooltip: { trigger: 'axis', confine: true },
+        grid: { top: 15, left: isNarrow ? 28 : 35, right: 10, bottom: 25 },
+        xAxis: { type: 'category', data: labels, axisLabel: { color: t.text, fontSize: isNarrow ? 9 : 10 }, axisLine: { lineStyle: { color: t.border } } },
+        yAxis: { type: 'value', minInterval: 1, axisLabel: { color: t.text, fontSize: isNarrow ? 9 : 10 }, splitLine: { lineStyle: { color: t.splitLine } }, axisLine: { show: false } },
+        series: [{ type: 'bar', data: data, itemStyle: { color: t.accent }, label: { show: !isNarrow, position: 'top', color: t.text, fontSize: 10 } }]
       }, true);
     }
 
     function _renderHour(agg, t, domId) {
       var inst = _getChart(domId, domId);
       if (!inst) return;
-      var labels = ['凌晨\\n0-6', '上午\\n6-12', '下午\\n12-18', '晚上\\n18-24'];
+      var isNarrow = _isNarrowView();
+      // 窄屏：标签更紧凑
+      var labels = isNarrow
+        ? ['凌晨', '上午', '下午', '晚上']
+        : ['凌晨\\n0-6', '上午\\n6-12', '下午\\n12-18', '晚上\\n18-24'];
       var data = agg.hourBuckets.slice();
       var colorList = [t.gray, t.accent, t.warn, t.success];
       inst.setOption({
-        tooltip: { trigger: 'item' },
-        grid: { top: 15, left: 35, right: 15, bottom: 35 },
-        xAxis: { type: 'category', data: labels, axisLabel: { color: t.text, fontSize: 9 }, axisLine: { lineStyle: { color: t.border } } },
-        yAxis: { type: 'value', minInterval: 1, axisLabel: { color: t.text, fontSize: 10 }, splitLine: { lineStyle: { color: t.splitLine } }, axisLine: { show: false } },
+        tooltip: { trigger: 'item', confine: true },
+        grid: { top: 15, left: isNarrow ? 28 : 35, right: 10, bottom: isNarrow ? 25 : 35 },
+        xAxis: { type: 'category', data: labels, axisLabel: { color: t.text, fontSize: isNarrow ? 9 : 9 }, axisLine: { lineStyle: { color: t.border } } },
+        yAxis: { type: 'value', minInterval: 1, axisLabel: { color: t.text, fontSize: isNarrow ? 9 : 10 }, splitLine: { lineStyle: { color: t.splitLine } }, axisLine: { show: false } },
         series: [{
           type: 'bar', data: data,
           itemStyle: { color: function(p) { return colorList[p.dataIndex] || t.accent; } },
-          label: { show: true, position: 'top', color: t.text, fontSize: 10 }
+          label: { show: !isNarrow, position: 'top', color: t.text, fontSize: 10 }
         }]
       }, true);
     }
@@ -557,12 +603,13 @@ export const stats = `
         { name: '中', value: agg.priCounts.med, itemStyle: { color: t.warn } },
         { name: '低', value: agg.priCounts.low, itemStyle: { color: t.gray } }
       ];
+      var isNarrow = _isNarrowView();
       inst.setOption({
-        tooltip: { trigger: 'item', formatter: function(p) {
+        tooltip: { trigger: 'item', confine: true, formatter: function(p) {
           var pct = total === 0 ? 0 : Math.round(p.value / total * 100);
           return p.name + '优先<br/>数量：' + p.value + '<br/>占比：' + pct + '%';
         }},
-        legend: { bottom: 0, textStyle: { color: t.text, fontSize: 11 }, itemWidth: 12, itemHeight: 8 },
+        legend: { bottom: 0, textStyle: { color: t.text, fontSize: isNarrow ? 10 : 11 }, itemWidth: 12, itemHeight: 8 },
         series: [{ type: 'pie', radius: ['40%', '70%'], center: ['50%', '45%'], avoidLabelOverlap: true, label: { show: false }, labelLine: { show: false }, data: data }]
       }, true);
     }
@@ -575,12 +622,13 @@ export const stats = `
         { name: '已完成', value: agg.done, itemStyle: { color: t.success } },
         { name: '未完成', value: agg.undone, itemStyle: { color: t.gray } }
       ];
+      var isNarrow = _isNarrowView();
       inst.setOption({
-        tooltip: { trigger: 'item', formatter: function(p) {
+        tooltip: { trigger: 'item', confine: true, formatter: function(p) {
           var pct = total === 0 ? 0 : Math.round(p.value / total * 100);
           return p.name + '<br/>数量：' + p.value + '<br/>占比：' + pct + '%';
         }},
-        legend: { bottom: 0, textStyle: { color: t.text, fontSize: 11 }, itemWidth: 12, itemHeight: 8 },
+        legend: { bottom: 0, textStyle: { color: t.text, fontSize: isNarrow ? 10 : 11 }, itemWidth: 12, itemHeight: 8 },
         series: [{ type: 'pie', radius: ['40%', '70%'], center: ['50%', '45%'], label: { show: false }, labelLine: { show: false }, data: data }]
       }, true);
     }
@@ -1127,12 +1175,13 @@ export const stats = `
       var labels = ['1月','2月','3月','4月','5月','6月','7月','8月','9月','10月','11月','12月'];
       var totals = [], dones = [];
       for (var i = 0; i < 12; i++) { totals.push(agg.monthData[i].total); dones.push(agg.monthData[i].done); }
+      var isNarrow = _isNarrowView();
       inst.setOption({
-        tooltip: { trigger: 'axis' },
-        legend: { data: ['总事项', '已完成'], top: 0, textStyle: { color: t.text, fontSize: 11 }, itemWidth: 14, itemHeight: 8 },
-        grid: { top: 30, left: 35, right: 15, bottom: 25 },
-        xAxis: { type: 'category', data: labels, axisLabel: { color: t.text, fontSize: 10 }, axisLine: { lineStyle: { color: t.border } } },
-        yAxis: { type: 'value', minInterval: 1, axisLabel: { color: t.text, fontSize: 10 }, splitLine: { lineStyle: { color: t.splitLine } }, axisLine: { show: false } },
+        tooltip: { trigger: 'axis', confine: true },
+        legend: { data: ['总事项', '已完成'], top: 0, textStyle: { color: t.text, fontSize: isNarrow ? 10 : 11 }, itemWidth: 12, itemHeight: 8 },
+        grid: { top: 30, left: isNarrow ? 30 : 35, right: 12, bottom: 25 },
+        xAxis: { type: 'category', data: labels, axisLabel: { color: t.text, fontSize: isNarrow ? 9 : 10 }, axisLine: { lineStyle: { color: t.border } } },
+        yAxis: { type: 'value', minInterval: 1, axisLabel: { color: t.text, fontSize: isNarrow ? 9 : 10 }, splitLine: { lineStyle: { color: t.splitLine } }, axisLine: { show: false } },
         series: [
           { name: '总事项', type: 'bar', data: totals, itemStyle: { color: t.panel, borderColor: t.border, borderWidth: 1 } },
           { name: '已完成', type: 'bar', data: dones, itemStyle: { color: t.accent } }
@@ -1147,12 +1196,16 @@ export const stats = `
       for (var dk in agg.dailyCounts) data.push([dk, agg.dailyCounts[dk].total]);
       var maxV = 1;
       for (var i = 0; i < data.length; i++) if (data[i][1] > maxV) maxV = data[i][1];
+      var wrap = document.getElementById('annual-chart-heatmap');
+      var wrapW = wrap ? wrap.clientWidth : 600;
+      var isNarrow = wrapW < 420;
+      var cellSize = isNarrow ? 7 : 11;
       inst.setOption({
-        tooltip: { formatter: function(p) { return p.data[0] + '<br/>事项数：' + p.data[1]; } },
+        tooltip: { formatter: function(p) { return p.data[0] + '<br/>事项数：' + p.data[1]; }, confine: true },
         visualMap: { min: 0, max: maxV, show: false, inRange: { color: [t.heat0, t.heat1, t.heat2, t.heat3, t.heat4] } },
         calendar: {
-          top: 25, left: 35, right: 15, bottom: 30,
-          range: String(annualYear), cellSize: 11,
+          top: 20, left: isNarrow ? 25 : 35, right: isNarrow ? 8 : 15, bottom: isNarrow ? 15 : 30,
+          range: String(annualYear), cellSize: cellSize,
           itemStyle: { color: t.heat0, borderColor: t.isLight ? '#cccccc' : '#0a0a0a', borderWidth: 1 },
           splitLine: { show: false },
           yearLabel: { show: false },

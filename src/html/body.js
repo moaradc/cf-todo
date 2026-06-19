@@ -188,9 +188,9 @@ export function getBody(isAuthorized) {
     <div style="flex:1; overflow-y:auto; padding-bottom: 20px;">
       <div id="stats-weekly">
         <div id="stats-range-tabs" class="stats-range-tabs">
-          <button class="stats-range-tab active" data-range="7d" onclick="switchStatsRange('7d')">7天</button>
+          <button class="stats-range-tab active" data-range="week" onclick="switchStatsRange('week')">本周</button>
           <button class="stats-range-tab" data-range="12w" onclick="switchStatsRange('12w')">12周</button>
-          <button class="stats-range-tab" data-range="12m" onclick="switchStatsRange('12m')">12月</button>
+          <button class="stats-range-tab" data-range="6m" onclick="switchStatsRange('6m')">6月</button>
           <button class="stats-range-tab" data-range="year" onclick="switchStatsRange('year')">今年</button>
         </div>
         <div id="stats-loading" style="text-align:center; padding:40px; color:var(--fg);">数据拉取中...</div>
