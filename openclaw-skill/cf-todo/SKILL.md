@@ -86,13 +86,13 @@ Endpoints under `/api/v1/keys` require **Cookie auth only** (web UI session), no
 | DELETE | `/api/v1/todos/:id` | 删除 Todo（软删除） | 重复任务默认 `scope=this`；可选 `thisAndFuture`, `all` |
 | POST | `/api/v1/todos/batch` | 批量操作 | `BATCH_TOGGLE_DONE`（需 `ids`+`doneStatus`）或 `BATCH_DELETE`（需 `ids`）；最多100条 |
 | PATCH | `/api/v1/todos/:id/subtasks` | 独立更新子任务 | 需 `subtasks` 数组 |
-| PATCH | `/api/v1/todos/:id/search-terms` | 独立更新搜索词 | 需 `searchTerms` 数组 |
+| PATCH | `/api/v1/todos/:id/search-terms` | 独立更新搜索词 | 需 `search_terms` 数组 |
 | **Category** | | | |
 | GET | `/api/v1/categories` | 列出所有分类 | — |
 | GET | `/api/v1/categories/:id` | 获取单个分类 | — |
 | POST | `/api/v1/categories` | 创建分类 | 必填 `name`；可选 `color`（默认 `#888888`）；返回 201；名称唯一（不区分大小写） |
 | PUT | `/api/v1/categories/:id` | 更新分类 | 仅传 `name` 和/或 `color` |
-| DELETE | `/api/v1/categories/:id` | 删除分类 | 关联 Todo 的 `categoryId` 自动置空；硬删除 |
+| DELETE | `/api/v1/categories/:id` | 删除分类 | 关联 Todo 的 `category_id` 自动置空；硬删除 |
 | POST | `/api/v1/categories/batch` | 批量删除分类 | `BATCH_DELETE`（需 `ids`）；硬删除 |
 | **Trash** | | | |
 | GET | `/api/v1/trash` | 回收站列表 | 可选 `limit`, `offset`；含分页 |
@@ -103,7 +103,7 @@ Endpoints under `/api/v1/keys` require **Cookie auth only** (web UI session), no
 | POST | `/api/v1/trash-action` | `BATCH_DELETE_PERMANENT` 批量永久删除 | **不可恢复**，需确认；需 `ids` 数组 |
 | POST | `/api/v1/trash-action` | `CLEAR_ALL_DATA` 清空所有数据 | **危险** 清空 todos、templates、settings、categories；**不可恢复** |
 | **Stats** | | | |
-| GET | `/api/v1/stats?start=&end=` | 统计数据 | 必填 `start`, `end`；返回 total/done/undone/byPriority/byDate |
+| GET | `/api/v1/stats?start=&end=` | 统计数据 | 必填 `start`, `end`；服务端聚合返回 total/done/undone/activeDays/byDate/byCategory/noCategoryCount/byPriority/byPriorityDone/byWeekday/byWeekdayDone/byHourBucket |
 | **Settings** | | | |
 | GET | `/api/v1/settings` | 获取应用配置 | 返回 `app_settings` 键值 |
 | POST | `/api/v1/settings` | 保存应用配置 | 整体覆盖 |
@@ -207,7 +207,7 @@ Weekday numbers: Sunday=0, Monday=1, ..., Saturday=6
 
 ## Recurring Todo Scope
 
-Recurring todos have `repeatType` != `"none"` and `isSeries` = `true`. They belong to a series sharing the same `parentId`.
+Recurring todos have `repeat_type` != `"none"` and `isSeries` = `true`. They belong to a series sharing the same `parent_id`.
 
 When updating/deleting a recurring todo, choose the correct `scope`:
 
@@ -248,7 +248,7 @@ When updating/deleting a recurring todo, choose the correct `scope`:
 - Default = `this`. API defaults to this, but be explicit in the request.
 - **NEVER use `scope=all` unless user EXPLICITLY says so** (e.g., "删除整个系列")
 - Always confirm before `all` or `thisAndFuture`
-- **When changing `repeatType` to `"none"`**: if user implies "以后都不需要" → MUST use `thisAndFuture`, NOT `this`
+- **When changing `repeat_type` to `"none"`**: if user implies "以后都不需要" → MUST use `thisAndFuture`, NOT `this`
 - Toggle on a recurring todo marks only that day's instance (next day is still undone — correct)
 
 ## Core Operations
@@ -279,25 +279,25 @@ Response:
   "data": [
     {
       "id": "uuid",
-      "parentId": "uuid",
+      "parent_id": "uuid",
       "date": "2026-06-12",
       "text": "Buy groceries",
       "time": "14:00",
       "priority": "high",
       "desc": "Milk, eggs, bread",
       "url": "",
-      "copyText": "",
+      "copy_text": "",
       "subtasks": [{"text": "Milk", "done": false}],
-      "searchTerms": [],
+      "search_terms": [],
       "done": false,
       "deleted": false,
-      "repeatType": "none",
-      "repeatCustom": "",
-      "repeatEnd": "",
-      "endTime": "",
-      "categoryId": "",
-      "recurrenceId": "",
-      "isException": false,
+      "repeat_type": "none",
+      "repeat_custom": "",
+      "repeat_end": "",
+      "end_time": "",
+      "category_id": "",
+      "recurrence_id": "",
+      "is_exception": false,
       "isSeries": false
     }
   ],
@@ -324,25 +324,25 @@ Response:
   "success": true,
   "data": {
     "id": "uuid",
-    "parentId": "uuid",
+    "parent_id": "uuid",
     "date": "2026-06-12",
     "text": "Buy groceries",
     "time": "14:00",
     "priority": "high",
     "desc": "",
     "url": "",
-    "copyText": "",
+    "copy_text": "",
     "subtasks": [],
-    "searchTerms": [],
+    "search_terms": [],
     "done": false,
     "deleted": false,
-    "repeatType": "none",
-    "repeatCustom": "",
-    "repeatEnd": "",
-    "endTime": "",
-    "categoryId": "",
-    "recurrenceId": "",
-    "isException": false,
+    "repeat_type": "none",
+    "repeat_custom": "",
+    "repeat_end": "",
+    "end_time": "",
+    "category_id": "",
+    "recurrence_id": "",
+    "is_exception": false,
     "isSeries": false
   }
 }
@@ -359,10 +359,10 @@ curl -s -X POST -H "X-API-Key: $CF_TODO_API_KEY" -H "Content-Type: application/j
     "time": "14:00",
     "priority": "high",
     "desc": "Milk, eggs, bread",
-    "repeatType": "none",
-    "categoryId": "",
+    "repeat_type": "none",
+    "category_id": "",
     "subtasks": [{"text": "Milk", "done": false}],
-    "endTime": ""
+    "end_time": ""
   }'
 ```
 
@@ -376,15 +376,16 @@ curl -s -X POST -H "X-API-Key: $CF_TODO_API_KEY" -H "Content-Type: application/j
 | `priority` | `"low"`, `"med"`, `"high"` | `"low"` |
 | `desc` | String | `""` |
 | `url` | String | `""` |
-| `copyText` | String | `""` |
+| `copy_text` | String | `""` |
 | `subtasks` | `[{"text":"...", "done":false}]` or `["..."]` | `[]` |
-| `searchTerms` | `[{"text":"...", "done":false}]` or `["..."]` | `[]` |
-| `repeatType` | `"none"`, `"daily"`, `"weekly"`, `"monthly"`, `"yearly"` | `"none"` |
-| `repeatEnd` | YYYY-MM-DD or `""` | `""` |
-| `endTime` | HH:MM | `""` |
-| `categoryId` | Category ID | `""` |
+| `search_terms` | `[{"text":"...", "done":false}]` or `["..."]` | `[]` |
+| `repeat_type` | `"none"`, `"daily"`, `"weekly"`, `"monthly"`, `"yearly"` | `"none"` |
+| `repeat_end` | YYYY-MM-DD or `""` | `""` |
+| `end_time` | HH:MM | `""` |
+| `category_id` | Category ID | `""` |
+| `repeat_interval` | Integer (every N units) | `1` |
 
-Note: `"medium"` priority is auto-converted to `"med"`. Subtask/searchTerm strings are auto-converted to `{text, done:false}` objects.
+Note: `"medium"` priority is auto-converted to `"med"`. Subtask/search_term strings are auto-converted to `{text, done:false}` objects.
 
 Response (HTTP 201):
 
@@ -395,24 +396,24 @@ Response (HTTP 201):
     "id": "uuid",
     "date": "2026-06-12",
     "text": "Buy groceries",
-    "repeatType": "none",
-    "categoryId": ""
+    "repeat_type": "none",
+    "category_id": ""
   }
 }
 ```
 
-**Creating a recurring todo:** When `repeatType` is not `"none"`, a template is also created in `todo_templates`. The `date` field becomes the anchor (first occurrence) date.
+**Creating a recurring todo:** When `repeat_type` is not `"none"`, a template is also created in `todo_templates`. The `date` field becomes the anchor (first occurrence) date.
 
 ```bash
 # Create a daily recurring todo
 curl -s -X POST -H "X-API-Key: $CF_TODO_API_KEY" -H "Content-Type: application/json" \
   "$CF_TODO_API_URL/api/v1/todos" \
-  -d '{"date":"2026-06-12","text":"晨跑","repeatType":"daily"}'
+  -d '{"date":"2026-06-12","text":"晨跑","repeat_type":"daily"}'
 
 # Create a weekly recurring todo ending on a specific date
 curl -s -X POST -H "X-API-Key: $CF_TODO_API_KEY" -H "Content-Type: application/json" \
   "$CF_TODO_API_URL/api/v1/todos" \
-  -d '{"date":"2026-06-13","text":"周会","repeatType":"weekly","repeatEnd":"2026-12-31"}'
+  -d '{"date":"2026-06-13","text":"周会","repeat_type":"weekly","repeat_end":"2026-12-31"}'
 ```
 
 ### Update a todo
@@ -431,13 +432,13 @@ Only include fields you want to change. All fields from Create are also updatabl
 | `scope` | For recurring todos only: `"this"`, `"thisAndFuture"`, `"all"` |
 
 For recurring todos, set `scope`:
-- `"this"` — update this instance only (default for recurring). Adds exdate to template; detaches from series if `repeatType` changes to `"none"`.
+- `"this"` — update this instance only (default for recurring). Adds exdate to template; detaches from series if `repeat_type` changes to `"none"`.
 - `"thisAndFuture"` — update this + future instances. Updates template.
 - `"all"` — update all instances — **DESTRUCTIVE, confirm first**. Updates template + all existing instances.
 
 **Special behaviors:**
-- Changing a non-recurring todo to recurring (`repeatType` != `"none"`) creates a template automatically.
-- Changing a recurring instance to non-recurring detaches it from the series (sets `parentId` = own `id`, adds exdate to template).
+- Changing a non-recurring todo to recurring (`repeat_type` != `"none"`) creates a template automatically.
+- Changing a recurring instance to non-recurring detaches it from the series (sets `parent_id` = own `id`, adds exdate to template).
 - Changing `date` on a recurring todo with `scope=all` or `thisAndFuture` will delete future instances and regenerate them from the updated template.
 
 Response:
@@ -447,7 +448,7 @@ Response:
   "success": true,
   "data": {
     "id": "uuid",
-    "parentId": "uuid",
+    "parent_id": "uuid",
     "date": "2026-06-12",
     "text": "Updated text",
     "...": "full todo object"
@@ -495,7 +496,7 @@ This is a **soft delete** — the todo is moved to trash (`deleted = 1`), not pe
 
 **Scope behaviors for recurring todos:**
 - `this` (default) — Soft-deletes this instance only; adds exdate to template to prevent regeneration.
-- `thisAndFuture` — Soft-deletes this + all future instances; sets `repeatEnd` on template and past instances.
+- `thisAndFuture` — Soft-deletes this + all future instances; sets `repeat_end` on template and past instances.
 - `all` — Soft-deletes ALL instances + deletes the template — **IRREVERSIBLE even from trash** (template is permanently deleted).
 
 Response:
@@ -630,7 +631,7 @@ Response:
 curl -s -X DELETE -H "X-API-Key: $CF_TODO_API_KEY" "$CF_TODO_API_URL/api/v1/categories/{id}"
 ```
 
-This is a **hard delete** — the category is permanently removed. All todos and templates that referenced this category will have their `categoryId` set to `""`. **Confirm with user first.**
+This is a **hard delete** — the category is permanently removed. All todos and templates that referenced this category will have their `category_id` set to `""`. **Confirm with user first.**
 
 Response:
 
@@ -647,7 +648,7 @@ curl -s -H "X-API-Key: $CF_TODO_API_KEY" "$CF_TODO_API_URL/api/v1/categories"
 # 2. Assign it
 curl -s -X PUT -H "X-API-Key: $CF_TODO_API_KEY" -H "Content-Type: application/json" \
   "$CF_TODO_API_URL/api/v1/todos/{id}" \
-  -d '{"categoryId":"cat_xxx"}'
+  -d '{"category_id":"cat_xxx"}'
 ```
 
 If the category doesn't exist, ask the user if they want to create it first.
@@ -660,7 +661,7 @@ curl -s -X POST -H "X-API-Key: $CF_TODO_API_KEY" -H "Content-Type: application/j
   -d '{"action":"BATCH_DELETE","ids":["cat_id1","cat_id2"]}'
 ```
 
-Hard-deletes all specified categories. All associated todos/templates have `categoryId` cleared. **Confirm with user first.**
+Hard-deletes all specified categories. All associated todos/templates have `category_id` cleared. **Confirm with user first.**
 
 | Parameter | Type | Required | Description |
 |---|---|---|---|
@@ -728,10 +729,10 @@ curl -s -X POST -H "X-API-Key: $CF_TODO_API_KEY" -H "Content-Type: application/j
 
 | Action | Required Params | Description |
 |---|---|---|
-| `RESTORE` | `id` | Restore single todo. For recurring: removes exdate from template, rebuilds template if missing, detaches from series if date conflicts. |
+| `RESTORE` | `id` | Restore single todo. Aligned with RFC 5545 + Google Tasks: only processes rows still carrying recurring attrs (`repeat_type != "none"` && `parent_id != id`). If same-date active instance exists → detach to single; if template still covers this date → remove from EXDATE and re-merge into series; if template deleted/truncated → detach to single. **No longer rebuilds deleted templates.** |
 | `DELETE_PERMANENT` | `id` | **Irreversible** hard delete. |
 | `CLEAR_ALL` | — | **Irreversible** hard delete all trashed todos. |
-| `BATCH_RESTORE` | `ids` (array) | Restore multiple. Auto-handles recurring conflicts: detaches from series if same-date instance already exists or if template `repeatEnd` has passed. |
+| `BATCH_RESTORE` | `ids` (array) | Restore multiple. Same logic as `RESTORE`: detaches to single if same-date instance exists or template `repeat_end` has passed/deleted; otherwise removes from EXDATE and re-merges into series. |
 | `BATCH_DELETE_PERMANENT` | `ids` (array) | **Irreversible** hard delete multiple. |
 | `CLEAR_ALL_DATA` | — | **DANGEROUS** Permanently deletes ALL todos, templates, settings, and categories. **Irreversible. Must confirm with user.** |
 
@@ -754,7 +755,7 @@ Response:
 curl -s -H "X-API-Key: $CF_TODO_API_KEY" "$CF_TODO_API_URL/api/v1/stats?start=2026-06-01&end=2026-06-12"
 ```
 
-Required: `start`, `end` (YYYY-MM-DD). Only counts non-deleted todos.
+Required: `start`, `end` (YYYY-MM-DD). Only counts non-deleted todos. Server-side aggregation via D1 batch (6 GROUP BY queries in one round-trip), so even tens of thousands of todos return a compact aggregated payload.
 
 Response:
 
@@ -762,17 +763,36 @@ Response:
 {
   "success": true,
   "data": {
-    "total": 20,
-    "done": 15,
-    "undone": 5,
-    "byPriority": {"low": 10, "med": 5, "high": 5},
+    "total": 510,
+    "done": 272,
+    "undone": 238,
+    "activeDays": 170,
     "byDate": {
       "2026-06-12": {"total": 3, "done": 2},
       "2026-06-11": {"total": 5, "done": 4}
-    }
+    },
+    "byCategory": {
+      "<category_id>": {"total": 80, "done": 40}
+    },
+    "noCategoryCount": {"total": 100, "done": 50},
+    "byPriority": {"high": 68, "med": 306, "low": 136},
+    "byPriorityDone": {"high": 30, "med": 150, "low": 70},
+    "byWeekday": [71, 72, 73, 74, 75, 75, 70],
+    "byWeekdayDone": [38, 38, 39, 40, 40, 40, 37],
+    "byHourBucket": [0, 68, 204, 136]
   }
 }
 ```
+
+Field reference:
+- `total` / `done` / `undone`: total / completed / incomplete counts
+- `activeDays`: number of distinct dates with at least one todo
+- `byDate`: per-date `{ total, done }`
+- `byCategory`: per-category `{ total, done }` (excludes uncategorized)
+- `noCategoryCount`: `{ total, done }` for todos without a category
+- `byPriority` / `byPriorityDone`: per-priority total / completed (`high`, `med`, `low`)
+- `byWeekday` / `byWeekdayDone`: 7-element arrays indexed by weekday (0=Sun, 1=Mon, ..., 6=Sat)
+- `byHourBucket`: 4-element array (0=00-06, 1=06-12, 2=12-18, 3=18-24; todos without `time` are not counted in any bucket)
 
 ### Update subtasks independently
 
@@ -789,7 +809,7 @@ Response: `{"success": true}`
 ```bash
 curl -s -X PATCH -H "X-API-Key: $CF_TODO_API_KEY" -H "Content-Type: application/json" \
   "$CF_TODO_API_URL/api/v1/todos/{id}/search-terms" \
-  -d '{"searchTerms":[{"text":"tag1","done":false}]}'
+  -d '{"search_terms":[{"text":"tag1","done":false}]}'
 ```
 
 Response: `{"success": true}`
