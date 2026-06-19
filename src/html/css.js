@@ -396,8 +396,17 @@ export const css = `
       width: 10px; height: 10px; display: inline-block; border-radius: 2px;
     }
 
-    /* 分类排行对比卡片 */
-    .category-rank-list { display: flex; flex-direction: column; gap: 10px; }
+    /* 分类排行对比卡片:响应式多列 */
+    /* 手机竖屏单列;手机横屏/平板 2 列;PC 3 列 */
+    .category-rank-list {
+      display: grid; grid-template-columns: 1fr; gap: 10px;
+    }
+    @media (min-width: 600px) {
+      .category-rank-list { grid-template-columns: 1fr 1fr; gap: 12px; }
+    }
+    @media (min-width: 1024px) {
+      .category-rank-list { grid-template-columns: 1fr 1fr 1fr; gap: 14px; }
+    }
     .category-rank-item {
       display: grid; grid-template-columns: 22px 1fr auto; gap: 10px; align-items: center;
       padding: 8px 6px; border: 1px solid #333; background: rgba(255,255,255,0.02);
