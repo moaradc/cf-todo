@@ -412,9 +412,11 @@ async function handleRequest(request, env, ctx) {
 
     // PWA: Service Worker
     if (url.pathname === '/sw.js' && request.method === 'GET') {
+      // CACHE_NAME 跟随 APP_VERSION：版本升级 → 新 SW activate 时自动清理旧缓存
+      // 避免用户拿到旧 HTML/JS 缓存，导致新代码"完全没效果"
       const swCode = `
 'use strict';
-const CACHE_NAME = 'moara-todo-v1';
+const CACHE_NAME = 'moara-todo-v${APP_VERSION}';
 
 // App Shell: install阶段预缓存根页面，确保离线可加载
 self.addEventListener('install', (event) => {
@@ -525,7 +527,11 @@ self.addEventListener('fetch', (event) => {
 });
 `;
       return new Response(swCode, {
-        headers: { 'Content-Type': 'application/javascript' }
+        headers: {
+          'Content-Type': 'application/javascript',
+          // sw.js 不缓存，确保浏览器每次注册都拿到最新版本（触发 update）
+          'Cache-Control': 'no-cache, no-store, must-revalidate'
+        }
       });
     }
 

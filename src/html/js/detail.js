@@ -284,7 +284,9 @@ export const detail = `
       // 强制 invalidate（删除占位/旧值），重新 fetch
       timeRecordsCache.delete(pid);
       timeRecordsCache.set(pid, []); // 立即占位防止并发
-      fetch('/api/time-records?parent_id=' + encodeURIComponent(pid))
+      // 加 cache-busting 参数，确保 SW/HTTP 缓存不命中旧响应
+      const bustUrl = '/api/time-records?parent_id=' + encodeURIComponent(pid) + '&_t=' + Date.now();
+      fetch(bustUrl)
         .then(function(r) { return r.ok ? r.json() : { records: [] }; })
         .then(function(data) {
           // 防止竞态：仅当当前详情仍是同一事项时才刷新 UI
