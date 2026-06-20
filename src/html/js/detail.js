@@ -216,20 +216,20 @@ export const detail = `
       const predictText = predict ? '预计 ' + formatMs(predict) : '';
 
       let html = '<div class="detail-label">计时</div>';
-      html += '<div class="detail-value" style="display:block;">';
 
       if (task.done) {
-        // 已完成：取缓存末尾的 record（completeTimer await 后会强制 invalidate 重新 fetch）
+        // 已完成：直接用 .detail-value（flex 居中），与其他字段视觉一致
         const lastRec = records.length ? records[records.length - 1] : null;
         if (lastRec) {
           const dur = Math.max(0, (lastRec.e || 0) - (lastRec.s || 0) - (lastRec.p || 0));
           const endTimeStr = new Date(lastRec.e).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
-          html += '<div>完成于 ' + endTimeStr + '，耗时 ' + formatMs(dur) + '</div>';
+          html += '<div class="detail-value">完成于 ' + endTimeStr + '，耗时 ' + formatMs(dur) + '</div>';
         } else {
-          html += '<div style="color:var(--fg); opacity:0.6;">无完成耗时记录</div>';
+          html += '<div class="detail-value" style="color:var(--fg); opacity:0.6;">无完成耗时记录</div>';
         }
       } else if (timerState) {
-        // 进行中 / 已暂停
+        // 进行中 / 已暂停：内部有多行（timer-row + 预估），用 block 流
+        html += '<div class="detail-value" style="display:block;">';
         html += '<div class="timer-row">';
         html += '<span class="timer-elapsed-large" data-timer-id="' + task.id + '-detail">' + formatElapsed(elapsed) + '</span>';
         if (paused) {
@@ -240,14 +240,16 @@ export const detail = `
         html += '<button class="btn-ghost" onclick="completeTimerDetail()">结束</button>';
         html += '</div>';
         if (predictText) html += '<div style="font-size:0.85em; opacity:0.7; margin-top:6px;">' + predictText + '</div>';
+        html += '</div>';
       } else {
-        // 空闲：仅按钮 + 预计提示
+        // 空闲：内部有多行（timer-row + 预估），用 block 流
+        html += '<div class="detail-value" style="display:block;">';
         html += '<div class="timer-row">';
         html += '<button class="btn-ghost" onclick="startTimerDetail()">开始计时</button>';
         if (predictText) html += '<span style="font-size:0.85em; opacity:0.7; margin-left:10px;">' + predictText + '</span>';
         html += '</div>';
+        html += '</div>';
       }
-      html += '</div>';
       slot.innerHTML = html;
     }
 
