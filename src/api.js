@@ -111,6 +111,7 @@ async function handleRequest(request, env, ctx) {
           `),
           env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_todos_cursor ON todos(date, deleted, id)`),
           env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_todos_parent_date_del ON todos(parent_id, date, deleted)`),
+          env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_todos_stats ON todos(date, deleted, priority, done, category_id, time)`),
           env.DB.prepare(`
             CREATE TABLE IF NOT EXISTS todo_templates (
               parent_id TEXT PRIMARY KEY,
@@ -172,50 +173,26 @@ async function handleRequest(request, env, ctx) {
         ]);
 
         // ==================== 版本化增量迁移 ====================
-        // 用整数版本号，每个版本只执行一次
-        // 新增迁移：递增 db_schema 版本号，添加 if (currentSchema < N) 块
-
-        // --- schema 4: repeat_interval ---
-        if (currentSchema < 4) {
-          try { await env.DB.prepare(`ALTER TABLE todos ADD COLUMN repeat_interval INTEGER NOT NULL DEFAULT 1`).run(); } catch (e) {}
-          try { await env.DB.prepare(`ALTER TABLE todo_templates ADD COLUMN repeat_interval INTEGER NOT NULL DEFAULT 1`).run(); } catch (e) {}
-        }
-
-        // --- schema 5: 统计查询覆盖索引 ---
-        // /api/stats 的所有 GROUP BY 查询都基于 (date, deleted) 过滤 + 读取 (priority, done, category_id, time)
-        // 用一个覆盖索引让 D1 仅扫索引即可完成查询，避免回表（random IO 到主表）
-        // 注意：D1 仍按 rows read 计费（覆盖索引也算 rows read），但省掉了主表行扫描的开销
-        if (currentSchema < 5) {
-          try {
-            await env.DB.prepare(
-              `CREATE INDEX IF NOT EXISTS idx_todos_stats ON todos(date, deleted, priority, done, category_id, time)`
-            ).run();
-          } catch (e) {}
-        }
-
-        // --- schema 6: 重复模板时间记录 ---
-        // 仅作用于 todo_templates 表（每个重复规则一条），不影响 todos 主表性能
-        // JSON 数组：[{"s":<ms>,"e":<ms>,"p":<paused_ms>}, ...]，最多 10 条 FIFO
-        if (currentSchema < 6) {
-          try {
-            await env.DB.prepare(
-              `ALTER TABLE todo_templates ADD COLUMN time_records TEXT NOT NULL DEFAULT '[]'`
-            ).run();
-          } catch (e) {}
-        }
-
-        // --- schema 7: 实例级时间记录 ---
-        // 修复：重复事项的完成时间此前只存在 todo_templates.time_records（按 parent_id 共享），
-        // 导致同一系列不同实例查看详情时显示同一个"完成于"（串台）。
-        // 现给 todos 表加一列 time_records，每个重复实例独立存储自己的完成记录。
-        // 模板级记录仍保留，用于 predictDuration 的跨实例预估。
-        if (currentSchema < 7) {
-          try {
-            await env.DB.prepare(
-              `ALTER TABLE todos ADD COLUMN time_records TEXT NOT NULL DEFAULT '[]'`
-            ).run();
-          } catch (e) {}
-        }
+        // 用整数版本号，每个版本只执行一次。
+        // 历史迁移策略：旧 schema 的 ALTER TABLE 已移除（schema 1-4 / 6 / 7），
+        // 这些列在 CREATE TABLE 中已有 DEFAULT，对新部署/覆写导入无影响。
+        // 老用户从 v2.6.x / v2.7.x 早期版本升级时，必须先在 Screenshots/migrate.html
+        // 离线迁移工具中转换导出文件，再用【覆盖模式】导入。
+        //
+        // 保留 schema 5（统计覆盖索引）代码作参考，但已注释：
+        // 该索引现在通过基础 CREATE INDEX 语句（line 114）在首次部署时直接创建，
+        // 后续覆写导入路径（line 1576 / 1602 / 1630）也会重建，故无需运行时迁移。
+        // --- schema 5: 统计查询覆盖索引（已注释，仅作历史参考） ---
+        // --- schema 5: /api/stats 的所有 GROUP BY 查询都基于 (date, deleted) 过滤 + 读取 (priority, done, category_id, time) ---
+        // --- 用一个覆盖索引让 D1 仅扫索引即可完成查询，避免回表（random IO 到主表） ---
+        // --- 注意：D1 仍按 rows read 计费（覆盖索引也算 rows read），但省掉了主表行扫描的开销 ---
+        // if (currentSchema < 5) {
+        //   try {
+        //     await env.DB.prepare(
+        //       `CREATE INDEX IF NOT EXISTS idx_todos_stats ON todos(date, deleted, priority, done, category_id, time)`
+        //     ).run();
+        //   } catch (e) {}
+        // }
 
         // 写入当前 schema 版本号（整数）
         await env.DB.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('db_schema_version', ?)").bind(String(DB_SCHEMA)).run();
@@ -1582,6 +1559,7 @@ self.addEventListener('fetch', (event) => {
                 `),
                 env.DB.prepare(`CREATE INDEX idx_todos_cursor ON todos(date, deleted, id)`),
                 env.DB.prepare(`CREATE INDEX idx_todos_parent_date_del ON todos(parent_id, date, deleted)`),
+                env.DB.prepare(`CREATE INDEX idx_todos_stats ON todos(date, deleted, priority, done, category_id, time)`),
                 env.DB.prepare(`
                   CREATE TABLE todo_templates (
                     parent_id TEXT PRIMARY KEY,
@@ -1595,6 +1573,9 @@ self.addEventListener('fetch', (event) => {
                     time_records TEXT NOT NULL DEFAULT '[]'
                   )
                 `),
+                env.DB.prepare(`CREATE INDEX idx_todos_cursor ON todos(date, deleted, id)`),
+                env.DB.prepare(`CREATE INDEX idx_todos_parent_date_del ON todos(parent_id, date, deleted)`),
+                env.DB.prepare(`CREATE INDEX idx_todos_stats ON todos(date, deleted, priority, done, category_id, time)`),
                 env.DB.prepare(`CREATE INDEX idx_templates_repeat_type ON todo_templates(repeat_type)`),
                 env.DB.prepare(`
                   CREATE TABLE categories (
@@ -1619,6 +1600,7 @@ self.addEventListener('fetch', (event) => {
                     env.DB.prepare('ALTER TABLE categories_backup RENAME TO categories'),
                     env.DB.prepare('CREATE INDEX IF NOT EXISTS idx_todos_cursor ON todos(date, deleted, id)'),
                     env.DB.prepare('CREATE INDEX IF NOT EXISTS idx_todos_parent_date_del ON todos(parent_id, date, deleted)'),
+                    env.DB.prepare('CREATE INDEX IF NOT EXISTS idx_todos_stats ON todos(date, deleted, priority, done, category_id, time)'),
                     env.DB.prepare('CREATE INDEX IF NOT EXISTS idx_templates_repeat_type ON todo_templates(repeat_type)'),
                   ]);
                 } catch (rollbackErr) {
@@ -1646,6 +1628,7 @@ self.addEventListener('fetch', (event) => {
               await env.DB.batch([
                 env.DB.prepare('CREATE INDEX IF NOT EXISTS idx_todos_cursor ON todos(date, deleted, id)'),
                 env.DB.prepare('CREATE INDEX IF NOT EXISTS idx_todos_parent_date_del ON todos(parent_id, date, deleted)'),
+                env.DB.prepare('CREATE INDEX IF NOT EXISTS idx_todos_stats ON todos(date, deleted, priority, done, category_id, time)'),
                 env.DB.prepare('CREATE INDEX IF NOT EXISTS idx_templates_repeat_type ON todo_templates(repeat_type)'),
               ]);
             } catch (e) { console.error("Index rebuild after finalize:", e); }

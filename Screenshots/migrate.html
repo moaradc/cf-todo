@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>数据迁移工具 - v2.6.x → v2.7.5</title>
+  <title>数据迁移工具 - v2.6.x → v2.7.10</title>
   <style>
     :root {
       --bg: #0a0a0a;
@@ -122,7 +122,7 @@
 <body>
   <div class="container">
     <h1>数据迁移工具</h1>
-    <p class="sub">v2.6.x → v2.7.5</p>
+    <p class="sub">v2.6.x → v2.7.10</p>
 
     <div class="drop-zone" id="dropZone">
       <div class="icon">📁</div>
@@ -374,6 +374,14 @@
     var missingEndTimeTodos = data.todos.filter(function(t) { return t.end_time === undefined; });
     var missingRepeatEndTpls = data.templates.filter(function(t) { return t.repeat_end === undefined; });
     var missingEndTimeTpls = data.templates.filter(function(t) { return t.end_time === undefined; });
+    // 检测缺少 time_records 的 todos / templates（schema 6 引入 templates，schema 7 引入 todos）
+    // time_records 是计时历史，迁移补全为 '[]'（空数组字符串），与 D1 DEFAULT 一致
+    var missingTimeRecordsTodos = data.todos.filter(function(t) { return t.time_records === undefined || t.time_records === null; });
+    var missingTimeRecordsTpls = data.templates.filter(function(t) { return t.time_records === undefined || t.time_records === null; });
+    // 同时检测 time_records 格式不规范（非字符串、非合法 JSON 数组）的行
+    // isValidTimeRecords 定义在 IIFE 顶层（与 migrate() 共享），见下方
+    var invalidTimeRecordsTodos = data.todos.filter(function(t) { return t.time_records !== undefined && t.time_records !== null && !isValidTimeRecords(t.time_records); });
+    var invalidTimeRecordsTpls = data.templates.filter(function(t) { return t.time_records !== undefined && t.time_records !== null && !isValidTimeRecords(t.time_records); });
 
     // 数据概览
     statsGrid.innerHTML =
@@ -385,16 +393,17 @@
       statCard(exceptionTodos.length, '例外事项(repeat=-1)') +
       statCard(dirtyRepeat.length, '脏数据修复') +
       statCard(oldFormatCustomTodos.length + oldFormatCustomTpls.length + unsyncedCustom.length, 'repeat_custom 迁移') +
-      statCard(missingIntervalTodos.length + missingIntervalTpls.length, 'repeat_interval 补全');
+      statCard(missingIntervalTodos.length + missingIntervalTpls.length, 'repeat_interval 补全') +
+      statCard(missingTimeRecordsTodos.length + missingTimeRecordsTpls.length + invalidTimeRecordsTodos.length + invalidTimeRecordsTpls.length, 'time_records 补全/修复');
 
     // 动态生成迁移差异（完整覆盖所有迁移操作）
     var diffList = document.getElementById('diffList');
     diffList.innerHTML = '';
 
-    if (!needMigration && dirtyRepeat.length === 0 && exceptionTodos.length === 0 && unsyncedCustom.length === 0 && missingRecurrenceId.length === 0 && missingIsException.length === 0 && missingExdates.length === 0 && missingIntervalTodos.length === 0 && missingIntervalTpls.length === 0 && missingRepeatEndTodos.length === 0 && missingEndTimeTodos.length === 0 && missingRepeatEndTpls.length === 0 && missingEndTimeTpls.length === 0) {
+    if (!needMigration && dirtyRepeat.length === 0 && exceptionTodos.length === 0 && unsyncedCustom.length === 0 && missingRecurrenceId.length === 0 && missingIsException.length === 0 && missingExdates.length === 0 && missingIntervalTodos.length === 0 && missingIntervalTpls.length === 0 && missingRepeatEndTodos.length === 0 && missingEndTimeTodos.length === 0 && missingRepeatEndTpls.length === 0 && missingEndTimeTpls.length === 0 && missingTimeRecordsTodos.length === 0 && missingTimeRecordsTpls.length === 0 && invalidTimeRecordsTodos.length === 0 && invalidTimeRecordsTpls.length === 0) {
       diffList.innerHTML = '<div class="diff-item" style="border-color:#1a3a1a;"><div class="diff-desc" style="color:var(--crt);">此文件已是新版格式，无需迁移</div></div>';
       migrateBtn.disabled = true;
-      addLog('此文件已是 v2.7.5 格式，无需迁移', 'ok');
+      addLog('此文件已是 v2.7.10 格式，无需迁移', 'ok');
       renderLogs();
       return;
     }
@@ -437,6 +446,18 @@
     }
     if (missingIntervalTpls.length > 0) {
       diffList.innerHTML += diffItem('templates', '<span class="added">repeat_interval</span> 新增', '重复间隔，schema 4 新增，默认 1', missingIntervalTpls.length);
+    }
+    if (missingTimeRecordsTodos.length > 0) {
+      diffList.innerHTML += diffItem('todos', '<span class="added">time_records</span> 新增', '计时记录，schema 7 新增，默认 \"[]\"', missingTimeRecordsTodos.length);
+    }
+    if (missingTimeRecordsTpls.length > 0) {
+      diffList.innerHTML += diffItem('templates', '<span class="added">time_records</span> 新增', '计时记录，schema 6 新增，默认 \"[]\"', missingTimeRecordsTpls.length);
+    }
+    if (invalidTimeRecordsTodos.length > 0) {
+      diffList.innerHTML += diffItem('todos', '<span class="renamed">time_records 修复</span>', '格式不规范（非字符串/非合法 JSON 数组），重置为 \"[]\"', invalidTimeRecordsTodos.length);
+    }
+    if (invalidTimeRecordsTpls.length > 0) {
+      diffList.innerHTML += diffItem('templates', '<span class="renamed">time_records 修复</span>', '格式不规范（非字符串/非合法 JSON 数组），重置为 \"[]\"', invalidTimeRecordsTpls.length);
     }
 
     // 数据修复
@@ -488,6 +509,12 @@
     }
     if (missingIntervalTodos.length > 0 || missingIntervalTpls.length > 0) {
       addLog('发现缺少 repeat_interval 字段，将补全为默认值 1（schema 4）', 'info');
+    }
+    if (missingTimeRecordsTodos.length > 0 || missingTimeRecordsTpls.length > 0) {
+      addLog('发现缺少 time_records 字段，将补全为 \"[]\"（schema 6/7）', 'info');
+    }
+    if (invalidTimeRecordsTodos.length > 0 || invalidTimeRecordsTpls.length > 0) {
+      addLog('发现 ' + (invalidTimeRecordsTodos.length + invalidTimeRecordsTpls.length) + ' 项 time_records 格式不规范，将重置为 \"[]\"', 'warn');
     }
 
     addLog('数据解析完成，可以执行迁移', 'ok');
@@ -561,6 +588,14 @@
   // ==================== 迁移核心逻辑 ====================
 
   var FREQ_MAP = { daily: 'DAILY', weekly: 'WEEKLY', monthly: 'MONTHLY', yearly: 'YEARLY' };
+
+  // 校验 time_records 是否为合法格式：必须是 JSON 数组字符串
+  // 与 api.js 中 safeTimeRecords 校验逻辑保持一致，避免迁移工具与后端校验规则不一致
+  function isValidTimeRecords(v) {
+    if (typeof v !== 'string') return false;
+    if (v === '[]') return true;
+    try { var p = JSON.parse(v); return Array.isArray(p); } catch(e) { return false; }
+  }
 
   function convertRepeatCustom(oldCustom, repeatType) {
     if (!oldCustom || !oldCustom.trim()) return '';
@@ -656,6 +691,16 @@
         m.repeat_interval = 1;
         addLog('新增 id:' + m.id + ' repeat_interval=1', 'info', 'newFields');
       }
+      // time_records 补全 / 修复（schema 7）
+      // 必须是 JSON 数组字符串，默认 '[]'；与 api.js 中 safeTimeRecords 校验逻辑一致
+      if (m.time_records === undefined || m.time_records === null) {
+        m.time_records = '[]';
+        addLog('新增 id:' + m.id + ' time_records="[]"', 'info', 'newFields');
+      } else if (!isValidTimeRecords(m.time_records)) {
+        addLog('修复 id:' + m.id + ' time_records 格式不规范，重置为 \"[]\"', 'warn', 'timeRecordsFix');
+        m.time_records = '[]';
+        fixCount++;
+      }
       if (!m.repeat_custom) m.repeat_custom = '';
 
       migratedTodos.push(m);
@@ -683,6 +728,16 @@
       if (mt.repeat_interval === undefined) {
         mt.repeat_interval = 1;
         addLog('新增 模板 parent_id:' + mt.parent_id + ' repeat_interval=1', 'info', 'newFields');
+      }
+      // time_records 补全 / 修复（schema 6）
+      // 必须是 JSON 数组字符串，默认 '[]'；与 api.js 中 safeTimeRecords 校验逻辑一致
+      if (mt.time_records === undefined || mt.time_records === null) {
+        mt.time_records = '[]';
+        addLog('新增 模板 parent_id:' + mt.parent_id + ' time_records="[]"', 'info', 'newFields');
+      } else if (!isValidTimeRecords(mt.time_records)) {
+        addLog('修复 模板 parent_id:' + mt.parent_id + ' time_records 格式不规范，重置为 \"[]\"', 'warn', 'timeRecordsFix');
+        mt.time_records = '[]';
+        fixCount++;
       }
 
       var rootTodo = rootTodoMap[mt.parent_id];
@@ -801,7 +856,7 @@
       var writable = await handle.createWritable();
       await writable.write(content);
       await writable.close();
-      addLog('文件已保存，请在 v2.7.5 的导入功能中使用【覆盖模式】导入', 'ok');
+      addLog('文件已保存，请在 v2.7.10 的导入功能中使用【覆盖模式】导入', 'ok');
       renderLogs();
     } catch (err) {
       if (err.name === 'AbortError') return; // 用户取消
@@ -821,7 +876,7 @@
     a.click();
     document.body.removeChild(a);
     setTimeout(function() { URL.revokeObjectURL(url); }, 10000);
-    addLog('文件已下载，请在 v2.7.5 的导入功能中使用【覆盖模式】导入', 'ok');
+    addLog('文件已下载，请在 v2.7.10 的导入功能中使用【覆盖模式】导入', 'ok');
     renderLogs();
   }
 
