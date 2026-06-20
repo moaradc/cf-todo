@@ -171,25 +171,8 @@ export const css = `
     }
     .btn-link:hover { background: var(--crt); color: #000; }
 
-    /* ==================== 计时按钮（主列表） ==================== */
-    .timer-btn {
-      background: transparent; border: 1px solid #444; color: var(--crt);
-      display: flex; align-items: center; gap: 4px;
-      margin-left: 8px; padding: 0 6px; height: 28px;
-      font-size: 0.85rem; font-family: var(--font-main);
-      cursor: pointer; flex-shrink: 0; transition: 0.15s;
-      line-height: 1;
-    }
-    .timer-btn:hover { border-color: var(--crt); }
-    .timer-btn .timer-icon { font-size: 0.95rem; line-height: 1; }
-    .timer-btn .timer-elapsed {
-      font-variant-numeric: tabular-nums; font-size: 0.8rem;
-      min-width: 32px; text-align: center;
-    }
-    .timer-btn.active { border-color: var(--accent); color: var(--accent); }
-    .timer-btn.active .timer-elapsed { color: var(--accent); }
-
-    /* 计时激活时 checkbox 视觉变化（"结束+完成"按钮） */
+    /* ==================== 详情面板计时区块 ==================== */
+    /* 主界面计时激活时 checkbox 视觉变化（"结束+完成"按钮） */
     .todo-item .checkbox.timer-active {
       border-color: var(--accent);
       background: rgba(204, 0, 0, 0.15);
@@ -202,23 +185,12 @@ export const css = `
     }
     .todo-item.pri-high .checkbox.timer-active { border-color: var(--accent); }
 
-    /* ==================== 详情面板计时区块 ==================== */
     .timer-row {
-      display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
-      margin-bottom: 6px;
+      display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
     }
     .timer-elapsed-large {
       font-size: 1.4rem; font-weight: bold; font-variant-numeric: tabular-nums;
-      color: var(--accent); min-width: 80px;
-    }
-    .timer-history {
-      display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px;
-    }
-    .timer-history-item {
-      font-size: 0.75rem; padding: 2px 8px;
-      border: 1px solid #333; color: var(--fg);
-      background: rgba(255,255,255,0.04);
-      font-variant-numeric: tabular-nums;
+      color: var(--accent);
     }
 
     .fab {
@@ -652,21 +624,12 @@ export const css = `
       background: #E5E5E5; color: #1B1915; border: 2px solid #1B1915;
       box-shadow: 2px 2px 0 #1B1915; border-radius: 4px;
     }[data-theme="light"] .btn-link:hover { background: #1B1915; color: #F0EEE2; }
-    [data-theme="light"] .timer-btn {
-      background: transparent; color: #1B1915; border: 1px solid #1B1915;
-    }
-    [data-theme="light"] .timer-btn:hover { border-color: #CE2424; color: #CE2424; }
-    [data-theme="light"] .timer-btn.active { border-color: #CE2424; color: #CE2424; }
-    [data-theme="light"] .timer-btn.active .timer-elapsed { color: #CE2424; }
     [data-theme="light"] .todo-item .checkbox.timer-active {
       border-color: #CE2424; background: rgba(206, 36, 36, 0.12);
       box-shadow: 0 0 6px rgba(206, 36, 36, 0.4);
     }
     [data-theme="light"] .todo-item .checkbox.timer-active::after { color: #CE2424; }
     [data-theme="light"] .timer-elapsed-large { color: #CE2424; }
-    [data-theme="light"] .timer-history-item {
-      border-color: #1B1915; color: #1B1915; background: rgba(27,25,21,0.04);
-    }
     [data-theme="light"] .batch-bar {
       border: 3px solid #1B1915; box-shadow: 6px 6px 0 #1B1915; background: #F0F0F0; border-top: 3px solid #1B1915;
     }[data-theme="light"] .fab {

@@ -196,35 +196,26 @@ export const detail = `
       if (!task.repeat_type || task.repeat_type === 'none') { slot.innerHTML = ''; return; }
 
       const timerState = task.done ? null : maybePruneStaleTimer(task.id);
-      const running = timerState && isTimerRunning(timerState);
       const paused = timerState && isTimerPaused(timerState);
       const elapsed = timerState ? timerElapsed(timerState) : 0;
 
-      // 预估完成时间（中位数）
+      // 预估完成时间（中位数），仅用于进行中/已暂停/空闲态的提示
+      // 已完成态不显示（按用户要求精简）
       const predict = predictDuration(detailTimeRecords);
-      const predictText = predict ? '预计 ' + formatMs(predict) + ' (基于' + detailTimeRecords.length + '次记录)' : '';
+      const predictText = predict ? '预计 ' + formatMs(predict) : '';
 
       let html = '<div class="detail-label">计时</div>';
       html += '<div class="detail-value" style="display:block;">';
 
       if (task.done) {
-        // 已完成：展示完成耗时（最近一次）
+        // 已完成：仅展示完成耗时，不显示预计/历史 chips
         const lastRec = task._lastRecord || (detailTimeRecords.length ? detailTimeRecords[detailTimeRecords.length - 1] : null);
         if (lastRec) {
           const dur = Math.max(0, (lastRec.e || 0) - (lastRec.s || 0) - (lastRec.p || 0));
           const endTimeStr = new Date(lastRec.e).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
-          html += '<div style="margin-bottom:6px;">完成于 ' + endTimeStr + '，耗时 ' + formatMs(dur) + '</div>';
+          html += '<div>完成于 ' + endTimeStr + '，耗时 ' + formatMs(dur) + '</div>';
         } else {
-          html += '<div style="margin-bottom:6px; color:var(--fg); opacity:0.6;">无完成耗时记录</div>';
-        }
-        if (predictText) html += '<div style="font-size:0.85em; opacity:0.7;">' + predictText + '</div>';
-        if (detailTimeRecords.length > 0) {
-          html += '<div class="timer-history">';
-          detailTimeRecords.slice(-5).reverse().forEach(function(r) {
-            const d = Math.max(0, (r.e || 0) - (r.s || 0) - (r.p || 0));
-            html += '<span class="timer-history-item">' + formatMs(d) + '</span>';
-          });
-          html += '</div>';
+          html += '<div style="color:var(--fg); opacity:0.6;">无完成耗时记录</div>';
         }
       } else if (timerState) {
         // 进行中 / 已暂停
@@ -232,27 +223,18 @@ export const detail = `
         html += '<span class="timer-elapsed-large" data-timer-id="' + task.id + '-detail">' + formatElapsed(elapsed) + '</span>';
         if (paused) {
           html += '<button class="btn-ghost" onclick="resumeTimerDetail()">继续</button>';
-          html += '<button class="btn-primary" onclick="completeTimerDetail()">结束</button>';
         } else {
           html += '<button class="btn-ghost" onclick="pauseTimerDetail()">暂停</button>';
-          html += '<button class="btn-primary" onclick="completeTimerDetail()">结束</button>';
         }
+        html += '<button class="btn-ghost" onclick="completeTimerDetail()">结束</button>';
         html += '</div>';
         if (predictText) html += '<div style="font-size:0.85em; opacity:0.7; margin-top:6px;">' + predictText + '</div>';
       } else {
-        // 空闲
+        // 空闲：仅按钮 + 预计提示，不展示历史 chips
         html += '<div class="timer-row">';
-        html += '<button class="btn-primary" onclick="startTimerDetail()">开始计时</button>';
+        html += '<button class="btn-ghost" onclick="startTimerDetail()">开始计时</button>';
         if (predictText) html += '<span style="font-size:0.85em; opacity:0.7; margin-left:10px;">' + predictText + '</span>';
         html += '</div>';
-        if (detailTimeRecords.length > 0) {
-          html += '<div class="timer-history">';
-          detailTimeRecords.slice(-5).reverse().forEach(function(r) {
-            const d = Math.max(0, (r.e || 0) - (r.s || 0) - (r.p || 0));
-            html += '<span class="timer-history-item">' + formatMs(d) + '</span>';
-          });
-          html += '</div>';
-        }
       }
       html += '</div>';
       slot.innerHTML = html;
@@ -390,11 +372,11 @@ export const detail = `
             <div class="flex-1"><div class="detail-label">时间点</div><div class="detail-value">\${task.time || '--:--'}\${task.end_time ? ' - ' + task.end_time : ''}</div></div>
             <div class="flex-1"><div class="detail-label">优先级</div><div class="detail-value">\${pMap[task.priority]}</div></div>
           </div>
-          \${timerSection}
           \${urlSection}\${copySection}
           \${catSection}
           <div class="detail-label">属性</div><div class="detail-value">\${rText}</div>
           \${descSection}
+          \${timerSection}
         \`;
         // 立即用本地缓存渲染一次计时区块（避免等待网络时空白）
         if (task.repeat_type && task.repeat_type !== 'none') refreshDetailTimerBlock();

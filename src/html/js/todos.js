@@ -391,8 +391,8 @@ export const todos = `
       const m = Math.floor((totalSec % 3600) / 60);
       const s = totalSec % 60;
       const pad = function(n) { return String(n).padStart(2, '0'); };
-      if (h > 0) return h + ':' + pad(m) + ':' + pad(s);
-      return pad(m) + ':' + pad(s);
+      // 固定 3 段 HH:MM:SS，便于扫读且对齐
+      return pad(h) + ':' + pad(m) + ':' + pad(s);
     }
 
     function formatMs(ms) {
@@ -401,9 +401,10 @@ export const todos = `
       const h = Math.floor(totalSec / 3600);
       const m = Math.floor((totalSec % 3600) / 60);
       const s = totalSec % 60;
-      if (h > 0) return h + '小时' + (m > 0 ? m + '分' : '');
-      if (m > 0) return m + '分' + (s > 0 ? s + '秒' : '');
-      return s + '秒';
+      // 数字与单位之间加空格，便于扫读
+      if (h > 0) return h + ' 小时' + (m > 0 ? m + ' 分' : '');
+      if (m > 0) return m + ' 分' + (s > 0 ? s + ' 秒' : '');
+      return s + ' 秒';
     }
 
     // 基于历史记录预估完成时间（中位数更稳健）
