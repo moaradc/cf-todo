@@ -175,6 +175,15 @@ export const bootstrap = `
       copyText: copyText,
       toggleEditSearch: toggleEditSearch,
       regenerateEditSearchTerms: regenerateEditSearchTerms,
+      // 计时器（重复 todo 专用）
+      startTimer: startTimer,
+      pauseTimer: pauseTimer,
+      resumeTimer: resumeTimer,
+      abortTimer: abortTimer,
+      startTimerDetail: startTimerDetail,
+      pauseTimerDetail: pauseTimerDetail,
+      resumeTimerDetail: resumeTimerDetail,
+      completeTimerDetail: completeTimerDetail,
       // 回收站
       openTrash: openTrash,
       closeTrash: closeTrash,

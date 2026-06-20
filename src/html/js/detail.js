@@ -183,11 +183,138 @@ export const detail = `
       return rText;
     }
 
+    // ==================== 详情面板计时区块 ====================
+    // 实例级 fetch：每个重复实例独立获取自己的 time_records，修复同一模板
+    // 多个实例共享 time_records 导致的串台问题（06.25 实例看到 06.26 实例的"完成于"）。
+    // 仍会同时取模板级记录（templateRecords），用于 predictDuration 预估时长。
+    let detailTimerOwnerId = null;
+    let detailTimeRecords = []; // 当前实例的完成记录（实例级，独立不串台）
+    let detailTemplateRecords = []; // 当前模板的跨实例记录（用于 predictDuration）
+
+    // 取当前事项的历史记录
+    function getDetailTimeRecords() {
+      return detailTimeRecords;
+    }
+
+    // 仅刷新计时区块，不重渲染整个面板（避免破坏用户阅读位置）
+    function refreshDetailTimerBlock() {
+      const task = todos[currentDetailIndex];
+      const slot = document.getElementById('timer-section');
+      if (!task || !slot) return;
+      // 仅重复 todo 渲染区块
+      if (!task.repeat_type || task.repeat_type === 'none') { slot.innerHTML = ''; return; }
+
+      const timerState = task.done ? null : maybePruneStaleTimer(task.id);
+      const paused = timerState && isTimerPaused(timerState);
+      const elapsed = timerState ? timerElapsed(timerState) : 0;
+
+      // 当前实例的完成记录（实例级，独立不串台）
+      const records = getDetailTimeRecords();
+      // 预估完成时间（中位数），仅用于进行中/已暂停/空闲态的提示
+      // 已完成态不显示（按用户要求精简）
+      // 使用模板级记录预估：跨实例的中位数更稳定
+      const predict = predictDuration(detailTemplateRecords);
+      const predictText = predict ? '预计 ' + formatMs(predict) : '';
+
+      let html = '<div class="detail-label">计时</div>';
+
+      if (task.done) {
+        // 已完成：直接用 .detail-value（flex 居中），与其他字段视觉一致
+        const lastRec = records.length ? records[records.length - 1] : null;
+        if (lastRec) {
+          const dur = Math.max(0, (lastRec.e || 0) - (lastRec.s || 0) - (lastRec.p || 0));
+          const endTimeStr = new Date(lastRec.e).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
+          html += '<div class="detail-value">完成于 ' + endTimeStr + '，耗时 ' + formatMs(dur) + '</div>';
+        } else {
+          html += '<div class="detail-value" style="color:var(--fg); opacity:0.6;">无完成耗时记录</div>';
+        }
+      } else if (timerState) {
+        // 进行中 / 已暂停：内部有多行（timer-row + 预估），用 block 流
+        html += '<div class="detail-value" style="display:block;">';
+        html += '<div class="timer-row">';
+        html += '<span class="timer-elapsed-large" data-timer-id="' + task.id + '-detail">' + formatElapsed(elapsed) + '</span>';
+        if (paused) {
+          html += '<button class="btn-ghost" onclick="resumeTimerDetail()">继续</button>';
+        } else {
+          html += '<button class="btn-ghost" onclick="pauseTimerDetail()">暂停</button>';
+        }
+        html += '<button class="btn-ghost" onclick="completeTimerDetail()">结束</button>';
+        html += '</div>';
+        if (predictText) html += '<div style="font-size:0.85em; opacity:0.7; margin-top:6px;">' + predictText + '</div>';
+        html += '</div>';
+      } else {
+        // 空闲：内部有多行（timer-row + 预估），用 block 流
+        html += '<div class="detail-value" style="display:block;">';
+        html += '<div class="timer-row">';
+        html += '<button class="btn-ghost" onclick="startTimerDetail()">开始计时</button>';
+        if (predictText) html += '<span style="font-size:0.85em; opacity:0.7; margin-left:10px;">' + predictText + '</span>';
+        html += '</div>';
+        html += '</div>';
+      }
+      slot.innerHTML = html;
+    }
+
+    function startTimerDetail() {
+      const task = todos[currentDetailIndex];
+      if (!task) return;
+      startTimer(task.id);
+      refreshDetailTimerBlock();
+    }
+    function pauseTimerDetail() {
+      const task = todos[currentDetailIndex];
+      if (!task) return;
+      pauseTimer(task.id);
+      refreshDetailTimerBlock();
+    }
+    function resumeTimerDetail() {
+      const task = todos[currentDetailIndex];
+      if (!task) return;
+      resumeTimer(task.id);
+      refreshDetailTimerBlock();
+    }
+    function completeTimerDetail() {
+      if (currentDetailIndex < 0) return;
+      completeTimer(currentDetailIndex);
+      // completeTimer await fetch 后会调用 reloadDetailTimeRecords 重新拉取并刷新
+    }
+
+    // 强制重新拉取当前实例的 time_records 并刷新计时区块
+    // 用于 TIMER_COMPLETE 后：服务器已写入新记录，重新 fetch 拿最新数据
+    function reloadDetailTimeRecords() {
+      const task = todos[currentDetailIndex];
+      if (!task || !task.id) return;
+      const tid = task.id;
+      // 以 todo_id 查询，返回实例级记录 + 模板级记录（templateRecords）
+      // 加 cache-busting 参数，确保 SW/HTTP 缓存不命中旧响应
+      const bustUrl = '/api/time-records?todo_id=' + encodeURIComponent(tid) + '&_t=' + Date.now();
+      fetch(bustUrl)
+        .then(function(r) { return r.ok ? r.json() : { records: [], templateRecords: [] }; })
+        .then(function(data) {
+          // 防止竞态：仅当当前详情仍是同一事项时才刷新 UI
+          const cur = todos[currentDetailIndex];
+          detailTimeRecords = (data && Array.isArray(data.records)) ? data.records : [];
+          detailTemplateRecords = (data && Array.isArray(data.templateRecords)) ? data.templateRecords : [];
+          if (cur && cur.id === task.id) refreshDetailTimerBlock();
+        })
+        .catch(function() {
+          const cur = todos[currentDetailIndex];
+          detailTimeRecords = [];
+          detailTemplateRecords = [];
+          if (cur && cur.id === task.id) refreshDetailTimerBlock();
+        });
+    }
+
     function renderDetailContent() {
       hideAndRescuePopovers();
       const task = todos[currentDetailIndex]; const container = document.getElementById('detail-content');
       const pMap = {low:'优先级: 低', med:'优先级: 中', high:'优先级: 高'};
       const rMap = { none: '不重复', daily: '每天', weekly: '每周', monthly: '每月', yearly: '每年' };
+
+      // 实例级 fetch：每次打开事项详情都重置 + fetch 最新 time_records
+      // 以 todo_id 查询返回实例级记录（不串台）+ 模板级记录（用于 predictDuration）
+      detailTimerOwnerId = task && task.id;
+      detailTimeRecords = [];
+      detailTemplateRecords = [];
       
       if (!isEditMode) {
         let urlSection = '';
@@ -251,6 +378,36 @@ export const detail = `
           }
         }
 
+        // 计时区块（仅重复 todo）
+        let timerSection = '';
+        if (task.repeat_type && task.repeat_type !== 'none') {
+          timerSection = '<div id="timer-section"></div>';
+          // 实例级 fetch：以 todo_id 查询，返回实例记录 + 模板记录
+          // 避免同一模板的不同实例（如 06.24 / 06.25）共享导致显示错误的"完成于"
+          const fetchTodoId = task.id;
+          if (fetchTodoId) {
+            // 加 cache-busting 参数，确保 SW/HTTP 缓存不命中旧响应
+            const bustUrl = '/api/time-records?todo_id=' + encodeURIComponent(fetchTodoId) + '&_t=' + Date.now();
+            fetch(bustUrl)
+              .then(function(r) { return r.ok ? r.json() : { records: [], templateRecords: [] }; })
+              .then(function(data) {
+                // 防止竞态：仅当当前详情仍是同一事项时才应用结果
+                const cur = todos[currentDetailIndex];
+                if (!cur || cur.id !== task.id) return;
+                detailTimeRecords = (data && Array.isArray(data.records)) ? data.records : [];
+                detailTemplateRecords = (data && Array.isArray(data.templateRecords)) ? data.templateRecords : [];
+                refreshDetailTimerBlock();
+              })
+              .catch(function() {
+                const cur = todos[currentDetailIndex];
+                if (!cur || cur.id !== task.id) return;
+                detailTimeRecords = [];
+                detailTemplateRecords = [];
+                refreshDetailTimerBlock();
+              });
+          }
+        }
+
         container.innerHTML = \`
           <div class="detail-label">事项内容</div><div class="detail-value">\${task.text}</div>
           \${subtasksSection}
@@ -263,7 +420,10 @@ export const detail = `
           \${catSection}
           <div class="detail-label">属性</div><div class="detail-value">\${rText}</div>
           \${descSection}
+          \${timerSection}
         \`;
+        // 立即用本地缓存渲染一次计时区块（避免等待网络时空白）
+        if (task.repeat_type && task.repeat_type !== 'none') refreshDetailTimerBlock();
       } else {
         activeMode = 'edit';
         var intervalText = getIntervalDisplayText(tempRepeatInterval, tempRepeatType);
@@ -636,6 +796,8 @@ export const detail = `
       hideAndRescuePopovers();
       const task = todos[currentDetailIndex];
       if (pendingAction === 'delete') {
+        // 删除前清理计时器，避免 localStorage 残留
+        if (task && task.id && typeof clearTimerState === 'function') clearTimerState(task.id);
         closeDetail();
         await fetch('/api/todo-action', { method: 'POST', body: JSON.stringify({ action: 'DELETE', date: formatDate(currentDate), task: task, scope: scope }), headers: { 'Content-Type': 'application/json' } });
         loadTodos();

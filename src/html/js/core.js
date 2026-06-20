@@ -602,7 +602,21 @@ export const core = `
       var el = document.createElement('div');
       el.className = 'todo-item ' + (todo.done ? 'done' : '') + (todo.priority === 'high' ? ' pri-high' : todo.priority === 'med' ? ' pri-med' : ' pri-low');
 
+      // 计时状态：先确定是否激活（用于 badges 行显示"计时中"标签）
+      var timerState = null;
+      var canTimer = !todo.done && todo.repeat_type && todo.repeat_type !== 'none';
+      if (!canTimer) {
+        if (readTimerState(todo.id)) writeTimerState(todo.id, null);
+      } else {
+        timerState = maybePruneStaleTimer(todo.id);
+      }
+      var timerActive = !!timerState;
+
       var badges = '';
+      // 计时中标签置顶（样式与"每天"等重复标签一致）
+      if (timerActive) {
+        badges += '<span class="badge" style="background:transparent;border:1px solid var(--accent);color:var(--accent);">计时中</span> ';
+      }
       if (todo.time) {
         var timeLabel = todo.time;
         if (todo.end_time) timeLabel += '-' + todo.end_time;
@@ -656,11 +670,13 @@ export const core = `
       meta.innerHTML = '<div class="item-title">' + todo.text + '</div><div class="item-info">' + badges + '</div>';
 
       var checkbox = document.createElement('div');
+      // 计时激活时点击 checkbox = 结束+完成；不改变 checkbox 视觉（计时状态用 badges 行的"计时中"标签表达）
       checkbox.className = 'checkbox' + (isBatchMode && selectedTasks.has(index) ? ' batch-selected' : '');
       checkbox.addEventListener('click', function(e) {
         e.stopPropagation();
-        if (isBatchMode) toggleBatchSelect(index);
-        else toggleDone(index);
+        if (isBatchMode) { toggleBatchSelect(index); return; }
+        if (timerActive) { completeTimer(index); return; }
+        toggleDone(index);
       });
 
       el.appendChild(checkbox);

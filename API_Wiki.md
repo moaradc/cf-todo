@@ -609,6 +609,17 @@ API Key 传递方式（与 V1 一致）：
   - **注意**: 如果数据库中不存在该日期的实例但存在模板，此接口会**自动创建**该日期的实例并插入数据库。对于含 `search_terms` 的重复任务，会尝试获取最新热搜词替换。
   - **响应**: Todo 对象数组（V0 格式，见 [4.2 节](#42-todo-对象-v0-响应格式)）。
 
+- **GET /api/time-records?parent_id=PARENT_ID**
+  - **描述**: 获取某个重复模板的最近 10 条完成时间记录（用于详情面板的预估和历史展示）。
+  - **响应**:
+    ```json
+    { "records": [ { "s": 1718841600000, "e": 1718843400000, "p": 60000 }, ... ] }
+    ```
+    - `s`: 开始时间（epoch ms）
+    - `e`: 结束时间（epoch ms）
+    - `p`: 暂停累计时长（ms）
+    - 实际耗时 = `e - s - p`
+
 - **POST /api/todo-action**
   - **描述**: 统一的 Todo 操作接口。
   - **Body**:
@@ -619,7 +630,9 @@ API Key 传递方式（与 V1 一致）：
       "date": "2023-10-01",
       "scope": "this | all | thisAndFuture",
       "ids": ["id1", "id2"],
-      "doneStatus": true
+      "doneStatus": true,
+      "parentId": "parent-uuid",
+      "record": { "s": 1718841600000, "e": 1718843400000, "p": 60000 }
     }
     ```
   - **注意**: V0 的 `task` 对象字段命名混合使用 camelCase 和 snake_case（见 [4.2 节](#42-todo-对象-v0-响应格式)）。
@@ -630,6 +643,7 @@ API Key 传递方式（与 V1 一致）：
     | `UPDATE` | 更新任务。支持 `scope` 参数控制重复任务更新范围 |
     | `DELETE` | 删除任务（软删除）。支持 `scope` 参数控制重复任务删除范围 |
     | `TOGGLE_DONE` | 切换单个完成状态 |
+    | `TIMER_COMPLETE` | 计时结束：标记完成 + 写入 `time_records`（仅重复模板）。需 `task.id`、`parentId`、`record`，服务端校验时长合理性 |
     | `UPDATE_SUBTASKS` | 更新子任务 |
     | `UPDATE_SEARCH_TERMS` | 更新搜索词 |
     | `BATCH_TOGGLE_DONE` | 批量切换状态（需 `ids` + `doneStatus`） |

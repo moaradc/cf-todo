@@ -171,6 +171,15 @@ export const css = `
     }
     .btn-link:hover { background: var(--crt); color: #000; }
 
+    /* ==================== 详情面板计时区块 ==================== */
+    .timer-row {
+      display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+    }
+    .timer-elapsed-large {
+      font-size: 1.4rem; font-weight: bold; font-variant-numeric: tabular-nums;
+      color: var(--accent);
+    }
+
     .fab {
       position: fixed; bottom: 30px; right: 30px; width: 60px; height: 60px;
       background: var(--accent); color: #000; font-size: 2.5rem;
@@ -602,6 +611,7 @@ export const css = `
       background: #E5E5E5; color: #1B1915; border: 2px solid #1B1915;
       box-shadow: 2px 2px 0 #1B1915; border-radius: 4px;
     }[data-theme="light"] .btn-link:hover { background: #1B1915; color: #F0EEE2; }
+    [data-theme="light"] .timer-elapsed-large { color: #CE2424; }
     [data-theme="light"] .batch-bar {
       border: 3px solid #1B1915; box-shadow: 6px 6px 0 #1B1915; background: #F0F0F0; border-top: 3px solid #1B1915;
     }[data-theme="light"] .fab {

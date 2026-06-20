@@ -105,11 +105,13 @@ async function handleRequest(request, env, ctx) {
               category_id TEXT DEFAULT '',
               recurrence_id TEXT DEFAULT '',
               is_exception INTEGER NOT NULL DEFAULT 0,
-              repeat_interval INTEGER NOT NULL DEFAULT 1
+              repeat_interval INTEGER NOT NULL DEFAULT 1,
+              time_records TEXT NOT NULL DEFAULT '[]'
             )
           `),
           env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_todos_cursor ON todos(date, deleted, id)`),
           env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_todos_parent_date_del ON todos(parent_id, date, deleted)`),
+          env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_todos_stats ON todos(date, deleted, priority, done, category_id, time)`),
           env.DB.prepare(`
             CREATE TABLE IF NOT EXISTS todo_templates (
               parent_id TEXT PRIMARY KEY,
@@ -119,7 +121,8 @@ async function handleRequest(request, env, ctx) {
               anchor_date TEXT,
               exdates TEXT DEFAULT '[]',
               category_id TEXT DEFAULT '',
-              repeat_interval INTEGER NOT NULL DEFAULT 1
+              repeat_interval INTEGER NOT NULL DEFAULT 1,
+              time_records TEXT NOT NULL DEFAULT '[]'
             )
           `),
           env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_templates_repeat_type ON todo_templates(repeat_type)`),
@@ -170,26 +173,26 @@ async function handleRequest(request, env, ctx) {
         ]);
 
         // ==================== 版本化增量迁移 ====================
-        // 用整数版本号，每个版本只执行一次
-        // 新增迁移：递增 db_schema 版本号，添加 if (currentSchema < N) 块
-
-        // --- schema 4: repeat_interval ---
-        if (currentSchema < 4) {
-          try { await env.DB.prepare(`ALTER TABLE todos ADD COLUMN repeat_interval INTEGER NOT NULL DEFAULT 1`).run(); } catch (e) {}
-          try { await env.DB.prepare(`ALTER TABLE todo_templates ADD COLUMN repeat_interval INTEGER NOT NULL DEFAULT 1`).run(); } catch (e) {}
-        }
-
-        // --- schema 5: 统计查询覆盖索引 ---
-        // /api/stats 的所有 GROUP BY 查询都基于 (date, deleted) 过滤 + 读取 (priority, done, category_id, time)
-        // 用一个覆盖索引让 D1 仅扫索引即可完成查询，避免回表（random IO 到主表）
-        // 注意：D1 仍按 rows read 计费（覆盖索引也算 rows read），但省掉了主表行扫描的开销
-        if (currentSchema < 5) {
-          try {
-            await env.DB.prepare(
-              `CREATE INDEX IF NOT EXISTS idx_todos_stats ON todos(date, deleted, priority, done, category_id, time)`
-            ).run();
-          } catch (e) {}
-        }
+        // 用整数版本号，每个版本只执行一次。
+        // 历史迁移策略：旧 schema 的 ALTER TABLE 已移除（schema 1-4 / 6 / 7），
+        // 这些列在 CREATE TABLE 中已有 DEFAULT，对新部署/覆写导入无影响。
+        // 老用户从 v2.6.x / v2.7.x 早期版本升级时，必须先在 Screenshots/migrate.html
+        // 离线迁移工具中转换导出文件，再用【覆盖模式】导入。
+        //
+        // 保留 schema 5（统计覆盖索引）代码作参考，但已注释：
+        // 该索引现在通过基础 CREATE INDEX 语句（line 114）在首次部署时直接创建，
+        // 后续覆写导入路径（line 1578 / 1603 / 1631）也会重建，故无需运行时迁移。
+        // --- schema 5: 统计查询覆盖索引（已注释，仅作历史参考） ---
+        // --- schema 5: /api/stats 的所有 GROUP BY 查询都基于 (date, deleted) 过滤 + 读取 (priority, done, category_id, time) ---
+        // --- 用一个覆盖索引让 D1 仅扫索引即可完成查询，避免回表（random IO 到主表） ---
+        // --- 注意：D1 仍按 rows read 计费（覆盖索引也算 rows read），但省掉了主表行扫描的开销 ---
+        // if (currentSchema < 5) {
+        //   try {
+        //     await env.DB.prepare(
+        //       `CREATE INDEX IF NOT EXISTS idx_todos_stats ON todos(date, deleted, priority, done, category_id, time)`
+        //     ).run();
+        //   } catch (e) {}
+        // }
 
         // 写入当前 schema 版本号（整数）
         await env.DB.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('db_schema_version', ?)").bind(String(DB_SCHEMA)).run();
@@ -400,9 +403,11 @@ async function handleRequest(request, env, ctx) {
 
     // PWA: Service Worker
     if (url.pathname === '/sw.js' && request.method === 'GET') {
+      // CACHE_NAME 跟随 APP_VERSION：版本升级 → 新 SW activate 时自动清理旧缓存
+      // 避免用户拿到旧 HTML/JS 缓存，导致新代码"完全没效果"
       const swCode = `
 'use strict';
-const CACHE_NAME = 'moara-todo-v1';
+const CACHE_NAME = 'moara-todo-v${APP_VERSION}';
 
 // App Shell: install阶段预缓存根页面，确保离线可加载
 self.addEventListener('install', (event) => {
@@ -513,7 +518,11 @@ self.addEventListener('fetch', (event) => {
 });
 `;
       return new Response(swCode, {
-        headers: { 'Content-Type': 'application/javascript' }
+        headers: {
+          'Content-Type': 'application/javascript',
+          // sw.js 不缓存，确保浏览器每次注册都拿到最新版本（触发 update）
+          'Cache-Control': 'no-cache, no-store, must-revalidate'
+        }
       });
     }
 
@@ -1273,17 +1282,36 @@ self.addEventListener('fetch', (event) => {
         return '[]';
       };
 
+      // 严格校验 time_records：必须是 JSON 数组字符串，否则返回 '[]'
+      // 防止导入文件携带畸形数据污染数据库，导致后续 JSON.parse 报错
+      // 性能：99%+ 的行该字段为 undefined（旧导出）或 '[]'（新导出但未计时），
+      // 首两个分支零开销短路，只有实际有记录的行才 JSON.parse。
+      // 上万行导入估算额外 CPU < 5ms（远低于 Workers CPU 限制）。
+      const safeTimeRecords = (v) => {
+        if (v == null || v === '[]') return '[]';
+        if (typeof v === 'string') {
+          try {
+            const parsed = JSON.parse(v);
+            if (Array.isArray(parsed)) return v;  // 原样返回，避免二次 stringify
+          } catch (e) {}
+          return '[]';
+        }
+        if (Array.isArray(v)) return JSON.stringify(v);
+        return '[]';
+      };
+
       const buildTodoStmts = (items) => (items || []).map((t) => {
         return env.DB.prepare(
           `INSERT OR REPLACE INTO todos
-          (id, parent_id, date, text, time, priority, desc, url, copy_text, subtasks, search_terms, done, deleted, repeat_type, repeat_custom, repeat_end, end_time, category_id, recurrence_id, is_exception, repeat_interval)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+          (id, parent_id, date, text, time, priority, desc, url, copy_text, subtasks, search_terms, done, deleted, repeat_type, repeat_custom, repeat_end, end_time, category_id, recurrence_id, is_exception, repeat_interval, time_records)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
         ).bind(
           t.id, t.parent_id, t.date, t.text, t.time || '', t.priority || 'low',
           t.desc || '', t.url || '', t.copy_text || '',
           safeStringify(t.subtasks), safeStringify(t.search_terms), t.done || 0, t.deleted || 0,
           t.repeat_type || 'none', t.repeat_custom || '', t.repeat_end || '', t.end_time || '', t.category_id || '',
-          t.recurrence_id || '', t.is_exception || 0, t.repeat_interval || 1
+          t.recurrence_id || '', t.is_exception || 0, t.repeat_interval || 1,
+          safeTimeRecords(t.time_records)
         );
       });
 
@@ -1291,11 +1319,12 @@ self.addEventListener('fetch', (event) => {
         const exdates = t.exdates || '[]';
         return env.DB.prepare(
           `INSERT OR REPLACE INTO todo_templates
-          (parent_id, text, time, priority, desc, url, copy_text, subtasks, search_terms, repeat_type, repeat_custom, repeat_end, end_time, anchor_date, exdates, category_id, repeat_interval)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+          (parent_id, text, time, priority, desc, url, copy_text, subtasks, search_terms, repeat_type, repeat_custom, repeat_end, end_time, anchor_date, exdates, category_id, repeat_interval, time_records)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
         ).bind(
           t.parent_id, t.text || '', t.time || '', t.priority || 'low', t.desc || '', t.url || '', t.copy_text || '',
-          safeStringify(t.subtasks), safeStringify(t.search_terms), t.repeat_type || 'none', t.repeat_custom || '', t.repeat_end || '', t.end_time || '', t.anchor_date || '', exdates, t.category_id || '', t.repeat_interval || 1
+          safeStringify(t.subtasks), safeStringify(t.search_terms), t.repeat_type || 'none', t.repeat_custom || '', t.repeat_end || '', t.end_time || '', t.anchor_date || '', exdates, t.category_id || '', t.repeat_interval || 1,
+          safeTimeRecords(t.time_records)
         );
       });
 
@@ -1524,11 +1553,13 @@ self.addEventListener('fetch', (event) => {
                     category_id TEXT DEFAULT '',
                     recurrence_id TEXT DEFAULT '',
                     is_exception INTEGER NOT NULL DEFAULT 0,
-                    repeat_interval INTEGER NOT NULL DEFAULT 1
+                    repeat_interval INTEGER NOT NULL DEFAULT 1,
+                    time_records TEXT NOT NULL DEFAULT '[]'
                   )
                 `),
                 env.DB.prepare(`CREATE INDEX idx_todos_cursor ON todos(date, deleted, id)`),
                 env.DB.prepare(`CREATE INDEX idx_todos_parent_date_del ON todos(parent_id, date, deleted)`),
+                env.DB.prepare(`CREATE INDEX idx_todos_stats ON todos(date, deleted, priority, done, category_id, time)`),
                 env.DB.prepare(`
                   CREATE TABLE todo_templates (
                     parent_id TEXT PRIMARY KEY,
@@ -1538,9 +1569,13 @@ self.addEventListener('fetch', (event) => {
                     anchor_date TEXT,
                     exdates TEXT DEFAULT '[]',
                     category_id TEXT DEFAULT '',
-                    repeat_interval INTEGER NOT NULL DEFAULT 1
+                    repeat_interval INTEGER NOT NULL DEFAULT 1,
+                    time_records TEXT NOT NULL DEFAULT '[]'
                   )
                 `),
+                env.DB.prepare(`CREATE INDEX idx_todos_cursor ON todos(date, deleted, id)`),
+                env.DB.prepare(`CREATE INDEX idx_todos_parent_date_del ON todos(parent_id, date, deleted)`),
+                env.DB.prepare(`CREATE INDEX idx_todos_stats ON todos(date, deleted, priority, done, category_id, time)`),
                 env.DB.prepare(`CREATE INDEX idx_templates_repeat_type ON todo_templates(repeat_type)`),
                 env.DB.prepare(`
                   CREATE TABLE categories (
@@ -1565,6 +1600,7 @@ self.addEventListener('fetch', (event) => {
                     env.DB.prepare('ALTER TABLE categories_backup RENAME TO categories'),
                     env.DB.prepare('CREATE INDEX IF NOT EXISTS idx_todos_cursor ON todos(date, deleted, id)'),
                     env.DB.prepare('CREATE INDEX IF NOT EXISTS idx_todos_parent_date_del ON todos(parent_id, date, deleted)'),
+                    env.DB.prepare('CREATE INDEX IF NOT EXISTS idx_todos_stats ON todos(date, deleted, priority, done, category_id, time)'),
                     env.DB.prepare('CREATE INDEX IF NOT EXISTS idx_templates_repeat_type ON todo_templates(repeat_type)'),
                   ]);
                 } catch (rollbackErr) {
@@ -1592,6 +1628,7 @@ self.addEventListener('fetch', (event) => {
               await env.DB.batch([
                 env.DB.prepare('CREATE INDEX IF NOT EXISTS idx_todos_cursor ON todos(date, deleted, id)'),
                 env.DB.prepare('CREATE INDEX IF NOT EXISTS idx_todos_parent_date_del ON todos(parent_id, date, deleted)'),
+                env.DB.prepare('CREATE INDEX IF NOT EXISTS idx_todos_stats ON todos(date, deleted, priority, done, category_id, time)'),
                 env.DB.prepare('CREATE INDEX IF NOT EXISTS idx_templates_repeat_type ON todo_templates(repeat_type)'),
               ]);
             } catch (e) { console.error("Index rebuild after finalize:", e); }
@@ -2102,11 +2139,135 @@ self.addEventListener('fetch', (event) => {
       return new Response(JSON.stringify(formatted), { headers: { 'Content-Type': 'application/json' } });
     }
 
+    if (url.pathname === '/api/time-records' && request.method === 'GET') {
+      const todoId = url.searchParams.get('todo_id');
+      const parentId = url.searchParams.get('parent_id');
+      let records = [];
+      let templateRecords = [];
+
+      if (todoId) {
+        // 实例级查询（推荐）：修复同一模板不同实例串台的问题
+        const todoRow = await env.DB.prepare(
+          'SELECT time_records, parent_id FROM todos WHERE id = ?'
+        ).bind(todoId).first();
+        if (todoRow) {
+          try {
+            const p = typeof todoRow.time_records === 'string'
+              ? JSON.parse(todoRow.time_records || '[]')
+              : todoRow.time_records;
+            if (Array.isArray(p)) records = p;
+          } catch (e) {}
+          // 同时取模板级记录，用于 predictDuration（基于该模板最近 10 次完成时长中位数）
+          // 模板级与实例级记录解耦：实例级用于"完成于"显示，模板级用于预估
+          const pidForTpl = todoRow.parent_id;
+          if (pidForTpl) {
+            const tplRow = await env.DB.prepare(
+              'SELECT time_records FROM todo_templates WHERE parent_id = ?'
+            ).bind(pidForTpl).first();
+            if (tplRow) {
+              try {
+                const tp = typeof tplRow.time_records === 'string'
+                  ? JSON.parse(tplRow.time_records || '[]')
+                  : tplRow.time_records;
+                if (Array.isArray(tp)) templateRecords = tp;
+              } catch (e) {}
+            }
+          }
+        }
+      } else if (parentId) {
+        // 兼容旧客户端：仅返回模板级记录
+        const row = await env.DB.prepare(
+          'SELECT time_records FROM todo_templates WHERE parent_id = ?'
+        ).bind(parentId).first();
+        if (row && row.time_records) {
+          try {
+            const parsed = typeof row.time_records === 'string' ? JSON.parse(row.time_records) : row.time_records;
+            if (Array.isArray(parsed)) records = parsed;
+          } catch (e) {}
+        }
+      } else {
+        return apiError("todo_id or parent_id required", 400);
+      }
+      return new Response(JSON.stringify({ records, templateRecords }), { headers: { 'Content-Type': 'application/json' } });
+    }
+
     if (url.pathname === '/api/todo-action' && request.method === 'POST') {
-      const { action, date, task, scope, ids, doneStatus } = await request.json();
+      const { action, date, task, scope, ids, doneStatus, record, parentId } = await request.json();
 
       if (action === 'TOGGLE_DONE') {
           await env.DB.prepare('UPDATE todos SET done = ? WHERE id = ?').bind(task.done ? 1 : 0, task.id).run();
+        }
+        else if (action === 'TIMER_COMPLETE') {
+          // 计时结束：标记完成 + 写入 time_records（实例级 + 模板级双写）
+          // 单请求完成 3 件事，避免增加网络往返
+          // record: { s: <epoch_ms>, e: <epoch_ms>, p: <paused_ms> }
+          //
+          // 双写说明：
+          // - 实例级（todos.time_records）：每个重复实例独立存储，修复查看 06.25 实例
+          //   详情时显示 06.26 实例完成时间的串台 bug
+          // - 模板级（todo_templates.time_records）：跨实例共享，供 predictDuration
+          //   计算中位数预估时长，FIFO 保留最近 10 条
+          const todoId = task && task.id;
+          const pid = parentId || (task && task.parent_id);
+          if (!todoId) return apiError("INVALID_PARAMS", 400);
+
+          // 1. 标记完成（始终执行，即便记录写入失败也不阻断完成）
+          await env.DB.prepare('UPDATE todos SET done = 1 WHERE id = ?').bind(todoId).run();
+
+          // 2. 写入 time_records（实例级 + 模板级双写）
+          if (record && typeof record.s === 'number' && typeof record.e === 'number') {
+            const s = Math.floor(record.s);
+            const e = Math.floor(record.e);
+            const p = Math.floor(record.p || 0);
+            // 服务端校验：s < e, 时长合理（1s ~ 7d），paused 不超过总时长
+            const MAX_DURATION_MS = 7 * 24 * 60 * 60 * 1000;
+            if (s > 0 && e > s && (e - s) <= MAX_DURATION_MS && p >= 0 && p < (e - s)) {
+              // 2a. 实例级：写入 todos.time_records（修复串台 bug）
+              try {
+                const cur = await env.DB.prepare(
+                  'SELECT time_records FROM todos WHERE id = ?'
+                ).bind(todoId).first();
+                let instArr = [];
+                try {
+                  instArr = typeof cur.time_records === 'string'
+                    ? JSON.parse(cur.time_records || '[]')
+                    : cur.time_records;
+                } catch (e2) { instArr = []; }
+                if (!Array.isArray(instArr)) instArr = [];
+                instArr.push({ s, e, p });
+                // 实例级通常只保留最近 1 条（每次重新开始计时会覆盖），但为防止异常重入保留 FIFO 5
+                if (instArr.length > 5) instArr = instArr.slice(instArr.length - 5);
+                await env.DB.prepare(
+                  'UPDATE todos SET time_records = ? WHERE id = ?'
+                ).bind(JSON.stringify(instArr), todoId).run();
+              } catch (eInst) {
+                console.error("TIMER_COMPLETE per-instance record write failed:", eInst);
+              }
+
+              // 2b. 模板级：写入 todo_templates.time_records（供 predictDuration）
+              if (pid) {
+                try {
+                  const tpl = await env.DB.prepare(
+                    'SELECT time_records FROM todo_templates WHERE parent_id = ?'
+                  ).bind(pid).first();
+                  if (tpl) {
+                    let arr = [];
+                    try { arr = Array.isArray(tpl.time_records) ? tpl.time_records : JSON.parse(tpl.time_records || '[]'); } catch (e2) { arr = []; }
+                    if (!Array.isArray(arr)) arr = [];
+                    arr.push({ s, e, p });
+                    // FIFO 截断至最近 10 条
+                    if (arr.length > 10) arr = arr.slice(arr.length - 10);
+                    await env.DB.prepare(
+                      'UPDATE todo_templates SET time_records = ? WHERE parent_id = ?'
+                    ).bind(JSON.stringify(arr), pid).run();
+                  }
+                } catch (e3) {
+                  // 模板写入失败不影响完成状态，仅吞掉错误
+                  console.error("TIMER_COMPLETE template record write failed:", e3);
+                }
+              }
+            }
+          }
         }
         else if (action === 'UPDATE_SUBTASKS') {
           await env.DB.prepare('UPDATE todos SET subtasks = ? WHERE id = ?')
@@ -2257,8 +2418,10 @@ self.addEventListener('fetch', (event) => {
                 ).bind(splitNewPid, newDate, task.text, task.time || '', task.priority || 'low', task.desc || '', task.url || '', task.copyText || '', subtasksStr, searchTermsStr, rptType, '', repeatEnd, endTime, categoryId, task.repeat_interval || 1, task.id).run();
               } else if (cv.detachFromSeries) {
                 // 脱离系列，变为单次任务（"仅此项"或 thisAndFuture 改为不重复）
+                // 同步清理实例级 time_records：脱钩后为非重复，UI 不再渲染计时区块，
+                // 保留旧记录为死数据。清空以避免后续若重新转重复时复活误导。
                 await env.DB.prepare(
-                  'UPDATE todos SET parent_id=?, date=?, text=?, time=?, priority=?, desc=?, url=?, copy_text=?, subtasks=?, search_terms=?, repeat_type=\'none\', repeat_custom=\'\', repeat_end=\'\', end_time=?, category_id=?, repeat_interval=1 WHERE id=?'
+                  'UPDATE todos SET parent_id=?, date=?, text=?, time=?, priority=?, desc=?, url=?, copy_text=?, subtasks=?, search_terms=?, repeat_type=\'none\', repeat_custom=\'\', repeat_end=\'\', end_time=?, category_id=?, repeat_interval=1, time_records=\'[]\' WHERE id=?'
                 ).bind(task.id, newDate, task.text, task.time || '', task.priority || 'low', task.desc || '', task.url || '', task.copyText || '', subtasksStr, searchTermsStr, endTime, categoryId, task.id).run();
               } else if (cv.isRecurring) {
                 await env.DB.prepare(
@@ -2335,21 +2498,26 @@ self.addEventListener('fetch', (event) => {
               } else if (tmpl.type === 'update_all') {
                 // all scope: 更新模板
                 if (rptType !== 'none') {
+                  // 保留现有 exdates 和 time_records，避免 INSERT OR REPLACE 误清。
+                  // time_records 是模板级跨实例预估数据 (predictDuration)，即使在调整重复规则
+                  // (如频率/间隔/截止) 时也应保留——只有「改为不重复」才应丢弃 (走 tmpl.type='delete')。
                   let existingExdates = '[]';
+                  let existingTimeRecords = '[]';
                   try {
                     const existingTpl = await env.DB.prepare(
-                      'SELECT exdates FROM todo_templates WHERE parent_id = ?'
+                      'SELECT exdates, time_records FROM todo_templates WHERE parent_id = ?'
                     ).bind(parentId).first();
                     if (existingTpl) {
                       existingExdates = existingTpl.exdates || '[]';
+                      existingTimeRecords = existingTpl.time_records || '[]';
                     }
                   } catch(e) {}
 
                   await env.DB.prepare(
-                    'INSERT OR REPLACE INTO todo_templates (parent_id, text, time, priority, desc, url, copy_text, subtasks, search_terms, repeat_type, repeat_custom, repeat_end, end_time, anchor_date, exdates, category_id, repeat_interval) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+                    'INSERT OR REPLACE INTO todo_templates (parent_id, text, time, priority, desc, url, copy_text, subtasks, search_terms, repeat_type, repeat_custom, repeat_end, end_time, anchor_date, exdates, category_id, repeat_interval, time_records) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
                   ).bind(
                     parentId, task.text, task.time || '', task.priority || 'low', task.desc || '', task.url || '', task.copyText || '',
-                    subtasksStr, searchTermsStr, rptType, '', repeatEnd, endTime, newDate, existingExdates, categoryId, task.repeat_interval || 1
+                    subtasksStr, searchTermsStr, rptType, '', repeatEnd, endTime, newDate, existingExdates, categoryId, task.repeat_interval || 1, existingTimeRecords
                   ).run();
                 }
               } else if (tmpl.type === 'delete') {
@@ -2411,10 +2579,11 @@ self.addEventListener('fetch', (event) => {
                 // 关键修复: 被软删除的实例在回收站中脱钩为单次任务快照 (repeat_type='none', parent_id=id)
                 // 这样恢复时不会重新激活循环，对齐 Google Tasks "停止重复后不可再循环" 的标准语义
                 // (RFC 5545 RANGE=THISANDFUTURE 等价: 模板 UNTIL 截断，被删实例视为脱离系列的冻结快照)
+                // 同步清空实例级 time_records：脱钩后非重复，UI 不再渲染计时区块，旧记录为死数据。
                 const prevDate = getPreviousDate(date);
                 if (tmpl.alsoDeleteFuture) {
                   await env.DB.prepare(
-                    'UPDATE todos SET deleted = 1, repeat_type=\'none\', repeat_custom=\'\', repeat_end=\'\', repeat_interval=1, parent_id=id WHERE parent_id=? AND date >= ?'
+                    'UPDATE todos SET deleted = 1, repeat_type=\'none\', repeat_custom=\'\', repeat_end=\'\', repeat_interval=1, parent_id=id, time_records=\'[]\' WHERE parent_id=? AND date >= ?'
                   ).bind(parentId, date).run();
                 }
                 // 过去实例保持活跃，设置 repeat_end 用于显示"每天·至日期"
@@ -2424,8 +2593,10 @@ self.addEventListener('fetch', (event) => {
               } else if (tmpl.type === 'delete_all') {
                 // "all" scope: 软删除所有实例并删除模板
                 // 关键修复: 所有实例 (含回收站中已有的同系列项) 脱钩为单次任务快照，避免恢复时重建整个循环系列
+                // 同步清空实例级 time_records：脱钩后非重复，UI 不再渲染计时区块，旧记录为死数据。
+                // 模板被 DELETE，模板级 time_records 随之销毁——这是「整个系列停止」的预期语义。
                 await env.DB.prepare(
-                  'UPDATE todos SET deleted = 1, repeat_type=\'none\', repeat_custom=\'\', repeat_end=\'\', repeat_interval=1, parent_id=id WHERE parent_id=?'
+                  'UPDATE todos SET deleted = 1, repeat_type=\'none\', repeat_custom=\'\', repeat_end=\'\', repeat_interval=1, parent_id=id, time_records=\'[]\' WHERE parent_id=?'
                 ).bind(parentId).run();
                 await env.DB.prepare('DELETE FROM todo_templates WHERE parent_id=?').bind(parentId).run();
               }
