@@ -172,19 +172,6 @@ export const css = `
     .btn-link:hover { background: var(--crt); color: #000; }
 
     /* ==================== 详情面板计时区块 ==================== */
-    /* 主界面计时激活时 checkbox 视觉变化（"结束+完成"按钮） */
-    .todo-item .checkbox.timer-active {
-      border-color: var(--accent);
-      background: rgba(204, 0, 0, 0.15);
-      box-shadow: 0 0 6px rgba(204, 0, 0, 0.4);
-      position: relative;
-    }
-    .todo-item .checkbox.timer-active::after {
-      content: '⏹'; color: var(--accent); position: absolute;
-      left: 0; top: -3px; font-size: 14px; font-weight: bold;
-    }
-    .todo-item.pri-high .checkbox.timer-active { border-color: var(--accent); }
-
     .timer-row {
       display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
     }
@@ -624,11 +611,6 @@ export const css = `
       background: #E5E5E5; color: #1B1915; border: 2px solid #1B1915;
       box-shadow: 2px 2px 0 #1B1915; border-radius: 4px;
     }[data-theme="light"] .btn-link:hover { background: #1B1915; color: #F0EEE2; }
-    [data-theme="light"] .todo-item .checkbox.timer-active {
-      border-color: #CE2424; background: rgba(206, 36, 36, 0.12);
-      box-shadow: 0 0 6px rgba(206, 36, 36, 0.4);
-    }
-    [data-theme="light"] .todo-item .checkbox.timer-active::after { color: #CE2424; }
     [data-theme="light"] .timer-elapsed-large { color: #CE2424; }
     [data-theme="light"] .batch-bar {
       border: 3px solid #1B1915; box-shadow: 6px 6px 0 #1B1915; background: #F0F0F0; border-top: 3px solid #1B1915;

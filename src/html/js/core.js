@@ -602,7 +602,21 @@ export const core = `
       var el = document.createElement('div');
       el.className = 'todo-item ' + (todo.done ? 'done' : '') + (todo.priority === 'high' ? ' pri-high' : todo.priority === 'med' ? ' pri-med' : ' pri-low');
 
+      // 计时状态：先确定是否激活（用于 badges 行显示"计时中"标签）
+      var timerState = null;
+      var canTimer = !todo.done && todo.repeat_type && todo.repeat_type !== 'none';
+      if (!canTimer) {
+        if (readTimerState(todo.id)) writeTimerState(todo.id, null);
+      } else {
+        timerState = maybePruneStaleTimer(todo.id);
+      }
+      var timerActive = !!timerState;
+
       var badges = '';
+      // 计时中标签置顶（样式与"每天"等重复标签一致）
+      if (timerActive) {
+        badges += '<span class="badge" style="background:transparent;border:1px solid var(--accent);color:var(--accent);">计时中</span> ';
+      }
       if (todo.time) {
         var timeLabel = todo.time;
         if (todo.end_time) timeLabel += '-' + todo.end_time;
@@ -656,23 +670,8 @@ export const core = `
       meta.innerHTML = '<div class="item-title">' + todo.text + '</div><div class="item-info">' + badges + '</div>';
 
       var checkbox = document.createElement('div');
-      // 计时器激活时 checkbox 视觉变化，点击它即"结束+完成"
-      // 主界面不显示独立计时按钮（用户可在详情面板操作），减少视觉噪音
-      var timerState = null;
-      var canTimer = !todo.done && todo.repeat_type && todo.repeat_type !== 'none';
-      if (!canTimer) {
-        // 不参与计时的事项若残留计时器，静默清理（覆盖：完成、改非重复、批量完成等路径）
-        if (readTimerState(todo.id)) writeTimerState(todo.id, null);
-      } else {
-        // 仅重复未完成项参与计时
-        timerState = maybePruneStaleTimer(todo.id);
-      }
-      var timerActive = !!timerState;
-      if (timerActive) {
-        checkbox.className = 'checkbox timer-active' + (isBatchMode && selectedTasks.has(index) ? ' batch-selected' : '');
-      } else {
-        checkbox.className = 'checkbox' + (isBatchMode && selectedTasks.has(index) ? ' batch-selected' : '');
-      }
+      // 计时激活时点击 checkbox = 结束+完成；不改变 checkbox 视觉（计时状态用 badges 行的"计时中"标签表达）
+      checkbox.className = 'checkbox' + (isBatchMode && selectedTasks.has(index) ? ' batch-selected' : '');
       checkbox.addEventListener('click', function(e) {
         e.stopPropagation();
         if (isBatchMode) { toggleBatchSelect(index); return; }

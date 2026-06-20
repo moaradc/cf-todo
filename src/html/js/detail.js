@@ -184,8 +184,17 @@ export const detail = `
     }
 
     // ==================== 详情面板计时区块 ====================
-    let detailTimeRecords = [];
+    // 按 parent_id 缓存历史记录：避免每次打开事项详情都发请求
+    // 缓存策略：首次打开 → fetch 并写入缓存；后续打开 → 用缓存；TIMER_COMPLETE → 同步更新缓存
+    const timeRecordsCache = new Map(); // parent_id -> records[]
     let detailTimerOwnerId = null;
+
+    // 取当前事项的历史记录（优先缓存，缓存 miss 时返回 []，由调用方决定是否 fetch）
+    function getDetailTimeRecords() {
+      const task = todos[currentDetailIndex];
+      if (!task || !task.parent_id) return [];
+      return timeRecordsCache.get(task.parent_id) || [];
+    }
 
     // 仅刷新计时区块，不重渲染整个面板（避免破坏用户阅读位置）
     function refreshDetailTimerBlock() {
@@ -199,17 +208,19 @@ export const detail = `
       const paused = timerState && isTimerPaused(timerState);
       const elapsed = timerState ? timerElapsed(timerState) : 0;
 
+      // 当前事项的历史记录（来自缓存）
+      const records = getDetailTimeRecords();
       // 预估完成时间（中位数），仅用于进行中/已暂停/空闲态的提示
       // 已完成态不显示（按用户要求精简）
-      const predict = predictDuration(detailTimeRecords);
+      const predict = predictDuration(records);
       const predictText = predict ? '预计 ' + formatMs(predict) : '';
 
       let html = '<div class="detail-label">计时</div>';
       html += '<div class="detail-value" style="display:block;">';
 
       if (task.done) {
-        // 已完成：仅展示完成耗时，不显示预计/历史 chips
-        const lastRec = task._lastRecord || (detailTimeRecords.length ? detailTimeRecords[detailTimeRecords.length - 1] : null);
+        // 已完成：优先使用本地缓存的最近一次 record（避免等待网络/缓存未命中时显示"无记录"）
+        const lastRec = task._lastRecord || (records.length ? records[records.length - 1] : null);
         if (lastRec) {
           const dur = Math.max(0, (lastRec.e || 0) - (lastRec.s || 0) - (lastRec.p || 0));
           const endTimeStr = new Date(lastRec.e).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
@@ -230,7 +241,7 @@ export const detail = `
         html += '</div>';
         if (predictText) html += '<div style="font-size:0.85em; opacity:0.7; margin-top:6px;">' + predictText + '</div>';
       } else {
-        // 空闲：仅按钮 + 预计提示，不展示历史 chips
+        // 空闲：仅按钮 + 预计提示
         html += '<div class="timer-row">';
         html += '<button class="btn-ghost" onclick="startTimerDetail()">开始计时</button>';
         if (predictText) html += '<span style="font-size:0.85em; opacity:0.7; margin-left:10px;">' + predictText + '</span>';
@@ -261,7 +272,17 @@ export const detail = `
     function completeTimerDetail() {
       if (currentDetailIndex < 0) return;
       completeTimer(currentDetailIndex);
-      // completeTimer 内部已调用 refreshDetailTimerBlock
+      // completeTimer 同步阶段已调用 refreshDetailTimerBlock
+    }
+
+    // 将一条新 record 写入缓存（用于 TIMER_COMPLETE 后本地同步）
+    function appendTimeRecordToCache(parentId, record) {
+      if (!parentId || !record) return;
+      const arr = timeRecordsCache.get(parentId) || [];
+      arr.push(record);
+      // FIFO 截断至 10 条（与服务端一致）
+      if (arr.length > 10) arr.splice(0, arr.length - 10);
+      timeRecordsCache.set(parentId, arr);
     }
 
     function renderDetailContent() {
@@ -270,11 +291,11 @@ export const detail = `
       const pMap = {low:'优先级: 低', med:'优先级: 中', high:'优先级: 高'};
       const rMap = { none: '不重复', daily: '每天', weekly: '每周', monthly: '每月', yearly: '每年' };
       
-      // 重置计时区块缓存（切换事项时）
-      if (detailTimerOwnerId !== (task && task.id)) {
-        detailTimeRecords = [];
-        detailTimerOwnerId = task && task.id;
-      }
+      // 详情面板缓存策略：
+      // - 切换事项时不清空 timeRecordsCache（按 parent_id 全局缓存）
+      // - 仅当当前事项 parent_id 缓存 miss 时才发请求
+      // - 后续再次打开同一事项 → 直接用缓存，0 请求
+      detailTimerOwnerId = task && task.id;
       
       if (!isEditMode) {
         let urlSection = '';
@@ -342,26 +363,32 @@ export const detail = `
         let timerSection = '';
         if (task.repeat_type && task.repeat_type !== 'none') {
           timerSection = '<div id="timer-section"></div>';
-          // 异步加载历史记录后填充
+          // 缓存策略：仅当 parent_id 缓存 miss 时才 fetch，否则直接用缓存渲染
           const fetchOwnerPid = task.parent_id;
-          Promise.resolve(fetchOwnerPid).then(function(pid) {
-            if (!pid) return;
-            return fetch('/api/time-records?parent_id=' + encodeURIComponent(pid))
-              .then(function(r) { return r.ok ? r.json() : { records: [] }; })
-              .then(function(data) {
-                // 防止竞态：仅当当前详情仍是同一事项时才应用结果
-                const cur = todos[currentDetailIndex];
-                if (!cur || cur.id !== task.id) return;
-                detailTimeRecords = (data && Array.isArray(data.records)) ? data.records : [];
-                refreshDetailTimerBlock();
-              })
-              .catch(function() {
-                const cur = todos[currentDetailIndex];
-                if (!cur || cur.id !== task.id) return;
-                detailTimeRecords = [];
-                refreshDetailTimerBlock();
-              });
-          });
+          if (fetchOwnerPid && !timeRecordsCache.has(fetchOwnerPid)) {
+            timeRecordsCache.set(fetchOwnerPid, []); // 立即占位，防止并发重复请求
+            Promise.resolve(fetchOwnerPid).then(function(pid) {
+              if (!pid) return;
+              return fetch('/api/time-records?parent_id=' + encodeURIComponent(pid))
+                .then(function(r) { return r.ok ? r.json() : { records: [] }; })
+                .then(function(data) {
+                  // 防止竞态：仅当当前详情仍是同一事项时才应用结果
+                  const cur = todos[currentDetailIndex];
+                  if (!cur || cur.id !== task.id) {
+                    // 已切走，但仍写入缓存供下次使用
+                    timeRecordsCache.set(pid, (data && Array.isArray(data.records)) ? data.records : []);
+                    return;
+                  }
+                  timeRecordsCache.set(pid, (data && Array.isArray(data.records)) ? data.records : []);
+                  refreshDetailTimerBlock();
+                })
+                .catch(function() {
+                  const cur = todos[currentDetailIndex];
+                  timeRecordsCache.set(pid, []);
+                  if (cur && cur.id === task.id) refreshDetailTimerBlock();
+                });
+            });
+          }
         }
 
         container.innerHTML = \`
