@@ -184,11 +184,12 @@ export const detail = `
     }
 
     // ==================== 详情面板计时区块 ====================
-    // 不缓存历史记录：每次打开事项详情都 fetch 最新 time_records
-    // 原因：同一模板的多个实例共享 time_records，缓存会导致 06.25 实例
-    // 看到 06.24 实例的"完成于"数据。强制每次 fetch 保证数据新鲜。
+    // 实例级 fetch：每个重复实例独立获取自己的 time_records，修复同一模板
+    // 多个实例共享 time_records 导致的串台问题（06.25 实例看到 06.26 实例的"完成于"）。
+    // 仍会同时取模板级记录（templateRecords），用于 predictDuration 预估时长。
     let detailTimerOwnerId = null;
-    let detailTimeRecords = []; // 当前事项的最新历史记录（每次打开详情时 fetch）
+    let detailTimeRecords = []; // 当前实例的完成记录（实例级，独立不串台）
+    let detailTemplateRecords = []; // 当前模板的跨实例记录（用于 predictDuration）
 
     // 取当前事项的历史记录
     function getDetailTimeRecords() {
@@ -207,11 +208,12 @@ export const detail = `
       const paused = timerState && isTimerPaused(timerState);
       const elapsed = timerState ? timerElapsed(timerState) : 0;
 
-      // 当前事项的历史记录（来自缓存）
+      // 当前实例的完成记录（实例级，独立不串台）
       const records = getDetailTimeRecords();
       // 预估完成时间（中位数），仅用于进行中/已暂停/空闲态的提示
       // 已完成态不显示（按用户要求精简）
-      const predict = predictDuration(records);
+      // 使用模板级记录预估：跨实例的中位数更稳定
+      const predict = predictDuration(detailTemplateRecords);
       const predictText = predict ? '预计 ' + formatMs(predict) : '';
 
       let html = '<div class="detail-label">计时</div>';
@@ -276,25 +278,28 @@ export const detail = `
       // completeTimer await fetch 后会调用 reloadDetailTimeRecords 重新拉取并刷新
     }
 
-    // 强制重新拉取当前事项的 time_records 并刷新计时区块
+    // 强制重新拉取当前实例的 time_records 并刷新计时区块
     // 用于 TIMER_COMPLETE 后：服务器已写入新记录，重新 fetch 拿最新数据
     function reloadDetailTimeRecords() {
       const task = todos[currentDetailIndex];
-      if (!task || !task.parent_id) return;
-      const pid = task.parent_id;
+      if (!task || !task.id) return;
+      const tid = task.id;
+      // 以 todo_id 查询，返回实例级记录 + 模板级记录（templateRecords）
       // 加 cache-busting 参数，确保 SW/HTTP 缓存不命中旧响应
-      const bustUrl = '/api/time-records?parent_id=' + encodeURIComponent(pid) + '&_t=' + Date.now();
+      const bustUrl = '/api/time-records?todo_id=' + encodeURIComponent(tid) + '&_t=' + Date.now();
       fetch(bustUrl)
-        .then(function(r) { return r.ok ? r.json() : { records: [] }; })
+        .then(function(r) { return r.ok ? r.json() : { records: [], templateRecords: [] }; })
         .then(function(data) {
           // 防止竞态：仅当当前详情仍是同一事项时才刷新 UI
           const cur = todos[currentDetailIndex];
           detailTimeRecords = (data && Array.isArray(data.records)) ? data.records : [];
+          detailTemplateRecords = (data && Array.isArray(data.templateRecords)) ? data.templateRecords : [];
           if (cur && cur.id === task.id) refreshDetailTimerBlock();
         })
         .catch(function() {
           const cur = todos[currentDetailIndex];
           detailTimeRecords = [];
+          detailTemplateRecords = [];
           if (cur && cur.id === task.id) refreshDetailTimerBlock();
         });
     }
@@ -305,10 +310,11 @@ export const detail = `
       const pMap = {low:'优先级: 低', med:'优先级: 中', high:'优先级: 高'};
       const rMap = { none: '不重复', daily: '每天', weekly: '每周', monthly: '每月', yearly: '每年' };
 
-      // 不缓存历史记录：每次打开事项详情都重置 + fetch 最新 time_records
-      // 避免同一模板的不同实例（如 06.24 / 06.25）共享缓存导致显示错误的"完成于"
+      // 实例级 fetch：每次打开事项详情都重置 + fetch 最新 time_records
+      // 以 todo_id 查询返回实例级记录（不串台）+ 模板级记录（用于 predictDuration）
       detailTimerOwnerId = task && task.id;
       detailTimeRecords = [];
+      detailTemplateRecords = [];
       
       if (!isEditMode) {
         let urlSection = '';
@@ -376,25 +382,27 @@ export const detail = `
         let timerSection = '';
         if (task.repeat_type && task.repeat_type !== 'none') {
           timerSection = '<div id="timer-section"></div>';
-          // 不缓存：每次打开事项详情都 fetch 最新 time_records
-          // 避免同一模板的不同实例（如 06.24 / 06.25）共享缓存导致显示错误的"完成于"
-          const fetchOwnerPid = task.parent_id;
-          if (fetchOwnerPid) {
+          // 实例级 fetch：以 todo_id 查询，返回实例记录 + 模板记录
+          // 避免同一模板的不同实例（如 06.24 / 06.25）共享导致显示错误的"完成于"
+          const fetchTodoId = task.id;
+          if (fetchTodoId) {
             // 加 cache-busting 参数，确保 SW/HTTP 缓存不命中旧响应
-            const bustUrl = '/api/time-records?parent_id=' + encodeURIComponent(fetchOwnerPid) + '&_t=' + Date.now();
+            const bustUrl = '/api/time-records?todo_id=' + encodeURIComponent(fetchTodoId) + '&_t=' + Date.now();
             fetch(bustUrl)
-              .then(function(r) { return r.ok ? r.json() : { records: [] }; })
+              .then(function(r) { return r.ok ? r.json() : { records: [], templateRecords: [] }; })
               .then(function(data) {
                 // 防止竞态：仅当当前详情仍是同一事项时才应用结果
                 const cur = todos[currentDetailIndex];
                 if (!cur || cur.id !== task.id) return;
                 detailTimeRecords = (data && Array.isArray(data.records)) ? data.records : [];
+                detailTemplateRecords = (data && Array.isArray(data.templateRecords)) ? data.templateRecords : [];
                 refreshDetailTimerBlock();
               })
               .catch(function() {
                 const cur = todos[currentDetailIndex];
                 if (!cur || cur.id !== task.id) return;
                 detailTimeRecords = [];
+                detailTemplateRecords = [];
                 refreshDetailTimerBlock();
               });
           }

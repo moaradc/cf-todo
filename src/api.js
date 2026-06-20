@@ -105,7 +105,8 @@ async function handleRequest(request, env, ctx) {
               category_id TEXT DEFAULT '',
               recurrence_id TEXT DEFAULT '',
               is_exception INTEGER NOT NULL DEFAULT 0,
-              repeat_interval INTEGER NOT NULL DEFAULT 1
+              repeat_interval INTEGER NOT NULL DEFAULT 1,
+              time_records TEXT NOT NULL DEFAULT '[]'
             )
           `),
           env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_todos_cursor ON todos(date, deleted, id)`),
@@ -199,6 +200,19 @@ async function handleRequest(request, env, ctx) {
           try {
             await env.DB.prepare(
               `ALTER TABLE todo_templates ADD COLUMN time_records TEXT NOT NULL DEFAULT '[]'`
+            ).run();
+          } catch (e) {}
+        }
+
+        // --- schema 7: 实例级时间记录 ---
+        // 修复：重复事项的完成时间此前只存在 todo_templates.time_records（按 parent_id 共享），
+        // 导致同一系列不同实例查看详情时显示同一个"完成于"（串台）。
+        // 现给 todos 表加一列 time_records，每个重复实例独立存储自己的完成记录。
+        // 模板级记录仍保留，用于 predictDuration 的跨实例预估。
+        if (currentSchema < 7) {
+          try {
+            await env.DB.prepare(
+              `ALTER TABLE todos ADD COLUMN time_records TEXT NOT NULL DEFAULT '[]'`
             ).run();
           } catch (e) {}
         }
@@ -1542,7 +1556,8 @@ self.addEventListener('fetch', (event) => {
                     category_id TEXT DEFAULT '',
                     recurrence_id TEXT DEFAULT '',
                     is_exception INTEGER NOT NULL DEFAULT 0,
-                    repeat_interval INTEGER NOT NULL DEFAULT 1
+                    repeat_interval INTEGER NOT NULL DEFAULT 1,
+                    time_records TEXT NOT NULL DEFAULT '[]'
                   )
                 `),
                 env.DB.prepare(`CREATE INDEX idx_todos_cursor ON todos(date, deleted, id)`),
@@ -2122,19 +2137,55 @@ self.addEventListener('fetch', (event) => {
     }
 
     if (url.pathname === '/api/time-records' && request.method === 'GET') {
+      const todoId = url.searchParams.get('todo_id');
       const parentId = url.searchParams.get('parent_id');
-      if (!parentId) return apiError("parent_id required", 400);
-      const row = await env.DB.prepare(
-        'SELECT time_records FROM todo_templates WHERE parent_id = ?'
-      ).bind(parentId).first();
       let records = [];
-      if (row && row.time_records) {
-        try {
-          const parsed = typeof row.time_records === 'string' ? JSON.parse(row.time_records) : row.time_records;
-          if (Array.isArray(parsed)) records = parsed;
-        } catch (e) {}
+      let templateRecords = [];
+
+      if (todoId) {
+        // 实例级查询（推荐）：修复同一模板不同实例串台的问题
+        const todoRow = await env.DB.prepare(
+          'SELECT time_records, parent_id FROM todos WHERE id = ?'
+        ).bind(todoId).first();
+        if (todoRow) {
+          try {
+            const p = typeof todoRow.time_records === 'string'
+              ? JSON.parse(todoRow.time_records || '[]')
+              : todoRow.time_records;
+            if (Array.isArray(p)) records = p;
+          } catch (e) {}
+          // 同时取模板级记录，用于 predictDuration（基于该模板最近 10 次完成时长中位数）
+          // 模板级与实例级记录解耦：实例级用于"完成于"显示，模板级用于预估
+          const pidForTpl = todoRow.parent_id;
+          if (pidForTpl) {
+            const tplRow = await env.DB.prepare(
+              'SELECT time_records FROM todo_templates WHERE parent_id = ?'
+            ).bind(pidForTpl).first();
+            if (tplRow) {
+              try {
+                const tp = typeof tplRow.time_records === 'string'
+                  ? JSON.parse(tplRow.time_records || '[]')
+                  : tplRow.time_records;
+                if (Array.isArray(tp)) templateRecords = tp;
+              } catch (e) {}
+            }
+          }
+        }
+      } else if (parentId) {
+        // 兼容旧客户端：仅返回模板级记录
+        const row = await env.DB.prepare(
+          'SELECT time_records FROM todo_templates WHERE parent_id = ?'
+        ).bind(parentId).first();
+        if (row && row.time_records) {
+          try {
+            const parsed = typeof row.time_records === 'string' ? JSON.parse(row.time_records) : row.time_records;
+            if (Array.isArray(parsed)) records = parsed;
+          } catch (e) {}
+        }
+      } else {
+        return apiError("todo_id or parent_id required", 400);
       }
-      return new Response(JSON.stringify({ records }), { headers: { 'Content-Type': 'application/json' } });
+      return new Response(JSON.stringify({ records, templateRecords }), { headers: { 'Content-Type': 'application/json' } });
     }
 
     if (url.pathname === '/api/todo-action' && request.method === 'POST') {
@@ -2144,42 +2195,73 @@ self.addEventListener('fetch', (event) => {
           await env.DB.prepare('UPDATE todos SET done = ? WHERE id = ?').bind(task.done ? 1 : 0, task.id).run();
         }
         else if (action === 'TIMER_COMPLETE') {
-          // 计时结束：标记完成 + 写入 time_records（仅对重复模板）
-          // 单请求完成 2 件事，避免增加网络往返
+          // 计时结束：标记完成 + 写入 time_records（实例级 + 模板级双写）
+          // 单请求完成 3 件事，避免增加网络往返
           // record: { s: <epoch_ms>, e: <epoch_ms>, p: <paused_ms> }
+          //
+          // 双写说明：
+          // - 实例级（todos.time_records）：每个重复实例独立存储，修复查看 06.25 实例
+          //   详情时显示 06.26 实例完成时间的串台 bug
+          // - 模板级（todo_templates.time_records）：跨实例共享，供 predictDuration
+          //   计算中位数预估时长，FIFO 保留最近 10 条
           const todoId = task && task.id;
           const pid = parentId || (task && task.parent_id);
           if (!todoId) return apiError("INVALID_PARAMS", 400);
 
-          // 1. 标记完成（始终执行，即便模板记录写入失败也不阻断完成）
+          // 1. 标记完成（始终执行，即便记录写入失败也不阻断完成）
           await env.DB.prepare('UPDATE todos SET done = 1 WHERE id = ?').bind(todoId).run();
 
-          // 2. 写入 time_records（仅当 parent_id 有效且 record 通过校验）
-          if (pid && record && typeof record.s === 'number' && typeof record.e === 'number') {
+          // 2. 写入 time_records（实例级 + 模板级双写）
+          if (record && typeof record.s === 'number' && typeof record.e === 'number') {
             const s = Math.floor(record.s);
             const e = Math.floor(record.e);
             const p = Math.floor(record.p || 0);
             // 服务端校验：s < e, 时长合理（1s ~ 7d），paused 不超过总时长
             const MAX_DURATION_MS = 7 * 24 * 60 * 60 * 1000;
             if (s > 0 && e > s && (e - s) <= MAX_DURATION_MS && p >= 0 && p < (e - s)) {
+              // 2a. 实例级：写入 todos.time_records（修复串台 bug）
               try {
-                const tpl = await env.DB.prepare(
-                  'SELECT time_records FROM todo_templates WHERE parent_id = ?'
-                ).bind(pid).first();
-                if (tpl) {
-                  let arr = [];
-                  try { arr = Array.isArray(tpl.time_records) ? tpl.time_records : JSON.parse(tpl.time_records || '[]'); } catch (e2) { arr = []; }
-                  if (!Array.isArray(arr)) arr = [];
-                  arr.push({ s, e, p });
-                  // FIFO 截断至最近 10 条
-                  if (arr.length > 10) arr = arr.slice(arr.length - 10);
-                  await env.DB.prepare(
-                    'UPDATE todo_templates SET time_records = ? WHERE parent_id = ?'
-                  ).bind(JSON.stringify(arr), pid).run();
+                const cur = await env.DB.prepare(
+                  'SELECT time_records FROM todos WHERE id = ?'
+                ).bind(todoId).first();
+                let instArr = [];
+                try {
+                  instArr = typeof cur.time_records === 'string'
+                    ? JSON.parse(cur.time_records || '[]')
+                    : cur.time_records;
+                } catch (e2) { instArr = []; }
+                if (!Array.isArray(instArr)) instArr = [];
+                instArr.push({ s, e, p });
+                // 实例级通常只保留最近 1 条（每次重新开始计时会覆盖），但为防止异常重入保留 FIFO 5
+                if (instArr.length > 5) instArr = instArr.slice(instArr.length - 5);
+                await env.DB.prepare(
+                  'UPDATE todos SET time_records = ? WHERE id = ?'
+                ).bind(JSON.stringify(instArr), todoId).run();
+              } catch (eInst) {
+                console.error("TIMER_COMPLETE per-instance record write failed:", eInst);
+              }
+
+              // 2b. 模板级：写入 todo_templates.time_records（供 predictDuration）
+              if (pid) {
+                try {
+                  const tpl = await env.DB.prepare(
+                    'SELECT time_records FROM todo_templates WHERE parent_id = ?'
+                  ).bind(pid).first();
+                  if (tpl) {
+                    let arr = [];
+                    try { arr = Array.isArray(tpl.time_records) ? tpl.time_records : JSON.parse(tpl.time_records || '[]'); } catch (e2) { arr = []; }
+                    if (!Array.isArray(arr)) arr = [];
+                    arr.push({ s, e, p });
+                    // FIFO 截断至最近 10 条
+                    if (arr.length > 10) arr = arr.slice(arr.length - 10);
+                    await env.DB.prepare(
+                      'UPDATE todo_templates SET time_records = ? WHERE parent_id = ?'
+                    ).bind(JSON.stringify(arr), pid).run();
+                  }
+                } catch (e3) {
+                  // 模板写入失败不影响完成状态，仅吞掉错误
+                  console.error("TIMER_COMPLETE template record write failed:", e3);
                 }
-              } catch (e3) {
-                // 模板写入失败不影响完成状态，仅吞掉错误
-                console.error("TIMER_COMPLETE record write failed:", e3);
               }
             }
           }
