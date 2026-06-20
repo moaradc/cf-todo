@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>数据迁移工具 - v2.6.x → v2.7.10</title>
+  <title>数据迁移工具 - v2.6.x → v2.7.7</title>
   <style>
     :root {
       --bg: #0a0a0a;
@@ -122,7 +122,7 @@
 <body>
   <div class="container">
     <h1>数据迁移工具</h1>
-    <p class="sub">v2.6.x → v2.7.10</p>
+    <p class="sub">v2.6.x → v2.7.7</p>
 
     <div class="drop-zone" id="dropZone">
       <div class="icon">📁</div>
@@ -403,7 +403,7 @@
     if (!needMigration && dirtyRepeat.length === 0 && exceptionTodos.length === 0 && unsyncedCustom.length === 0 && missingRecurrenceId.length === 0 && missingIsException.length === 0 && missingExdates.length === 0 && missingIntervalTodos.length === 0 && missingIntervalTpls.length === 0 && missingRepeatEndTodos.length === 0 && missingEndTimeTodos.length === 0 && missingRepeatEndTpls.length === 0 && missingEndTimeTpls.length === 0 && missingTimeRecordsTodos.length === 0 && missingTimeRecordsTpls.length === 0 && invalidTimeRecordsTodos.length === 0 && invalidTimeRecordsTpls.length === 0) {
       diffList.innerHTML = '<div class="diff-item" style="border-color:#1a3a1a;"><div class="diff-desc" style="color:var(--crt);">此文件已是新版格式，无需迁移</div></div>';
       migrateBtn.disabled = true;
-      addLog('此文件已是 v2.7.10 格式，无需迁移', 'ok');
+      addLog('此文件已是 v2.7.7 格式，无需迁移', 'ok');
       renderLogs();
       return;
     }
@@ -856,7 +856,7 @@
       var writable = await handle.createWritable();
       await writable.write(content);
       await writable.close();
-      addLog('文件已保存，请在 v2.7.10 的导入功能中使用【覆盖模式】导入', 'ok');
+      addLog('文件已保存，请在 v2.7.7 的导入功能中使用【覆盖模式】导入', 'ok');
       renderLogs();
     } catch (err) {
       if (err.name === 'AbortError') return; // 用户取消
@@ -876,7 +876,7 @@
     a.click();
     document.body.removeChild(a);
     setTimeout(function() { URL.revokeObjectURL(url); }, 10000);
-    addLog('文件已下载，请在 v2.7.10 的导入功能中使用【覆盖模式】导入', 'ok');
+    addLog('文件已下载，请在 v2.7.7 的导入功能中使用【覆盖模式】导入', 'ok');
     renderLogs();
   }
 

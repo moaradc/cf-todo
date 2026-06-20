@@ -181,7 +181,7 @@ async function handleRequest(request, env, ctx) {
         //
         // 保留 schema 5（统计覆盖索引）代码作参考，但已注释：
         // 该索引现在通过基础 CREATE INDEX 语句（line 114）在首次部署时直接创建，
-        // 后续覆写导入路径（line 1576 / 1602 / 1630）也会重建，故无需运行时迁移。
+        // 后续覆写导入路径（line 1578 / 1603 / 1631）也会重建，故无需运行时迁移。
         // --- schema 5: 统计查询覆盖索引（已注释，仅作历史参考） ---
         // --- schema 5: /api/stats 的所有 GROUP BY 查询都基于 (date, deleted) 过滤 + 读取 (priority, done, category_id, time) ---
         // --- 用一个覆盖索引让 D1 仅扫索引即可完成查询，避免回表（random IO 到主表） ---
