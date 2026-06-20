@@ -184,16 +184,15 @@ export const detail = `
     }
 
     // ==================== 详情面板计时区块 ====================
-    // 按 parent_id 缓存历史记录：避免每次打开事项详情都发请求
-    // 缓存策略：首次打开 → fetch 并写入缓存；后续打开 → 用缓存；TIMER_COMPLETE → 强制 invalidate 重新 fetch
-    const timeRecordsCache = new Map(); // parent_id -> records[]
+    // 不缓存历史记录：每次打开事项详情都 fetch 最新 time_records
+    // 原因：同一模板的多个实例共享 time_records，缓存会导致 06.25 实例
+    // 看到 06.24 实例的"完成于"数据。强制每次 fetch 保证数据新鲜。
     let detailTimerOwnerId = null;
+    let detailTimeRecords = []; // 当前事项的最新历史记录（每次打开详情时 fetch）
 
-    // 取当前事项的历史记录（优先缓存，缓存 miss 时返回 []，由调用方决定是否 fetch）
+    // 取当前事项的历史记录
     function getDetailTimeRecords() {
-      const task = todos[currentDetailIndex];
-      if (!task || !task.parent_id) return [];
-      return timeRecordsCache.get(task.parent_id) || [];
+      return detailTimeRecords;
     }
 
     // 仅刷新计时区块，不重渲染整个面板（避免破坏用户阅读位置）
@@ -278,14 +277,11 @@ export const detail = `
     }
 
     // 强制重新拉取当前事项的 time_records 并刷新计时区块
-    // 用于 TIMER_COMPLETE 后：服务器已写入新记录，本地缓存 invalidate 后重新 fetch
+    // 用于 TIMER_COMPLETE 后：服务器已写入新记录，重新 fetch 拿最新数据
     function reloadDetailTimeRecords() {
       const task = todos[currentDetailIndex];
       if (!task || !task.parent_id) return;
       const pid = task.parent_id;
-      // 强制 invalidate（删除占位/旧值），重新 fetch
-      timeRecordsCache.delete(pid);
-      timeRecordsCache.set(pid, []); // 立即占位防止并发
       // 加 cache-busting 参数，确保 SW/HTTP 缓存不命中旧响应
       const bustUrl = '/api/time-records?parent_id=' + encodeURIComponent(pid) + '&_t=' + Date.now();
       fetch(bustUrl)
@@ -293,12 +289,12 @@ export const detail = `
         .then(function(data) {
           // 防止竞态：仅当当前详情仍是同一事项时才刷新 UI
           const cur = todos[currentDetailIndex];
-          timeRecordsCache.set(pid, (data && Array.isArray(data.records)) ? data.records : []);
+          detailTimeRecords = (data && Array.isArray(data.records)) ? data.records : [];
           if (cur && cur.id === task.id) refreshDetailTimerBlock();
         })
         .catch(function() {
           const cur = todos[currentDetailIndex];
-          timeRecordsCache.set(pid, []);
+          detailTimeRecords = [];
           if (cur && cur.id === task.id) refreshDetailTimerBlock();
         });
     }
@@ -308,12 +304,11 @@ export const detail = `
       const task = todos[currentDetailIndex]; const container = document.getElementById('detail-content');
       const pMap = {low:'优先级: 低', med:'优先级: 中', high:'优先级: 高'};
       const rMap = { none: '不重复', daily: '每天', weekly: '每周', monthly: '每月', yearly: '每年' };
-      
-      // 详情面板缓存策略：
-      // - 切换事项时不清空 timeRecordsCache（按 parent_id 全局缓存）
-      // - 仅当当前事项 parent_id 缓存 miss 时才发请求
-      // - 后续再次打开同一事项 → 直接用缓存，0 请求
+
+      // 不缓存历史记录：每次打开事项详情都重置 + fetch 最新 time_records
+      // 避免同一模板的不同实例（如 06.24 / 06.25）共享缓存导致显示错误的"完成于"
       detailTimerOwnerId = task && task.id;
+      detailTimeRecords = [];
       
       if (!isEditMode) {
         let urlSection = '';
@@ -381,31 +376,27 @@ export const detail = `
         let timerSection = '';
         if (task.repeat_type && task.repeat_type !== 'none') {
           timerSection = '<div id="timer-section"></div>';
-          // 缓存策略：仅当 parent_id 缓存 miss 时才 fetch，否则直接用缓存渲染
+          // 不缓存：每次打开事项详情都 fetch 最新 time_records
+          // 避免同一模板的不同实例（如 06.24 / 06.25）共享缓存导致显示错误的"完成于"
           const fetchOwnerPid = task.parent_id;
-          if (fetchOwnerPid && !timeRecordsCache.has(fetchOwnerPid)) {
-            timeRecordsCache.set(fetchOwnerPid, []); // 立即占位，防止并发重复请求
-            Promise.resolve(fetchOwnerPid).then(function(pid) {
-              if (!pid) return;
-              return fetch('/api/time-records?parent_id=' + encodeURIComponent(pid))
-                .then(function(r) { return r.ok ? r.json() : { records: [] }; })
-                .then(function(data) {
-                  // 防止竞态：仅当当前详情仍是同一事项时才应用结果
-                  const cur = todos[currentDetailIndex];
-                  if (!cur || cur.id !== task.id) {
-                    // 已切走，但仍写入缓存供下次使用
-                    timeRecordsCache.set(pid, (data && Array.isArray(data.records)) ? data.records : []);
-                    return;
-                  }
-                  timeRecordsCache.set(pid, (data && Array.isArray(data.records)) ? data.records : []);
-                  refreshDetailTimerBlock();
-                })
-                .catch(function() {
-                  const cur = todos[currentDetailIndex];
-                  timeRecordsCache.set(pid, []);
-                  if (cur && cur.id === task.id) refreshDetailTimerBlock();
-                });
-            });
+          if (fetchOwnerPid) {
+            // 加 cache-busting 参数，确保 SW/HTTP 缓存不命中旧响应
+            const bustUrl = '/api/time-records?parent_id=' + encodeURIComponent(fetchOwnerPid) + '&_t=' + Date.now();
+            fetch(bustUrl)
+              .then(function(r) { return r.ok ? r.json() : { records: [] }; })
+              .then(function(data) {
+                // 防止竞态：仅当当前详情仍是同一事项时才应用结果
+                const cur = todos[currentDetailIndex];
+                if (!cur || cur.id !== task.id) return;
+                detailTimeRecords = (data && Array.isArray(data.records)) ? data.records : [];
+                refreshDetailTimerBlock();
+              })
+              .catch(function() {
+                const cur = todos[currentDetailIndex];
+                if (!cur || cur.id !== task.id) return;
+                detailTimeRecords = [];
+                refreshDetailTimerBlock();
+              });
           }
         }
 
