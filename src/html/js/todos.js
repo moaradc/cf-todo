@@ -335,19 +335,9 @@ export const todos = `
       }
       writeTimerState(todo.id, null);
       todo.done = true;
-      // 缓存一份 record 用于详情面板立即显示
-      if (record) todo._lastRecord = record;
-      // 同步写入详情面板缓存（避免下次打开事项详情时缺失本次记录）
-      if (record && typeof appendTimeRecordToCache === 'function') {
-        appendTimeRecordToCache(todo.parent_id, record);
-      }
-      // 同步写入模块级 lastCompletedRecord（详情面板 refreshDetailTimerBlock 优先读取）
-      if (typeof setLastCompletedRecord === 'function') {
-        setLastCompletedRecord(todo.id, record);
-      }
       ensureTimerTick();
       renderTodos();
-      // 同步阶段立即刷新详情面板（不等 fetch，UI 即刻进入"完成于..."态）
+      // 同步阶段先刷新一次详情面板（让 UI 即刻进入"已完成"态，records 暂用旧缓存或空）
       if (typeof refreshDetailTimerBlock === 'function' && currentDetailIndex === index) {
         refreshDetailTimerBlock();
       }
@@ -364,6 +354,10 @@ export const todos = `
         });
       } catch (e) {
         // 网络失败不回滚本地状态（用户已视觉完成），下次拉取会刷新
+      }
+      // 服务器已写入新记录：详情面板若仍打开此事项，强制 invalidate 缓存并重新 fetch
+      if (typeof reloadDetailTimeRecords === 'function' && currentDetailIndex === index) {
+        reloadDetailTimeRecords();
       }
     }
 

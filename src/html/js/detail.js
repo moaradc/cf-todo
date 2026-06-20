@@ -185,13 +185,9 @@ export const detail = `
 
     // ==================== 详情面板计时区块 ====================
     // 按 parent_id 缓存历史记录：避免每次打开事项详情都发请求
-    // 缓存策略：首次打开 → fetch 并写入缓存；后续打开 → 用缓存；TIMER_COMPLETE → 同步更新缓存
+    // 缓存策略：首次打开 → fetch 并写入缓存；后续打开 → 用缓存；TIMER_COMPLETE → 强制 invalidate 重新 fetch
     const timeRecordsCache = new Map(); // parent_id -> records[]
     let detailTimerOwnerId = null;
-    // 最近一次结束的 record（模块级，避免依赖 todo 对象上的动态字段）
-    // completeTimer 写入，refreshDetailTimerBlock 读取；切换事项时清空
-    let lastCompletedRecord = null;
-    let lastCompletedTodoId = null;
 
     // 取当前事项的历史记录（优先缓存，缓存 miss 时返回 []，由调用方决定是否 fetch）
     function getDetailTimeRecords() {
@@ -223,11 +219,8 @@ export const detail = `
       html += '<div class="detail-value" style="display:block;">';
 
       if (task.done) {
-        // 已完成：优先取模块级 lastCompletedRecord（completeTimer 同步写入），其次 todo._lastRecord，最后缓存末尾
-        let lastRec = null;
-        if (lastCompletedTodoId === task.id) lastRec = lastCompletedRecord;
-        if (!lastRec && task._lastRecord) lastRec = task._lastRecord;
-        if (!lastRec && records.length) lastRec = records[records.length - 1];
+        // 已完成：取缓存末尾的 record（completeTimer await 后会强制 invalidate 重新 fetch）
+        const lastRec = records.length ? records[records.length - 1] : null;
         if (lastRec) {
           const dur = Math.max(0, (lastRec.e || 0) - (lastRec.s || 0) - (lastRec.p || 0));
           const endTimeStr = new Date(lastRec.e).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
@@ -279,24 +272,31 @@ export const detail = `
     function completeTimerDetail() {
       if (currentDetailIndex < 0) return;
       completeTimer(currentDetailIndex);
-      // completeTimer 同步阶段已调用 refreshDetailTimerBlock，但这里再保底调用一次
-      refreshDetailTimerBlock();
+      // completeTimer await fetch 后会调用 reloadDetailTimeRecords 重新拉取并刷新
     }
 
-    // 将一条新 record 写入缓存（用于 TIMER_COMPLETE 后本地同步）
-    function appendTimeRecordToCache(parentId, record) {
-      if (!parentId || !record) return;
-      const arr = timeRecordsCache.get(parentId) || [];
-      arr.push(record);
-      // FIFO 截断至 10 条（与服务端一致）
-      if (arr.length > 10) arr.splice(0, arr.length - 10);
-      timeRecordsCache.set(parentId, arr);
-    }
-
-    // completeTimer 同步调用：写入模块级 lastCompletedRecord，确保 refreshDetailTimerBlock 能立即读到
-    function setLastCompletedRecord(todoId, record) {
-      lastCompletedTodoId = todoId || null;
-      lastCompletedRecord = record || null;
+    // 强制重新拉取当前事项的 time_records 并刷新计时区块
+    // 用于 TIMER_COMPLETE 后：服务器已写入新记录，本地缓存 invalidate 后重新 fetch
+    function reloadDetailTimeRecords() {
+      const task = todos[currentDetailIndex];
+      if (!task || !task.parent_id) return;
+      const pid = task.parent_id;
+      // 强制 invalidate（删除占位/旧值），重新 fetch
+      timeRecordsCache.delete(pid);
+      timeRecordsCache.set(pid, []); // 立即占位防止并发
+      fetch('/api/time-records?parent_id=' + encodeURIComponent(pid))
+        .then(function(r) { return r.ok ? r.json() : { records: [] }; })
+        .then(function(data) {
+          // 防止竞态：仅当当前详情仍是同一事项时才刷新 UI
+          const cur = todos[currentDetailIndex];
+          timeRecordsCache.set(pid, (data && Array.isArray(data.records)) ? data.records : []);
+          if (cur && cur.id === task.id) refreshDetailTimerBlock();
+        })
+        .catch(function() {
+          const cur = todos[currentDetailIndex];
+          timeRecordsCache.set(pid, []);
+          if (cur && cur.id === task.id) refreshDetailTimerBlock();
+        });
     }
 
     function renderDetailContent() {
