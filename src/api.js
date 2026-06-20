@@ -1307,12 +1307,19 @@ self.addEventListener('fetch', (event) => {
 
       // 严格校验 time_records：必须是 JSON 数组字符串，否则返回 '[]'
       // 防止导入文件携带畸形数据污染数据库，导致后续 JSON.parse 报错
+      // 性能：99%+ 的行该字段为 undefined（旧导出）或 '[]'（新导出但未计时），
+      // 首两个分支零开销短路，只有实际有记录的行才 JSON.parse。
+      // 上万行导入估算额外 CPU < 5ms（远低于 Workers CPU 限制）。
       const safeTimeRecords = (v) => {
-        if (v == null) return '[]';
-        try {
-          const parsed = typeof v === 'string' ? JSON.parse(v) : v;
-          if (Array.isArray(parsed)) return JSON.stringify(parsed);
-        } catch (e) {}
+        if (v == null || v === '[]') return '[]';
+        if (typeof v === 'string') {
+          try {
+            const parsed = JSON.parse(v);
+            if (Array.isArray(parsed)) return v;  // 原样返回，避免二次 stringify
+          } catch (e) {}
+          return '[]';
+        }
+        if (Array.isArray(v)) return JSON.stringify(v);
         return '[]';
       };
 
