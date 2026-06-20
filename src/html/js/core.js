@@ -656,14 +656,54 @@ export const core = `
       meta.innerHTML = '<div class="item-title">' + todo.text + '</div><div class="item-info">' + badges + '</div>';
 
       var checkbox = document.createElement('div');
-      checkbox.className = 'checkbox' + (isBatchMode && selectedTasks.has(index) ? ' batch-selected' : '');
+      // 计时器激活时 checkbox 视觉变化，点击它即"结束+完成"
+      var timerState = null;
+      var canTimer = !todo.done && todo.repeat_type && todo.repeat_type !== 'none';
+      if (!canTimer) {
+        // 不参与计时的事项若残留计时器，静默清理（覆盖：完成、改非重复、批量完成等路径）
+        if (readTimerState(todo.id)) writeTimerState(todo.id, null);
+      } else {
+        // 仅重复未完成项参与计时
+        timerState = maybePruneStaleTimer(todo.id);
+      }
+      var timerActive = !!timerState;
+      if (timerActive) {
+        checkbox.className = 'checkbox timer-active' + (isBatchMode && selectedTasks.has(index) ? ' batch-selected' : '');
+      } else {
+        checkbox.className = 'checkbox' + (isBatchMode && selectedTasks.has(index) ? ' batch-selected' : '');
+      }
       checkbox.addEventListener('click', function(e) {
         e.stopPropagation();
-        if (isBatchMode) toggleBatchSelect(index);
-        else toggleDone(index);
+        if (isBatchMode) { toggleBatchSelect(index); return; }
+        if (timerActive) { completeTimer(index); return; }
+        toggleDone(index);
       });
 
       el.appendChild(checkbox);
+
+      // 计时按钮（仅重复 + 未完成 + 非批量模式）
+      if (!isBatchMode && todo.repeat_type && todo.repeat_type !== 'none' && !todo.done) {
+        var timerBtn = document.createElement('button');
+        timerBtn.className = 'timer-btn' + (timerActive ? ' active' : '');
+        timerBtn.setAttribute('aria-label', timerActive ? (isTimerPaused(timerState) ? '继续计时' : '暂停计时') : '开始计时');
+        timerBtn.addEventListener('click', function(e) {
+          e.stopPropagation();
+          var cur = readTimerState(todo.id);
+          if (cur) {
+            if (isTimerRunning(cur)) pauseTimer(todo.id);
+            else resumeTimer(todo.id);
+          } else {
+            startTimer(todo.id);
+          }
+        });
+        if (timerActive) {
+          var labelText = isTimerPaused(timerState) ? '▶' : '⏸';
+          timerBtn.innerHTML = '<span class="timer-icon">' + labelText + '</span><span class="timer-elapsed" data-timer-id="' + todo.id + '">' + formatElapsed(timerElapsed(timerState)) + '</span>';
+        } else {
+          timerBtn.innerHTML = '<span class="timer-icon">⏱</span>';
+        }
+        el.appendChild(timerBtn);
+      }
       el.appendChild(meta);
 
       if (!isBatchMode) {

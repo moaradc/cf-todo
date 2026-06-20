@@ -62,6 +62,8 @@ export const todos = `
         if (res.ok) {
           todos = await res.json();
           renderTodos();
+          // 启动/停止每秒 ticking（仅当存在 running 计时器时）
+          ensureTimerTick();
         }
       } catch (e) {
         // 网络错误且SW未拦截
@@ -214,12 +216,208 @@ export const todos = `
 
     async function toggleDone(index) {
       todos[index].done = !todos[index].done;
+      // 若该事项有活动计时器，一并清除（不记录到历史）
+      if (typeof clearTimerState === 'function') clearTimerState(todos[index].id);
       await fetch('/api/todo-action', {
         method: 'POST',
         body: JSON.stringify({ action: 'TOGGLE_DONE', task: { id: todos[index].id, done: todos[index].done } }),
         headers: { 'Content-Type': 'application/json' }
       });
       renderTodos(); 
+    }
+
+    // ==================== 计时器（仅重复 todo） ====================
+    // 状态机: idle -> running -> paused -> running ... -> completed (调用 TIMER_COMPLETE)
+    // localStorage key: cf_timer_<todo_id>
+    // value: { s: <start_ms>, p: <累计paused_ms>, lp: <last_pause_start_ms|null> }
+    // 服务端记录: { s, e, p } 三元组，elapsed = e - s - p
+    const TIMER_MAX_RECORDS = 10;
+    const TIMER_STALE_MS = 24 * 60 * 60 * 1000; // 超过 24h 视为遗留，自动清除
+    let timerTickHandle = null;
+
+    function timerKey(todoId) { return 'cf_timer_' + todoId; }
+
+    function readTimerState(todoId) {
+      try {
+        const raw = localStorage.getItem(timerKey(todoId));
+        if (!raw) return null;
+        const obj = JSON.parse(raw);
+        if (!obj || typeof obj.s !== 'number') return null;
+        if (typeof obj.p !== 'number') obj.p = 0;
+        if (obj.lp !== null && typeof obj.lp !== 'number') obj.lp = null;
+        return obj;
+      } catch (e) { return null; }
+    }
+
+    function writeTimerState(todoId, state) {
+      try {
+        if (state === null) localStorage.removeItem(timerKey(todoId));
+        else localStorage.setItem(timerKey(todoId), JSON.stringify(state));
+      } catch (e) {}
+    }
+
+    function clearTimerState(todoId) {
+      writeTimerState(todoId, null);
+      ensureTimerTick();
+    }
+
+    // 返回当前 elapsed_ms（running 时持续累加，paused 时冻结）
+    function timerElapsed(state) {
+      if (!state) return 0;
+      const base = (state.lp !== null ? state.lp : Date.now()) - state.s;
+      return Math.max(0, base - state.p);
+    }
+
+    function isTimerRunning(state) {
+      return state && state.lp === null;
+    }
+
+    function isTimerPaused(state) {
+      return state && state.lp !== null;
+    }
+
+    // 遗留计时器清理：若 running 且距 start 超过 24h，直接清除
+    function maybePruneStaleTimer(todoId) {
+      const st = readTimerState(todoId);
+      if (!st) return null;
+      if (isTimerRunning(st) && (Date.now() - st.s) > TIMER_STALE_MS) {
+        writeTimerState(todoId, null);
+        return null;
+      }
+      return st;
+    }
+
+    function startTimer(todoId) {
+      // 若已有计时器（含遗留），先清除
+      writeTimerState(todoId, { s: Date.now(), p: 0, lp: null });
+      ensureTimerTick();
+      renderTodos();
+    }
+
+    function pauseTimer(todoId) {
+      const st = readTimerState(todoId);
+      if (!st || !isTimerRunning(st)) return;
+      writeTimerState(todoId, { s: st.s, p: st.p, lp: Date.now() });
+      ensureTimerTick();
+      renderTodos();
+    }
+
+    function resumeTimer(todoId) {
+      const st = readTimerState(todoId);
+      if (!st || !isTimerPaused(st)) return;
+      const pausedDelta = Date.now() - st.lp;
+      writeTimerState(todoId, { s: st.s, p: st.p + pausedDelta, lp: null });
+      ensureTimerTick();
+      renderTodos();
+    }
+
+    function abortTimer(todoId) {
+      writeTimerState(todoId, null);
+      ensureTimerTick();
+      renderTodos();
+    }
+
+    // 结束计时 + 标记完成 + 写入历史
+    async function completeTimer(index) {
+      const todo = todos[index];
+      if (!todo) return;
+      const st = readTimerState(todo.id);
+      if (!st) return;
+      const now = Date.now();
+      let endMs = now;
+      let pausedMs = st.p;
+      if (isTimerPaused(st)) pausedMs += (now - st.lp);
+      const elapsedMs = endMs - st.s - pausedMs;
+      // 本地兜底：时长不合理则不写记录，仅清除本地 + 完成事项
+      let record = null;
+      if (elapsedMs >= 1000 && elapsedMs <= TIMER_STALE_MS) {
+        record = { s: st.s, e: endMs, p: Math.max(0, Math.floor(pausedMs)) };
+      }
+      writeTimerState(todo.id, null);
+      todo.done = true;
+      // 缓存一份 record 用于详情面板立即显示
+      if (record) todo._lastRecord = record;
+      ensureTimerTick();
+      renderTodos();
+      try {
+        await fetch('/api/todo-action', {
+          method: 'POST',
+          body: JSON.stringify({
+            action: 'TIMER_COMPLETE',
+            task: { id: todo.id, parent_id: todo.parent_id },
+            parentId: todo.parent_id,
+            record: record
+          }),
+          headers: { 'Content-Type': 'application/json' }
+        });
+      } catch (e) {
+        // 网络失败不回滚本地状态（用户已视觉完成），下次拉取会刷新
+      }
+      // 若详情面板正打开此事项，刷新其计时区块
+      if (typeof refreshDetailTimerBlock === 'function' && currentDetailIndex === index) {
+        refreshDetailTimerBlock();
+      }
+    }
+
+    // 全局 ticking：每秒重渲染列表，让 running 计时器更新显示
+    // 仅当存在 running 计时器时启用，避免空转
+    function ensureTimerTick() {
+      const hasRunning = todos.some(function(t) {
+        const st = readTimerState(t.id);
+        return st && isTimerRunning(st);
+      });
+      if (hasRunning && !timerTickHandle) {
+        timerTickHandle = setInterval(function() {
+          // 仅更新计时器相关 DOM，避免完整重渲染破坏滚动/动画
+          document.querySelectorAll('[data-timer-id]').forEach(function(el) {
+            const id = el.getAttribute('data-timer-id');
+            // 详情面板用 <id>-detail 后缀，需要还原
+            const realId = id.endsWith('-detail') ? id.slice(0, -'-detail'.length) : id;
+            const st = readTimerState(realId);
+            if (!st) { el.textContent = ''; return; }
+            el.textContent = formatElapsed(timerElapsed(st));
+          });
+        }, 1000);
+      } else if (!hasRunning && timerTickHandle) {
+        clearInterval(timerTickHandle);
+        timerTickHandle = null;
+      }
+    }
+
+    function formatElapsed(ms) {
+      if (!ms || ms < 0) ms = 0;
+      const totalSec = Math.floor(ms / 1000);
+      const h = Math.floor(totalSec / 3600);
+      const m = Math.floor((totalSec % 3600) / 60);
+      const s = totalSec % 60;
+      const pad = function(n) { return String(n).padStart(2, '0'); };
+      if (h > 0) return h + ':' + pad(m) + ':' + pad(s);
+      return pad(m) + ':' + pad(s);
+    }
+
+    function formatMs(ms) {
+      if (!ms || ms < 0) ms = 0;
+      const totalSec = Math.floor(ms / 1000);
+      const h = Math.floor(totalSec / 3600);
+      const m = Math.floor((totalSec % 3600) / 60);
+      const s = totalSec % 60;
+      if (h > 0) return h + '小时' + (m > 0 ? m + '分' : '');
+      if (m > 0) return m + '分' + (s > 0 ? s + '秒' : '');
+      return s + '秒';
+    }
+
+    // 基于历史记录预估完成时间（中位数更稳健）
+    function predictDuration(records) {
+      if (!records || !records.length) return null;
+      const durations = records.map(function(r) {
+        return Math.max(0, (r.e || 0) - (r.s || 0) - (r.p || 0));
+      }).filter(function(d) { return d > 0; });
+      if (!durations.length) return null;
+      durations.sort(function(a, b) { return a - b; });
+      const mid = Math.floor(durations.length / 2);
+      return durations.length % 2 === 0
+        ? Math.floor((durations[mid - 1] + durations[mid]) / 2)
+        : durations[mid];
     }
 
     async function toggleSubtask(taskIndex, subIndex) {

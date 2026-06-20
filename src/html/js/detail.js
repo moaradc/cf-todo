@@ -183,11 +183,116 @@ export const detail = `
       return rText;
     }
 
+    // ==================== 详情面板计时区块 ====================
+    let detailTimeRecords = [];
+    let detailTimerOwnerId = null;
+
+    // 仅刷新计时区块，不重渲染整个面板（避免破坏用户阅读位置）
+    function refreshDetailTimerBlock() {
+      const task = todos[currentDetailIndex];
+      const slot = document.getElementById('timer-section');
+      if (!task || !slot) return;
+      // 仅重复 todo 渲染区块
+      if (!task.repeat_type || task.repeat_type === 'none') { slot.innerHTML = ''; return; }
+
+      const timerState = task.done ? null : maybePruneStaleTimer(task.id);
+      const running = timerState && isTimerRunning(timerState);
+      const paused = timerState && isTimerPaused(timerState);
+      const elapsed = timerState ? timerElapsed(timerState) : 0;
+
+      // 预估完成时间（中位数）
+      const predict = predictDuration(detailTimeRecords);
+      const predictText = predict ? '预计 ' + formatMs(predict) + ' (基于' + detailTimeRecords.length + '次记录)' : '';
+
+      let html = '<div class="detail-label">计时</div>';
+      html += '<div class="detail-value" style="display:block;">';
+
+      if (task.done) {
+        // 已完成：展示完成耗时（最近一次）
+        const lastRec = task._lastRecord || (detailTimeRecords.length ? detailTimeRecords[detailTimeRecords.length - 1] : null);
+        if (lastRec) {
+          const dur = Math.max(0, (lastRec.e || 0) - (lastRec.s || 0) - (lastRec.p || 0));
+          const endTimeStr = new Date(lastRec.e).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
+          html += '<div style="margin-bottom:6px;">完成于 ' + endTimeStr + '，耗时 ' + formatMs(dur) + '</div>';
+        } else {
+          html += '<div style="margin-bottom:6px; color:var(--fg); opacity:0.6;">无完成耗时记录</div>';
+        }
+        if (predictText) html += '<div style="font-size:0.85em; opacity:0.7;">' + predictText + '</div>';
+        if (detailTimeRecords.length > 0) {
+          html += '<div class="timer-history">';
+          detailTimeRecords.slice(-5).reverse().forEach(function(r) {
+            const d = Math.max(0, (r.e || 0) - (r.s || 0) - (r.p || 0));
+            html += '<span class="timer-history-item">' + formatMs(d) + '</span>';
+          });
+          html += '</div>';
+        }
+      } else if (timerState) {
+        // 进行中 / 已暂停
+        html += '<div class="timer-row">';
+        html += '<span class="timer-elapsed-large" data-timer-id="' + task.id + '-detail">' + formatElapsed(elapsed) + '</span>';
+        if (paused) {
+          html += '<button class="btn-ghost" onclick="resumeTimerDetail()">继续</button>';
+          html += '<button class="btn-primary" onclick="completeTimerDetail()">结束</button>';
+        } else {
+          html += '<button class="btn-ghost" onclick="pauseTimerDetail()">暂停</button>';
+          html += '<button class="btn-primary" onclick="completeTimerDetail()">结束</button>';
+        }
+        html += '</div>';
+        if (predictText) html += '<div style="font-size:0.85em; opacity:0.7; margin-top:6px;">' + predictText + '</div>';
+      } else {
+        // 空闲
+        html += '<div class="timer-row">';
+        html += '<button class="btn-primary" onclick="startTimerDetail()">开始计时</button>';
+        if (predictText) html += '<span style="font-size:0.85em; opacity:0.7; margin-left:10px;">' + predictText + '</span>';
+        html += '</div>';
+        if (detailTimeRecords.length > 0) {
+          html += '<div class="timer-history">';
+          detailTimeRecords.slice(-5).reverse().forEach(function(r) {
+            const d = Math.max(0, (r.e || 0) - (r.s || 0) - (r.p || 0));
+            html += '<span class="timer-history-item">' + formatMs(d) + '</span>';
+          });
+          html += '</div>';
+        }
+      }
+      html += '</div>';
+      slot.innerHTML = html;
+    }
+
+    function startTimerDetail() {
+      const task = todos[currentDetailIndex];
+      if (!task) return;
+      startTimer(task.id);
+      refreshDetailTimerBlock();
+    }
+    function pauseTimerDetail() {
+      const task = todos[currentDetailIndex];
+      if (!task) return;
+      pauseTimer(task.id);
+      refreshDetailTimerBlock();
+    }
+    function resumeTimerDetail() {
+      const task = todos[currentDetailIndex];
+      if (!task) return;
+      resumeTimer(task.id);
+      refreshDetailTimerBlock();
+    }
+    function completeTimerDetail() {
+      if (currentDetailIndex < 0) return;
+      completeTimer(currentDetailIndex);
+      // completeTimer 内部已调用 refreshDetailTimerBlock
+    }
+
     function renderDetailContent() {
       hideAndRescuePopovers();
       const task = todos[currentDetailIndex]; const container = document.getElementById('detail-content');
       const pMap = {low:'优先级: 低', med:'优先级: 中', high:'优先级: 高'};
       const rMap = { none: '不重复', daily: '每天', weekly: '每周', monthly: '每月', yearly: '每年' };
+      
+      // 重置计时区块缓存（切换事项时）
+      if (detailTimerOwnerId !== (task && task.id)) {
+        detailTimeRecords = [];
+        detailTimerOwnerId = task && task.id;
+      }
       
       if (!isEditMode) {
         let urlSection = '';
@@ -251,6 +356,32 @@ export const detail = `
           }
         }
 
+        // 计时区块（仅重复 todo）
+        let timerSection = '';
+        if (task.repeat_type && task.repeat_type !== 'none') {
+          timerSection = '<div id="timer-section"></div>';
+          // 异步加载历史记录后填充
+          const fetchOwnerPid = task.parent_id;
+          Promise.resolve(fetchOwnerPid).then(function(pid) {
+            if (!pid) return;
+            return fetch('/api/time-records?parent_id=' + encodeURIComponent(pid))
+              .then(function(r) { return r.ok ? r.json() : { records: [] }; })
+              .then(function(data) {
+                // 防止竞态：仅当当前详情仍是同一事项时才应用结果
+                const cur = todos[currentDetailIndex];
+                if (!cur || cur.id !== task.id) return;
+                detailTimeRecords = (data && Array.isArray(data.records)) ? data.records : [];
+                refreshDetailTimerBlock();
+              })
+              .catch(function() {
+                const cur = todos[currentDetailIndex];
+                if (!cur || cur.id !== task.id) return;
+                detailTimeRecords = [];
+                refreshDetailTimerBlock();
+              });
+          });
+        }
+
         container.innerHTML = \`
           <div class="detail-label">事项内容</div><div class="detail-value">\${task.text}</div>
           \${subtasksSection}
@@ -259,11 +390,14 @@ export const detail = `
             <div class="flex-1"><div class="detail-label">时间点</div><div class="detail-value">\${task.time || '--:--'}\${task.end_time ? ' - ' + task.end_time : ''}</div></div>
             <div class="flex-1"><div class="detail-label">优先级</div><div class="detail-value">\${pMap[task.priority]}</div></div>
           </div>
+          \${timerSection}
           \${urlSection}\${copySection}
           \${catSection}
           <div class="detail-label">属性</div><div class="detail-value">\${rText}</div>
           \${descSection}
         \`;
+        // 立即用本地缓存渲染一次计时区块（避免等待网络时空白）
+        if (task.repeat_type && task.repeat_type !== 'none') refreshDetailTimerBlock();
       } else {
         activeMode = 'edit';
         var intervalText = getIntervalDisplayText(tempRepeatInterval, tempRepeatType);
@@ -636,6 +770,8 @@ export const detail = `
       hideAndRescuePopovers();
       const task = todos[currentDetailIndex];
       if (pendingAction === 'delete') {
+        // 删除前清理计时器，避免 localStorage 残留
+        if (task && task.id && typeof clearTimerState === 'function') clearTimerState(task.id);
         closeDetail();
         await fetch('/api/todo-action', { method: 'POST', body: JSON.stringify({ action: 'DELETE', date: formatDate(currentDate), task: task, scope: scope }), headers: { 'Content-Type': 'application/json' } });
         loadTodos();
