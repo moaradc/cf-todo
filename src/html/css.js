@@ -177,7 +177,7 @@ export const css = `
     }
     .timer-elapsed-large {
       font-size: 1.4rem; font-weight: bold; font-variant-numeric: tabular-nums;
-      color: var(--accent);
+      color: var(--accent); line-height: 1;
     }
 
     .fab {

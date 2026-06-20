@@ -341,6 +341,10 @@ export const todos = `
       if (record && typeof appendTimeRecordToCache === 'function') {
         appendTimeRecordToCache(todo.parent_id, record);
       }
+      // 同步写入模块级 lastCompletedRecord（详情面板 refreshDetailTimerBlock 优先读取）
+      if (typeof setLastCompletedRecord === 'function') {
+        setLastCompletedRecord(todo.id, record);
+      }
       ensureTimerTick();
       renderTodos();
       // 同步阶段立即刷新详情面板（不等 fetch，UI 即刻进入"完成于..."态）

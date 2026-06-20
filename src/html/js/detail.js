@@ -188,6 +188,10 @@ export const detail = `
     // 缓存策略：首次打开 → fetch 并写入缓存；后续打开 → 用缓存；TIMER_COMPLETE → 同步更新缓存
     const timeRecordsCache = new Map(); // parent_id -> records[]
     let detailTimerOwnerId = null;
+    // 最近一次结束的 record（模块级，避免依赖 todo 对象上的动态字段）
+    // completeTimer 写入，refreshDetailTimerBlock 读取；切换事项时清空
+    let lastCompletedRecord = null;
+    let lastCompletedTodoId = null;
 
     // 取当前事项的历史记录（优先缓存，缓存 miss 时返回 []，由调用方决定是否 fetch）
     function getDetailTimeRecords() {
@@ -219,8 +223,11 @@ export const detail = `
       html += '<div class="detail-value" style="display:block;">';
 
       if (task.done) {
-        // 已完成：优先使用本地缓存的最近一次 record（避免等待网络/缓存未命中时显示"无记录"）
-        const lastRec = task._lastRecord || (records.length ? records[records.length - 1] : null);
+        // 已完成：优先取模块级 lastCompletedRecord（completeTimer 同步写入），其次 todo._lastRecord，最后缓存末尾
+        let lastRec = null;
+        if (lastCompletedTodoId === task.id) lastRec = lastCompletedRecord;
+        if (!lastRec && task._lastRecord) lastRec = task._lastRecord;
+        if (!lastRec && records.length) lastRec = records[records.length - 1];
         if (lastRec) {
           const dur = Math.max(0, (lastRec.e || 0) - (lastRec.s || 0) - (lastRec.p || 0));
           const endTimeStr = new Date(lastRec.e).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
@@ -272,7 +279,8 @@ export const detail = `
     function completeTimerDetail() {
       if (currentDetailIndex < 0) return;
       completeTimer(currentDetailIndex);
-      // completeTimer 同步阶段已调用 refreshDetailTimerBlock
+      // completeTimer 同步阶段已调用 refreshDetailTimerBlock，但这里再保底调用一次
+      refreshDetailTimerBlock();
     }
 
     // 将一条新 record 写入缓存（用于 TIMER_COMPLETE 后本地同步）
@@ -283,6 +291,12 @@ export const detail = `
       // FIFO 截断至 10 条（与服务端一致）
       if (arr.length > 10) arr.splice(0, arr.length - 10);
       timeRecordsCache.set(parentId, arr);
+    }
+
+    // completeTimer 同步调用：写入模块级 lastCompletedRecord，确保 refreshDetailTimerBlock 能立即读到
+    function setLastCompletedRecord(todoId, record) {
+      lastCompletedTodoId = todoId || null;
+      lastCompletedRecord = record || null;
     }
 
     function renderDetailContent() {
