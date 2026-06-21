@@ -197,7 +197,10 @@ export const detail = `
     }
 
     // 仅刷新计时区块，不重渲染整个面板（避免破坏用户阅读位置）
-    function refreshDetailTimerBlock() {
+    // overrideRecord: 可选，completeTimer 同步阶段直传的刚算出的 record。
+    //   不写入任何缓存，仅在本次调用中消费，避免状态残留/串台/失效问题。
+    //   await fetch 后 reloadDetailTimeRecords 会用服务器返回的最新 records 重新渲染（无参数调用）。
+    function refreshDetailTimerBlock(overrideRecord) {
       const task = todos[currentDetailIndex];
       const slot = document.getElementById('timer-section');
       if (!task || !slot) return;
@@ -219,8 +222,9 @@ export const detail = `
       let html = '<div class="detail-label">计时</div>';
 
       if (task.done) {
-        // 已完成：直接用 .detail-value（flex 居中），与其他字段视觉一致
-        const lastRec = records.length ? records[records.length - 1] : null;
+        // 已完成：优先使用 overrideRecord（completeTimer 同步阶段直传，未经过任何缓存），
+        // 其次回退到 records 末尾（reloadDetailTimeRecords fetch 后的正常路径）
+        const lastRec = overrideRecord || (records.length ? records[records.length - 1] : null);
         if (lastRec) {
           const dur = Math.max(0, (lastRec.e || 0) - (lastRec.s || 0) - (lastRec.p || 0));
           const endTimeStr = new Date(lastRec.e).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
@@ -310,6 +314,50 @@ export const detail = `
           detailTemplateRecords = [];
           if (cur && cur.id === task.id) refreshDetailTimerBlock();
         });
+    }
+
+    // completeTimer 之后：实时调用 API 拉取权威数据（todos + time_records）
+    // 解决背景/前台切换后 todos 数组与服务器不一致、本地缓存导致 UI 显示错误的问题
+    // 并行拉取 /api/todos 和 /api/time-records，以服务器返回为准重新渲染
+    function reloadDetailAfterComplete() {
+      const task = todos[currentDetailIndex];
+      if (!task || !task.id) return;
+      const todoId = task.id;
+      const dateStr = formatDate(currentDate);
+
+      // 并行拉取 todos + time_records，cache: 'no-cache' 确保绕过 SW/HTTP 缓存
+      const todosUrl = '/api/todos?date=' + encodeURIComponent(dateStr) + '&_t=' + Date.now();
+      const recordsUrl = '/api/time-records?todo_id=' + encodeURIComponent(todoId) + '&_t=' + Date.now();
+
+      Promise.all([
+        fetch(todosUrl, { cache: 'no-cache' })
+          .then(function(r) { return r.ok ? r.json() : null; })
+          .catch(function() { return null; }),
+        fetch(recordsUrl, { cache: 'no-cache' })
+          .then(function(r) { return r.ok ? r.json() : { records: [], templateRecords: [] }; })
+          .catch(function() { return { records: [], templateRecords: [] }; })
+      ]).then(function(results) {
+        const freshTodos = results[0];
+        const freshData = results[1];
+
+        // 更新 todos 数组（以服务器为准）
+        if (Array.isArray(freshTodos)) {
+          todos = freshTodos;
+          // 重新定位 currentDetailIndex（数组顺序可能变化）
+          const newIdx = todos.findIndex(function(t) { return t.id === todoId; });
+          if (newIdx !== -1) currentDetailIndex = newIdx;
+        }
+
+        // 更新 time_records 缓存
+        detailTimeRecords = (freshData && Array.isArray(freshData.records)) ? freshData.records : [];
+        detailTemplateRecords = (freshData && Array.isArray(freshData.templateRecords)) ? freshData.templateRecords : [];
+
+        // 渲染主列表
+        if (typeof renderTodos === 'function') renderTodos();
+
+        // 刷新计时区块（无参数，使用刚拉取的 detailTimeRecords）
+        refreshDetailTimerBlock();
+      });
     }
 
     function renderDetailContent() {
