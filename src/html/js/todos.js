@@ -218,12 +218,17 @@ export const todos = `
       todos[index].done = !todos[index].done;
       // 若该事项有活动计时器，一并清除（不记录到历史）
       if (typeof clearTimerState === 'function') clearTimerState(todos[index].id);
-      await fetch('/api/todo-action', {
-        method: 'POST',
-        body: JSON.stringify({ action: 'TOGGLE_DONE', task: { id: todos[index].id, done: todos[index].done } }),
-        headers: { 'Content-Type': 'application/json' }
-      });
-      renderTodos(); 
+      // 乐观更新：先刷新 UI，再发请求（与 completeTimer 一致，避免等待网络）
+      renderTodos();
+      try {
+        await fetch('/api/todo-action', {
+          method: 'POST',
+          body: JSON.stringify({ action: 'TOGGLE_DONE', task: { id: todos[index].id, done: todos[index].done } }),
+          headers: { 'Content-Type': 'application/json' }
+        });
+      } catch (e) {
+        // 网络失败不回滚本地状态，下次拉取会刷新
+      }
     }
 
     // ==================== 计时器（仅重复 todo） ====================
@@ -493,15 +498,60 @@ export const todos = `
       const targetDone = !allDone;
       const ids = Array.from(selectedTasks).map(idx => todos[idx].id);
 
+      // 批量完成时：对有活动计时器的选中项，计算 record 并清本地状态
+      // 类比"职场身份高低"：开启计时的 todo 完成时记录耗时，未开启的只标记完成
+      const timerRecords = [];  // [{ id, parentId, record }]
+      if (targetDone) {
+        const now = Date.now();
+        Array.from(selectedTasks).forEach(idx => {
+          const todo = todos[idx];
+          if (!todo) return;
+          const st = readTimerState(todo.id);
+          if (!st) return;
+          let pausedMs = st.p;
+          if (isTimerPaused(st)) pausedMs += (now - st.lp);
+          const elapsedMs = now - st.s - pausedMs;
+          // 时长合理才记录（与 completeTimer 一致）
+          if (elapsedMs >= 1000 && elapsedMs <= TIMER_STALE_MS) {
+            timerRecords.push({
+              id: todo.id,
+              parentId: todo.parent_id,
+              record: { s: st.s, e: now, p: Math.max(0, Math.floor(pausedMs)) }
+            });
+          }
+          // 清除本地计时器状态（无论是否记录）
+          writeTimerState(todo.id, null);
+        });
+        ensureTimerTick();
+      }
+
       Array.from(selectedTasks).forEach(idx => todos[idx].done = targetDone);
       renderTodos();
-
-      await fetch('/api/todo-action', {
-        method: 'POST',
-        body: JSON.stringify({ action: 'BATCH_TOGGLE_DONE', ids: ids, doneStatus: targetDone }),
-        headers: { 'Content-Type': 'application/json' }
-      });
+      // 乐观更新：先退出批量模式，再发请求（避免等待网络才退出）
       exitBatchMode();
+
+      try {
+        await fetch('/api/todo-action', {
+          method: 'POST',
+          body: JSON.stringify({
+            action: 'BATCH_TOGGLE_DONE',
+            ids: ids,
+            doneStatus: targetDone,
+            timerRecords: timerRecords.length > 0 ? timerRecords : undefined
+          }),
+          headers: { 'Content-Type': 'application/json' }
+        });
+      } catch (e) {
+        // 网络失败不回滚本地状态，下次拉取会刷新
+      }
+
+      // 批量完成后，若详情面板正打开且当前事项有记录写入，重新拉取 time_records
+      if (targetDone && timerRecords.length > 0 && typeof reloadDetailTimeRecords === 'function' && currentDetailIndex >= 0) {
+        const cur = todos[currentDetailIndex];
+        if (cur && timerRecords.some(function(r) { return r.id === cur.id; })) {
+          reloadDetailTimeRecords();
+        }
+      }
     }
 
     async function batchDelete() {

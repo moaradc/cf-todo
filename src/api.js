@@ -2188,10 +2188,23 @@ self.addEventListener('fetch', (event) => {
     }
 
     if (url.pathname === '/api/todo-action' && request.method === 'POST') {
-      const { action, date, task, scope, ids, doneStatus, record, parentId } = await request.json();
+      const { action, date, task, scope, ids, doneStatus, record, parentId, timerRecords } = await request.json();
 
       if (action === 'TOGGLE_DONE') {
-          await env.DB.prepare('UPDATE todos SET done = ? WHERE id = ?').bind(task.done ? 1 : 0, task.id).run();
+          // 取消勾选（done 1→0）时清空实例级 time_records：
+          // 避免之后重新勾选（不通过计时器）时，详情页仍显示旧的"完成于 X，耗时 Y"。
+          // 模板级 time_records 不动（仅用于 predictDuration 跨实例预估，是历史数据）。
+          if (!task.done) {
+            try {
+              await env.DB.prepare('UPDATE todos SET done = 0, time_records = ? WHERE id = ?')
+                .bind('[]', task.id).run();
+            } catch (e) {
+              // 兜底：仅更新 done（极端情况：列不存在等）
+              await env.DB.prepare('UPDATE todos SET done = 0 WHERE id = ?').bind(task.id).run();
+            }
+          } else {
+            await env.DB.prepare('UPDATE todos SET done = ? WHERE id = ?').bind(task.done ? 1 : 0, task.id).run();
+          }
         }
         else if (action === 'TIMER_COMPLETE') {
           // 计时结束：标记完成 + 写入 time_records（实例级 + 模板级双写）
@@ -2276,8 +2289,81 @@ self.addEventListener('fetch', (event) => {
         else if (action === 'BATCH_TOGGLE_DONE') {
           if (ids && ids.length > 0) {
             const placeholders = ids.map(() => '?').join(',');
-            await env.DB.prepare(`UPDATE todos SET done = ? WHERE id IN (${placeholders})`)
-              .bind(doneStatus ? 1 : 0, ...ids).run();
+            // 批量取消勾选时同步清空实例级 time_records（与 TOGGLE_DONE 一致）
+            if (!doneStatus) {
+              try {
+                await env.DB.prepare(`UPDATE todos SET done = 0, time_records = ? WHERE id IN (${placeholders})`)
+                  .bind('[]', ...ids).run();
+              } catch (e) {
+                // 兜底：仅更新 done
+                await env.DB.prepare(`UPDATE todos SET done = ? WHERE id IN (${placeholders})`)
+                  .bind(doneStatus ? 1 : 0, ...ids).run();
+              }
+            } else {
+              await env.DB.prepare(`UPDATE todos SET done = ? WHERE id IN (${placeholders})`)
+                .bind(doneStatus ? 1 : 0, ...ids).run();
+            }
+
+            // 批量完成时：对带活动计时器的 todo 写入 time_records
+            // timerRecords: [{ id, parentId, record: {s, e, p} }]
+            // 与 TIMER_COMPLETE 双写逻辑一致：实例级 + 模板级
+            if (doneStatus && Array.isArray(timerRecords) && timerRecords.length > 0) {
+              const MAX_DURATION_MS = 7 * 24 * 60 * 60 * 1000;
+              for (const item of timerRecords) {
+                if (!item || !item.id || !item.record) continue;
+                const rec = item.record;
+                if (typeof rec.s !== 'number' || typeof rec.e !== 'number') continue;
+                const s = Math.floor(rec.s);
+                const e = Math.floor(rec.e);
+                const p = Math.floor(rec.p || 0);
+                if (!(s > 0 && e > s && (e - s) <= MAX_DURATION_MS && p >= 0 && p < (e - s))) continue;
+
+                // 实例级写入
+                try {
+                  const cur = await env.DB.prepare(
+                    'SELECT time_records FROM todos WHERE id = ?'
+                  ).bind(item.id).first();
+                  if (cur) {
+                    let instArr = [];
+                    try {
+                      instArr = typeof cur.time_records === 'string'
+                        ? JSON.parse(cur.time_records || '[]')
+                        : cur.time_records;
+                    } catch (e2) { instArr = []; }
+                    if (!Array.isArray(instArr)) instArr = [];
+                    instArr.push({ s, e, p });
+                    if (instArr.length > 5) instArr = instArr.slice(instArr.length - 5);
+                    await env.DB.prepare(
+                      'UPDATE todos SET time_records = ? WHERE id = ?'
+                    ).bind(JSON.stringify(instArr), item.id).run();
+                  }
+                } catch (eInst) {
+                  console.error("BATCH_TOGGLE_DONE per-instance record write failed:", eInst);
+                }
+
+                // 模板级写入（供 predictDuration）
+                const pid = item.parentId;
+                if (pid) {
+                  try {
+                    const tpl = await env.DB.prepare(
+                      'SELECT time_records FROM todo_templates WHERE parent_id = ?'
+                    ).bind(pid).first();
+                    if (tpl) {
+                      let arr = [];
+                      try { arr = Array.isArray(tpl.time_records) ? tpl.time_records : JSON.parse(tpl.time_records || '[]'); } catch (e2) { arr = []; }
+                      if (!Array.isArray(arr)) arr = [];
+                      arr.push({ s, e, p });
+                      if (arr.length > 10) arr = arr.slice(arr.length - 10);
+                      await env.DB.prepare(
+                        'UPDATE todo_templates SET time_records = ? WHERE parent_id = ?'
+                      ).bind(JSON.stringify(arr), pid).run();
+                    }
+                  } catch (e3) {
+                    console.error("BATCH_TOGGLE_DONE template record write failed:", e3);
+                  }
+                }
+              }
+            }
           }
         }
         else if (action === 'BATCH_DELETE') {
