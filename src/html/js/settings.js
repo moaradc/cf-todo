@@ -130,16 +130,13 @@ export const settings = `
       localStorage.removeItem('preview_custom_header');
       localStorage.removeItem('preview_custom_content');
       try {
-        // 1. 清空 Service Worker Cache API
         if ('caches' in window) {
           var names = await caches.keys();
           await Promise.all(names.map(function(n) { return caches.delete(n); }));
         }
-        // 2. 通知 Service Worker 释放其内部引用
         try { await clearPwaCache(); } catch(e) {}
       } catch (e) { /* 忽略，仍重载 */ }
-      // 3. 直接重载到根路径，与 saveAndCloseSettings 行为一致
-      // 避免停留在 /settings 路由；若处于预览模式，重载还能完全卸载已注入的自定义代码
+      // 重载到根路径：避免停留在 /settings；预览模式下还能完全卸载已注入的自定义代码
       window.location.replace('/');
     }
 

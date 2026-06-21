@@ -173,23 +173,12 @@ async function handleRequest(request, env, ctx) {
         ]);
 
         // ==================== 版本化增量迁移 ====================
-        // db_schema 当前为 1（基线版本）。所有列与索引已在上方 CREATE TABLE / CREATE INDEX
-        // 基础批次里一次性建出，新部署等同于全新 v1.0 状态，不依赖版本号判断。
-        //
-        // 当前没有运行时迁移代码。如未来需要新增字段/索引：
-        // 1. 在上方 CREATE TABLE / CREATE INDEX 基础批次里加上对应定义（覆盖新部署）
-        // 2. 在 Screenshots/migrate.html 离线迁移工具里加上对应字段补全（覆盖老用户）
-        // 3. 递增 version.json 中的 db_schema 版本号
-        // 4. 在下方添加 `if (currentSchema < N)` 块（仅用于触发 settings 表版本号写入）
-        //
-        // 模板（仅作参考，需要时取消注释并替换为实际 SQL）：
-        // if (currentSchema < 2) {
-        //   try {
-        //     await env.DB.prepare(`ALTER TABLE todos ADD COLUMN new_field TEXT NOT NULL DEFAULT ''`).run();
-        //   } catch (e) {}
-        // }
+        // db_schema 当前为 1（基线版本）。新部署在上方 CREATE TABLE / CREATE INDEX 批次里一次性建出，
+        // 不依赖运行时迁移。新增字段/索引时：
+        //   1. 上方基础批次加定义（覆盖新部署）+ Screenshots/migrate.html 加字段补全（覆盖老用户）
+        //   2. 递增 version.json 的 db_schema，并在下方添加 `if (currentSchema < N)` 块触发版本号写入
 
-        // 写入当前 schema 版本号（整数）
+        // 写入当前 schema 版本号
         await env.DB.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('db_schema_version', ?)").bind(String(DB_SCHEMA)).run();
         isDbInitialized = true;
       } catch (e) {
@@ -807,15 +796,10 @@ self.addEventListener('fetch', (event) => {
       const end = url.searchParams.get('end');
       if (!start || !end) return apiError("Date required", 400);
 
-      // 服务端聚合：用 D1 batch 一次往返跑 6 条 GROUP BY 查询，
-      // 把「数万行原始数据」压缩为「几十行聚合结果」。
-      // 收益：
-      //   - D1 rows read：仍按原表行数计费（GROUP BY 不省 rows read），
-      //     但 rows returned 大幅减少 → 网络出口字节、Worker 内存、JSON 序列化 CPU 全部下降一个数量级
-      //   - Worker 内存：从 O(N) 降为 O(log N)（N = 原始行数）
-      //   - 客户端解析：从 O(N) 降为 O(log N)
-      // 索引依赖：idx_todos_date_done 覆盖 (date, deleted) + include (priority, done, category_id, time)
-      // 注意：D1 batch 是顺序执行的（非并行），但只占一次 HTTP 往返
+      // 服务端聚合：D1 batch 一次往返跑 6 条 GROUP BY，把数万行原始数据压缩为几十行聚合结果。
+      // 收益：rows returned / 网络字节 / Worker 内存 / 客户端解析 全部从 O(N) 降为 O(log N)。
+      // 索引依赖：idx_todos_date_done 覆盖 (date, deleted) + include (priority, done, category_id, time)。
+      // 注意：D1 batch 顺序执行（非并行），但只占一次 HTTP 往返。
       const baseWhere = 'FROM todos WHERE date >= ?1 AND date <= ?2 AND deleted = 0';
 
       const batchResults = await env.DB.batch([
