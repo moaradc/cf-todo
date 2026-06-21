@@ -173,24 +173,19 @@ async function handleRequest(request, env, ctx) {
         ]);
 
         // ==================== 版本化增量迁移 ====================
-        // 用整数版本号，每个版本只执行一次。
-        // 历史迁移策略：旧 schema 的 ALTER TABLE 已移除（schema 1-4 / 6 / 7），
-        // 这些列在 CREATE TABLE 中已有 DEFAULT，对新部署/覆写导入无影响。
-        // 老用户从 v2.6.x / v2.7.x 早期版本升级时，必须先在 Screenshots/migrate.html
-        // 离线迁移工具中转换导出文件，再用【覆盖模式】导入。
+        // db_schema 当前为 1（基线版本）。所有列与索引已在上方 CREATE TABLE / CREATE INDEX
+        // 基础批次里一次性建出，新部署等同于全新 v1.0 状态，不依赖版本号判断。
         //
-        // 保留 schema 5（统计覆盖索引）代码作参考，但已注释：
-        // 该索引现在通过基础 CREATE INDEX 语句（line 114）在首次部署时直接创建，
-        // 后续覆写导入路径（line 1578 / 1603 / 1631）也会重建，故无需运行时迁移。
-        // --- schema 5: 统计查询覆盖索引（已注释，仅作历史参考） ---
-        // --- schema 5: /api/stats 的所有 GROUP BY 查询都基于 (date, deleted) 过滤 + 读取 (priority, done, category_id, time) ---
-        // --- 用一个覆盖索引让 D1 仅扫索引即可完成查询，避免回表（random IO 到主表） ---
-        // --- 注意：D1 仍按 rows read 计费（覆盖索引也算 rows read），但省掉了主表行扫描的开销 ---
-        // if (currentSchema < 5) {
+        // 当前没有运行时迁移代码。如未来需要新增字段/索引：
+        // 1. 在上方 CREATE TABLE / CREATE INDEX 基础批次里加上对应定义（覆盖新部署）
+        // 2. 在 Screenshots/migrate.html 离线迁移工具里加上对应字段补全（覆盖老用户）
+        // 3. 递增 version.json 中的 db_schema 版本号
+        // 4. 在下方添加 `if (currentSchema < N)` 块（仅用于触发 settings 表版本号写入）
+        //
+        // 模板（仅作参考，需要时取消注释并替换为实际 SQL）：
+        // if (currentSchema < 2) {
         //   try {
-        //     await env.DB.prepare(
-        //       `CREATE INDEX IF NOT EXISTS idx_todos_stats ON todos(date, deleted, priority, done, category_id, time)`
-        //     ).run();
+        //     await env.DB.prepare(`ALTER TABLE todos ADD COLUMN new_field TEXT NOT NULL DEFAULT ''`).run();
         //   } catch (e) {}
         // }
 
@@ -1460,6 +1455,7 @@ self.addEventListener('fetch', (event) => {
                   env.DB.prepare('ALTER TABLE categories_backup RENAME TO categories'),
                   env.DB.prepare('CREATE INDEX IF NOT EXISTS idx_todos_cursor ON todos(date, deleted, id)'),
                   env.DB.prepare('CREATE INDEX IF NOT EXISTS idx_todos_parent_date_del ON todos(parent_id, date, deleted)'),
+                  env.DB.prepare('CREATE INDEX IF NOT EXISTS idx_todos_stats ON todos(date, deleted, priority, done, category_id, time)'),
                   env.DB.prepare('CREATE INDEX IF NOT EXISTS idx_templates_repeat_type ON todo_templates(repeat_type)'),
                 ]);
               } catch (e) {
@@ -1502,6 +1498,7 @@ self.addEventListener('fetch', (event) => {
                     env.DB.prepare('ALTER TABLE categories_backup RENAME TO categories'),
                     env.DB.prepare('CREATE INDEX IF NOT EXISTS idx_todos_cursor ON todos(date, deleted, id)'),
                     env.DB.prepare('CREATE INDEX IF NOT EXISTS idx_todos_parent_date_del ON todos(parent_id, date, deleted)'),
+                    env.DB.prepare('CREATE INDEX IF NOT EXISTS idx_todos_stats ON todos(date, deleted, priority, done, category_id, time)'),
                     env.DB.prepare('CREATE INDEX IF NOT EXISTS idx_templates_repeat_type ON todo_templates(repeat_type)'),
                   ]);
                 } catch (e) {
@@ -1523,6 +1520,7 @@ self.addEventListener('fetch', (event) => {
                 env.DB.prepare('DROP TABLE IF EXISTS categories_backup'),
                 env.DB.prepare('DROP INDEX IF EXISTS idx_todos_cursor'),
                 env.DB.prepare('DROP INDEX IF EXISTS idx_todos_parent_date_del'),
+                env.DB.prepare('DROP INDEX IF EXISTS idx_todos_stats'),
                 env.DB.prepare('DROP INDEX IF EXISTS idx_templates_repeat_type'),
               ]);
               await env.DB.batch([
@@ -1573,9 +1571,6 @@ self.addEventListener('fetch', (event) => {
                     time_records TEXT NOT NULL DEFAULT '[]'
                   )
                 `),
-                env.DB.prepare(`CREATE INDEX idx_todos_cursor ON todos(date, deleted, id)`),
-                env.DB.prepare(`CREATE INDEX idx_todos_parent_date_del ON todos(parent_id, date, deleted)`),
-                env.DB.prepare(`CREATE INDEX idx_todos_stats ON todos(date, deleted, priority, done, category_id, time)`),
                 env.DB.prepare(`CREATE INDEX idx_templates_repeat_type ON todo_templates(repeat_type)`),
                 env.DB.prepare(`
                   CREATE TABLE categories (
@@ -1721,7 +1716,8 @@ self.addEventListener('fetch', (event) => {
                   env.DB.prepare('DROP TABLE IF EXISTS todos'),
                   env.DB.prepare('ALTER TABLE todos_backup RENAME TO todos'),
                   env.DB.prepare('CREATE INDEX IF NOT EXISTS idx_todos_cursor ON todos(date, deleted, id)'),
-                  env.DB.prepare('CREATE INDEX IF NOT EXISTS idx_todos_parent_date_del ON todos(parent_id, date, deleted)')
+                  env.DB.prepare('CREATE INDEX IF NOT EXISTS idx_todos_parent_date_del ON todos(parent_id, date, deleted)'),
+                  env.DB.prepare('CREATE INDEX IF NOT EXISTS idx_todos_stats ON todos(date, deleted, priority, done, category_id, time)')
                 );
               }
               if (hasTplBak) {
