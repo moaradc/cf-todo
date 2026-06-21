@@ -126,8 +126,7 @@ export const core = `
         else if (currentThemeMode === 'light') btn.innerText = '亮色';
         else btn.innerText = '暗色';
       }
-      // 注：不再在此处通知统计页。stats.js 用 MutationObserver 监听
-      // documentElement 的 data-theme 属性变化，真正切换时才重绘 ECharts。
+      // stats.js 用 MutationObserver 监听 data-theme 变化重绘 ECharts，无需在此通知
     }
 
     function toggleTheme() {
@@ -138,10 +137,7 @@ export const core = `
       applyTheme();
     }
     applyTheme();
-    // auto 模式下检查是否跨越 6:00 / 18:00 临界点；手动模式无需轮询。
-    // 收益：消除原 setInterval(applyTheme, 60000) 的每分钟空跑，
-    // 仅在主题真正需要切换时才调 applyTheme → data-theme 变化 →
-    // stats.js 的 MutationObserver 触发 ECharts 重绘。
+    // auto 模式仅在跨越 6:00 / 18:00 临界点时才调 applyTheme（消除原每分钟空跑）
     var _lastAutoHour = (currentThemeMode === 'auto') ? new Date().getHours() : -1;
     setInterval(function() {
       if (currentThemeMode !== 'auto') return;
@@ -228,8 +224,7 @@ export const core = `
       }
     }
 
-    // 仅检查版本号是否有更新，用于设置页"→ vX.X.X"提示
-    // 不再缓存远端 changelog，弹窗时实时拉取（见 openChangelogModal）
+    // 检查版本号是否有更新，用于设置页"→ vX.X.X"提示
     async function checkUpdate() {
       var s = document.getElementById('update-status');
       if (!s) return;
@@ -273,9 +268,7 @@ export const core = `
       return div.innerHTML;
     }
 
-    // 实时从 GitHub 拉取最新 changelog 并渲染
-    // 收益：改了 version.json 推到 main 后，用户打开弹窗立即看到，无需重新部署 Worker
-    // 同时简化逻辑：去掉 LOCAL_CHANGELOG 与 remoteUpdateInfo 的混合展示
+    // 实时从 GitHub 拉取最新 changelog（改 version.json 推 main 后立即可见）
     var _changelogLoading = false;
     function openChangelogModal() {
       var overlay = document.getElementById('modal-changelog');
@@ -382,7 +375,8 @@ export const core = `
         body: JSON.stringify({ action: 'DELETE_ALL' }),
         headers: { 'Content-Type': 'application/json' }
       });
-      location.reload();
+      // 服务端会话已清空，刷新到 / 会落到登录界面
+      await refreshToHome();
     }
 
     // ==================== API Key 管理 ====================
