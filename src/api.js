@@ -2191,7 +2191,20 @@ self.addEventListener('fetch', (event) => {
       const { action, date, task, scope, ids, doneStatus, record, parentId } = await request.json();
 
       if (action === 'TOGGLE_DONE') {
-          await env.DB.prepare('UPDATE todos SET done = ? WHERE id = ?').bind(task.done ? 1 : 0, task.id).run();
+          // 取消勾选（done 1→0）时清空实例级 time_records：
+          // 避免之后重新勾选（不通过计时器）时，详情页仍显示旧的"完成于 X，耗时 Y"。
+          // 模板级 time_records 不动（仅用于 predictDuration 跨实例预估，是历史数据）。
+          if (!task.done) {
+            try {
+              await env.DB.prepare('UPDATE todos SET done = 0, time_records = ? WHERE id = ?')
+                .bind('[]', task.id).run();
+            } catch (e) {
+              // 兜底：仅更新 done（极端情况：列不存在等）
+              await env.DB.prepare('UPDATE todos SET done = 0 WHERE id = ?').bind(task.id).run();
+            }
+          } else {
+            await env.DB.prepare('UPDATE todos SET done = ? WHERE id = ?').bind(task.done ? 1 : 0, task.id).run();
+          }
         }
         else if (action === 'TIMER_COMPLETE') {
           // 计时结束：标记完成 + 写入 time_records（实例级 + 模板级双写）
@@ -2276,8 +2289,20 @@ self.addEventListener('fetch', (event) => {
         else if (action === 'BATCH_TOGGLE_DONE') {
           if (ids && ids.length > 0) {
             const placeholders = ids.map(() => '?').join(',');
-            await env.DB.prepare(`UPDATE todos SET done = ? WHERE id IN (${placeholders})`)
-              .bind(doneStatus ? 1 : 0, ...ids).run();
+            // 批量取消勾选时同步清空实例级 time_records（与 TOGGLE_DONE 一致）
+            if (!doneStatus) {
+              try {
+                await env.DB.prepare(`UPDATE todos SET done = 0, time_records = ? WHERE id IN (${placeholders})`)
+                  .bind('[]', ...ids).run();
+              } catch (e) {
+                // 兜底：仅更新 done
+                await env.DB.prepare(`UPDATE todos SET done = ? WHERE id IN (${placeholders})`)
+                  .bind(doneStatus ? 1 : 0, ...ids).run();
+              }
+            } else {
+              await env.DB.prepare(`UPDATE todos SET done = ? WHERE id IN (${placeholders})`)
+                .bind(doneStatus ? 1 : 0, ...ids).run();
+            }
           }
         }
         else if (action === 'BATCH_DELETE') {
