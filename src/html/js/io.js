@@ -776,7 +776,7 @@ export const io = `
             if (lineBuffer.trim()) {
               var trimmed = lineBuffer.trim();
               if (!firstLineChecked && trimmed === 'ndjson') {
-                // skip ndjson header line
+                // skip
               } else if (isNdjson && trimmed.indexOf('"_type"') !== -1) {
                 try {
                   var obj = JSON.parse(trimmed);
@@ -920,7 +920,7 @@ export const io = `
           showProgress('导入完成', mode === 'overwrite' ? '原始数据备份保留10分钟，可手动恢复。界面即将重载...' : '界面即将重载...', 100);
           await new Promise(function(r){ setTimeout(r,1000); });
           closeProgress();
-          refreshToSettings();
+          location.reload();
         } catch (err) {
           closeProgress();
           await showAlert('导入失败：' + err.message);

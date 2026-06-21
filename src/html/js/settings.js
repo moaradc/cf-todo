@@ -130,24 +130,17 @@ export const settings = `
       localStorage.removeItem('preview_custom_header');
       localStorage.removeItem('preview_custom_content');
       try {
+        // 1. 清空 Service Worker Cache API
         if ('caches' in window) {
           var names = await caches.keys();
           await Promise.all(names.map(function(n) { return caches.delete(n); }));
         }
+        // 2. 通知 Service Worker 释放其内部引用
         try { await clearPwaCache(); } catch(e) {}
       } catch (e) { /* 忽略，仍重载 */ }
-      // 重载到根路径：避免停留在 /settings；预览模式下还能完全卸载已注入的自定义代码
+      // 3. 直接重载到根路径，与 saveAndCloseSettings 行为一致
+      // 避免停留在 /settings 路由；若处于预览模式，重载还能完全卸载已注入的自定义代码
       window.location.replace('/');
-    }
-
-    // 统一刷新逻辑：导航到 /settings
-    // - 已登录场景（导入完成、预览/重置/还原自定义代码、deleteAllSessions 仅删他人会话）：
-    //   页面重载后 _navRestore 会自动重开设置浮层
-    // - 登出场景（deleteAllSessions 删全部 / logout）：URL 仍是 /settings，但服务端不再鉴权，
-    //   渲染的是登录视图；登录界面会重置 SPA 导航栈与临时状态
-    // 使用 replace 避免在历史栈中遗留中间状态（如 /settings?preview=1）
-    function refreshToSettings(query) {
-      window.location.replace('/settings' + (query || ''));
     }
 
     function closeSettings() {
@@ -267,7 +260,7 @@ export const settings = `
       var contentContent = document.getElementById('custom-content-preview').value;
       localStorage.setItem('preview_custom_header', headerContent);
       localStorage.setItem('preview_custom_content', contentContent);
-      refreshToSettings('?preview=1');
+      window.location.href = window.location.pathname + '?preview=1';
     }
     
     async function resetCustomCode() {
@@ -294,16 +287,14 @@ export const settings = `
         console.error('Reset custom code error:', e); 
       }
       
-      // 清理预览状态后统一刷新到 /settings
-      localStorage.removeItem('preview_custom_header');
-      localStorage.removeItem('preview_custom_content');
-      refreshToSettings();
+      restoreAllPreview()
+      location.reload();
     }
     
     function restoreAllPreview() {
       localStorage.removeItem('preview_custom_header');
       localStorage.removeItem('preview_custom_content');
-      refreshToSettings();
+      window.location.href = window.location.pathname;
     }
 
     function updatePwaInstallUI() {

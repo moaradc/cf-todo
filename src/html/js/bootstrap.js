@@ -5,6 +5,7 @@ export const bootstrap = `
       initVersionDisplay();
       var loginView = document.getElementById('login-view');
       if (loginView && !loginView.classList.contains('hidden')) {
+        // Offline + previously logged in: show notice
         if (!navigator.onLine && localStorage.getItem('moara_authed') === '1') {
           var notice = document.createElement('p');
           notice.style.cssText = 'color:var(--warn);font-size:0.85rem;margin-top:12px;text-align:center;';
@@ -17,6 +18,7 @@ export const bootstrap = `
         checkInterruptedImport();
         _navRestore();
       }
+      // Register Service Worker
       if ('serviceWorker' in navigator) {
         navigator.serviceWorker.register('/sw.js').then(function(reg) {
           reg.update();
@@ -89,8 +91,7 @@ export const bootstrap = `
       logout: async function() {
         localStorage.removeItem('moara_authed');
         await fetch('/api/logout', { method: 'POST' });
-        // 刷新到 /settings 会落到登录界面（状态在登录界面重置）
-        refreshToSettings();
+        location.reload();
       },
       // 主题
       toggleTheme: toggleTheme,
