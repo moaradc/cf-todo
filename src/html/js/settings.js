@@ -143,6 +143,16 @@ export const settings = `
       window.location.replace('/');
     }
 
+    // 统一刷新逻辑：导航到 /settings
+    // - 已登录场景（导入完成、预览/重置/还原自定义代码、deleteAllSessions 仅删他人会话）：
+    //   页面重载后 _navRestore 会自动重开设置浮层
+    // - 登出场景（deleteAllSessions 删全部 / logout）：URL 仍是 /settings，但服务端不再鉴权，
+    //   渲染的是登录视图；登录界面会重置 SPA 导航栈与临时状态
+    // 使用 replace 避免在历史栈中遗留中间状态（如 /settings?preview=1）
+    function refreshToSettings(query) {
+      window.location.replace('/settings' + (query || ''));
+    }
+
     function closeSettings() {
       if (_isNavClosing) {
         const view = document.getElementById('settings-overlay');
@@ -260,7 +270,7 @@ export const settings = `
       var contentContent = document.getElementById('custom-content-preview').value;
       localStorage.setItem('preview_custom_header', headerContent);
       localStorage.setItem('preview_custom_content', contentContent);
-      window.location.href = window.location.pathname + '?preview=1';
+      refreshToSettings('?preview=1');
     }
     
     async function resetCustomCode() {
@@ -287,14 +297,16 @@ export const settings = `
         console.error('Reset custom code error:', e); 
       }
       
-      restoreAllPreview()
-      location.reload();
+      // 清理预览状态后统一刷新到 /settings
+      localStorage.removeItem('preview_custom_header');
+      localStorage.removeItem('preview_custom_content');
+      refreshToSettings();
     }
     
     function restoreAllPreview() {
       localStorage.removeItem('preview_custom_header');
       localStorage.removeItem('preview_custom_content');
-      window.location.href = window.location.pathname;
+      refreshToSettings();
     }
 
     function updatePwaInstallUI() {

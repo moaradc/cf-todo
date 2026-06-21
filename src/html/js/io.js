@@ -920,7 +920,7 @@ export const io = `
           showProgress('导入完成', mode === 'overwrite' ? '原始数据备份保留10分钟，可手动恢复。界面即将重载...' : '界面即将重载...', 100);
           await new Promise(function(r){ setTimeout(r,1000); });
           closeProgress();
-          location.reload();
+          refreshToSettings();
         } catch (err) {
           closeProgress();
           await showAlert('导入失败：' + err.message);
