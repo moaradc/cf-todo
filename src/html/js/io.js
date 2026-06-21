@@ -776,7 +776,7 @@ export const io = `
             if (lineBuffer.trim()) {
               var trimmed = lineBuffer.trim();
               if (!firstLineChecked && trimmed === 'ndjson') {
-                // skip
+                // skip ndjson header line
               } else if (isNdjson && trimmed.indexOf('"_type"') !== -1) {
                 try {
                   var obj = JSON.parse(trimmed);

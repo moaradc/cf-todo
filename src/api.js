@@ -807,15 +807,10 @@ self.addEventListener('fetch', (event) => {
       const end = url.searchParams.get('end');
       if (!start || !end) return apiError("Date required", 400);
 
-      // 服务端聚合：用 D1 batch 一次往返跑 6 条 GROUP BY 查询，
-      // 把「数万行原始数据」压缩为「几十行聚合结果」。
-      // 收益：
-      //   - D1 rows read：仍按原表行数计费（GROUP BY 不省 rows read），
-      //     但 rows returned 大幅减少 → 网络出口字节、Worker 内存、JSON 序列化 CPU 全部下降一个数量级
-      //   - Worker 内存：从 O(N) 降为 O(log N)（N = 原始行数）
-      //   - 客户端解析：从 O(N) 降为 O(log N)
-      // 索引依赖：idx_todos_date_done 覆盖 (date, deleted) + include (priority, done, category_id, time)
-      // 注意：D1 batch 是顺序执行的（非并行），但只占一次 HTTP 往返
+      // 服务端聚合：D1 batch 一次往返跑 6 条 GROUP BY，把数万行原始数据压缩为几十行聚合结果。
+      // 收益：rows returned / 网络字节 / Worker 内存 / 客户端解析 全部从 O(N) 降为 O(log N)。
+      // 索引依赖：idx_todos_date_done 覆盖 (date, deleted) + include (priority, done, category_id, time)。
+      // 注意：D1 batch 顺序执行（非并行），但只占一次 HTTP 往返。
       const baseWhere = 'FROM todos WHERE date >= ?1 AND date <= ?2 AND deleted = 0';
 
       const batchResults = await env.DB.batch([
