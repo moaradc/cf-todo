@@ -96,10 +96,13 @@ async function verifyApiKey(DB, providedKey, jwtSecret) {
  * 从请求中提取 API Key
  */
 function extractApiKey(request, url) {
+  // 1. Header: X-API-Key
   const headerKey = request.headers.get('X-API-Key');
   if (headerKey) return headerKey;
+  // 2. Query: api_key
   const queryKey = url.searchParams.get('api_key');
   if (queryKey) return queryKey;
+  // 3. Authorization: Bearer cfk_...
   const authHeader = request.headers.get('Authorization');
   if (authHeader && authHeader.startsWith('Bearer ')) {
     const token = authHeader.slice(7).trim();
