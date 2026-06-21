@@ -1455,6 +1455,7 @@ self.addEventListener('fetch', (event) => {
                   env.DB.prepare('ALTER TABLE categories_backup RENAME TO categories'),
                   env.DB.prepare('CREATE INDEX IF NOT EXISTS idx_todos_cursor ON todos(date, deleted, id)'),
                   env.DB.prepare('CREATE INDEX IF NOT EXISTS idx_todos_parent_date_del ON todos(parent_id, date, deleted)'),
+                  env.DB.prepare('CREATE INDEX IF NOT EXISTS idx_todos_stats ON todos(date, deleted, priority, done, category_id, time)'),
                   env.DB.prepare('CREATE INDEX IF NOT EXISTS idx_templates_repeat_type ON todo_templates(repeat_type)'),
                 ]);
               } catch (e) {
@@ -1497,6 +1498,7 @@ self.addEventListener('fetch', (event) => {
                     env.DB.prepare('ALTER TABLE categories_backup RENAME TO categories'),
                     env.DB.prepare('CREATE INDEX IF NOT EXISTS idx_todos_cursor ON todos(date, deleted, id)'),
                     env.DB.prepare('CREATE INDEX IF NOT EXISTS idx_todos_parent_date_del ON todos(parent_id, date, deleted)'),
+                    env.DB.prepare('CREATE INDEX IF NOT EXISTS idx_todos_stats ON todos(date, deleted, priority, done, category_id, time)'),
                     env.DB.prepare('CREATE INDEX IF NOT EXISTS idx_templates_repeat_type ON todo_templates(repeat_type)'),
                   ]);
                 } catch (e) {
@@ -1518,6 +1520,7 @@ self.addEventListener('fetch', (event) => {
                 env.DB.prepare('DROP TABLE IF EXISTS categories_backup'),
                 env.DB.prepare('DROP INDEX IF EXISTS idx_todos_cursor'),
                 env.DB.prepare('DROP INDEX IF EXISTS idx_todos_parent_date_del'),
+                env.DB.prepare('DROP INDEX IF EXISTS idx_todos_stats'),
                 env.DB.prepare('DROP INDEX IF EXISTS idx_templates_repeat_type'),
               ]);
               await env.DB.batch([
@@ -1568,9 +1571,6 @@ self.addEventListener('fetch', (event) => {
                     time_records TEXT NOT NULL DEFAULT '[]'
                   )
                 `),
-                env.DB.prepare(`CREATE INDEX idx_todos_cursor ON todos(date, deleted, id)`),
-                env.DB.prepare(`CREATE INDEX idx_todos_parent_date_del ON todos(parent_id, date, deleted)`),
-                env.DB.prepare(`CREATE INDEX idx_todos_stats ON todos(date, deleted, priority, done, category_id, time)`),
                 env.DB.prepare(`CREATE INDEX idx_templates_repeat_type ON todo_templates(repeat_type)`),
                 env.DB.prepare(`
                   CREATE TABLE categories (
@@ -1716,7 +1716,8 @@ self.addEventListener('fetch', (event) => {
                   env.DB.prepare('DROP TABLE IF EXISTS todos'),
                   env.DB.prepare('ALTER TABLE todos_backup RENAME TO todos'),
                   env.DB.prepare('CREATE INDEX IF NOT EXISTS idx_todos_cursor ON todos(date, deleted, id)'),
-                  env.DB.prepare('CREATE INDEX IF NOT EXISTS idx_todos_parent_date_del ON todos(parent_id, date, deleted)')
+                  env.DB.prepare('CREATE INDEX IF NOT EXISTS idx_todos_parent_date_del ON todos(parent_id, date, deleted)'),
+                  env.DB.prepare('CREATE INDEX IF NOT EXISTS idx_todos_stats ON todos(date, deleted, priority, done, category_id, time)')
                 );
               }
               if (hasTplBak) {
