@@ -363,9 +363,10 @@ export const todos = `
       } catch (e) {
         // 网络失败不回滚本地状态（用户已视觉完成），下次拉取会刷新
       }
-      // 服务器已写入新记录：详情面板若仍打开此事项，强制 invalidate 缓存并重新 fetch
-      if (typeof reloadDetailTimeRecords === 'function' && currentDetailIndex === index) {
-        reloadDetailTimeRecords();
+      // 服务器已写入新记录：实时调用 API 拉取权威数据（todos + time_records）
+      // 解决背景/前台切换后 todos 数组与服务器不一致、本地缓存导致 UI 显示错误的问题
+      if (typeof reloadDetailAfterComplete === 'function' && currentDetailIndex === index) {
+        reloadDetailAfterComplete();
       }
     }
 
