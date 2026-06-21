@@ -382,7 +382,8 @@ export const core = `
         body: JSON.stringify({ action: 'DELETE_ALL' }),
         headers: { 'Content-Type': 'application/json' }
       });
-      location.reload();
+      // 服务端会话已清空，刷新到 / 会落到登录界面
+      await refreshToHome();
     }
 
     // ==================== API Key 管理 ====================

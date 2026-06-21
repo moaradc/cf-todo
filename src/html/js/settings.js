@@ -254,13 +254,22 @@ export const settings = `
       localStorage.removeItem('preview_custom_content');
       window.location.replace('/');
     }
+
+    // 统一刷新逻辑：参考 saveAndCloseSettings 的尾部模式 —— 通知 SW 释放内部引用后导航到 /。
+    // 不去碰 caches.keys()/caches.delete() —— 那是「清除缓存」按钮 (clearAppCache) 的职责。
+    // - 已登录场景（预览/重置/还原/导入完成）：导航到 / 回到待办列表
+    // - 登出场景（全部删除 / 退出登录）：URL 仍是 / 但服务端不再鉴权，落到登录界面
+    async function refreshToHome(query) {
+      try { await clearPwaCache(); } catch(e) {}
+      window.location.replace('/' + (query || ''));
+    }
     
-    function previewCustomCode() {
+    async function previewCustomCode() {
       var headerContent = document.getElementById('custom-header-preview').value;
       var contentContent = document.getElementById('custom-content-preview').value;
       localStorage.setItem('preview_custom_header', headerContent);
       localStorage.setItem('preview_custom_content', contentContent);
-      window.location.href = window.location.pathname + '?preview=1';
+      await refreshToHome('?preview=1');
     }
     
     async function resetCustomCode() {
@@ -287,14 +296,16 @@ export const settings = `
         console.error('Reset custom code error:', e); 
       }
       
-      restoreAllPreview()
-      location.reload();
-    }
-    
-    function restoreAllPreview() {
+      // 清理预览状态后统一刷新到 /
       localStorage.removeItem('preview_custom_header');
       localStorage.removeItem('preview_custom_content');
-      window.location.href = window.location.pathname;
+      await refreshToHome();
+    }
+    
+    async function restoreAllPreview() {
+      localStorage.removeItem('preview_custom_header');
+      localStorage.removeItem('preview_custom_content');
+      await refreshToHome();
     }
 
     function updatePwaInstallUI() {
