@@ -493,14 +493,55 @@ export const todos = `
       const targetDone = !allDone;
       const ids = Array.from(selectedTasks).map(idx => todos[idx].id);
 
+      // 批量完成时：对有活动计时器的选中项，计算 record 并清本地状态
+      // 类比"职场身份高低"：开启计时的 todo 完成时记录耗时，未开启的只标记完成
+      const timerRecords = [];  // [{ id, parentId, record }]
+      if (targetDone) {
+        const now = Date.now();
+        Array.from(selectedTasks).forEach(idx => {
+          const todo = todos[idx];
+          if (!todo) return;
+          const st = readTimerState(todo.id);
+          if (!st) return;
+          let pausedMs = st.p;
+          if (isTimerPaused(st)) pausedMs += (now - st.lp);
+          const elapsedMs = now - st.s - pausedMs;
+          // 时长合理才记录（与 completeTimer 一致）
+          if (elapsedMs >= 1000 && elapsedMs <= TIMER_STALE_MS) {
+            timerRecords.push({
+              id: todo.id,
+              parentId: todo.parent_id,
+              record: { s: st.s, e: now, p: Math.max(0, Math.floor(pausedMs)) }
+            });
+          }
+          // 清除本地计时器状态（无论是否记录）
+          writeTimerState(todo.id, null);
+        });
+        ensureTimerTick();
+      }
+
       Array.from(selectedTasks).forEach(idx => todos[idx].done = targetDone);
       renderTodos();
 
       await fetch('/api/todo-action', {
         method: 'POST',
-        body: JSON.stringify({ action: 'BATCH_TOGGLE_DONE', ids: ids, doneStatus: targetDone }),
+        body: JSON.stringify({
+          action: 'BATCH_TOGGLE_DONE',
+          ids: ids,
+          doneStatus: targetDone,
+          timerRecords: timerRecords.length > 0 ? timerRecords : undefined
+        }),
         headers: { 'Content-Type': 'application/json' }
       });
+
+      // 批量完成后，若详情面板正打开且当前事项有记录写入，重新拉取 time_records
+      if (targetDone && timerRecords.length > 0 && typeof reloadDetailTimeRecords === 'function' && currentDetailIndex >= 0) {
+        const cur = todos[currentDetailIndex];
+        if (cur && timerRecords.some(function(r) { return r.id === cur.id; })) {
+          reloadDetailTimeRecords();
+        }
+      }
+
       exitBatchMode();
     }
 

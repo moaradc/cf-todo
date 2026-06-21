@@ -239,6 +239,7 @@ export const detail = `
           html += '<button class="btn-ghost" onclick="pauseTimerDetail()">暂停</button>';
         }
         html += '<button class="btn-ghost" onclick="completeTimerDetail()">结束</button>';
+        html += '<button class="btn-ghost" onclick="cancelTimerDetail()">取消</button>';
         html += '</div>';
         if (predictText) html += '<div style="font-size:0.85em; opacity:0.7; margin-top:6px;">' + predictText + '</div>';
         html += '</div>';
@@ -276,6 +277,13 @@ export const detail = `
       if (currentDetailIndex < 0) return;
       completeTimer(currentDetailIndex);
       // completeTimer await fetch 后会调用 reloadDetailTimeRecords 重新拉取并刷新
+    }
+    function cancelTimerDetail() {
+      const task = todos[currentDetailIndex];
+      if (!task) return;
+      // 取消计时：清除本地状态，不标记完成，不写入 time_records
+      abortTimer(task.id);
+      refreshDetailTimerBlock();
     }
 
     // 强制重新拉取当前实例的 time_records 并刷新计时区块
