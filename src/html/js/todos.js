@@ -342,9 +342,12 @@ export const todos = `
       todo.done = true;
       ensureTimerTick();
       renderTodos();
-      // 同步阶段先刷新一次详情面板（让 UI 即刻进入"已完成"态，records 暂用旧缓存或空）
+      // 同步阶段：把刚算出的 record 作为参数直传给 refreshDetailTimerBlock，
+      // 让 UI 即刻渲染"完成于 X，耗时 Y"。
+      // 不写入任何缓存（避免状态残留/串台/失效问题），record 仅在本次调用中消费。
+      // await fetch 之后的 reloadDetailTimeRecords 会用服务器返回的最新 records 重新渲染。
       if (typeof refreshDetailTimerBlock === 'function' && currentDetailIndex === index) {
-        refreshDetailTimerBlock();
+        refreshDetailTimerBlock(record);
       }
       try {
         await fetch('/api/todo-action', {
@@ -408,9 +411,9 @@ export const todos = `
       const h = Math.floor(totalSec / 3600);
       const m = Math.floor((totalSec % 3600) / 60);
       const s = totalSec % 60;
-      // 数字与单位之间加空格，便于扫读
-      if (h > 0) return h + ' 小时' + (m > 0 ? m + ' 分' : '');
-      if (m > 0) return m + ' 分' + (s > 0 ? s + ' 秒' : '');
+      // 数字与单位之间加空格，便于扫读；多段之间也用空格分隔
+      if (h > 0) return h + ' 小时' + (m > 0 ? ' ' + m + ' 分' : '');
+      if (m > 0) return m + ' 分' + (s > 0 ? ' ' + s + ' 秒' : '');
       return s + ' 秒';
     }
 
