@@ -218,12 +218,17 @@ export const todos = `
       todos[index].done = !todos[index].done;
       // 若该事项有活动计时器，一并清除（不记录到历史）
       if (typeof clearTimerState === 'function') clearTimerState(todos[index].id);
-      await fetch('/api/todo-action', {
-        method: 'POST',
-        body: JSON.stringify({ action: 'TOGGLE_DONE', task: { id: todos[index].id, done: todos[index].done } }),
-        headers: { 'Content-Type': 'application/json' }
-      });
-      renderTodos(); 
+      // 乐观更新：先刷新 UI，再发请求（与 completeTimer 一致，避免等待网络）
+      renderTodos();
+      try {
+        await fetch('/api/todo-action', {
+          method: 'POST',
+          body: JSON.stringify({ action: 'TOGGLE_DONE', task: { id: todos[index].id, done: todos[index].done } }),
+          headers: { 'Content-Type': 'application/json' }
+        });
+      } catch (e) {
+        // 网络失败不回滚本地状态，下次拉取会刷新
+      }
     }
 
     // ==================== 计时器（仅重复 todo） ====================
@@ -522,17 +527,23 @@ export const todos = `
 
       Array.from(selectedTasks).forEach(idx => todos[idx].done = targetDone);
       renderTodos();
+      // 乐观更新：先退出批量模式，再发请求（避免等待网络才退出）
+      exitBatchMode();
 
-      await fetch('/api/todo-action', {
-        method: 'POST',
-        body: JSON.stringify({
-          action: 'BATCH_TOGGLE_DONE',
-          ids: ids,
-          doneStatus: targetDone,
-          timerRecords: timerRecords.length > 0 ? timerRecords : undefined
-        }),
-        headers: { 'Content-Type': 'application/json' }
-      });
+      try {
+        await fetch('/api/todo-action', {
+          method: 'POST',
+          body: JSON.stringify({
+            action: 'BATCH_TOGGLE_DONE',
+            ids: ids,
+            doneStatus: targetDone,
+            timerRecords: timerRecords.length > 0 ? timerRecords : undefined
+          }),
+          headers: { 'Content-Type': 'application/json' }
+        });
+      } catch (e) {
+        // 网络失败不回滚本地状态，下次拉取会刷新
+      }
 
       // 批量完成后，若详情面板正打开且当前事项有记录写入，重新拉取 time_records
       if (targetDone && timerRecords.length > 0 && typeof reloadDetailTimeRecords === 'function' && currentDetailIndex >= 0) {
@@ -541,8 +552,6 @@ export const todos = `
           reloadDetailTimeRecords();
         }
       }
-
-      exitBatchMode();
     }
 
     async function batchDelete() {
