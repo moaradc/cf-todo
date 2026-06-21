@@ -48,30 +48,68 @@ export const todos = `
       document.getElementById('date-sub').innerText = subText;
     }
 
+    // ==================== 日期切换加载竞态控制 ====================
+    // 快速切换日期时，旧请求若未完成会浪费网络资源，且其响应可能晚于新请求到达，
+    // 导致 UI 显示错误日期的数据。这里用双重防护：
+    //   1) AbortController：主动 abort 上一个未完成的 fetch（含 SW 链路），
+    //      释放网络资源，避免无效请求继续在后端跑。
+    //   2) generation 计数：即便 abort 未真正生效（如老浏览器、SW 缓存命中已返回），
+    //      旧代次的响应也不会写入 todos 或触发 renderTodos，确保 UI 一致。
+    let _loadTodosGen = 0;
+    let _loadTodosAbortCtrl = null;
+
     async function loadTodos() {
       const dateStr = formatDate(currentDate);
+      // 自增 generation，标记本次为最新一代
+      const myGen = ++_loadTodosGen;
+      // 中断上一个未完成的请求；不支持 AbortController 时降级为仅靠 generation 校验
+      if (_loadTodosAbortCtrl) {
+        try { _loadTodosAbortCtrl.abort(); } catch (e) {}
+      }
+      let abortCtrl = null;
+      const fetchOpts = {};
+      if (typeof AbortController === 'function') {
+        abortCtrl = new AbortController();
+        fetchOpts.signal = abortCtrl.signal;
+        _loadTodosAbortCtrl = abortCtrl;
+      }
+
       updateDateHeader(true);
       document.getElementById('todo-list').innerHTML = '<div style="padding:20px;text-align:center;">数据拉取中...</div>';
       try {
-        const res = await fetch(\`/api/todos?date=\${dateStr}\`);
+        const res = await fetch(\`/api/todos?date=\${dateStr}\`, fetchOpts);
         if (res.status === 503) {
           // SW返回503表示离线且无缓存
+          // 仅当本次仍是最新一代时才更新 UI，避免旧请求覆盖新请求结果
+          if (myGen !== _loadTodosGen) return;
           document.getElementById('todo-list').innerHTML = '<div style="padding:20px;text-align:center;color:var(--warn);">离线 — 无缓存数据</div>';
           return;
         }
         if (res.ok) {
-          todos = await res.json();
+          const data = await res.json();
+          // 竞态保护：仅当本次仍是最新一代时才写入 todos 与渲染
+          // （即便 abort 未生效，如 SW 缓存命中或老浏览器，generation 仍能挡住旧响应）
+          if (myGen !== _loadTodosGen) return;
+          todos = data;
           renderTodos();
           // 启动/停止每秒 ticking（仅当存在 running 计时器时）
           ensureTimerTick();
         }
       } catch (e) {
+        // 主动中断引发的 AbortError 不算错误，静默丢弃
+        if (e && e.name === 'AbortError') return;
+        // 旧代次的结果被新代次覆盖，静默丢弃（避免旧请求的错误覆盖新请求的 UI）
+        if (myGen !== _loadTodosGen) return;
         // 网络错误且SW未拦截
         if (!navigator.onLine) {
           document.getElementById('todo-list').innerHTML = '<div style="padding:20px;text-align:center;color:var(--warn);">离线 — 无缓存数据</div>';
         } else {
           console.error(e);
         }
+      } finally {
+        // 清理 abort controller 引用（仅当本次仍持有最新 controller 时才清空，
+        // 避免误清新请求的 controller 导致新请求无法被后续 abort）
+        if (abortCtrl && _loadTodosAbortCtrl === abortCtrl) _loadTodosAbortCtrl = null;
       }
     }
 
