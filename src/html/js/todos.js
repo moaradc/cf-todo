@@ -220,6 +220,11 @@ export const todos = `
     function renderTodos() {
       updateDateHeader(false);
 
+      // 注意：必须用副本排序，禁止 in-place sort 全局 todos。
+      // 原因：详情面板的 currentDetailIndex 是 todos 数组的下标，
+      // 若 renderTodos 直接对 todos.sort()，会把 currentDetailIndex 指向的元素换走，
+      // 导致 refreshDetailTimerBlock 取到错误的 todo（典型现象：completeTimer 后
+      // 详情页本应显示"完成于 X"，却显示"开始计时"）。
       var filteredTodos = todos;
       if (filterMethod === 'todo') filteredTodos = todos.filter(function(t){ return !t.done; });
       else if (filterMethod === 'done') filteredTodos = todos.filter(function(t){ return t.done; });
@@ -232,6 +237,8 @@ export const todos = `
         return;
       }
 
+      // 复制一份再排序，避免污染全局 todos 的顺序
+      filteredTodos = filteredTodos.slice();
       filteredTodos.sort(function(a, b) {
         if (a.done !== b.done) return a.done ? 1 : -1;
         var valA, valB;
@@ -366,6 +373,7 @@ export const todos = `
       if (!todo) return;
       const st = readTimerState(todo.id);
       if (!st) return;
+      const completedTodoId = todo.id; // 在 renderTodos 前记录 id，便于事后重定位
       const now = Date.now();
       let endMs = now;
       let pausedMs = st.p;
@@ -380,6 +388,13 @@ export const todos = `
       todo.done = true;
       ensureTimerTick();
       renderTodos();
+      // 防御性：即便 renderTodos 已经改成不 in-place sort 全局 todos，
+      // 仍用 id 重定位 currentDetailIndex，避免任何潜在的 index 漂移导致
+      // refreshDetailTimerBlock 取到错误的 todo（重现"开始计时"bug）。
+      if (currentDetailIndex >= 0 && todos[currentDetailIndex] && todos[currentDetailIndex].id !== completedTodoId) {
+        const newIdx = todos.findIndex(function(t) { return t.id === completedTodoId; });
+        if (newIdx !== -1) currentDetailIndex = newIdx;
+      }
       // 同步阶段：把刚算出的 record 作为参数直传给 refreshDetailTimerBlock，
       // 让 UI 即刻渲染"完成于 X，耗时 Y"。
       // 不写入任何缓存（避免状态残留/串台/失效问题），record 仅在本次调用中消费。
