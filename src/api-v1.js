@@ -750,12 +750,114 @@ async function handleV1TodoDelete(DB, todoId, scope) {
 }
 
 // PATCH /api/v1/todos/:id/toggle - 切换完成状态
-async function handleV1TodoToggle(DB, todoId) {
-  const existing = await DB.prepare('SELECT done FROM todos WHERE id = ?').bind(todoId).first();
+// 可选 body: { record: { s, e, p } }
+// - done 0→1 且 record 合法：写入实例级 time_records（与 /api/todo-action TOGGLE_DONE 一致）
+//   - 零耗时（s===e）：仅记录完成时刻，不写模板级（避免污染 predictDuration）
+//   - 真实耗时（s<e）：实例级 + 模板级双写（与 TIMER_COMPLETE 一致）
+// - done 1→0：清空实例级 time_records（与 /api/todo-action TOGGLE_DONE 一致）
+// - 无 record 或 record 非法：仅更新 done 字段（向后兼容）
+async function handleV1TodoToggle(request, DB, todoId) {
+  const existing = await DB.prepare('SELECT done, parent_id FROM todos WHERE id = ?').bind(todoId).first();
   if (!existing) return apiError('Todo 不存在', 404);
   const newDone = existing.done ? 0 : 1;
-  await DB.prepare('UPDATE todos SET done = ? WHERE id = ?').bind(newDone, todoId).run();
+
+  // 解析可选 body（PATCH 可能无 body 或 body 无 record，需容错）
+  let record = null;
+  try {
+    if (request && typeof request.json === 'function') {
+      const body = await request.json();
+      if (body && typeof body === 'object' && body.record) {
+        record = body.record;
+      }
+    }
+  } catch (e) {
+    // body 解析失败：忽略 record，仅切换 done（向后兼容）
+    record = null;
+  }
+
+  if (newDone) {
+    // 勾选完成：先更新 done，再尝试写入 time_records
+    // 写入失败不影响 done 状态（与 /api/todo-action TOGGLE_DONE 兜底逻辑一致）
+    try {
+      await DB.prepare('UPDATE todos SET done = 1 WHERE id = ?').bind(todoId).run();
+    } catch (e) {
+      // 极端情况：DB 异常，仍尝试无 time_records 列的兜底（老数据库兼容）
+      try { await DB.prepare('UPDATE todos SET done = 1 WHERE id = ?').bind(todoId).run(); } catch (e2) {}
+    }
+    if (record) {
+      await writeTimerRecord(DB, todoId, existing.parent_id, record);
+    }
+  } else {
+    // 取消勾选：清空实例级 time_records
+    try {
+      await DB.prepare('UPDATE todos SET done = 0, time_records = ? WHERE id = ?')
+        .bind('[]', todoId).run();
+    } catch (e) {
+      // 兜底：仅更新 done（极端情况：列不存在等）
+      await DB.prepare('UPDATE todos SET done = 0 WHERE id = ?').bind(todoId).run();
+    }
+  }
+
   return jsonResponse({ success: true, data: { id: todoId, done: !!newDone } });
+}
+
+// ==================== 计时记录写入工具函数 ====================
+// 校验并写入 time_records（实例级 + 模板级）
+// - 实例级：所有合法 record 都写（FIFO 5）
+// - 模板级：仅真实耗时（s<e）写（FIFO 10），零耗时跳过
+// 非法 record 静默跳过（不影响调用方主流程）
+// 所有 DB 异常吞掉并记录日志，避免影响 done 状态
+async function writeTimerRecord(DB, todoId, parentId, record) {
+  // 校验
+  if (!record || typeof record !== 'object') return;
+  if (typeof record.s !== 'number' || typeof record.e !== 'number') return;
+  const s = Math.floor(record.s);
+  const e = Math.floor(record.e);
+  const p = Math.floor(record.p || 0);
+  const MAX_DURATION_MS = 7 * 24 * 60 * 60 * 1000;
+  // 校验：s>0, e>=s, 时长<=7d, paused 合理
+  if (!(s > 0 && e >= s && (e - s) <= MAX_DURATION_MS && p >= 0 && p <= (e - s))) {
+    return;
+  }
+  const isZeroDuration = (s === e);
+
+  // 实例级写入
+  try {
+    const cur = await DB.prepare('SELECT time_records FROM todos WHERE id = ?').bind(todoId).first();
+    if (cur) {
+      let instArr = [];
+      try {
+        instArr = typeof cur.time_records === 'string'
+          ? JSON.parse(cur.time_records || '[]')
+          : cur.time_records;
+      } catch (e2) { instArr = []; }
+      if (!Array.isArray(instArr)) instArr = [];
+      instArr.push({ s, e, p });
+      if (instArr.length > 5) instArr = instArr.slice(instArr.length - 5);
+      await DB.prepare('UPDATE todos SET time_records = ? WHERE id = ?')
+        .bind(JSON.stringify(instArr), todoId).run();
+    }
+  } catch (eInst) {
+    console.error('v1 per-instance record write failed:', eInst);
+  }
+
+  // 模板级写入（仅真实耗时，零耗时跳过避免污染 predictDuration）
+  if (!isZeroDuration && parentId) {
+    try {
+      const tpl = await DB.prepare('SELECT time_records FROM todo_templates WHERE parent_id = ?').bind(parentId).first();
+      if (tpl) {
+        let arr = [];
+        try { arr = Array.isArray(tpl.time_records) ? tpl.time_records : JSON.parse(tpl.time_records || '[]'); } catch (e2) { arr = []; }
+        if (!Array.isArray(arr)) arr = [];
+        arr.push({ s, e, p });
+        if (arr.length > 10) arr = arr.slice(arr.length - 10);
+        await DB.prepare('UPDATE todo_templates SET time_records = ? WHERE parent_id = ?')
+          .bind(JSON.stringify(arr), parentId).run();
+      }
+    } catch (e3) {
+      console.error('v1 template record write failed:', e3);
+    }
+  }
 }
 
 // ==================== v1 Category CRUD ====================
@@ -838,15 +940,53 @@ async function handleV1CategoryDelete(DB, catId) {
 // ==================== 批量操作 ====================
 
 // POST /api/v1/todos/batch - 批量操作
+// body: { action, ids, doneStatus, timerRecords? }
+// timerRecords: [{ id, parentId, record: {s, e, p} }]（可选）
+// - BATCH_TOGGLE_DONE + doneStatus=true：
+//   - 先批量 UPDATE done=1
+//   - 再对 timerRecords 中每条 record 写入 time_records
+//     - 真实耗时（s<e）：实例级 + 模板级双写
+//     - 零耗时（s===e）：仅实例级
+//   - ids 中有但 timerRecords 没有的：done=1 但无 time_records（向后兼容）
+// - BATCH_TOGGLE_DONE + doneStatus=false：批量 UPDATE done=0, time_records='[]'
 async function handleV1TodoBatch(request, DB) {
-  const { action, ids, doneStatus } = await request.json();
+  const { action, ids, doneStatus, timerRecords } = await request.json();
 
   if (action === 'BATCH_TOGGLE_DONE') {
     if (!ids || !Array.isArray(ids) || ids.length === 0) return apiError('ids 为必填数组', 400);
     if (ids.length > 100) return apiError('单次最多100条', 400);
     const placeholders = ids.map(() => '?').join(',');
-    await DB.prepare(`UPDATE todos SET done = ? WHERE id IN (${placeholders})`)
-      .bind(doneStatus ? 1 : 0, ...ids).run();
+
+    if (doneStatus) {
+      // 批量完成：先更新 done=1
+      try {
+        await DB.prepare(`UPDATE todos SET done = 1 WHERE id IN (${placeholders})`)
+          .bind(...ids).run();
+      } catch (e) {
+        // 极端情况：DB 异常，仍尝试（老数据库兼容）
+        try { await DB.prepare(`UPDATE todos SET done = 1 WHERE id IN (${placeholders})`).bind(...ids).run(); } catch (e2) {}
+      }
+
+      // 对带 record 的 todo 写入 time_records（与 /api/todo-action BATCH_TOGGLE_DONE 一致）
+      if (Array.isArray(timerRecords) && timerRecords.length > 0) {
+        for (const item of timerRecords) {
+          if (!item || !item.id || !item.record) continue;
+          // 写入失败不影响主流程（writeTimerRecord 内部已 try/catch）
+          await writeTimerRecord(DB, item.id, item.parentId, item.record);
+        }
+      }
+    } else {
+      // 批量取消完成：done=0 + 清空 time_records
+      try {
+        await DB.prepare(`UPDATE todos SET done = 0, time_records = ? WHERE id IN (${placeholders})`)
+          .bind('[]', ...ids).run();
+      } catch (e) {
+        // 兜底：仅更新 done（极端情况：列不存在等）
+        await DB.prepare(`UPDATE todos SET done = 0 WHERE id IN (${placeholders})`)
+          .bind(...ids).run();
+      }
+    }
+
     return jsonResponse({ success: true, data: { affected: ids.length, done: !!doneStatus } });
   }
 
@@ -1309,7 +1449,7 @@ export async function handleV1Request(request, env, ctx) {
   // /api/v1/todos/:id/toggle
   const toggleMatch = path.match(/^\/api\/v1\/todos\/([a-zA-Z0-9_-]+)\/toggle$/);
   if (toggleMatch && request.method === 'PATCH') {
-    return handleV1TodoToggle(env.DB, toggleMatch[1]);
+    return handleV1TodoToggle(request, env.DB, toggleMatch[1]);
   }
 
   // /api/v1/todos/:id/subtasks
