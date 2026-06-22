@@ -30,7 +30,7 @@ Mitigation: The skill instructs agents to always GET settings first, modify, the
 **Other Properties Related to Output:** [Uses curl via cf-todo.sh helper script; requires CF_TODO_API_URL and CF_TODO_API_KEY environment variables] <br>
 
 ## Skill Version(s): <br>
-1.1.0 <br>
+1.2.0 <br>
 
 ## Ethical Considerations: <br>
 Users should evaluate whether this skill is appropriate for their environment, review any changes before confirming destructive actions, and apply their organization's safety, security, and compliance requirements before deployment. <br>
