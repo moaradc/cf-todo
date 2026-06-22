@@ -260,15 +260,22 @@ export const todos = `
     }
 
     async function toggleDone(index) {
-      todos[index].done = !todos[index].done;
+      const todo = todos[index];
+      if (!todo) return;
+      todo.done = !todo.done;
       // 若该事项有活动计时器，一并清除（不记录到历史）
-      if (typeof clearTimerState === 'function') clearTimerState(todos[index].id);
+      if (typeof clearTimerState === 'function') clearTimerState(todo.id);
+      // 取消勾选时：清空本地 time_records（与服务端 TOGGLE_DONE 一致），
+      // 避免详情面板仍显示旧的"完成于 X"
+      if (!todo.done) {
+        todo.time_records = [];
+      }
       // 乐观更新：先刷新 UI，再发请求（与 completeTimer 一致，避免等待网络）
       renderTodos();
       try {
         await fetch('/api/todo-action', {
           method: 'POST',
-          body: JSON.stringify({ action: 'TOGGLE_DONE', task: { id: todos[index].id, done: todos[index].done } }),
+          body: JSON.stringify({ action: 'TOGGLE_DONE', task: { id: todo.id, done: todo.done } }),
           headers: { 'Content-Type': 'application/json' }
         });
       } catch (e) {
@@ -386,6 +393,24 @@ export const todos = `
       }
       writeTimerState(todo.id, null);
       todo.done = true;
+      // 同步把 record 写入 todo.time_records（本地乐观更新），
+      // 这样 refreshDetailTimerBlock 即便没传 overrideRecord，也能从
+      // getDetailTimeRecords()（读 todo.time_records）拿到刚完成的记录。
+      // 与服务端 TIMER_COMPLETE 的写入逻辑保持一致：FIFO 保留最近 5 条。
+      if (record) {
+        try {
+          let arr = Array.isArray(todo.time_records)
+            ? todo.time_records
+            : (typeof todo.time_records === 'string' ? JSON.parse(todo.time_records || '[]') : []);
+          if (!Array.isArray(arr)) arr = [];
+          arr.push(record);
+          if (arr.length > 5) arr = arr.slice(arr.length - 5);
+          todo.time_records = arr; // 统一用数组形式存（与 getDetailTimeRecords 兼容）
+        } catch (e) {
+          // 解析失败兜底：直接用新 record 覆盖
+          todo.time_records = [record];
+        }
+      }
       ensureTimerTick();
       renderTodos();
       // 防御性：即便 renderTodos 已经改成不 in-place sort 全局 todos，
@@ -582,7 +607,32 @@ export const todos = `
         ensureTimerTick();
       }
 
-      Array.from(selectedTasks).forEach(idx => todos[idx].done = targetDone);
+      Array.from(selectedTasks).forEach(idx => {
+        const todo = todos[idx];
+        if (!todo) return;
+        todo.done = targetDone;
+        // 批量完成时：若该 todo 有 record 写入服务端，同步更新本地 todo.time_records
+        // 与 completeTimer 保持一致，让详情面板 getDetailTimeRecords() 能立即拿到新记录
+        if (targetDone) {
+          const tr = timerRecords.find(r => r.id === todo.id);
+          if (tr && tr.record) {
+            try {
+              let arr = Array.isArray(todo.time_records)
+                ? todo.time_records
+                : (typeof todo.time_records === 'string' ? JSON.parse(todo.time_records || '[]') : []);
+              if (!Array.isArray(arr)) arr = [];
+              arr.push(tr.record);
+              if (arr.length > 5) arr = arr.slice(arr.length - 5);
+              todo.time_records = arr;
+            } catch (e) {
+              todo.time_records = [tr.record];
+            }
+          }
+        } else {
+          // 批量取消完成：清空本地 time_records（与服务端 TOGGLE_DONE/BATCH_TOGGLE_DONE 一致）
+          todo.time_records = [];
+        }
+      });
       renderTodos();
       // 乐观更新：先退出批量模式，再发请求（避免等待网络才退出）
       exitBatchMode();

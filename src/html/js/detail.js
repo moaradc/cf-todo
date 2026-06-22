@@ -184,16 +184,31 @@ export const detail = `
     }
 
     // ==================== 详情面板计时区块 ====================
-    // 实例级 fetch：每个重复实例独立获取自己的 time_records，修复同一模板
-    // 多个实例共享 time_records 导致的串台问题（06.25 实例看到 06.26 实例的"完成于"）。
-    // 仍会同时取模板级记录（templateRecords），用于 predictDuration 预估时长。
+    // 实例级记录直接读 todos[currentDetailIndex].time_records（todo 对象自带），
+    // 不再发 /api/time-records?todo_id= 拉取。原因：
+    //   1. /api/todos 已经把 time_records 字段带过来了，前端只需 JSON.parse
+    //   2. todo.id 唯一，从 todos[currentDetailIndex] 取出的就是当前实例的记录，
+    //      不会跨实例串台
+    //   3. 消除 SW 缓存命中旧空响应、D1 读副本延迟等导致的"拉到空 records"问题
+    //   4. 省一次网络往返
+    // 模板级 templateRecords 仍独立拉取（用于 predictDuration 预估时长），失败不影响主流程。
     let detailTimerOwnerId = null;
-    let detailTimeRecords = []; // 当前实例的完成记录（实例级，独立不串台）
-    let detailTemplateRecords = []; // 当前模板的跨实例记录（用于 predictDuration）
+    let detailTemplateRecords = []; // 当前模板的跨实例记录（仅用于 predictDuration 预估）
 
-    // 取当前事项的历史记录
+    // 取当前事项的实例级完成记录：直接从 todo.time_records 字段解析
+    // 兼容字符串（DB 原始格式）和数组（理论上服务端可能解析后返回）两种形式
     function getDetailTimeRecords() {
-      return detailTimeRecords;
+      const task = todos[currentDetailIndex];
+      if (!task) return [];
+      const raw = task.time_records;
+      if (Array.isArray(raw)) return raw;
+      if (typeof raw === 'string' && raw) {
+        try {
+          const parsed = JSON.parse(raw);
+          return Array.isArray(parsed) ? parsed : [];
+        } catch (e) { return []; }
+      }
+      return [];
     }
 
     // 仅刷新计时区块，不重渲染整个面板（避免破坏用户阅读位置）
@@ -290,74 +305,61 @@ export const detail = `
       refreshDetailTimerBlock();
     }
 
-    // 强制重新拉取当前实例的 time_records 并刷新计时区块
-    // 用于 TIMER_COMPLETE 后：服务器已写入新记录，重新 fetch 拿最新数据
+    // 拉取当前模板的跨实例记录（templateRecords），用于 predictDuration 预估时长
+    // 实例级 records 不再拉取：直接读 todos[currentDetailIndex].time_records（见 getDetailTimeRecords）
+    // 此函数仅用于：completeTimer 后刷新预估数据；预估数据缺失不影响"完成于"显示
     function reloadDetailTimeRecords() {
       const task = todos[currentDetailIndex];
       if (!task || !task.id) return;
       const tid = task.id;
-      // 以 todo_id 查询，返回实例级记录 + 模板级记录（templateRecords）
-      // 加 cache-busting 参数，确保 SW/HTTP 缓存不命中旧响应
+      // 仅拉模板级记录：以 todo_id 查询，服务端会同时返回 records 和 templateRecords，
+      // 我们只用 templateRecords（用于 predictDuration）
       const bustUrl = '/api/time-records?todo_id=' + encodeURIComponent(tid) + '&_t=' + Date.now();
       fetch(bustUrl)
-        .then(function(r) { return r.ok ? r.json() : { records: [], templateRecords: [] }; })
+        .then(function(r) { return r.ok ? r.json() : { templateRecords: [] }; })
         .then(function(data) {
           // 防止竞态：仅当当前详情仍是同一事项时才刷新 UI
           const cur = todos[currentDetailIndex];
-          detailTimeRecords = (data && Array.isArray(data.records)) ? data.records : [];
           detailTemplateRecords = (data && Array.isArray(data.templateRecords)) ? data.templateRecords : [];
           if (cur && cur.id === task.id) refreshDetailTimerBlock();
         })
         .catch(function() {
           const cur = todos[currentDetailIndex];
-          detailTimeRecords = [];
           detailTemplateRecords = [];
           if (cur && cur.id === task.id) refreshDetailTimerBlock();
         });
     }
 
-    // completeTimer 之后：实时调用 API 拉取权威数据（todos + time_records）
+    // completeTimer 之后：实时调用 API 拉取权威 todos（含 time_records 字段）
     // 解决背景/前台切换后 todos 数组与服务器不一致、本地缓存导致 UI 显示错误的问题
-    // 并行拉取 /api/todos 和 /api/time-records，以服务器返回为准重新渲染
+    // 不再单独拉 /api/time-records：todos[].time_records 已含实例级记录
     function reloadDetailAfterComplete() {
       const task = todos[currentDetailIndex];
       if (!task || !task.id) return;
       const todoId = task.id;
       const dateStr = formatDate(currentDate);
 
-      // 并行拉取 todos + time_records，cache: 'no-cache' 确保绕过 SW/HTTP 缓存
+      // 仅拉 todos，cache: 'no-cache' 确保绕过 SW/HTTP 缓存
       const todosUrl = '/api/todos?date=' + encodeURIComponent(dateStr) + '&_t=' + Date.now();
-      const recordsUrl = '/api/time-records?todo_id=' + encodeURIComponent(todoId) + '&_t=' + Date.now();
 
-      Promise.all([
-        fetch(todosUrl, { cache: 'no-cache' })
-          .then(function(r) { return r.ok ? r.json() : null; })
-          .catch(function() { return null; }),
-        fetch(recordsUrl, { cache: 'no-cache' })
-          .then(function(r) { return r.ok ? r.json() : { records: [], templateRecords: [] }; })
-          .catch(function() { return { records: [], templateRecords: [] }; })
-      ]).then(function(results) {
-        const freshTodos = results[0];
-        const freshData = results[1];
+      fetch(todosUrl, { cache: 'no-cache' })
+        .then(function(r) { return r.ok ? r.json() : null; })
+        .catch(function() { return null; })
+        .then(function(freshTodos) {
+          if (!Array.isArray(freshTodos)) return;
 
-        // 更新 todos 数组（以服务器为准）
-        if (Array.isArray(freshTodos)) {
+          // 更新 todos 数组（以服务器为准，含最新 time_records 字段）
           todos = freshTodos;
           // 重新定位 currentDetailIndex（数组顺序可能变化）
           const newIdx = todos.findIndex(function(t) { return t.id === todoId; });
           if (newIdx !== -1) currentDetailIndex = newIdx;
-        }
 
-        // 更新 time_records 缓存
-        detailTimeRecords = (freshData && Array.isArray(freshData.records)) ? freshData.records : [];
-        detailTemplateRecords = (freshData && Array.isArray(freshData.templateRecords)) ? freshData.templateRecords : [];
+          // 渲染主列表
+          if (typeof renderTodos === 'function') renderTodos();
 
-        // 渲染主列表
-        if (typeof renderTodos === 'function') renderTodos();
-
-        // 刷新计时区块（无参数，使用刚拉取的 detailTimeRecords）
-        refreshDetailTimerBlock();
-      });
+          // 刷新计时区块：getDetailTimeRecords 会从 todos[currentDetailIndex].time_records 解析
+          refreshDetailTimerBlock();
+        });
     }
 
     function renderDetailContent() {
@@ -366,10 +368,9 @@ export const detail = `
       const pMap = {low:'优先级: 低', med:'优先级: 中', high:'优先级: 高'};
       const rMap = { none: '不重复', daily: '每天', weekly: '每周', monthly: '每月', yearly: '每年' };
 
-      // 实例级 fetch：每次打开事项详情都重置 + fetch 最新 time_records
-      // 以 todo_id 查询返回实例级记录（不串台）+ 模板级记录（用于 predictDuration）
+      // 实例级 records 已直接来自 todos[currentDetailIndex].time_records（见 getDetailTimeRecords），
+      // 不再 fetch。这里仅清空模板级缓存，下面会按需拉取模板级记录用于 predictDuration 预估。
       detailTimerOwnerId = task && task.id;
-      detailTimeRecords = [];
       detailTemplateRecords = [];
       
       if (!isEditMode) {
@@ -438,26 +439,24 @@ export const detail = `
         let timerSection = '';
         if (task.repeat_type && task.repeat_type !== 'none') {
           timerSection = '<div id="timer-section"></div>';
-          // 实例级 fetch：以 todo_id 查询，返回实例记录 + 模板记录
-          // 避免同一模板的不同实例（如 06.24 / 06.25）共享导致显示错误的"完成于"
+          // 实例级 records 已直接来自 todo.time_records，无需 fetch。
+          // 这里仅拉取模板级记录（templateRecords），用于 predictDuration 预估时长。
+          // 模板级记录缺失不影响"完成于"显示，仅影响"预计 X 分"提示。
           const fetchTodoId = task.id;
           if (fetchTodoId) {
-            // 加 cache-busting 参数，确保 SW/HTTP 缓存不命中旧响应
             const bustUrl = '/api/time-records?todo_id=' + encodeURIComponent(fetchTodoId) + '&_t=' + Date.now();
             fetch(bustUrl)
-              .then(function(r) { return r.ok ? r.json() : { records: [], templateRecords: [] }; })
+              .then(function(r) { return r.ok ? r.json() : { templateRecords: [] }; })
               .then(function(data) {
                 // 防止竞态：仅当当前详情仍是同一事项时才应用结果
                 const cur = todos[currentDetailIndex];
                 if (!cur || cur.id !== task.id) return;
-                detailTimeRecords = (data && Array.isArray(data.records)) ? data.records : [];
                 detailTemplateRecords = (data && Array.isArray(data.templateRecords)) ? data.templateRecords : [];
                 refreshDetailTimerBlock();
               })
               .catch(function() {
                 const cur = todos[currentDetailIndex];
                 if (!cur || cur.id !== task.id) return;
-                detailTimeRecords = [];
                 detailTemplateRecords = [];
                 refreshDetailTimerBlock();
               });
