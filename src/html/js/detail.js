@@ -219,8 +219,25 @@ export const detail = `
       const task = todos[currentDetailIndex];
       const slot = document.getElementById('timer-section');
       if (!task || !slot) return;
-      // 仅重复 todo 渲染区块
-      if (!task.repeat_type || task.repeat_type === 'none') { slot.innerHTML = ''; return; }
+
+      // 非重复 todo：只读显示计时区块（不展示按钮、不展示耗时）
+      // 原因：非重复 todo 不支持计时操作，但 time_records 字段每个 todo 都有，
+      // 用户可能通过"仅此项"从重复 todo 转换而来，此时 time_records 仍保留历史完成记录。
+      // 为保持 UI 一致性，展示只读区块：仅显示"无完成耗时记录"或"完成于 X"。
+      const isRepeating = task.repeat_type && task.repeat_type !== 'none';
+      if (!isRepeating) {
+        let html = '<div class="detail-label">计时</div>';
+        const records = getDetailTimeRecords();
+        const lastRec = (task.done && records.length) ? records[records.length - 1] : null;
+        if (lastRec && lastRec.e) {
+          const endTimeStr = new Date(lastRec.e).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
+          html += '<div class="detail-value">完成于 ' + endTimeStr + '</div>';
+        } else {
+          html += '<div class="detail-value" style="color:var(--fg); opacity:0.6;">无完成耗时记录</div>';
+        }
+        slot.innerHTML = html;
+        return;
+      }
 
       const timerState = task.done ? null : maybePruneStaleTimer(task.id);
       const paused = timerState && isTimerPaused(timerState);
@@ -243,7 +260,13 @@ export const detail = `
         if (lastRec) {
           const dur = Math.max(0, (lastRec.e || 0) - (lastRec.s || 0) - (lastRec.p || 0));
           const endTimeStr = new Date(lastRec.e).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
-          html += '<div class="detail-value">完成于 ' + endTimeStr + '，耗时 ' + formatMs(dur) + '</div>';
+          // 零耗时（s===e）：勾选框完成，无计时，仅显示"完成于 X"
+          // 有耗时（s<e）：计时器完成，显示"完成于 X，耗时 Y"
+          if (dur === 0 && lastRec.s === lastRec.e) {
+            html += '<div class="detail-value">完成于 ' + endTimeStr + '</div>';
+          } else {
+            html += '<div class="detail-value">完成于 ' + endTimeStr + '，耗时 ' + formatMs(dur) + '</div>';
+          }
         } else {
           html += '<div class="detail-value" style="color:var(--fg); opacity:0.6;">无完成耗时记录</div>';
         }
@@ -435,10 +458,9 @@ export const detail = `
           }
         }
 
-        // 计时区块（仅重复 todo）
-        let timerSection = '';
+        // 计时区块：所有 todo 都渲染（非重复 todo 只读，重复 todo 支持计时操作）
+        let timerSection = '<div id="timer-section"></div>';
         if (task.repeat_type && task.repeat_type !== 'none') {
-          timerSection = '<div id="timer-section"></div>';
           // 实例级 records 已直接来自 todo.time_records，无需 fetch。
           // 这里仅拉取模板级记录（templateRecords），用于 predictDuration 预估时长。
           // 模板级记录缺失不影响"完成于"显示，仅影响"预计 X 分"提示。
@@ -478,7 +500,8 @@ export const detail = `
           \${timerSection}
         \`;
         // 立即用本地缓存渲染一次计时区块（避免等待网络时空白）
-        if (task.repeat_type && task.repeat_type !== 'none') refreshDetailTimerBlock();
+        // 重复 todo：渲染计时按钮/预估；非重复 todo：渲染只读区块
+        refreshDetailTimerBlock();
       } else {
         activeMode = 'edit';
         var intervalText = getIntervalDisplayText(tempRepeatInterval, tempRepeatType);
@@ -867,6 +890,50 @@ export const detail = `
         task.copyText = document.getElementById('edit-copy').value; task.copy_text = task.copyText; 
         task.subtasks = tempSubtasks; task.search_terms = tempSearchTerms;
         task.category_id = tempCategoryId;
+        
+        // === 编辑保存前清理同系列计时器，避免 localStorage 孤儿 ===
+        // 必须在 await fetch / loadTodos 之前完成：fetch 后 todos 数组会被刷新，
+        // 同系列其他实例（siblings）就拿不到了。
+        // 必须在 scope 处理改 task.isSeries 之前读原值：原 isSeries 决定是否走清理分支。
+        // 不调用 completeTimer：被 DELETE 的实例在后端已不存在，TIMER_COMPLETE 会失败。
+        // 进度丢失是已知限制（与原行为一致，只是不再静默残留孤儿）。
+        const _origIsSeries = task.isSeries;
+        const _taskId = task.id;
+        const _taskParentId = task.parent_id || task.parentId;
+        if (_origIsSeries && typeof clearTimerState === 'function' && typeof readTimerState === 'function') {
+          // 同系列、当前正在计时（running 或 paused）的其他实例
+          const _siblingsWithTimer = todos.filter(function(t) {
+            return t.id !== _taskId
+              && (t.parent_id === _taskParentId || t.parentId === _taskParentId)
+              && readTimerState(t.id);
+          });
+
+          if (scope === 'this') {
+            // 仅此日程：当前实例脱钩为非重复，服务端清空 time_records（api.js:2500-2502）
+            // 前端计时器同步清除（与 DELETE 路径 detail.js:872 行为一致），
+            // 否则日后改回重复会复活显示成"进行中"。
+            clearTimerState(_taskId);
+          } else if (scope === 'thisAndFuture') {
+            // 此日程及之后：服务端 DELETE date >= originalDate 的同系列其他实例
+            // （api.js:2529-2531）。这些实例的前端计时器会变孤儿，进度静默丢失。
+            // 清掉这些 siblings 的计时器，避免 localStorage 残留。
+            _siblingsWithTimer.forEach(function(t) {
+              if (t.date >= originalDate) clearTimerState(t.id);
+            });
+          } else if (scope === 'all') {
+            // 所有日程：若改了重复规则/日期，服务端 DELETE 同系列其他实例
+            // （api.js:2544-2546）；仅改非重复属性时不删（api.js:2547-2551）。
+            // 前端无法可靠判断后端是否走 DELETE 分支（依赖 recurrenceChanged/dateChanged
+            // 这些后端 computeUpdateActions 内部状态），保守清理：
+            // 清掉所有 siblings + 当前实例的计时器。
+            // 副作用：仅改文本时也会清掉同系列其他实例的计时器——但 all 语义本就是全局生效，
+            // 清掉局部计时器可接受。
+            _siblingsWithTimer.forEach(function(t) {
+              clearTimerState(t.id);
+            });
+            clearTimerState(_taskId);
+          }
+        }
         
         // 根据scope处理重复属性
         if (scope === 'this' && task.isSeries) {

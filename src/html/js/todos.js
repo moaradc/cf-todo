@@ -262,20 +262,50 @@ export const todos = `
     async function toggleDone(index) {
       const todo = todos[index];
       if (!todo) return;
+      // 勾选完成（done 0→1）且该事项有活动计时器：转交 completeTimer
+      // 保留计时进度，显示"完成于 X，耗时 Y"（与点"结束"按钮一致），
+      // 避免 clearTimerState 丢弃进度后写入零耗时 record
+      if (!todo.done && typeof readTimerState === 'function' && readTimerState(todo.id)) {
+        await completeTimer(index);
+        return;
+      }
       todo.done = !todo.done;
       // 若该事项有活动计时器，一并清除（不记录到历史）
+      // 走到这里说明 todo.done 是 false→true 但无计时器，或 true→false 取消勾选
       if (typeof clearTimerState === 'function') clearTimerState(todo.id);
       // 取消勾选时：清空本地 time_records（与服务端 TOGGLE_DONE 一致），
       // 避免详情面板仍显示旧的"完成于 X"
       if (!todo.done) {
         todo.time_records = [];
+      } else {
+        // 勾选完成（无计时器）：构造零耗时 record（s===e），仅记录完成时刻
+        // 服务端 TOGGLE_DONE 会写入实例级 time_records（不写模板级）
+        // 乐观更新本地 todo.time_records，让详情面板即时显示"完成于 X"
+        const now = Date.now();
+        try {
+          let arr = Array.isArray(todo.time_records)
+            ? todo.time_records
+            : (typeof todo.time_records === 'string' ? JSON.parse(todo.time_records || '[]') : []);
+          if (!Array.isArray(arr)) arr = [];
+          arr.push({ s: now, e: now, p: 0 });
+          if (arr.length > 5) arr = arr.slice(arr.length - 5);
+          todo.time_records = arr;
+        } catch (e) {
+          todo.time_records = [{ s: now, e: now, p: 0 }];
+        }
       }
       // 乐观更新：先刷新 UI，再发请求（与 completeTimer 一致，避免等待网络）
       renderTodos();
       try {
+        const now = Date.now();
+        const payload = { action: 'TOGGLE_DONE', task: { id: todo.id, done: todo.done } };
+        // 勾选完成时附带零耗时 record，服务端据此写入 time_records
+        if (todo.done) {
+          payload.record = { s: now, e: now, p: 0 };
+        }
         await fetch('/api/todo-action', {
           method: 'POST',
-          body: JSON.stringify({ action: 'TOGGLE_DONE', task: { id: todo.id, done: todo.done } }),
+          body: JSON.stringify(payload),
           headers: { 'Content-Type': 'application/json' }
         });
       } catch (e) {
@@ -580,8 +610,10 @@ export const todos = `
       const targetDone = !allDone;
       const ids = Array.from(selectedTasks).map(idx => todos[idx].id);
 
-      // 批量完成时：对有活动计时器的选中项，计算 record 并清本地状态
-      // 类比"职场身份高低"：开启计时的 todo 完成时记录耗时，未开启的只标记完成
+      // 批量完成时：对所有选中项构造 record
+      // - 有活动计时器：计算真实耗时（s<e），清本地计时器状态
+      // - 无活动计时器：零耗时 record（s===e），仅记录完成时刻
+      // 与单选 toggleDone 行为一致：勾选框完成都记录"完成于 X"
       const timerRecords = [];  // [{ id, parentId, record }]
       if (targetDone) {
         const now = Date.now();
@@ -589,20 +621,36 @@ export const todos = `
           const todo = todos[idx];
           if (!todo) return;
           const st = readTimerState(todo.id);
-          if (!st) return;
-          let pausedMs = st.p;
-          if (isTimerPaused(st)) pausedMs += (now - st.lp);
-          const elapsedMs = now - st.s - pausedMs;
-          // 时长合理才记录（与 completeTimer 一致）
-          if (elapsedMs >= 1000 && elapsedMs <= TIMER_STALE_MS) {
+          if (st) {
+            // 有活动计时器：真实耗时 record
+            let pausedMs = st.p;
+            if (isTimerPaused(st)) pausedMs += (now - st.lp);
+            const elapsedMs = now - st.s - pausedMs;
+            // 时长合理才记录真实耗时（与 completeTimer 一致），否则降级为零耗时
+            if (elapsedMs >= 1000 && elapsedMs <= TIMER_STALE_MS) {
+              timerRecords.push({
+                id: todo.id,
+                parentId: todo.parent_id,
+                record: { s: st.s, e: now, p: Math.max(0, Math.floor(pausedMs)) }
+              });
+            } else {
+              // 时长不合理（<1s 或超 24h）：降级为零耗时，至少记录完成时刻
+              timerRecords.push({
+                id: todo.id,
+                parentId: todo.parent_id,
+                record: { s: now, e: now, p: 0 }
+              });
+            }
+            // 清除本地计时器状态（无论是否记录真实耗时）
+            writeTimerState(todo.id, null);
+          } else {
+            // 无活动计时器：零耗时 record（s===e），仅记录完成时刻
             timerRecords.push({
               id: todo.id,
               parentId: todo.parent_id,
-              record: { s: st.s, e: now, p: Math.max(0, Math.floor(pausedMs)) }
+              record: { s: now, e: now, p: 0 }
             });
           }
-          // 清除本地计时器状态（无论是否记录）
-          writeTimerState(todo.id, null);
         });
         ensureTimerTick();
       }
@@ -611,8 +659,8 @@ export const todos = `
         const todo = todos[idx];
         if (!todo) return;
         todo.done = targetDone;
-        // 批量完成时：若该 todo 有 record 写入服务端，同步更新本地 todo.time_records
-        // 与 completeTimer 保持一致，让详情面板 getDetailTimeRecords() 能立即拿到新记录
+        // 批量完成时：同步更新本地 todo.time_records（与 completeTimer 保持一致），
+        // 让详情面板 getDetailTimeRecords() 能立即拿到新记录
         if (targetDone) {
           const tr = timerRecords.find(r => r.id === todo.id);
           if (tr && tr.record) {
