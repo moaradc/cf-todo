@@ -349,12 +349,19 @@ Response:
     "repeat_interval": 1,
     "time_records": [
       { "s": 1719000000000, "e": 1719000120000, "p": 0 }
-    ]
+    ],
+    "last_completed_at": 1719000120000,
+    "last_duration_ms": 120000,
+    "is_zero_duration": false
   }
 }
 ```
 
-**`time_records` field** (instance-level completion records, per-todo):
+**Timer fields** (instance-level completion records, per-todo):
+
+V1 API returns both the **raw records array** and **computed fields**. Clients can use the computed fields directly without parsing epoch ms or calculating durations.
+
+#### Raw field `time_records`
 
 Each record is `{ "s": <epoch_ms>, "e": <epoch_ms>, "p": <paused_ms> }`:
 - `s` — start time (epoch ms)
@@ -366,10 +373,35 @@ Each record is `{ "s": <epoch_ms>, "e": <epoch_ms>, "p": <paused_ms> }`:
 - FIFO, keeps the most recent 5 records; **the last element is the latest completion**.
 - Empty array `[]` when `done: false` (unchecking clears records).
 
-**Display suggestions** (matching the web UI):
-- Completion time = `lastRecord.e` (format as `HH:MM`, e.g. `20:02`)
-- Duration = `lastRecord.e - lastRecord.s - lastRecord.p` (omit when `s === e`)
-- Empty array → "无完成耗时记录" (no completion record)
+#### Computed fields (calculated from the latest record)
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `last_completed_at` | number \| null | Latest completion timestamp (epoch ms), i.e. `e` of the last record; `null` if no records |
+| `last_duration_ms` | number \| null | Latest actual duration (ms) = `e - s - p`; `0` for zero-duration; `null` if no records |
+| `is_zero_duration` | boolean | Whether the latest record is zero-duration (`s === e`); `false` if no records |
+
+#### Display suggestions (matching the web UI)
+
+| Condition | Display |
+|-----------|---------|
+| `last_completed_at === null` | "无完成耗时记录" (no completion record) |
+| `is_zero_duration === true` | "完成于 X" (X = `last_completed_at` formatted as HH:MM, no duration shown) |
+| `is_zero_duration === false` | "完成于 X，耗时 Y" (Y = `last_duration_ms` formatted as readable duration) |
+
+**Example** (JavaScript):
+```js
+if (todo.last_completed_at === null) {
+  show('无完成耗时记录');
+} else {
+  const time = new Date(todo.last_completed_at).toLocaleTimeString('zh-CN', {hour:'2-digit', minute:'2-digit'});
+  if (todo.is_zero_duration) {
+    show(`完成于 ${time}`);
+  } else {
+    show(`完成于 ${time}，耗时 ${formatMs(todo.last_duration_ms)}`);
+  }
+}
+```
 
 ### Create a todo
 

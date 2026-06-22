@@ -1032,11 +1032,18 @@ V1 API 字段名与 V0 Web API 保持一致（snake_case），仅 `isSeries` 为
   "time_records": [
     { "s": 1719000000000, "e": 1719000120000, "p": 0 },
     { "s": 1719000000000, "e": 1719000000000, "p": 0 }
-  ]
+  ],
+  "last_completed_at": 1719000000000,
+  "last_duration_ms": 120000,
+  "is_zero_duration": false
 }
 ```
 
-**`time_records` 字段说明**（实例级完成记录，每个 todo 独立存储）：
+**计时字段说明**（实例级完成记录，每个 todo 独立存储）：
+
+V1 API 同时返回**原始记录数组**和**计算字段**，客户端可直接使用计算字段显示，无需自行解析 epoch ms 或计算耗时。
+
+#### 原始字段 `time_records`
 
 | 字段 | 类型 | 说明 |
 |------|------|------|
@@ -1049,10 +1056,36 @@ V1 API 字段名与 V0 Web API 保持一致（snake_case），仅 `isSeries` 为
 - `s < e`：有耗时记录（计时器完成）
 - FIFO 保留最近 5 条，**末尾为最新一次完成记录**
 - `done: false` 时通常为空数组 `[]`（取消勾选会清空）
-- 客户端显示建议：
-  - 完成时刻 = `lastRecord.e`（格式化为时间，如 `20:02`）
-  - 耗时 = `lastRecord.e - lastRecord.s - lastRecord.p`（`s === e` 时不显示耗时）
-  - 空数组显示"无完成耗时记录"
+
+#### 计算字段（取最新一条 record 计算）
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `last_completed_at` | number \| null | 最新完成时刻（epoch ms），即 `time_records` 末尾的 `e`；无记录时 `null` |
+| `last_duration_ms` | number \| null | 最新一次实际耗时（ms）= `e - s - p`；零耗时为 `0`；无记录时 `null` |
+| `is_zero_duration` | boolean | 最新记录是否零耗时（`s === e`）；无记录时 `false` |
+
+#### 客户端显示建议（对应 Web UI）
+
+| 条件 | 显示 |
+|------|------|
+| `last_completed_at === null` | "无完成耗时记录" |
+| `is_zero_duration === true` | "完成于 X"（X = `last_completed_at` 格式化为 HH:MM，不显示耗时） |
+| `is_zero_duration === false` | "完成于 X，耗时 Y"（Y = `last_duration_ms` 格式化为可读时长） |
+
+**示例**（JavaScript）：
+```js
+if (todo.last_completed_at === null) {
+  show('无完成耗时记录');
+} else {
+  const time = new Date(todo.last_completed_at).toLocaleTimeString('zh-CN', {hour:'2-digit', minute:'2-digit'});
+  if (todo.is_zero_duration) {
+    show(`完成于 ${time}`);
+  } else {
+    show(`完成于 ${time}，耗时 ${formatMs(todo.last_duration_ms)}`);
+  }
+}
+```
 
 ### 4.2 Todo 对象（V0 响应格式）
 

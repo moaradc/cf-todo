@@ -316,6 +316,21 @@ function formatTodo(row) {
     timeRecords = [];
   }
 
+  // 计算字段：取最新一条 record（数组末尾）计算，对应 Web UI 显示的"完成于 X，耗时 Y"
+  // 客户端无需自行解析 epoch ms 或计算耗时，直接用这三个字段即可显示
+  let lastCompletedAt = null;      // 最新完成时刻（epoch ms），无记录时 null
+  let lastDurationMs = null;       // 最新一次实际耗时（ms），零耗时为 0，无记录时 null
+  let isZeroDuration = false;      // 最新记录是否零耗时（s===e），无记录时 false
+  if (timeRecords.length > 0) {
+    const last = timeRecords[timeRecords.length - 1];
+    const s = Number(last.s) || 0;
+    const e = Number(last.e) || 0;
+    const p = Number(last.p) || 0;
+    lastCompletedAt = e > 0 ? e : null;
+    isZeroDuration = (s === e);
+    lastDurationMs = Math.max(0, e - s - p);
+  }
+
   let rType = row.repeat_type || 'none';
   if (rType !== 'none' && !['daily', 'weekly', 'monthly', 'yearly'].includes(rType)) rType = 'daily';
 
@@ -342,7 +357,12 @@ function formatTodo(row) {
     is_exception: !!row.is_exception,
     isSeries: rType !== 'none',
     repeat_interval: row.repeat_interval || 1,
+    // 原始记录数组（供需要历史/预估的客户端）
     time_records: timeRecords,
+    // 计算字段（取最新一条 record，对应 Web UI 显示）
+    last_completed_at: lastCompletedAt,
+    last_duration_ms: lastDurationMs,
+    is_zero_duration: isZeroDuration,
   };
 }
 
