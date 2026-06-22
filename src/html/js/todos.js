@@ -220,6 +220,11 @@ export const todos = `
     function renderTodos() {
       updateDateHeader(false);
 
+      // 注意：必须用副本排序，禁止 in-place sort 全局 todos。
+      // 原因：详情面板的 currentDetailIndex 是 todos 数组的下标，
+      // 若 renderTodos 直接对 todos.sort()，会把 currentDetailIndex 指向的元素换走，
+      // 导致 refreshDetailTimerBlock 取到错误的 todo（典型现象：completeTimer 后
+      // 详情页本应显示"完成于 X"，却显示"开始计时"）。
       var filteredTodos = todos;
       if (filterMethod === 'todo') filteredTodos = todos.filter(function(t){ return !t.done; });
       else if (filterMethod === 'done') filteredTodos = todos.filter(function(t){ return t.done; });
@@ -232,6 +237,8 @@ export const todos = `
         return;
       }
 
+      // 复制一份再排序，避免污染全局 todos 的顺序
+      filteredTodos = filteredTodos.slice();
       filteredTodos.sort(function(a, b) {
         if (a.done !== b.done) return a.done ? 1 : -1;
         var valA, valB;
@@ -253,15 +260,22 @@ export const todos = `
     }
 
     async function toggleDone(index) {
-      todos[index].done = !todos[index].done;
+      const todo = todos[index];
+      if (!todo) return;
+      todo.done = !todo.done;
       // 若该事项有活动计时器，一并清除（不记录到历史）
-      if (typeof clearTimerState === 'function') clearTimerState(todos[index].id);
+      if (typeof clearTimerState === 'function') clearTimerState(todo.id);
+      // 取消勾选时：清空本地 time_records（与服务端 TOGGLE_DONE 一致），
+      // 避免详情面板仍显示旧的"完成于 X"
+      if (!todo.done) {
+        todo.time_records = [];
+      }
       // 乐观更新：先刷新 UI，再发请求（与 completeTimer 一致，避免等待网络）
       renderTodos();
       try {
         await fetch('/api/todo-action', {
           method: 'POST',
-          body: JSON.stringify({ action: 'TOGGLE_DONE', task: { id: todos[index].id, done: todos[index].done } }),
+          body: JSON.stringify({ action: 'TOGGLE_DONE', task: { id: todo.id, done: todo.done } }),
           headers: { 'Content-Type': 'application/json' }
         });
       } catch (e) {
@@ -366,6 +380,7 @@ export const todos = `
       if (!todo) return;
       const st = readTimerState(todo.id);
       if (!st) return;
+      const completedTodoId = todo.id; // 在 renderTodos 前记录 id，便于事后重定位
       const now = Date.now();
       let endMs = now;
       let pausedMs = st.p;
@@ -378,8 +393,33 @@ export const todos = `
       }
       writeTimerState(todo.id, null);
       todo.done = true;
+      // 同步把 record 写入 todo.time_records（本地乐观更新），
+      // 这样 refreshDetailTimerBlock 即便没传 overrideRecord，也能从
+      // getDetailTimeRecords()（读 todo.time_records）拿到刚完成的记录。
+      // 与服务端 TIMER_COMPLETE 的写入逻辑保持一致：FIFO 保留最近 5 条。
+      if (record) {
+        try {
+          let arr = Array.isArray(todo.time_records)
+            ? todo.time_records
+            : (typeof todo.time_records === 'string' ? JSON.parse(todo.time_records || '[]') : []);
+          if (!Array.isArray(arr)) arr = [];
+          arr.push(record);
+          if (arr.length > 5) arr = arr.slice(arr.length - 5);
+          todo.time_records = arr; // 统一用数组形式存（与 getDetailTimeRecords 兼容）
+        } catch (e) {
+          // 解析失败兜底：直接用新 record 覆盖
+          todo.time_records = [record];
+        }
+      }
       ensureTimerTick();
       renderTodos();
+      // 防御性：即便 renderTodos 已经改成不 in-place sort 全局 todos，
+      // 仍用 id 重定位 currentDetailIndex，避免任何潜在的 index 漂移导致
+      // refreshDetailTimerBlock 取到错误的 todo（重现"开始计时"bug）。
+      if (currentDetailIndex >= 0 && todos[currentDetailIndex] && todos[currentDetailIndex].id !== completedTodoId) {
+        const newIdx = todos.findIndex(function(t) { return t.id === completedTodoId; });
+        if (newIdx !== -1) currentDetailIndex = newIdx;
+      }
       // 同步阶段：把刚算出的 record 作为参数直传给 refreshDetailTimerBlock，
       // 让 UI 即刻渲染"完成于 X，耗时 Y"。
       // 不写入任何缓存（避免状态残留/串台/失效问题），record 仅在本次调用中消费。
@@ -567,7 +607,32 @@ export const todos = `
         ensureTimerTick();
       }
 
-      Array.from(selectedTasks).forEach(idx => todos[idx].done = targetDone);
+      Array.from(selectedTasks).forEach(idx => {
+        const todo = todos[idx];
+        if (!todo) return;
+        todo.done = targetDone;
+        // 批量完成时：若该 todo 有 record 写入服务端，同步更新本地 todo.time_records
+        // 与 completeTimer 保持一致，让详情面板 getDetailTimeRecords() 能立即拿到新记录
+        if (targetDone) {
+          const tr = timerRecords.find(r => r.id === todo.id);
+          if (tr && tr.record) {
+            try {
+              let arr = Array.isArray(todo.time_records)
+                ? todo.time_records
+                : (typeof todo.time_records === 'string' ? JSON.parse(todo.time_records || '[]') : []);
+              if (!Array.isArray(arr)) arr = [];
+              arr.push(tr.record);
+              if (arr.length > 5) arr = arr.slice(arr.length - 5);
+              todo.time_records = arr;
+            } catch (e) {
+              todo.time_records = [tr.record];
+            }
+          }
+        } else {
+          // 批量取消完成：清空本地 time_records（与服务端 TOGGLE_DONE/BATCH_TOGGLE_DONE 一致）
+          todo.time_records = [];
+        }
+      });
       renderTodos();
       // 乐观更新：先退出批量模式，再发请求（避免等待网络才退出）
       exitBatchMode();
