@@ -12,8 +12,9 @@
 #   todos:get <id>                        - Get a single todo
 #   todos:create <date> <text> [priority] - Create a todo
 #   todos:update <id> <json-body>         - Update a todo
-#   todos:toggle <id>                     - Toggle done status
+#   todos:toggle <id> [json-body]        - Toggle done status (optional body with record)
 #   todos:delete <id> [scope]             - Delete a todo
+#   todos:batch <json-body>               - Batch operations (BATCH_TOGGLE_DONE / BATCH_DELETE)
 #   todos:subtasks <id> <json-body>     - Update subtasks independently
 #   todos:search-terms <id> <json-body> - Update search terms independently
 #   trash:list                            - List trash
@@ -84,8 +85,13 @@ case "$action" in
     curl "${curl_opts[@]}" -X PUT "$BASE_URL/api/v1/todos/$id" -d "$body"
     ;;
   todos:toggle)
-    id="${1:?Usage: todos:toggle <id>}"
-    curl "${curl_opts[@]}" -X PATCH "$BASE_URL/api/v1/todos/$id/toggle"
+    id="${1:?Usage: todos:toggle <id> [json-body]}"
+    body="${2:-}"
+    if [[ -n "$body" ]]; then
+      curl "${curl_opts[@]}" -X PATCH "$BASE_URL/api/v1/todos/$id/toggle" -H "Content-Type: application/json" -d "$body"
+    else
+      curl "${curl_opts[@]}" -X PATCH "$BASE_URL/api/v1/todos/$id/toggle"
+    fi
     ;;
   todos:delete)
     id="${1:?Usage: todos:delete <id> [scope]}"
@@ -93,6 +99,10 @@ case "$action" in
     url="$BASE_URL/api/v1/todos/$id"
     [[ -n "$scope" ]] && url="$url?scope=$scope"
     curl "${curl_opts[@]}" -X DELETE "$url"
+    ;;
+  todos:batch)
+    body="${1:?Usage: todos:batch <json-body>}"
+    curl "${curl_opts[@]}" -X POST "$BASE_URL/api/v1/todos/batch" -H "Content-Type: application/json" -d "$body"
     ;;
   todos:subtasks)
     id="${1:?Usage: todos:subtasks <id> <json-body>}"
@@ -181,7 +191,7 @@ case "$action" in
     ;;
   *)
     echo "Unknown action: $action" >&2
-    echo "Available: todos:date, todos:range, todos:get, todos:create, todos:update, todos:toggle, todos:delete, todos:subtasks, todos:search-terms, trash:list, trash:restore, trash:permanent, trash:clear, trash:clear-all-data, cats:list, cats:get, cats:create, cats:update, cats:delete, stats, settings:get, settings:save, custom-code:get, custom-code:save, custom-header, custom-content, custom-colors:get, custom-colors:save" >&2
+    echo "Available: todos:date, todos:range, todos:get, todos:create, todos:update, todos:toggle, todos:delete, todos:batch, todos:subtasks, todos:search-terms, trash:list, trash:restore, trash:permanent, trash:clear, trash:clear-all-data, cats:list, cats:get, cats:create, cats:update, cats:delete, stats, settings:get, settings:save, custom-code:get, custom-code:save, custom-header, custom-content, custom-colors:get, custom-colors:save" >&2
     exit 1
     ;;
 esac

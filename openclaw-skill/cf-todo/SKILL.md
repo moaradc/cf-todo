@@ -1,7 +1,7 @@
 ---
 name: cf-todo
 description: Manage todos and categories on a self-hosted Cloudflare Worker + D1 Todo App. Use when users ask to add, create, view, complete, update, or delete todos, manage recurring/repeating tasks, organize categories, or check their to-do list.
-version: 1.1.0
+version: 1.2.0
 metadata: {"openclaw":{"emoji":"📝","requires":{"env":["CF_TODO_API_URL","CF_TODO_API_KEY"],"bins":["curl"]},"primaryEnv":"CF_TODO_API_KEY","envVars":[{"name":"CF_TODO_API_URL","required":true,"description":"Base URL of your cf-todo deployment (e.g. https://todo.example.com, no trailing slash)"},{"name":"CF_TODO_API_KEY","required":true,"description":"API Key (cfk_...) generated from the cf-todo web UI Settings page"}]}}
 ---
 
@@ -82,9 +82,9 @@ Endpoints under `/api/v1/keys` require **Cookie auth only** (web UI session), no
 | GET | `/api/v1/todos/:id` | 获取单个 Todo | — |
 | POST | `/api/v1/todos` | 创建 Todo | 必填 `date`, `text`；返回 201；`date` 为首次出现日期 |
 | PUT | `/api/v1/todos/:id` | 更新 Todo | 仅传需改字段；可改 `date`；重复任务需设 `scope` |
-| PATCH | `/api/v1/todos/:id/toggle` | 切换完成状态 | 重复任务仅影响当天实例 |
+| PATCH | `/api/v1/todos/:id/toggle` | 切换完成状态 | 重复任务仅影响当天实例；`done: false→true` 时可附带 `record` 记录完成时刻/耗时 |
 | DELETE | `/api/v1/todos/:id` | 删除 Todo（软删除） | 重复任务默认 `scope=this`；可选 `thisAndFuture`, `all` |
-| POST | `/api/v1/todos/batch` | 批量操作 | `BATCH_TOGGLE_DONE`（需 `ids`+`doneStatus`）或 `BATCH_DELETE`（需 `ids`）；最多100条 |
+| POST | `/api/v1/todos/batch` | 批量操作 | `BATCH_TOGGLE_DONE`（需 `ids`+`doneStatus`，可选 `timerRecords`）或 `BATCH_DELETE`（需 `ids`）；最多100条 |
 | PATCH | `/api/v1/todos/:id/subtasks` | 独立更新子任务 | 需 `subtasks` 数组 |
 | PATCH | `/api/v1/todos/:id/search-terms` | 独立更新搜索词 | 需 `search_terms` 数组 |
 | **Category** | | | |
@@ -459,10 +459,30 @@ Response:
 ### Toggle done status
 
 ```bash
+# Basic toggle (no completion timestamp recorded)
 curl -s -X PATCH -H "X-API-Key: $CF_TODO_API_KEY" "$CF_TODO_API_URL/api/v1/todos/{id}/toggle"
+
+# Toggle to done WITH completion timestamp (zero-duration record, s === e)
+# Records "完成于 X" (completed at X) without duration. Useful for checkbox completion.
+curl -s -X PATCH -H "X-API-Key: $CF_TODO_API_KEY" -H "Content-Type: application/json" \
+  "$CF_TODO_API_URL/api/v1/todos/{id}/toggle" \
+  -d '{"record":{"s":1719000000000,"e":1719000000000,"p":0}}'
+
+# Toggle to done WITH real duration (s < e, e.g. timer completion)
+# Records "完成于 X，耗时 Y" (completed at X, duration Y). Writes to both instance + template.
+curl -s -X PATCH -H "X-API-Key: $CF_TODO_API_KEY" -H "Content-Type: application/json" \
+  "$CF_TODO_API_URL/api/v1/todos/{id}/toggle" \
+  -d '{"record":{"s":1719000000000,"e":1719000120000,"p":0}}'
 ```
 
 Toggles `done` between `true` and `false`. For recurring todos, only the specific day's instance is toggled — other days remain unaffected.
+
+**Optional `record` body** (only effective when toggling to `done: true`):
+- `s === e` (zero-duration): Records completion timestamp only. Writes to instance-level `time_records`, **not** template-level (avoids polluting `predictDuration` median estimate). Web UI shows "完成于 X".
+- `s < e` (real duration): Records completion timestamp + duration. Writes to both instance-level + template-level `time_records` (same as `TIMER_COMPLETE`). Web UI shows "完成于 X，耗时 Y".
+- Validation: `s > 0`, `e >= s`, duration ≤ 7 days, `0 <= p <= (e-s)`. Invalid records are silently skipped.
+- Toggling to `done: false` clears instance-level `time_records`.
+- No `record` or body parse failure: only updates `done` (backward compatible).
 
 Response:
 
@@ -510,10 +530,23 @@ Response:
 ### Batch operations
 
 ```bash
-# Batch toggle done
+# Batch toggle done (basic, no completion timestamp)
 curl -s -X POST -H "X-API-Key: $CF_TODO_API_KEY" -H "Content-Type: application/json" \
   "$CF_TODO_API_URL/api/v1/todos/batch" \
   -d '{"action":"BATCH_TOGGLE_DONE","ids":["id1","id2"],"doneStatus":true}'
+
+# Batch toggle done WITH timerRecords (mixed: one zero-duration, one real-duration)
+curl -s -X POST -H "X-API-Key: $CF_TODO_API_KEY" -H "Content-Type: application/json" \
+  "$CF_TODO_API_URL/api/v1/todos/batch" \
+  -d '{
+    "action":"BATCH_TOGGLE_DONE",
+    "ids":["id1","id2"],
+    "doneStatus":true,
+    "timerRecords":[
+      {"id":"id1","parentId":"parent-uuid-1","record":{"s":1719000000000,"e":1719000000000,"p":0}},
+      {"id":"id2","parentId":"parent-uuid-2","record":{"s":1719000000000,"e":1719000120000,"p":0}}
+    ]
+  }'
 
 # Batch delete (soft delete, max 100)
 curl -s -X POST -H "X-API-Key: $CF_TODO_API_KEY" -H "Content-Type: application/json" \
@@ -523,6 +556,10 @@ curl -s -X POST -H "X-API-Key: $CF_TODO_API_KEY" -H "Content-Type: application/j
 
 **BATCH_TOGGLE_DONE** — Set `doneStatus` to `true` (mark done) or `false` (mark undone) for all given `ids`.
 
+- `doneStatus: true`: First batch-updates `done=1`, then writes `time_records` for each entry in `timerRecords` (if provided). Record write rules are identical to `PATCH /toggle`.
+- `doneStatus: false`: Batch-updates `done=0, time_records='[]'` (clears instance-level records for all selected ids).
+- `ids` present but missing from `timerRecords`: only `done=1` is set, no `time_records` written (backward compatible).
+
 **BATCH_DELETE** — Soft-deletes all given `ids` (moves to trash). For recurring todos in the batch, exdates are automatically added to their templates to prevent regeneration.
 
 | Parameter | Type | Required | Description |
@@ -530,6 +567,7 @@ curl -s -X POST -H "X-API-Key: $CF_TODO_API_KEY" -H "Content-Type: application/j
 | `action` | string | Yes | `BATCH_TOGGLE_DONE` or `BATCH_DELETE` |
 | `ids` | string[] | Yes | Array of todo IDs (max 100) |
 | `doneStatus` | boolean | BATCH_TOGGLE_DONE | `true` = done, `false` = undone |
+| `timerRecords` | array | No | `[{id, parentId, record}]` — only effective when `doneStatus: true`. Each `record` follows the same validation rules as `PATCH /toggle`. |
 
 Response:
 
