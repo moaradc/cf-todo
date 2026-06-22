@@ -1028,9 +1028,31 @@ V1 API 字段名与 V0 Web API 保持一致（snake_case），仅 `isSeries` 为
   "recurrence_id": "",
   "is_exception": false,
   "isSeries": true,
-  "repeat_interval": 1
+  "repeat_interval": 1,
+  "time_records": [
+    { "s": 1719000000000, "e": 1719000120000, "p": 0 },
+    { "s": 1719000000000, "e": 1719000000000, "p": 0 }
+  ]
 }
 ```
+
+**`time_records` 字段说明**（实例级完成记录，每个 todo 独立存储）：
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `s` | number | 开始时间（epoch ms） |
+| `e` | number | 结束时间（epoch ms） |
+| `p` | number | 暂停累计时长（ms） |
+
+- **实际耗时** = `e - s - p`
+- `s === e`：零耗时记录（勾选框完成，仅记录完成时刻）
+- `s < e`：有耗时记录（计时器完成）
+- FIFO 保留最近 5 条，**末尾为最新一次完成记录**
+- `done: false` 时通常为空数组 `[]`（取消勾选会清空）
+- 客户端显示建议：
+  - 完成时刻 = `lastRecord.e`（格式化为时间，如 `20:02`）
+  - 耗时 = `lastRecord.e - lastRecord.s - lastRecord.p`（`s === e` 时不显示耗时）
+  - 空数组显示"无完成耗时记录"
 
 ### 4.2 Todo 对象（V0 响应格式）
 
@@ -1062,9 +1084,12 @@ V0 API 响应格式因端点而异：
   "category_id": "cat_id",
   "recurrence_id": "",
   "is_exception": 0,            // DB 原始值（整数 0/1）
-  "isSeries": true              // 计算字段：repeat_type !== 'none'
+  "isSeries": true,             // 计算字段：repeat_type !== 'none'
+  "time_records": "[]"          // DB 原始值（JSON 字符串，需客户端 JSON.parse；格式同 V1 的 time_records）
 }
 ```
+
+> **注意**：V0 `/api/todos` 返回的 `time_records` 是**未解析的 JSON 字符串**（如 `"[{\"s\":...,\"e\":...,\"p\":0}]"`），客户端需自行 `JSON.parse`。V1 API 已解析为数组，无需客户端解析。
 
 #### `/api/trash` 响应（纯数据库行）
 

@@ -298,7 +298,9 @@ Response:
       "category_id": "",
       "recurrence_id": "",
       "is_exception": false,
-      "isSeries": false
+      "isSeries": false,
+      "repeat_interval": 1,
+      "time_records": []
     }
   ],
   "pagination": {
@@ -334,7 +336,7 @@ Response:
     "copy_text": "",
     "subtasks": [],
     "search_terms": [],
-    "done": false,
+    "done": true,
     "deleted": false,
     "repeat_type": "none",
     "repeat_custom": "",
@@ -343,10 +345,31 @@ Response:
     "category_id": "",
     "recurrence_id": "",
     "is_exception": false,
-    "isSeries": false
+    "isSeries": false,
+    "repeat_interval": 1,
+    "time_records": [
+      { "s": 1719000000000, "e": 1719000120000, "p": 0 }
+    ]
   }
 }
 ```
+
+**`time_records` field** (instance-level completion records, per-todo):
+
+Each record is `{ "s": <epoch_ms>, "e": <epoch_ms>, "p": <paused_ms> }`:
+- `s` — start time (epoch ms)
+- `e` — end time (epoch ms)
+- `p` — paused duration accumulated (ms)
+- **Actual duration** = `e - s - p`
+- `s === e` — zero-duration (checkbox completion, only records completion timestamp)
+- `s < e` — real duration (timer completion)
+- FIFO, keeps the most recent 5 records; **the last element is the latest completion**.
+- Empty array `[]` when `done: false` (unchecking clears records).
+
+**Display suggestions** (matching the web UI):
+- Completion time = `lastRecord.e` (format as `HH:MM`, e.g. `20:02`)
+- Duration = `lastRecord.e - lastRecord.s - lastRecord.p` (omit when `s === e`)
+- Empty array → "无完成耗时记录" (no completion record)
 
 ### Create a todo
 
