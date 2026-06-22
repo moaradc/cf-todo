@@ -262,15 +262,23 @@ export const todos = `
     async function toggleDone(index) {
       const todo = todos[index];
       if (!todo) return;
+      // 勾选完成（done 0→1）且该事项有活动计时器：转交 completeTimer
+      // 保留计时进度，显示"完成于 X，耗时 Y"（与点"结束"按钮一致），
+      // 避免 clearTimerState 丢弃进度后写入零耗时 record
+      if (!todo.done && typeof readTimerState === 'function' && readTimerState(todo.id)) {
+        await completeTimer(index);
+        return;
+      }
       todo.done = !todo.done;
       // 若该事项有活动计时器，一并清除（不记录到历史）
+      // 走到这里说明 todo.done 是 false→true 但无计时器，或 true→false 取消勾选
       if (typeof clearTimerState === 'function') clearTimerState(todo.id);
       // 取消勾选时：清空本地 time_records（与服务端 TOGGLE_DONE 一致），
       // 避免详情面板仍显示旧的"完成于 X"
       if (!todo.done) {
         todo.time_records = [];
       } else {
-        // 勾选完成：构造零耗时 record（s===e），仅记录完成时刻
+        // 勾选完成（无计时器）：构造零耗时 record（s===e），仅记录完成时刻
         // 服务端 TOGGLE_DONE 会写入实例级 time_records（不写模板级）
         // 乐观更新本地 todo.time_records，让详情面板即时显示"完成于 X"
         const now = Date.now();
