@@ -885,6 +885,50 @@ export const detail = `
         task.subtasks = tempSubtasks; task.search_terms = tempSearchTerms;
         task.category_id = tempCategoryId;
         
+        // === 编辑保存前清理同系列计时器，避免 localStorage 孤儿 ===
+        // 必须在 await fetch / loadTodos 之前完成：fetch 后 todos 数组会被刷新，
+        // 同系列其他实例（siblings）就拿不到了。
+        // 必须在 scope 处理改 task.isSeries 之前读原值：原 isSeries 决定是否走清理分支。
+        // 不调用 completeTimer：被 DELETE 的实例在后端已不存在，TIMER_COMPLETE 会失败。
+        // 进度丢失是已知限制（与原行为一致，只是不再静默残留孤儿）。
+        const _origIsSeries = task.isSeries;
+        const _taskId = task.id;
+        const _taskParentId = task.parent_id || task.parentId;
+        if (_origIsSeries && typeof clearTimerState === 'function' && typeof readTimerState === 'function') {
+          // 同系列、当前正在计时（running 或 paused）的其他实例
+          const _siblingsWithTimer = todos.filter(function(t) {
+            return t.id !== _taskId
+              && (t.parent_id === _taskParentId || t.parentId === _taskParentId)
+              && readTimerState(t.id);
+          });
+
+          if (scope === 'this') {
+            // 仅此日程：当前实例脱钩为非重复，服务端清空 time_records（api.js:2500-2502）
+            // 前端计时器同步清除（与 DELETE 路径 detail.js:872 行为一致），
+            // 否则日后改回重复会复活显示成"进行中"。
+            clearTimerState(_taskId);
+          } else if (scope === 'thisAndFuture') {
+            // 此日程及之后：服务端 DELETE date >= originalDate 的同系列其他实例
+            // （api.js:2529-2531）。这些实例的前端计时器会变孤儿，进度静默丢失。
+            // 清掉这些 siblings 的计时器，避免 localStorage 残留。
+            _siblingsWithTimer.forEach(function(t) {
+              if (t.date >= originalDate) clearTimerState(t.id);
+            });
+          } else if (scope === 'all') {
+            // 所有日程：若改了重复规则/日期，服务端 DELETE 同系列其他实例
+            // （api.js:2544-2546）；仅改非重复属性时不删（api.js:2547-2551）。
+            // 前端无法可靠判断后端是否走 DELETE 分支（依赖 recurrenceChanged/dateChanged
+            // 这些后端 computeUpdateActions 内部状态），保守清理：
+            // 清掉所有 siblings + 当前实例的计时器。
+            // 副作用：仅改文本时也会清掉同系列其他实例的计时器——但 all 语义本就是全局生效，
+            // 清掉局部计时器可接受。
+            _siblingsWithTimer.forEach(function(t) {
+              clearTimerState(t.id);
+            });
+            clearTimerState(_taskId);
+          }
+        }
+        
         // 根据scope处理重复属性
         if (scope === 'this' && task.isSeries) {
           // 仅此项：脱离系列，变为非重复单次事项
