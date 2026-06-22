@@ -219,8 +219,25 @@ export const detail = `
       const task = todos[currentDetailIndex];
       const slot = document.getElementById('timer-section');
       if (!task || !slot) return;
-      // 仅重复 todo 渲染区块
-      if (!task.repeat_type || task.repeat_type === 'none') { slot.innerHTML = ''; return; }
+
+      // 非重复 todo：只读显示计时区块（不展示按钮、不展示耗时）
+      // 原因：非重复 todo 不支持计时操作，但 time_records 字段每个 todo 都有，
+      // 用户可能通过"仅此项"从重复 todo 转换而来，此时 time_records 仍保留历史完成记录。
+      // 为保持 UI 一致性，展示只读区块：仅显示"无完成耗时记录"或"完成于 X"。
+      const isRepeating = task.repeat_type && task.repeat_type !== 'none';
+      if (!isRepeating) {
+        let html = '<div class="detail-label">计时</div>';
+        const records = getDetailTimeRecords();
+        const lastRec = (task.done && records.length) ? records[records.length - 1] : null;
+        if (lastRec && lastRec.e) {
+          const endTimeStr = new Date(lastRec.e).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
+          html += '<div class="detail-value">完成于 ' + endTimeStr + '</div>';
+        } else {
+          html += '<div class="detail-value" style="color:var(--fg); opacity:0.6;">无完成耗时记录</div>';
+        }
+        slot.innerHTML = html;
+        return;
+      }
 
       const timerState = task.done ? null : maybePruneStaleTimer(task.id);
       const paused = timerState && isTimerPaused(timerState);
@@ -435,10 +452,9 @@ export const detail = `
           }
         }
 
-        // 计时区块（仅重复 todo）
-        let timerSection = '';
+        // 计时区块：所有 todo 都渲染（非重复 todo 只读，重复 todo 支持计时操作）
+        let timerSection = '<div id="timer-section"></div>';
         if (task.repeat_type && task.repeat_type !== 'none') {
-          timerSection = '<div id="timer-section"></div>';
           // 实例级 records 已直接来自 todo.time_records，无需 fetch。
           // 这里仅拉取模板级记录（templateRecords），用于 predictDuration 预估时长。
           // 模板级记录缺失不影响"完成于"显示，仅影响"预计 X 分"提示。
@@ -478,7 +494,8 @@ export const detail = `
           \${timerSection}
         \`;
         // 立即用本地缓存渲染一次计时区块（避免等待网络时空白）
-        if (task.repeat_type && task.repeat_type !== 'none') refreshDetailTimerBlock();
+        // 重复 todo：渲染计时按钮/预估；非重复 todo：渲染只读区块
+        refreshDetailTimerBlock();
       } else {
         activeMode = 'edit';
         var intervalText = getIntervalDisplayText(tempRepeatInterval, tempRepeatType);
