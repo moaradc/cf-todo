@@ -294,6 +294,28 @@ function formatTodo(row) {
     return null;
   }).filter(Boolean);
 
+  // 解析实例级 time_records（每个 todo 独立存储的完成记录）
+  // 格式：[{ s: <epoch_ms>, e: <epoch_ms>, p: <paused_ms> }, ...]
+  // - s: 开始时间（epoch ms）
+  // - e: 结束时间（epoch ms）
+  // - p: 暂停累计时长（ms）
+  // - 实际耗时 = e - s - p
+  // - s === e 表示零耗时（勾选框完成，仅记录完成时刻）
+  // - s < e 表示有耗时（计时器完成）
+  // FIFO 保留最近 5 条，末尾为最新一次完成记录
+  let timeRecords = [];
+  try {
+    const raw = row.time_records;
+    if (Array.isArray(raw)) {
+      timeRecords = raw;
+    } else if (typeof raw === 'string' && raw) {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) timeRecords = parsed;
+    }
+  } catch (e) {
+    timeRecords = [];
+  }
+
   let rType = row.repeat_type || 'none';
   if (rType !== 'none' && !['daily', 'weekly', 'monthly', 'yearly'].includes(rType)) rType = 'daily';
 
@@ -320,6 +342,7 @@ function formatTodo(row) {
     is_exception: !!row.is_exception,
     isSeries: rType !== 'none',
     repeat_interval: row.repeat_interval || 1,
+    time_records: timeRecords,
   };
 }
 
