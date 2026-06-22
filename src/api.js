@@ -2198,7 +2198,36 @@ self.addEventListener('fetch', (event) => {
               await env.DB.prepare('UPDATE todos SET done = 0 WHERE id = ?').bind(task.id).run();
             }
           } else {
-            await env.DB.prepare('UPDATE todos SET done = ? WHERE id = ?').bind(task.done ? 1 : 0, task.id).run();
+            // 勾选完成（done 0→1）：记录完成时刻（零耗时 record，s===e）
+            // 与 TIMER_COMPLETE 区分：勾选框完成无计时，仅记录"完成于 X"时间戳。
+            // 仅写实例级 time_records，不写模板级（模板级是计时器专用预估数据，
+            // 零耗时记录会污染 predictDuration 中位数）。
+            try {
+              if (record && typeof record.s === 'number' && typeof record.e === 'number'
+                  && record.s === record.e && record.s > 0) {
+                // 写入实例级 time_records（FIFO 5，与 TIMER_COMPLETE 一致）
+                const cur = await env.DB.prepare(
+                  'SELECT time_records FROM todos WHERE id = ?'
+                ).bind(task.id).first();
+                let instArr = [];
+                try {
+                  instArr = typeof cur.time_records === 'string'
+                    ? JSON.parse(cur.time_records || '[]')
+                    : cur.time_records;
+                } catch (e2) { instArr = []; }
+                if (!Array.isArray(instArr)) instArr = [];
+                instArr.push({ s: record.s, e: record.e, p: 0 });
+                if (instArr.length > 5) instArr = instArr.slice(instArr.length - 5);
+                await env.DB.prepare(
+                  'UPDATE todos SET done = 1, time_records = ? WHERE id = ?'
+                ).bind(JSON.stringify(instArr), task.id).run();
+              } else {
+                await env.DB.prepare('UPDATE todos SET done = 1 WHERE id = ?').bind(task.id).run();
+              }
+            } catch (e) {
+              // 兜底：仅更新 done
+              await env.DB.prepare('UPDATE todos SET done = 1 WHERE id = ?').bind(task.id).run();
+            }
           }
         }
         else if (action === 'TIMER_COMPLETE') {
@@ -2495,10 +2524,12 @@ self.addEventListener('fetch', (event) => {
                 ).bind(splitNewPid, newDate, task.text, task.time || '', task.priority || 'low', task.desc || '', task.url || '', task.copyText || '', subtasksStr, searchTermsStr, rptType, '', repeatEnd, endTime, categoryId, task.repeat_interval || 1, task.id).run();
               } else if (cv.detachFromSeries) {
                 // 脱离系列，变为单次任务（"仅此项"或 thisAndFuture 改为不重复）
-                // 同步清理实例级 time_records：脱钩后为非重复，UI 不再渲染计时区块，
-                // 保留旧记录为死数据。清空以避免后续若重新转重复时复活误导。
+                // 保留实例级 time_records：非重复 todo 详情面板也渲染只读计时区块
+                // （显示"完成于 X"），清空会让历史完成记录消失。
+                // 前端 confirmAction('save') 已 clearTimerState 清掉 localStorage 计时器，
+                // 不会复活成"进行中"。
                 await env.DB.prepare(
-                  'UPDATE todos SET parent_id=?, date=?, text=?, time=?, priority=?, desc=?, url=?, copy_text=?, subtasks=?, search_terms=?, repeat_type=\'none\', repeat_custom=\'\', repeat_end=\'\', end_time=?, category_id=?, repeat_interval=1, time_records=\'[]\' WHERE id=?'
+                  'UPDATE todos SET parent_id=?, date=?, text=?, time=?, priority=?, desc=?, url=?, copy_text=?, subtasks=?, search_terms=?, repeat_type=\'none\', repeat_custom=\'\', repeat_end=\'\', end_time=?, category_id=?, repeat_interval=1 WHERE id=?'
                 ).bind(task.id, newDate, task.text, task.time || '', task.priority || 'low', task.desc || '', task.url || '', task.copyText || '', subtasksStr, searchTermsStr, endTime, categoryId, task.id).run();
               } else if (cv.isRecurring) {
                 await env.DB.prepare(

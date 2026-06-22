@@ -260,7 +260,13 @@ export const detail = `
         if (lastRec) {
           const dur = Math.max(0, (lastRec.e || 0) - (lastRec.s || 0) - (lastRec.p || 0));
           const endTimeStr = new Date(lastRec.e).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
-          html += '<div class="detail-value">完成于 ' + endTimeStr + '，耗时 ' + formatMs(dur) + '</div>';
+          // 零耗时（s===e）：勾选框完成，无计时，仅显示"完成于 X"
+          // 有耗时（s<e）：计时器完成，显示"完成于 X，耗时 Y"
+          if (dur === 0 && lastRec.s === lastRec.e) {
+            html += '<div class="detail-value">完成于 ' + endTimeStr + '</div>';
+          } else {
+            html += '<div class="detail-value">完成于 ' + endTimeStr + '，耗时 ' + formatMs(dur) + '</div>';
+          }
         } else {
           html += '<div class="detail-value" style="color:var(--fg); opacity:0.6;">无完成耗时记录</div>';
         }

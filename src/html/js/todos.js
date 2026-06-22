@@ -269,13 +269,35 @@ export const todos = `
       // 避免详情面板仍显示旧的"完成于 X"
       if (!todo.done) {
         todo.time_records = [];
+      } else {
+        // 勾选完成：构造零耗时 record（s===e），仅记录完成时刻
+        // 服务端 TOGGLE_DONE 会写入实例级 time_records（不写模板级）
+        // 乐观更新本地 todo.time_records，让详情面板即时显示"完成于 X"
+        const now = Date.now();
+        try {
+          let arr = Array.isArray(todo.time_records)
+            ? todo.time_records
+            : (typeof todo.time_records === 'string' ? JSON.parse(todo.time_records || '[]') : []);
+          if (!Array.isArray(arr)) arr = [];
+          arr.push({ s: now, e: now, p: 0 });
+          if (arr.length > 5) arr = arr.slice(arr.length - 5);
+          todo.time_records = arr;
+        } catch (e) {
+          todo.time_records = [{ s: now, e: now, p: 0 }];
+        }
       }
       // 乐观更新：先刷新 UI，再发请求（与 completeTimer 一致，避免等待网络）
       renderTodos();
       try {
+        const now = Date.now();
+        const payload = { action: 'TOGGLE_DONE', task: { id: todo.id, done: todo.done } };
+        // 勾选完成时附带零耗时 record，服务端据此写入 time_records
+        if (todo.done) {
+          payload.record = { s: now, e: now, p: 0 };
+        }
         await fetch('/api/todo-action', {
           method: 'POST',
-          body: JSON.stringify({ action: 'TOGGLE_DONE', task: { id: todo.id, done: todo.done } }),
+          body: JSON.stringify(payload),
           headers: { 'Content-Type': 'application/json' }
         });
       } catch (e) {
