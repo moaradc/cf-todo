@@ -2328,9 +2328,11 @@ self.addEventListener('fetch', (event) => {
                 .bind(doneStatus ? 1 : 0, ...ids).run();
             }
 
-            // 批量完成时：对带活动计时器的 todo 写入 time_records
+            // 批量完成时：对带 record 的 todo 写入 time_records
             // timerRecords: [{ id, parentId, record: {s, e, p} }]
-            // 与 TIMER_COMPLETE 双写逻辑一致：实例级 + 模板级
+            // - 真实耗时（s<e）：实例级 + 模板级双写（与 TIMER_COMPLETE 一致）
+            // - 零耗时（s===e）：仅实例级，不写模板级（与 TOGGLE_DONE 一致，
+            //   避免零耗时记录污染 predictDuration 中位数预估）
             if (doneStatus && Array.isArray(timerRecords) && timerRecords.length > 0) {
               const MAX_DURATION_MS = 7 * 24 * 60 * 60 * 1000;
               for (const item of timerRecords) {
@@ -2340,9 +2342,12 @@ self.addEventListener('fetch', (event) => {
                 const s = Math.floor(rec.s);
                 const e = Math.floor(rec.e);
                 const p = Math.floor(rec.p || 0);
-                if (!(s > 0 && e > s && (e - s) <= MAX_DURATION_MS && p >= 0 && p < (e - s))) continue;
+                // 校验：s>0, e>=s, 时长<=7d, paused 合理
+                // 放宽 e>s 为 e>=s，兼容零耗时 record（s===e）
+                if (!(s > 0 && e >= s && (e - s) <= MAX_DURATION_MS && p >= 0 && p <= (e - s))) continue;
+                const isZeroDuration = (s === e);
 
-                // 实例级写入
+                // 实例级写入（真实耗时 + 零耗时都写）
                 try {
                   const cur = await env.DB.prepare(
                     'SELECT time_records FROM todos WHERE id = ?'
@@ -2365,25 +2370,27 @@ self.addEventListener('fetch', (event) => {
                   console.error("BATCH_TOGGLE_DONE per-instance record write failed:", eInst);
                 }
 
-                // 模板级写入（供 predictDuration）
-                const pid = item.parentId;
-                if (pid) {
-                  try {
-                    const tpl = await env.DB.prepare(
-                      'SELECT time_records FROM todo_templates WHERE parent_id = ?'
-                    ).bind(pid).first();
-                    if (tpl) {
-                      let arr = [];
-                      try { arr = Array.isArray(tpl.time_records) ? tpl.time_records : JSON.parse(tpl.time_records || '[]'); } catch (e2) { arr = []; }
-                      if (!Array.isArray(arr)) arr = [];
-                      arr.push({ s, e, p });
-                      if (arr.length > 10) arr = arr.slice(arr.length - 10);
-                      await env.DB.prepare(
-                        'UPDATE todo_templates SET time_records = ? WHERE parent_id = ?'
-                      ).bind(JSON.stringify(arr), pid).run();
+                // 模板级写入（仅真实耗时，零耗时跳过）
+                if (!isZeroDuration) {
+                  const pid = item.parentId;
+                  if (pid) {
+                    try {
+                      const tpl = await env.DB.prepare(
+                        'SELECT time_records FROM todo_templates WHERE parent_id = ?'
+                      ).bind(pid).first();
+                      if (tpl) {
+                        let arr = [];
+                        try { arr = Array.isArray(tpl.time_records) ? tpl.time_records : JSON.parse(tpl.time_records || '[]'); } catch (e2) { arr = []; }
+                        if (!Array.isArray(arr)) arr = [];
+                        arr.push({ s, e, p });
+                        if (arr.length > 10) arr = arr.slice(arr.length - 10);
+                        await env.DB.prepare(
+                          'UPDATE todo_templates SET time_records = ? WHERE parent_id = ?'
+                        ).bind(JSON.stringify(arr), pid).run();
+                      }
+                    } catch (e3) {
+                      console.error("BATCH_TOGGLE_DONE template record write failed:", e3);
                     }
-                  } catch (e3) {
-                    console.error("BATCH_TOGGLE_DONE template record write failed:", e3);
                   }
                 }
               }
