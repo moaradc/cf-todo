@@ -6,6 +6,7 @@ import {
   APP_VERSION,
   DB_SCHEMA,
   DEFAULT_CATEGORY_COLOR,
+  MAX_BROWSER_UA,
   parseCookies,
   sign,
   verify,
@@ -262,7 +263,7 @@ async function handleRequest(request, env, ctx) {
         
         sessions = sessions.filter(s => s.ua !== loginUA);
         sessions.push({ token, ua: loginUA });
-        while (sessions.length > 3) sessions.shift();
+        while (sessions.length > MAX_BROWSER_UA) sessions.shift();
         
         await env.DB.prepare(
           "INSERT OR REPLACE INTO settings (key, value) VALUES ('active_session_token', ?)"
@@ -292,7 +293,7 @@ async function handleRequest(request, env, ctx) {
           }
           if (!uaExists) {
             appSettingsObj.scaleByBrowser.push({ ua: loginUA, scale: 1.0 });
-            while (appSettingsObj.scaleByBrowser.length > 3) {
+            while (appSettingsObj.scaleByBrowser.length > MAX_BROWSER_UA) {
               appSettingsObj.scaleByBrowser.shift();
             }
           }
@@ -305,7 +306,7 @@ async function handleRequest(request, env, ctx) {
           }
           if (!uaExistsFontSize) {
             appSettingsObj.fontSizeByBrowser.push({ ua: loginUA, fontSize: 16 });
-            while (appSettingsObj.fontSizeByBrowser.length > 3) {
+            while (appSettingsObj.fontSizeByBrowser.length > MAX_BROWSER_UA) {
               appSettingsObj.fontSizeByBrowser.shift();
             }
           }
@@ -318,7 +319,7 @@ async function handleRequest(request, env, ctx) {
           }
           if (!uaExistsDisplayScale) {
             appSettingsObj.displayScaleByBrowser.push({ ua: loginUA, displayScale: 1.0 });
-            while (appSettingsObj.displayScaleByBrowser.length > 3) {
+            while (appSettingsObj.displayScaleByBrowser.length > MAX_BROWSER_UA) {
               appSettingsObj.displayScaleByBrowser.shift();
             }
           }
@@ -603,7 +604,7 @@ self.addEventListener('fetch', (event) => {
             return true;
           });
 
-          while (appSettingsObj.scaleByBrowser.length > 3) {
+          while (appSettingsObj.scaleByBrowser.length > MAX_BROWSER_UA) {
             appSettingsObj.scaleByBrowser.shift();
           }
 
@@ -631,7 +632,7 @@ self.addEventListener('fetch', (event) => {
             return true;
           });
 
-          while (appSettingsObj.fontSizeByBrowser.length > 3) {
+          while (appSettingsObj.fontSizeByBrowser.length > MAX_BROWSER_UA) {
             appSettingsObj.fontSizeByBrowser.shift();
           }
 
@@ -659,7 +660,7 @@ self.addEventListener('fetch', (event) => {
             return true;
           });
 
-          while (appSettingsObj.displayScaleByBrowser.length > 3) {
+          while (appSettingsObj.displayScaleByBrowser.length > MAX_BROWSER_UA) {
             appSettingsObj.displayScaleByBrowser.shift();
           }
     

@@ -8,6 +8,14 @@ const APP_VERSION = versionData.version;
 const DB_SCHEMA = versionData.db_schema;
 const DEFAULT_CATEGORY_COLOR = '#888888';
 
+// ============================================================
+// 登录 & 显示 & 字体 限制：最多支持的浏览器 UA 数量
+// 登录会话、显示缩放 (scaleByBrowser)、字体大小 (fontSizeByBrowser)、
+// 显示大小 (displayScaleByBrowser) 共用此上限。
+// 修改这一处即可统一调整所有限制。
+// ============================================================
+const MAX_BROWSER_UA = 10;
+
 const CHANGELOG = versionData.changelog;
 
 function parseCookies(request) {
@@ -147,6 +155,7 @@ export {
   DB_SCHEMA,
   CHANGELOG,
   DEFAULT_CATEGORY_COLOR,
+  MAX_BROWSER_UA,
   parseCookies,
   sign,
   verify,
