@@ -65,6 +65,7 @@ export const stats = `
 
     // ---------- 时间范围 ----------
     // 'week'  = 本周（周一至今天），仅限今年
+    // 'month' = 本月（1 日至今天），仅限今年
     // '12w'   = 近 12 周（含本周）= 84 天，仅限今年
     // '6m'    = 近 6 月（含本月），仅限今年
     // 'year'  = 今年（1/1 起）
@@ -78,6 +79,10 @@ export const stats = `
         var wd = end.getDay();
         var back = (wd === 0 ? 6 : wd - 1);
         start.setDate(start.getDate() - back);
+        bucket = 'day';
+      } else if (range === 'month') {
+        // 本月：当月 1 日为起点
+        start.setDate(1);
         bucket = 'day';
       } else if (range === '12w') {
         // 近 12 周（含本周）= 84 天
@@ -105,7 +110,7 @@ export const stats = `
     }
 
     function _rangeLabel(range) {
-      return { 'week': '本周', '12w': '12周', '6m': '6月', 'year': '今年' }[range] || '本周';
+      return { 'week': '本周', 'month': '本月', '12w': '12周', '6m': '6月', 'year': '今年' }[range] || '本周';
     }
 
     // ---------- 入口 ----------
@@ -423,14 +428,14 @@ export const stats = `
       var agg = _aggregate(rawData, range, bounds);
 
       _renderSummary(agg, range);
-      // 本周：显示每日柱状图，不显示热力图（数据量太小不直观）
+      // 本周/本月：显示每日柱状图，不显示热力图（数据量太小不直观）
       // 12周/6月/今年：显示热力图，隐藏每日柱状图
-      var showHeatmap = (range !== 'week');
+      var showHeatmap = (range !== 'week' && range !== 'month');
       _toggleVisible('chart-heatmap-wrap', showHeatmap);
       if (showHeatmap) _renderHeatmap(agg, t, range, bounds);
       _renderTrend(agg, t, range);
-      _toggleVisible('chart-bar-wrap', range === 'week');
-      if (range === 'week') _renderDailyBar(agg, t);
+      _toggleVisible('chart-bar-wrap', range === 'week' || range === 'month');
+      if (range === 'week' || range === 'month') _renderDailyBar(agg, t);
       _renderWeekday(agg, t, 'chart-weekday');
       _renderHour(agg, t, 'chart-hour');
       _renderPriorityPie(agg, t);

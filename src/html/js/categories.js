@@ -264,7 +264,10 @@ export const categories = `
         matched = categoriesList.filter(c => c.name.toLowerCase().includes(q));
       }
       var newIds = matched.map(function(c) { return c.id; });
-      if (!force && _cachedMatchedIds !== null && _cachedSelectedId === selId && newIds.length === _cachedMatchedIds.length && newIds.every(function(id, i) { return id === _cachedMatchedIds[i]; })) return;
+      // 注意：不能仅凭 matchedIds 是否变化来跳过重渲染 —— highlight 依赖
+      // query 字符串本身（如 "d" vs "dee" 高亮范围不同），即使匹配到的
+      // 分类列表完全相同也必须重渲染。上方 line 261 的「query+selection
+      // 完全一致」检查已是充分条件，这里不再做二次裁剪。
       _cachedMatchedIds = newIds;
       _cachedSearchQuery = q;
       _cachedSelectedId = selId;

@@ -191,6 +191,7 @@ export function getBody(isAuthorized) {
       <div id="stats-weekly">
         <div id="stats-range-tabs" class="stats-range-tabs">
           <button class="stats-range-tab active" data-range="week" onclick="switchStatsRange('week')">本周</button>
+          <button class="stats-range-tab" data-range="month" onclick="switchStatsRange('month')">本月</button>
           <button class="stats-range-tab" data-range="12w" onclick="switchStatsRange('12w')">12周</button>
           <button class="stats-range-tab" data-range="6m" onclick="switchStatsRange('6m')">6月</button>
           <button class="stats-range-tab" data-range="year" onclick="switchStatsRange('year')">今年</button>
