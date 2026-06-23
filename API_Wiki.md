@@ -595,7 +595,7 @@ API Key 传递方式（与 V1 一致）：
   - **描述**: 密码登录，生成 Session Token 并写入 Cookie。
   - **Body**: `{ "password": "..." }`
   - **限流**: 同一 IP 连续 5 次失败后锁定 15 分钟（返回 429）。
-  - **会话管理**: 最多同时 3 个设备（按 User-Agent 去重），超出后淘汰最早的会话。
+  - **会话管理**: 最多同时 10 个设备（按 User-Agent 去重），超出后淘汰最早的会话。
   - **Cookie 属性**: `HttpOnly; Secure; SameSite=Strict; Max-Age=2592000`（30 天）。
   - **成功响应**: `{ "success": true }` + Set-Cookie 头
   - **失败响应**: 401 `ACCESS DENIED` 或 429 `ACCOUNT LOCKED`

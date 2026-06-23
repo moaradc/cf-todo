@@ -1,3 +1,5 @@
+import { MAX_BROWSER_UA } from "../utils.js";
+
 export function getBody(isAuthorized) {
   return `
 <body>
@@ -463,7 +465,7 @@ export function getBody(isAuthorized) {
 
       <div class="detail-label">登录管理</div>
       <div class="settings-card">
-          <p class="settings-text" style="margin-bottom: 12px;">最多支持 <strong>3</strong> 个浏览器UA同时登录。达到上限后新登录将自动替换最早（靠上）登录的会话。</p>
+          <p class="settings-text" style="margin-bottom: 12px;">最多支持 <strong>${MAX_BROWSER_UA}</strong> 个浏览器UA同时登录。达到上限后新登录将自动替换最早（靠上）登录的会话。</p>
           <div id="sessions-list" style="margin-bottom: 12px;"></div>
           <button style="width:100%; margin-bottom: 10px;" onclick="deleteAllSessions()">全部删除</button>
           <p class="settings-text" style="margin-bottom: 10px; padding-top: 10px; border-top: 1px dashed #333;">退出当前登录会话，需重新输入密钥接入系统。您的数据不会消失。</p>

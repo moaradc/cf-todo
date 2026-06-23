@@ -804,7 +804,7 @@ export const core = `
         }
       }
       appSettings.scaleByBrowser.push({ ua: ua, scale: scale });
-      while (appSettings.scaleByBrowser.length > 3) {
+      while (appSettings.scaleByBrowser.length > MAX_BROWSER_UA) {
         appSettings.scaleByBrowser.shift();
       }
     }
@@ -828,7 +828,7 @@ export const core = `
         }
       }
       appSettings.fontSizeByBrowser.push({ ua: ua, fontSize: fontSize });
-      while (appSettings.fontSizeByBrowser.length > 3) {
+      while (appSettings.fontSizeByBrowser.length > MAX_BROWSER_UA) {
         appSettings.fontSizeByBrowser.shift();
       }
     }
@@ -852,7 +852,7 @@ export const core = `
         }
       }
       appSettings.displayScaleByBrowser.push({ ua: ua, displayScale: displayScale });
-      while (appSettings.displayScaleByBrowser.length > 3) {
+      while (appSettings.displayScaleByBrowser.length > MAX_BROWSER_UA) {
         appSettings.displayScaleByBrowser.shift();
       }
     }

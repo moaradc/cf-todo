@@ -1,4 +1,4 @@
-import { APP_VERSION } from "../utils.js";
+import { APP_VERSION, MAX_BROWSER_UA } from "../utils.js";
 import { css } from "./css.js";
 import { getBody } from "./body.js";
 import { router } from "./js/router.js";
@@ -39,6 +39,10 @@ ${getBody(isAuthorized)}
   <script>
   (function() {
     'use strict';
+
+    // 登录 & 显示 & 字体 限制：最多支持的浏览器 UA 数量
+    // 由后端 src/utils.js 中 MAX_BROWSER_UA 注入，前端统一引用此变量。
+    var MAX_BROWSER_UA = ${MAX_BROWSER_UA};
 
 ${router}
 
