@@ -939,7 +939,7 @@ export const io = `
           headers: { 'Content-Type': 'application/json' }
         });
         alert("系统云端已完全清空，即将重置。");
-        location.reload();
+        await refreshToHome();
       } catch (e) {
         alert("数据清理执行失败");
       }
@@ -974,7 +974,7 @@ export const io = `
               var abortData = await abortRes.json();
               if (abortData.recovered) {
                 alert('原始数据已成功恢复，页面即将重载。');
-                location.reload();
+                await refreshToHome();
               } else {
                 alert('会话已清除。');
               }
