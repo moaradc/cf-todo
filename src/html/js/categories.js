@@ -264,10 +264,25 @@ export const categories = `
         matched = categoriesList.filter(c => c.name.toLowerCase().includes(q));
       }
       var newIds = matched.map(function(c) { return c.id; });
-      // 注意：不能仅凭 matchedIds 是否变化来跳过重渲染 —— highlight 依赖
-      // query 字符串本身（如 "d" vs "dee" 高亮范围不同），即使匹配到的
-      // 分类列表完全相同也必须重渲染。上方 line 261 的「query+selection
-      // 完全一致」检查已是充分条件，这里不再做二次裁剪。
+      // 性能优化：当匹配到的分类集合未变（仅 query 字符串变长/缩短）时，
+      // 跳过整列表重建，只更新已存在 .cat-name 节点的高亮范围。
+      // 这对数百个分类的场景尤为关键 —— 避免「d → de → dee」每次都重建 N 个 DOM 节点。
+      var matchedUnchanged = !force
+        && _cachedMatchedIds !== null
+        && _cachedSelectedId === selId
+        && newIds.length === _cachedMatchedIds.length
+        && newIds.every(function(id, i) { return id === _cachedMatchedIds[i]; });
+
+      if (matchedUnchanged) {
+        // DOM 中 .category-modal-item[data-cat-id] 的顺序与 matched 数组一致
+        var nameEls = listEl.querySelectorAll('.category-modal-item[data-cat-id] .cat-name');
+        var trimmedQuery = categorySearchQuery.trim();
+        for (var i = 0; i < matched.length && i < nameEls.length; i++) {
+          nameEls[i].innerHTML = highlightMatch(matched[i].name, trimmedQuery);
+        }
+        _cachedSearchQuery = q;
+        return;
+      }
       _cachedMatchedIds = newIds;
       _cachedSearchQuery = q;
       _cachedSelectedId = selId;
@@ -281,6 +296,7 @@ export const categories = `
       }
       for (const cat of matched) {
         const item = document.createElement('div');
+        item.setAttribute('data-cat-id', cat.id);
         if (isCatBatchMode) {
           item.className = 'category-modal-item' + (selectedCatIds.has(cat.id) ? ' selected' : '');
           item.innerHTML = '<span class="badge-category-icon" style="background:' + (cat.color || CATEGORY_COLOR_PRESETS[0]) + '"></span><span class="cat-name">' + highlightMatch(cat.name, categorySearchQuery.trim()) + '</span>';
