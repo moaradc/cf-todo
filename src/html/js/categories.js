@@ -240,33 +240,56 @@ export const categories = `
       if (activeMode === 'manage' && editingCategoryId) updateCategoryEditPreview();
     }
 
+    // 高亮匹配：在原始（未转义）文本上定位 query 出现位置，再做转义 + 包裹 <span>。
+    // 这样即便分类名或 query 含 < > & 等 HTML 特殊字符，也能正确高亮（修复旧实现在
+    // escaped 字符串上 indexOf 导致长度错位、范围截断的 bug）。
+    // 同时高亮所有匹配位置，而非仅首个，提升长名称的搜索体验。
     function highlightMatch(text, query) {
+      if (!text) return '';
       if (!query) return escapeHtml(text);
-      const escaped = escapeHtml(text);
-      const escapedQuery = escapeHtml(query);
-      const idx = escaped.toLowerCase().indexOf(escapedQuery.toLowerCase());
-      if (idx === -1) return escaped;
-      return escaped.substring(0, idx) + '<span class="cat-highlight">' + escaped.substring(idx, idx + escapedQuery.length) + '</span>' + escaped.substring(idx + escapedQuery.length);
+      var textStr = String(text);
+      var queryStr = String(query);
+      var lowerText = textStr.toLowerCase();
+      var lowerQuery = queryStr.toLowerCase();
+      var result = '';
+      var i = 0;
+      var idx;
+      while ((idx = lowerText.indexOf(lowerQuery, i)) !== -1) {
+        // 转义 query 之前的部分
+        result += escapeHtml(textStr.substring(i, idx));
+        // 转义 query 命中的部分并包裹高亮
+        result += '<span class="cat-highlight">' + escapeHtml(textStr.substring(idx, idx + queryStr.length)) + '</span>';
+        i = idx + queryStr.length;
+        // 安全上限：防止极端输入（如 query 为空字符串被外部绕过保护）造成死循环
+        if (i > textStr.length) break;
+      }
+      // 转义剩余部分
+      if (i < textStr.length) result += escapeHtml(textStr.substring(i));
+      return result;
     }
 
     let _cachedMatchedIds = null;
     let _cachedSearchQuery = null;
     let _cachedSelectedId = null;
+    let _catSearchRafPending = false;
 
     function renderCategoryModalList(force) {
       const listEl = document.getElementById('category-modal-list');
       if (!listEl) return;
-      const q = categorySearchQuery.trim().toLowerCase();
+      const trimmedQuery = categorySearchQuery.trim();
+      const q = trimmedQuery.toLowerCase();
       const selId = activeMode === 'manage' ? '' : (tempCategoryId || '');
+      // 第一道缓存：query + selection 完全一致 → 直接 return
       if (!force && _cachedSearchQuery === q && _cachedSelectedId === selId && _cachedMatchedIds !== null) return;
+
       let matched = categoriesList;
       if (q) {
-        matched = categoriesList.filter(c => c.name.toLowerCase().includes(q));
+        matched = categoriesList.filter(c => c.name && c.name.toLowerCase().includes(q));
       }
       var newIds = matched.map(function(c) { return c.id; });
-      // 性能优化：当匹配到的分类集合未变（仅 query 字符串变长/缩短）时，
-      // 跳过整列表重建，只更新已存在 .cat-name 节点的高亮范围。
-      // 这对数百个分类的场景尤为关键 —— 避免「d → de → dee」每次都重建 N 个 DOM 节点。
+
+      // 第二道缓存：匹配集未变（仅 query 长度变化） → 仅更新高亮，跳过整列表重建。
+      // 对数百个分类 + 连续键入的场景尤为关键。
       var matchedUnchanged = !force
         && _cachedMatchedIds !== null
         && _cachedSelectedId === selId
@@ -274,46 +297,75 @@ export const categories = `
         && newIds.every(function(id, i) { return id === _cachedMatchedIds[i]; });
 
       if (matchedUnchanged) {
-        // DOM 中 .category-modal-item[data-cat-id] 的顺序与 matched 数组一致
         var nameEls = listEl.querySelectorAll('.category-modal-item[data-cat-id] .cat-name');
-        var trimmedQuery = categorySearchQuery.trim();
-        for (var i = 0; i < matched.length && i < nameEls.length; i++) {
+        // 长度兜底：理论上应与 matched.length 相等，但若用户在重建过程中
+        // 切换 tab 等导致 DOM 与缓存不一致，取 min 防止越界。
+        var n = Math.min(matched.length, nameEls.length);
+        for (var i = 0; i < n; i++) {
           nameEls[i].innerHTML = highlightMatch(matched[i].name, trimmedQuery);
         }
         _cachedSearchQuery = q;
         return;
       }
+
       _cachedMatchedIds = newIds;
       _cachedSearchQuery = q;
       _cachedSelectedId = selId;
-      listEl.innerHTML = '';
+
+      // 全量重建：用 DocumentFragment 批量插入，避免逐个 appendChild 触发 N 次 reflow
+      var frag = document.createDocumentFragment();
       if (!isCatBatchMode) {
         const noCatItem = document.createElement('div');
         noCatItem.className = 'category-modal-item' + (!selId ? ' selected' : '');
         noCatItem.innerHTML = '<span class="cat-name">无分类</span>';
+        noCatItem.setAttribute('data-cat-id', '');
         noCatItem.onclick = function() { selectCategory(''); };
-        listEl.appendChild(noCatItem);
+        frag.appendChild(noCatItem);
       }
-      for (const cat of matched) {
-        const item = document.createElement('div');
+      var defaultColor = CATEGORY_COLOR_PRESETS[0];
+      for (var j = 0; j < matched.length; j++) {
+        var cat = matched[j];
+        var item = document.createElement('div');
         item.setAttribute('data-cat-id', cat.id);
-        if (isCatBatchMode) {
-          item.className = 'category-modal-item' + (selectedCatIds.has(cat.id) ? ' selected' : '');
-          item.innerHTML = '<span class="badge-category-icon" style="background:' + (cat.color || CATEGORY_COLOR_PRESETS[0]) + '"></span><span class="cat-name">' + highlightMatch(cat.name, categorySearchQuery.trim()) + '</span>';
-          item.onclick = function() { selectedCatIds.has(cat.id) ? selectedCatIds.delete(cat.id) : selectedCatIds.add(cat.id); renderCategoryModalList(true); };
-        } else {
-          item.className = 'category-modal-item' + (selId === cat.id ? ' selected' : '');
-          item.innerHTML = '<span class="badge-category-icon" style="background:' + (cat.color || CATEGORY_COLOR_PRESETS[0]) + '"></span><span class="cat-name">' + highlightMatch(cat.name, categorySearchQuery.trim()) + '</span>';
-          item.onclick = function() { selectCategory(cat.id); };
-        }
-        listEl.appendChild(item);
+        // 批量模式：选中状态来自 selectedCatIds；普通模式：来自 selId
+        var isSelected = isCatBatchMode
+          ? selectedCatIds.has(cat.id)
+          : (selId === cat.id);
+        item.className = 'category-modal-item' + (isSelected ? ' selected' : '');
+        var color = cat.color || defaultColor;
+        var highlightedName = highlightMatch(cat.name, trimmedQuery);
+        item.innerHTML = '<span class="badge-category-icon" style="background:' + color + '"></span><span class="cat-name">' + highlightedName + '</span>';
+        // 闭包捕获当前 cat.id，避免 onclick 内引用循环变量 j
+        (function(catId) {
+          item.onclick = function() {
+            if (isCatBatchMode) {
+              if (selectedCatIds.has(catId)) selectedCatIds.delete(catId);
+              else selectedCatIds.add(catId);
+              renderCategoryModalList(true);
+            } else {
+              selectCategory(catId);
+            }
+          };
+        })(cat.id);
+        frag.appendChild(item);
       }
+      // 一次性替换，比 listEl.innerHTML = '' + 多次 appendChild 快
+      listEl.innerHTML = '';
+      listEl.appendChild(frag);
     }
 
     function onCategorySearchInput() {
       const input = document.getElementById('category-new-name');
+      if (!input) return;
       categorySearchQuery = input.value;
-      renderCategoryModalList();
+      // requestAnimationFrame 合并：连续键入时每帧最多渲染一次，
+      // 避免快速输入造成栈积压与重复 DOM 操作。
+      if (_catSearchRafPending) return;
+      _catSearchRafPending = true;
+      requestAnimationFrame(function() {
+        _catSearchRafPending = false;
+        renderCategoryModalList();
+      });
     }
 
     function onCategorySearchEnter() {
