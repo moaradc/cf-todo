@@ -297,7 +297,9 @@ export const categories = `
         && newIds.every(function(id, i) { return id === _cachedMatchedIds[i]; });
 
       if (matchedUnchanged) {
-        var nameEls = listEl.querySelectorAll('.category-modal-item[data-cat-id] .cat-name');
+        // 选择器明确排除 data-cat-id="" 的项（无分类项），
+        // 防御性 :not() 即便将来有人误给无分类项加属性也不会错位
+        var nameEls = listEl.querySelectorAll('.category-modal-item[data-cat-id]:not([data-cat-id=""]) .cat-name');
         // 长度兜底：理论上应与 matched.length 相等，但若用户在重建过程中
         // 切换 tab 等导致 DOM 与缓存不一致，取 min 防止越界。
         var n = Math.min(matched.length, nameEls.length);
@@ -318,7 +320,10 @@ export const categories = `
         const noCatItem = document.createElement('div');
         noCatItem.className = 'category-modal-item' + (!selId ? ' selected' : '');
         noCatItem.innerHTML = '<span class="cat-name">无分类</span>';
-        noCatItem.setAttribute('data-cat-id', '');
+        // 注意：不要给无分类项加 data-cat-id 属性。
+        // 缓存命中分支用 .category-modal-item[data-cat-id] 选择器精准定位真实分类项，
+        // 若无分类项也带该属性（哪怕值为空），会被选择器误匹配，导致后续高亮回写时
+        // 错位：无分类项被写成首个匹配分类名，真实分类项的高亮全部错位。
         noCatItem.onclick = function() { selectCategory(''); };
         frag.appendChild(noCatItem);
       }
