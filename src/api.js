@@ -1852,7 +1852,7 @@ self.addEventListener('fetch', (event) => {
         if (existing) {
           return apiError('分类名称已存在', 400);
         }
-        const newId = Date.now().toString() + Math.random().toString().slice(2, 6);
+        const newId = Date.now().toString() + Math.floor(Math.random() * 10000).toString().padStart(4, '0');
         const catColor = (color && color.trim()) ? color.trim() : DEFAULT_CATEGORY_COLOR;
         await env.DB.prepare("INSERT INTO categories (id, name, color) VALUES (?, ?, ?)").bind(newId, name.trim(), catColor).run();
         return new Response(JSON.stringify({ success: true, id: newId, name: name.trim(), color: catColor }), { headers: { 'Content-Type': 'application/json' } });
@@ -2535,7 +2535,7 @@ self.addEventListener('fetch', (event) => {
             // Split 系列时生成新 parent_id
             let splitNewPid = null;
             if (actions.currentTodo && actions.currentTodo.splitSeries) {
-              splitNewPid = Date.now().toString() + Math.random().toString().slice(2, 6);
+              splitNewPid = Date.now().toString() + Math.floor(Math.random() * 10000).toString().padStart(4, '0');
             }
 
             // Execute currentTodo action

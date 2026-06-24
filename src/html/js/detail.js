@@ -81,7 +81,7 @@ export const detail = `
     async function confirmAddTask() {
       const text = document.getElementById('add-text').value.trim();
       if (!text) return;
-      const newId = Date.now().toString() + Math.random().toString().slice(2, 6);
+      const newId = Date.now().toString() + Math.floor(Math.random() * 10000).toString().padStart(4, '0');
       const newTask = {
         id: newId, parentId: newId, text: text, time: tempTime,
         end_time: tempEndTime,
