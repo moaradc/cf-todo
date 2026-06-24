@@ -32,6 +32,20 @@ import { handleV1Request, verifyApiKey, extractApiKey, getApiKeyScope } from './
 
 let isDbInitialized = false;
 
+// 同 date 的 GET /api/todos 串行化，避免并发展开重复事项实例。
+// 仅同 isolate 内有效；跨 isolate 仍可能漏过。
+const _todosDateChains = new Map();
+function _withTodosDateLock(date, fn) {
+  const prev = _todosDateChains.get(date) || Promise.resolve();
+  const next = prev.then(fn, fn); // 失败也继续，不阻塞后续
+  const tail = next.catch(() => {});
+  _todosDateChains.set(date, tail);
+  tail.then(() => setTimeout(() => {
+    if (_todosDateChains.get(date) === tail) _todosDateChains.delete(date);
+  }, 5000));
+  return next;
+}
+
 async function handleRequest(request, env, ctx) {
     try {
     const url = new URL(request.url);
@@ -1993,9 +2007,10 @@ self.addEventListener('fetch', (event) => {
     }
 
     if (url.pathname === '/api/todos' && request.method === 'GET') {
-      const date = url.searchParams.get('date'); 
+      const date = url.searchParams.get('date');
       if (!date) return apiError("Date required", 400);
-      
+
+      return _withTodosDateLock(date, async () => {
       let { results } = await env.DB.prepare(
         'SELECT * FROM todos WHERE date = ? AND deleted = 0'
       ).bind(date).all();
@@ -2129,6 +2144,7 @@ self.addEventListener('fetch', (event) => {
       });
     
       return new Response(JSON.stringify(formatted), { headers: { 'Content-Type': 'application/json' } });
+      }); // end _withTodosDateLock
     }
 
     if (url.pathname === '/api/time-records' && request.method === 'GET') {

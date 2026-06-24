@@ -26,6 +26,20 @@ import {
 
 const API_KEYS_SETTINGS_KEY = 'api_keys';
 
+// 同 date 的 GET /api/v1/todos 串行化，避免并发展开重复事项实例。
+// 仅同 isolate 内有效；跨 isolate 仍可能漏过。
+const _v1TodosDateChains = new Map();
+function _withV1TodosDateLock(date, fn) {
+  const prev = _v1TodosDateChains.get(date) || Promise.resolve();
+  const next = prev.then(fn, fn);
+  const tail = next.catch(() => {});
+  _v1TodosDateChains.set(date, tail);
+  tail.then(() => setTimeout(() => {
+    if (_v1TodosDateChains.get(date) === tail) _v1TodosDateChains.delete(date);
+  }, 5000));
+  return next;
+}
+
 /**
  * 获取 API Key 作用域设置
  * 返回: 'v1' | 'v0' | 'all' | 'disabled'
@@ -392,6 +406,8 @@ async function handleV1Todos(request, env, url) {
     const limit = Math.min(Math.max(parseInt(url.searchParams.get('limit') || '100', 10) || 100, 1), 500);
     const offset = Math.max(parseInt(url.searchParams.get('offset') || '0', 10) || 0, 0);
 
+    const execGet = async () => {
+
     let conditions = ['deleted = 0'];
     let params = [];
 
@@ -490,6 +506,10 @@ async function handleV1Todos(request, env, url) {
         offset,
       }
     });
+    }; // end execGet
+
+    if (date) return _withV1TodosDateLock(date, execGet);
+    return execGet();
   }
 
   // POST /api/v1/todos - 创建 todo
