@@ -525,7 +525,8 @@ async function handleV1Todos(request, env, url) {
       return apiError('date 格式应为 YYYY-MM-DD', 400);
     }
 
-    const id = crypto.randomUUID();
+    // 与 V0 网页端 (前端 Date.now()+4位随机) 对齐，避免同部署 UUID 与时间戳两种 id 共存
+    const id = Date.now().toString() + Math.random().toString().slice(2, 6);
     const rptType = repeat_type || 'none';
     const catId = category_id || '';
     const rEnd = repeat_end || '';
