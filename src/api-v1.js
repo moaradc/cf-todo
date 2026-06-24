@@ -182,7 +182,7 @@ async function handleApiKeys(request, env, url) {
         return apiError('最多创建10个API Key', 400);
       }
       const newKey = generateApiKey();
-      const keyId = Date.now().toString() + Math.random().toString().slice(2, 6);
+      const keyId = Date.now().toString() + Math.floor(Math.random() * 10000).toString().padStart(4, '0');
       const record = {
         id: keyId,
         key: newKey,
@@ -525,7 +525,7 @@ async function handleV1Todos(request, env, url) {
       return apiError('date 格式应为 YYYY-MM-DD', 400);
     }
 
-    const id = crypto.randomUUID();
+    const id = Date.now().toString() + Math.floor(Math.random() * 10000).toString().padStart(4, '0');
     const rptType = repeat_type || 'none';
     const catId = category_id || '';
     const rEnd = repeat_end || '';
@@ -647,7 +647,7 @@ async function handleV1TodoPut(request, DB, todoId) {
     // Split 系列时生成新 parent_id
     let splitNewPid = null;
     if (actions.currentTodo && actions.currentTodo.splitSeries) {
-      splitNewPid = Date.now().toString() + Math.random().toString().slice(2, 6);
+      splitNewPid = Date.now().toString() + Math.floor(Math.random() * 10000).toString().padStart(4, '0');
     }
 
     if (actions.currentTodo) {
@@ -942,7 +942,7 @@ async function handleV1Categories(request, env, url) {
     const existing = await DB.prepare("SELECT id FROM categories WHERE LOWER(name) = ?").bind(name.trim().toLowerCase()).first();
     if (existing) return apiError('分类名称已存在', 400);
 
-    const id = Date.now().toString() + Math.random().toString().slice(2, 6);
+    const id = Date.now().toString() + Math.floor(Math.random() * 10000).toString().padStart(4, '0');
     const catColor = (color && color.trim()) ? color.trim() : DEFAULT_CATEGORY_COLOR;
     await DB.prepare("INSERT INTO categories (id, name, color) VALUES (?, ?, ?)").bind(id, name.trim(), catColor).run();
     return jsonResponse({ success: true, data: { id, name: name.trim(), color: catColor } }, 201);
