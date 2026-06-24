@@ -215,6 +215,15 @@ export const detail = `
     // overrideRecord: 可选，completeTimer 同步阶段直传的刚算出的 record。
     //   不写入任何缓存，仅在本次调用中消费，避免状态残留/串台/失效问题。
     //   await fetch 后 reloadDetailTimeRecords 会用服务器返回的最新 records 重新渲染（无参数调用）。
+    // 格式化完成时间戳为 "yyyy.MM.dd HH:mm:ss"（如 2026.06.24 10:59:32）
+    // 使用本地时区，padding 用 ('0'+n).slice(-2) 兼容老浏览器
+    function formatDoneTime(ms) {
+      const d = new Date(ms);
+      const pad = function(n) { return ('0' + n).slice(-2); };
+      return d.getFullYear() + '.' + pad(d.getMonth() + 1) + '.' + pad(d.getDate()) + ' '
+        + pad(d.getHours()) + ':' + pad(d.getMinutes()) + ':' + pad(d.getSeconds());
+    }
+
     function refreshDetailTimerBlock(overrideRecord) {
       const task = todos[currentDetailIndex];
       const slot = document.getElementById('timer-section');
@@ -230,7 +239,7 @@ export const detail = `
         const records = getDetailTimeRecords();
         const lastRec = (task.done && records.length) ? records[records.length - 1] : null;
         if (lastRec && lastRec.e) {
-          const endTimeStr = new Date(lastRec.e).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
+          const endTimeStr = formatDoneTime(lastRec.e);
           html += '<div class="detail-value">完成于 ' + endTimeStr + '</div>';
         } else {
           html += '<div class="detail-value" style="color:var(--fg); opacity:0.6;">无完成耗时记录</div>';
@@ -259,7 +268,7 @@ export const detail = `
         const lastRec = overrideRecord || (records.length ? records[records.length - 1] : null);
         if (lastRec) {
           const dur = Math.max(0, (lastRec.e || 0) - (lastRec.s || 0) - (lastRec.p || 0));
-          const endTimeStr = new Date(lastRec.e).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
+          const endTimeStr = formatDoneTime(lastRec.e);
           // 零耗时（s===e）：勾选框完成，无计时，仅显示"完成于 X"
           // 有耗时（s<e）：计时器完成，显示"完成于 X，耗时 Y"
           if (dur === 0 && lastRec.s === lastRec.e) {
