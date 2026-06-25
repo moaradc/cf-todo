@@ -483,6 +483,9 @@ async function handleV1Todos(request, env, url) {
           done: 0, deleted: 0,
           subtasks: parsedSubtasks,
           search_terms: [],
+          // 关键修复：模板的 time_records 是跨实例预估数据，不能带到新实例上。
+          // 新实例的实例级 time_records 应为空，否则前端会错误显示历史累计。
+          time_records: '[]'
         };
         recurringResults.push(newRecord);
 

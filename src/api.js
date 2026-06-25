@@ -2092,7 +2092,12 @@ self.addEventListener('fetch', (event) => {
           ...tpl, id: newId, date: date, parent_id: tpl.parent_id, 
           done: 0, deleted: 0,
           subtasks: parsedSubtasks,
-          search_terms: parsedSearchTerms
+          search_terms: parsedSearchTerms,
+          // 关键修复：模板的 time_records 是跨实例预估数据（供 predictDuration），
+          // 不能带到新实例上。新实例的实例级 time_records 应为空（DB INSERT 也不写该列，默认 '[]'）。
+          // 否则前端 getDetailTimeRecords() 会从 task.time_records 读到模板级记录，
+          // 导致新实例错误显示历史累计（如 06.27 新实例显示 06.25+06.26 的累计）。
+          time_records: '[]'
         };
         results.push(newRecord); 
       
