@@ -2233,13 +2233,21 @@ self.addEventListener('fetch', (event) => {
 
           if (isFragment) {
             if (!task.done) {
-              // 取消勾选（done 1→0）：保留 time_records（历史累计不应丢失）
-              // date 重置为空字符串（不限日期），让 todo 在所有日期视图都可见
+              // 取消勾选（done 1→0）：
+              // - keepRecords=true（"继续计时"按钮路径）：保留 time_records 历史累计
+              // - keepRecords=false/未传（checkbox 取消勾选）：清空 time_records，与普通重复 todo 一致
+              // date 始终重置为空字符串（不限日期），让 todo 在所有日期视图都可见
               // 原因：完成时 date 被冻结为完成日期，取消后无法恢复原始开始日期，
               //       重置为空确保用户在任何日期都能看到这个未完成的碎时记
+              const shouldKeepRecords = !!keepRecords;
               try {
-                await env.DB.prepare('UPDATE todos SET done = 0, date = ? WHERE id = ?')
-                  .bind('', task.id).run();
+                if (shouldKeepRecords) {
+                  await env.DB.prepare('UPDATE todos SET done = 0, date = ? WHERE id = ?')
+                    .bind('', task.id).run();
+                } else {
+                  await env.DB.prepare('UPDATE todos SET done = 0, date = ?, time_records = ? WHERE id = ?')
+                    .bind('', '[]', task.id).run();
+                }
               } catch (e) {
                 await env.DB.prepare('UPDATE todos SET done = 0 WHERE id = ?').bind(task.id).run();
               }
@@ -2491,13 +2499,12 @@ self.addEventListener('fetch', (event) => {
 
             // 批量取消勾选
             if (!doneStatus) {
-              // 碎时记：保留 time_records（历史累计），done=0，date 重置为空（任意日期可见）
-              // 与单条 TOGGLE_DONE 碎时记取消逻辑一致
+              // 碎时记：清空 time_records（与单条 TOGGLE_DONE 一致），done=0，date 重置为空
               if (fragmentIds.length > 0) {
                 const frPh = fragmentIds.map(() => '?').join(',');
                 try {
-                  await env.DB.prepare(`UPDATE todos SET done = 0, date = ? WHERE id IN (${frPh})`)
-                    .bind('', ...fragmentIds).run();
+                  await env.DB.prepare(`UPDATE todos SET done = 0, date = ?, time_records = ? WHERE id IN (${frPh})`)
+                    .bind('', '[]', ...fragmentIds).run();
                 } catch (e) {
                   await env.DB.prepare(`UPDATE todos SET done = 0 WHERE id IN (${frPh})`)
                     .bind(...fragmentIds).run();

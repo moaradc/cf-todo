@@ -919,11 +919,13 @@ async function handleV1TodoToggle(request, DB, todoId) {
     }
   } else {
     // 取消勾选
-    // 碎时记：保留 time_records（历史累计），done=0，date 重置为空（任意日期可见）
+    // 碎时记：清空 time_records（与普通重复 todo 一致），done=0，date 重置为空（任意日期可见）
+    // 注意：v1 toggle 是简单切换接口，无 keepRecords 参数；
+    //       "继续计时"保留累计的路径在 v0 Web API（continueAfterDone → keepRecords=true）
     if (isFragment) {
       try {
-        await DB.prepare('UPDATE todos SET done = 0, date = ? WHERE id = ?')
-          .bind('', todoId).run();
+        await DB.prepare('UPDATE todos SET done = 0, date = ?, time_records = ? WHERE id = ?')
+          .bind('', '[]', todoId).run();
       } catch (e) {
         await DB.prepare('UPDATE todos SET done = 0 WHERE id = ?').bind(todoId).run();
       }
@@ -1151,12 +1153,12 @@ async function handleV1TodoBatch(request, DB) {
       }
     } else {
       // 批量取消完成
-      // 碎时记：保留 time_records（历史累计），done=0，date 重置为空（任意日期可见）
+      // 碎时记：清空 time_records（与单条 toggle 一致），done=0，date 重置为空
       if (fragmentIds.length > 0) {
         const frPh = fragmentIds.map(() => '?').join(',');
         try {
-          await DB.prepare(`UPDATE todos SET done = 0, date = ? WHERE id IN (${frPh})`)
-            .bind('', ...fragmentIds).run();
+          await DB.prepare(`UPDATE todos SET done = 0, date = ?, time_records = ? WHERE id IN (${frPh})`)
+            .bind('', '[]', ...fragmentIds).run();
         } catch (e) {
           try { await DB.prepare(`UPDATE todos SET done = 0 WHERE id IN (${frPh})`).bind(...fragmentIds).run(); } catch (e2) {}
         }

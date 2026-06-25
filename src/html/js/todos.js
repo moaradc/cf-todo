@@ -270,12 +270,9 @@ export const todos = `
       todo.done = !todo.done;
       if (typeof clearTimerState === 'function') clearTimerState(todo.id);
       if (!todo.done) {
-        // 取消勾选：
-        // - 普通待办事项：清空实例级 time_records（与服务端 TOGGLE_DONE 一致）
-        // - 碎时记：保留 time_records（历史累计不应丢失，与服务端一致），仅重置 date=''
-        if (todo.repeat_type !== 'fragment') {
-          todo.time_records = [];
-        }
+        // 取消勾选：清空实例级 time_records（与普通重复 todo 一致，与服务端 TOGGLE_DONE 一致）
+        // "继续计时"按钮路径（continueAfterDone）才会保留累计（keepRecords=true）
+        todo.time_records = [];
         // 碎时记取消勾选时 date 重置为空（任意日期可见）
         if (todo.repeat_type === 'fragment') {
           todo.date = '';
@@ -884,12 +881,9 @@ export const todos = `
             todo.date = formatDate(currentDate);
           }
         } else {
-          // 批量取消完成：
-          // - 普通待办事项：清空 time_records（与服务端 TOGGLE_DONE/BATCH_TOGGLE_DONE 一致）
-          // - 碎时记：保留 time_records（历史累计不应丢失，与服务端一致），仅重置 date=''
-          if (todo.repeat_type !== 'fragment') {
-            todo.time_records = [];
-          }
+          // 批量取消完成：清空本地 time_records（与服务端 TOGGLE_DONE/BATCH_TOGGLE_DONE 一致）
+          // "继续计时"按钮路径才会保留累计；批量取消等同 checkbox 取消，应清空
+          todo.time_records = [];
           // 碎时记：取消完成时 date 重置为空（任意日期可见）
           if (todo.repeat_type === 'fragment') {
             todo.date = '';
