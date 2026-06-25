@@ -289,7 +289,9 @@ export const todos = `
       renderTodos();
       try {
         const now = Date.now();
-        const payload = { action: 'TOGGLE_DONE', task: { id: todo.id, done: todo.done } };
+        // toggleDone（checkbox 路径）显式传 keepRecords: false，明确"取消完成应清除 records"语义。
+        // 与 continueAfterDone 的 keepRecords: true 形成对照，防止未来维护者误加 true。
+        const payload = { action: 'TOGGLE_DONE', task: { id: todo.id, done: todo.done }, keepRecords: false };
         if (todo.done) {
           payload.record = { s: now, e: now, p: 0 };
         }

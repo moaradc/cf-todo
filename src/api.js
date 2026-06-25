@@ -2205,8 +2205,23 @@ self.addEventListener('fetch', (event) => {
       if (action === 'TOGGLE_DONE') {
           // done 1→0：默认清空实例级 time_records；keepRecords=true（"继续计时"路径）时保留。
           // 模板级 time_records 不动（跨实例预估数据，不应因单实例取消而丢失）。
+          //
+          // keepRecords 防御性校验：只有当该 todo 在 DB 中当前 done=1（真的从已完成态取消）
+          // 且请求 done=false 时，keepRecords 才生效。避免前端状态错乱或误传导致 records 意外保留。
           if (!task.done) {
+            let shouldKeepRecords = false;
             if (keepRecords) {
+              try {
+                const cur = await env.DB.prepare('SELECT done FROM todos WHERE id = ?')
+                  .bind(task.id).first();
+                // 仅当 DB 中当前 done=1 且请求改为 done=0 时，才允许保留 records
+                shouldKeepRecords = !!(cur && cur.done === 1);
+              } catch (e) {
+                // DB 读取失败：保守起见不清除（避免数据丢失），但也不信任 keepRecords
+                shouldKeepRecords = false;
+              }
+            }
+            if (shouldKeepRecords) {
               try {
                 await env.DB.prepare('UPDATE todos SET done = 0 WHERE id = ?')
                   .bind(task.id).run();
@@ -2224,6 +2239,7 @@ self.addEventListener('fetch', (event) => {
           } else {
             // done 0→1：记录完成时刻（零耗时 record，s===e）。仅写实例级，不写模板级
             // （零耗时记录会污染 predictDuration 中位数）。真实耗时（s<e）走 TIMER_COMPLETE。
+            // 注意：done 0→1 时 keepRecords 无意义，强制清除旧 records 避免污染。
             try {
               if (record && typeof record.s === 'number' && typeof record.e === 'number'
                   && record.s === record.e && record.s > 0) {
