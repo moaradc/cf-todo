@@ -288,7 +288,7 @@ export const todos = `
             : (typeof todo.time_records === 'string' ? JSON.parse(todo.time_records || '[]') : []);
           if (!Array.isArray(arr)) arr = [];
           arr.push({ s: now, e: now, p: 0 });
-          if (arr.length > 30) arr = arr.slice(arr.length - 30);
+          // 不 FIFO：累计必须准确（与服务端 TOGGLE_DONE 一致）
           todo.time_records = arr;
         } catch (e) {
           todo.time_records = [{ s: now, e: now, p: 0 }];
@@ -320,11 +320,12 @@ export const todos = `
     // value: { s: <start_ms>, p: <累计paused_ms>, lp: <last_pause_start_ms|null> }
     // 服务端记录: { s, e, p } 三元组，elapsed = e - s - p
     //
-    // 多 session 累计模型（参考 Toggl Track / Clockify）：
-    // - time_records: [{s,e,p}, ...]，每个 session 独立
-    // - 累计耗时 = Σ(e-s-p)
-    // - 实例级 FIFO 30，模板级 FIFO 50（在 api.js 中执行）
-    const TIMER_MAX_RECORDS = 30; // 实例级 FIFO 上限（与服务端一致）
+    // 多 session 累计模型（方案 B，参考 Toggl Track / Clockify）：
+    // - 实例级 time_records: [{s,e,p}, ...]，【不 FIFO】
+    //   累计耗时 = Σ(e-s-p)。不截断保证累计永远准确。
+    //   存储风险：每条 ~60B，D1 单行 2MB ≈ 35000 条，实际不可能触达。
+    // - 模板级 time_records: 仅"完成"session 写入，FIFO 10（供 predictDuration 中位数预估）
+    //   "记录"产生的碎片 session 不写模板级，避免短 session 污染预估。
     const TIMER_STALE_MS = 24 * 60 * 60 * 1000; // 超过 24h 视为遗留，自动清除
     const TIMER_MAX_SESSION_MS = 7 * 24 * 60 * 60 * 1000; // 单 session 上限（与服务端一致）
     let timerTickHandle = null;
@@ -461,13 +462,13 @@ export const todos = `
       }
       if (st) writeTimerState(todo.id, null);
       todo.done = true;
-      // 同步把 record 追加到 todo.time_records（本地乐观更新，FIFO 30）
+      // 同步把 record 追加到 todo.time_records（本地乐观更新，不 FIFO）
       // refreshDetailTimerBlock 会从 getDetailTimeRecords() 拿到最新累计
       if (record) {
         try {
           let arr = parseTimeRecords(todo.time_records);
           arr.push(record);
-          if (arr.length > TIMER_MAX_RECORDS) arr = arr.slice(arr.length - TIMER_MAX_RECORDS);
+          // 不 FIFO：累计必须准确（与服务端 TIMER_COMPLETE 一致）
           todo.time_records = arr;
         } catch (e) {
           todo.time_records = [record];
@@ -537,7 +538,7 @@ export const todos = `
       try {
         let arr = parseTimeRecords(todo.time_records);
         arr.push(record);
-        if (arr.length > TIMER_MAX_RECORDS) arr = arr.slice(arr.length - TIMER_MAX_RECORDS);
+        // 不 FIFO：累计必须准确（与服务端 TIMER_RECORD 一致）
         todo.time_records = arr;
       } catch (e) {
         todo.time_records = [record];
@@ -802,7 +803,7 @@ export const todos = `
                 : (typeof todo.time_records === 'string' ? JSON.parse(todo.time_records || '[]') : []);
               if (!Array.isArray(arr)) arr = [];
               arr.push(tr.record);
-              if (arr.length > 30) arr = arr.slice(arr.length - 30);
+              // 不 FIFO：累计必须准确（与服务端 BATCH_TOGGLE_DONE 一致）
               todo.time_records = arr;
             } catch (e) {
               todo.time_records = [tr.record];
