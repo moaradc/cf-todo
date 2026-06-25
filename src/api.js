@@ -197,24 +197,13 @@ async function handleRequest(request, env, ctx) {
         // 2. 在 Screenshots/migrate.html 离线迁移工具里加上对应字段补全（覆盖老用户）
         // 3. 递增 version.json 中的 db_schema 版本号
         // 4. 在下方添加 `if (currentSchema < N)` 块（运行时 ALTER TABLE 覆盖已部署老用户）
-
-        // ==================== schema v1 → v2: 碎时记起始日期专属字段 ====================
-        // 新增 fragment_anchor 列：碎时记 (repeat_type='fragment') 的起始日期
-        // - 未完成时：date 列也存起始日期（供 SQL 可见性过滤），fragment_anchor 是权威副本
-        // - 已完成时：date 列冻结为完成日期，fragment_anchor 仍保留起始日期
-        // - 取消完成时：date 从 fragment_anchor 恢复
-        // 这样用户设置的起始日期不会因完成/取消完成而丢失，且不占用 repeat_end（留给未来截止日期）
-        if (currentSchema < 2) {
-          try {
-            await env.DB.prepare(`ALTER TABLE todos ADD COLUMN fragment_anchor TEXT NOT NULL DEFAULT ''`).run();
-          } catch (e) {
-            // 列已存在（多次部署）则忽略
-          }
-          // 老数据回填：把已存在的碎时记 todo 的 date（起始日期）同步到 fragment_anchor
-          try {
-            await env.DB.prepare(`UPDATE todos SET fragment_anchor = date WHERE repeat_type = 'fragment' AND fragment_anchor = ''`).run();
-          } catch (e) {}
-        }
+        //
+        // 模板（仅作参考，需要时取消注释并替换为实际 SQL）：
+        // if (currentSchema < 2) {
+        //   try {
+        //     await env.DB.prepare(`ALTER TABLE todos ADD COLUMN new_field TEXT NOT NULL DEFAULT ''`).run();
+        //   } catch (e) {}
+        // }
 
         // 写入当前 schema 版本号（整数）
         await env.DB.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('db_schema_version', ?)").bind(String(DB_SCHEMA)).run();
