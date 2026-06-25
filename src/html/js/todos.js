@@ -318,6 +318,18 @@ export const todos = `
     const TIMER_STALE_MS = 24 * 60 * 60 * 1000; // 超过 24h 视为遗留，自动清除
     const TIMER_MAX_SESSION_MS = 7 * 24 * 60 * 60 * 1000; // 单 session 上限（与服务端一致）
     let timerTickHandle = null;
+    // 操作锁：防止 async 操作（completeTimer/recordTimer/continueAfterDone）重复触发
+    // 场景：用户快速连点"完成"；记录请求飞行中点完成
+    // 语义：操作开始时 add(todoId)，结束（无论成功失败）时 delete(todoId)
+    const timerBusyIds = new Set();
+    function acquireTimerLock(todoId) {
+      if (timerBusyIds.has(todoId)) return false;
+      timerBusyIds.add(todoId);
+      return true;
+    }
+    function releaseTimerLock(todoId) {
+      timerBusyIds.delete(todoId);
+    }
 
     function timerKey(todoId) { return 'cf_timer_' + todoId; }
 
@@ -360,11 +372,49 @@ export const todos = `
       return state && state.lp !== null;
     }
 
-    // 遗留计时器清理：若 running 且距 start 超过 24h，直接清除
+    // 遗留计时器清理：
+    // - running 态：距 start 超 24h，直接清除（用户忘关，进度无意义）
+    // - paused 态：距 lp（暂停开始）超 24h，尝试记录当前 session 后清除；
+    //   若 session 总跨度超 7d（服务端会拒绝），不记录直接清除
     function maybePruneStaleTimer(todoId) {
       const st = readTimerState(todoId);
       if (!st) return null;
-      if (isTimerRunning(st) && (Date.now() - st.s) > TIMER_STALE_MS) {
+      const now = Date.now();
+      if (isTimerRunning(st) && (now - st.s) > TIMER_STALE_MS) {
+        writeTimerState(todoId, null);
+        return null;
+      }
+      if (isTimerPaused(st) && (now - st.lp) > TIMER_STALE_MS) {
+        // paused 超 24h：尝试保存 session（保留用户进度）
+        const todo = todos.find(function(t) { return t.id === todoId; });
+        if (todo) {
+          let pausedMs = st.p + (now - st.lp);
+          const elapsedMs = now - st.s - pausedMs;
+          // session 合法才记录，否则丢弃（服务端会拒绝超 7d 的）
+          if (elapsedMs >= 1000 && elapsedMs <= TIMER_MAX_SESSION_MS) {
+            const record = { s: st.s, e: now, p: Math.max(0, Math.floor(pausedMs)) };
+            try {
+              let arr = parseTimeRecords(todo.time_records);
+              arr.push(record);
+              todo.time_records = arr;
+            } catch (e) {
+              todo.time_records = [record];
+            }
+            // 异步写服务器，不阻塞渲染
+            try {
+              fetch('/api/todo-action', {
+                method: 'POST',
+                body: JSON.stringify({
+                  action: 'TIMER_RECORD',
+                  task: { id: todo.id, parent_id: todo.parent_id },
+                  parentId: todo.parent_id,
+                  record: record
+                }),
+                headers: { 'Content-Type': 'application/json' }
+              }).catch(function() {});
+            } catch (e) {}
+          }
+        }
         writeTimerState(todoId, null);
         return null;
       }
@@ -431,60 +481,70 @@ export const todos = `
     async function completeTimer(index) {
       const todo = todos[index];
       if (!todo) return;
-      const st = readTimerState(todo.id);
-      const completedTodoId = todo.id; // renderTodos 后用于重定位 currentDetailIndex
-      const now = Date.now();
-      let record = null;
-      if (st) {
-        let pausedMs = st.p;
-        if (isTimerPaused(st)) pausedMs += (now - st.lp);
-        const elapsedMs = now - st.s - pausedMs;
-        if (elapsedMs >= 1000 && elapsedMs <= TIMER_MAX_SESSION_MS) {
-          record = { s: st.s, e: now, p: Math.max(0, Math.floor(pausedMs)) };
-        }
-        writeTimerState(todo.id, null);
-      } else {
-        // 防御性兜底：当前调用点都保证 st 存在，此分支理论上不触发
-        record = { s: now, e: now, p: 0 };
-      }
-      todo.done = true;
-      // 乐观更新：追加 record 到本地 time_records
-      if (record) {
-        try {
-          let arr = parseTimeRecords(todo.time_records);
-          arr.push(record);
-          todo.time_records = arr;
-        } catch (e) {
-          todo.time_records = [record];
-        }
-      }
-      ensureTimerTick();
-      renderTodos();
-      // renderTodos 可能 sort 导致 index 漂移，用 id 重定位
-      if (currentDetailIndex >= 0 && todos[currentDetailIndex] && todos[currentDetailIndex].id !== completedTodoId) {
-        const newIdx = todos.findIndex(function(t) { return t.id === completedTodoId; });
-        if (newIdx !== -1) currentDetailIndex = newIdx;
-      }
-      // 同步渲染（不等 fetch），record 直传避免缓存竞态
-      if (typeof refreshDetailTimerBlock === 'function' && currentDetailIndex === index) {
-        refreshDetailTimerBlock(record);
-      }
+      // 问题 4 防御：todo 已 done 直接返回（recordTimer 飞行中或重复触发）
+      if (todo.done) return;
+      // 问题 3 防御：操作锁，防止连点重复触发
+      if (!acquireTimerLock(todo.id)) return;
       try {
-        await fetch('/api/todo-action', {
-          method: 'POST',
-          body: JSON.stringify({
-            action: 'TIMER_COMPLETE',
-            task: { id: todo.id, parent_id: todo.parent_id },
-            parentId: todo.parent_id,
-            record: record
-          }),
-          headers: { 'Content-Type': 'application/json' }
-        });
-      } catch (e) {
-        // 网络失败不回滚，下次拉取会刷新
-      }
-      if (typeof reloadDetailAfterComplete === 'function' && currentDetailIndex === index) {
-        reloadDetailAfterComplete();
+        const st = readTimerState(todo.id);
+        const completedTodoId = todo.id;
+        const now = Date.now();
+        let record = null;
+        if (st) {
+          let pausedMs = st.p;
+          if (isTimerPaused(st)) pausedMs += (now - st.lp);
+          const elapsedMs = now - st.s - pausedMs;
+          if (elapsedMs >= 1000 && elapsedMs <= TIMER_MAX_SESSION_MS) {
+            record = { s: st.s, e: now, p: Math.max(0, Math.floor(pausedMs)) };
+          }
+          writeTimerState(todo.id, null);
+        } else {
+          // st === null：无活动计时器。
+          // 可能是 recordTimer 飞行中（计时器已清但 todo.done 未变），或 toggleDone 误路由。
+          // 不写零耗时 record（避免污染累计），仅标记 done。完成时刻由 done 状态隐含。
+          record = null;
+        }
+        todo.done = true;
+        // 乐观更新：仅在有 record 时追加（零耗时场景不追加）
+        if (record) {
+          try {
+            let arr = parseTimeRecords(todo.time_records);
+            arr.push(record);
+            todo.time_records = arr;
+          } catch (e) {
+            todo.time_records = [record];
+          }
+        }
+        ensureTimerTick();
+        renderTodos();
+        // renderTodos 可能 sort 导致 index 漂移，用 id 重定位
+        if (currentDetailIndex >= 0 && todos[currentDetailIndex] && todos[currentDetailIndex].id !== completedTodoId) {
+          const newIdx = todos.findIndex(function(t) { return t.id === completedTodoId; });
+          if (newIdx !== -1) currentDetailIndex = newIdx;
+        }
+        // 同步渲染（不等 fetch），record 直传避免缓存竞态
+        if (typeof refreshDetailTimerBlock === 'function' && currentDetailIndex === index) {
+          refreshDetailTimerBlock(record);
+        }
+        try {
+          await fetch('/api/todo-action', {
+            method: 'POST',
+            body: JSON.stringify({
+              action: 'TIMER_COMPLETE',
+              task: { id: todo.id, parent_id: todo.parent_id },
+              parentId: todo.parent_id,
+              record: record
+            }),
+            headers: { 'Content-Type': 'application/json' }
+          });
+        } catch (e) {
+          // 网络失败不回滚，下次拉取会刷新
+        }
+        if (typeof reloadDetailAfterComplete === 'function' && currentDetailIndex === index) {
+          reloadDetailAfterComplete();
+        }
+      } finally {
+        releaseTimerLock(todo.id);
       }
     }
 
@@ -494,56 +554,62 @@ export const todos = `
       if (!todo) return;
       const st = readTimerState(todo.id);
       if (!st) return;
-      const recordedTodoId = todo.id;
-      const now = Date.now();
-      let pausedMs = st.p;
-      if (isTimerPaused(st)) pausedMs += (now - st.lp);
-      const elapsedMs = now - st.s - pausedMs;
-      // 时长不合理（<1s 或 >7d）：仅清计时器，不写记录
-      if (elapsedMs < 1000 || elapsedMs > TIMER_MAX_SESSION_MS) {
+      // 问题 3 防御：操作锁，防止连点重复触发
+      if (!acquireTimerLock(todo.id)) return;
+      try {
+        const recordedTodoId = todo.id;
+        const now = Date.now();
+        let pausedMs = st.p;
+        if (isTimerPaused(st)) pausedMs += (now - st.lp);
+        const elapsedMs = now - st.s - pausedMs;
+        // 时长不合理（<1s 或 >7d）：仅清计时器，不写记录
+        if (elapsedMs < 1000 || elapsedMs > TIMER_MAX_SESSION_MS) {
+          writeTimerState(todo.id, null);
+          ensureTimerTick();
+          renderTodos();
+          if (typeof refreshDetailTimerBlock === 'function' && currentDetailIndex === index) {
+            refreshDetailTimerBlock();
+          }
+          return;
+        }
+        const record = { s: st.s, e: now, p: Math.max(0, Math.floor(pausedMs)) };
+
         writeTimerState(todo.id, null);
+        try {
+          let arr = parseTimeRecords(todo.time_records);
+          arr.push(record);
+          todo.time_records = arr;
+        } catch (e) {
+          todo.time_records = [record];
+        }
         ensureTimerTick();
         renderTodos();
+        if (currentDetailIndex >= 0 && todos[currentDetailIndex] && todos[currentDetailIndex].id !== recordedTodoId) {
+          const newIdx = todos.findIndex(function(t) { return t.id === recordedTodoId; });
+          if (newIdx !== -1) currentDetailIndex = newIdx;
+        }
         if (typeof refreshDetailTimerBlock === 'function' && currentDetailIndex === index) {
           refreshDetailTimerBlock();
         }
-        return;
-      }
-      const record = { s: st.s, e: now, p: Math.max(0, Math.floor(pausedMs)) };
-
-      writeTimerState(todo.id, null);
-      try {
-        let arr = parseTimeRecords(todo.time_records);
-        arr.push(record);
-        todo.time_records = arr;
-      } catch (e) {
-        todo.time_records = [record];
-      }
-      ensureTimerTick();
-      renderTodos();
-      if (currentDetailIndex >= 0 && todos[currentDetailIndex] && todos[currentDetailIndex].id !== recordedTodoId) {
-        const newIdx = todos.findIndex(function(t) { return t.id === recordedTodoId; });
-        if (newIdx !== -1) currentDetailIndex = newIdx;
-      }
-      if (typeof refreshDetailTimerBlock === 'function' && currentDetailIndex === index) {
-        refreshDetailTimerBlock();
-      }
-      try {
-        await fetch('/api/todo-action', {
-          method: 'POST',
-          body: JSON.stringify({
-            action: 'TIMER_RECORD',
-            task: { id: todo.id, parent_id: todo.parent_id },
-            parentId: todo.parent_id,
-            record: record
-          }),
-          headers: { 'Content-Type': 'application/json' }
-        });
-      } catch (e) {
-        // 网络失败不回滚，下次拉取会刷新
-      }
-      if (typeof reloadDetailAfterComplete === 'function' && currentDetailIndex === index) {
-        reloadDetailAfterComplete();
+        try {
+          await fetch('/api/todo-action', {
+            method: 'POST',
+            body: JSON.stringify({
+              action: 'TIMER_RECORD',
+              task: { id: todo.id, parent_id: todo.parent_id },
+              parentId: todo.parent_id,
+              record: record
+            }),
+            headers: { 'Content-Type': 'application/json' }
+          });
+        } catch (e) {
+          // 网络失败不回滚，下次拉取会刷新
+        }
+        if (typeof reloadDetailAfterComplete === 'function' && currentDetailIndex === index) {
+          reloadDetailAfterComplete();
+        }
+      } finally {
+        releaseTimerLock(todo.id);
       }
     }
 
@@ -552,31 +618,37 @@ export const todos = `
     async function continueAfterDone(index) {
       const todo = todos[index];
       if (!todo) return;
-      const continuedTodoId = todo.id;
-      todo.done = false;
-      startTimer(todo.id);
-      if (currentDetailIndex >= 0 && todos[currentDetailIndex] && todos[currentDetailIndex].id !== continuedTodoId) {
-        const newIdx = todos.findIndex(function(t) { return t.id === continuedTodoId; });
-        if (newIdx !== -1) currentDetailIndex = newIdx;
-      }
-      if (typeof refreshDetailTimerBlock === 'function' && currentDetailIndex === index) {
-        refreshDetailTimerBlock();
-      }
+      // 问题 3 防御：操作锁
+      if (!acquireTimerLock(todo.id)) return;
       try {
-        await fetch('/api/todo-action', {
-          method: 'POST',
-          body: JSON.stringify({
-            action: 'TOGGLE_DONE',
-            task: { id: todo.id, done: false },
-            keepRecords: true
-          }),
-          headers: { 'Content-Type': 'application/json' }
-        });
-      } catch (e) {
-        // 网络失败不回滚，下次拉取会刷新
-      }
-      if (typeof reloadDetailAfterComplete === 'function' && currentDetailIndex === index) {
-        reloadDetailAfterComplete();
+        const continuedTodoId = todo.id;
+        todo.done = false;
+        startTimer(todo.id);
+        if (currentDetailIndex >= 0 && todos[currentDetailIndex] && todos[currentDetailIndex].id !== continuedTodoId) {
+          const newIdx = todos.findIndex(function(t) { return t.id === continuedTodoId; });
+          if (newIdx !== -1) currentDetailIndex = newIdx;
+        }
+        if (typeof refreshDetailTimerBlock === 'function' && currentDetailIndex === index) {
+          refreshDetailTimerBlock();
+        }
+        try {
+          await fetch('/api/todo-action', {
+            method: 'POST',
+            body: JSON.stringify({
+              action: 'TOGGLE_DONE',
+              task: { id: todo.id, done: false },
+              keepRecords: true
+            }),
+            headers: { 'Content-Type': 'application/json' }
+          });
+        } catch (e) {
+          // 网络失败不回滚，下次拉取会刷新
+        }
+        if (typeof reloadDetailAfterComplete === 'function' && currentDetailIndex === index) {
+          reloadDetailAfterComplete();
+        }
+      } finally {
+        releaseTimerLock(todo.id);
       }
     }
 
