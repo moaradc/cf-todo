@@ -309,14 +309,14 @@ export const detail = `
         if (predictText) html += '<div style="font-size:0.85em; opacity:0.7; margin-top:6px;">' + predictText + '</div>';
         html += '</div>';
       } else {
-        // 空闲：累计（仅>0 时）+ 开始计时 + 完成 按钮（全部在同一 detail-value 内）
+        // 空闲：累计（仅>0 时）+ [开始计时]（按状态表，空闲态只有"开始计时"一个按钮）
+        // "完成"只在计时进行中可用——空闲态无活动计时器，点完成无意义
         html += '<div class="detail-value" style="display:block;">';
         if (cumMs > 0) {
           html += '<div>累计 ' + formatMs(cumMs) + '</div>';
         }
         html += '<div class="timer-row" style="margin-top:' + (cumMs > 0 ? '8px' : '0') + ';">';
         html += '<button class="btn-ghost" onclick="startTimerDetail()">开始计时</button>';
-        html += '<button class="btn-ghost" onclick="completeFromIdleDetail()">完成</button>';
         if (predictText) html += '<span style="font-size:0.85em; opacity:0.7; margin-left:10px;">' + predictText + '</span>';
         html += '</div>';
         html += '</div>';
