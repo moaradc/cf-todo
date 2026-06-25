@@ -611,7 +611,11 @@ export const detail = `
         // 碎时记 (fragment): 从 task.date 读起始日期
         //   - 未完成：date = 起始日期（空=任意日期可见）
         //   - 已完成：date = 完成日期（冻结，编辑模式只读）
-        tempFragmentAnchor = (task.repeat_type === 'fragment' && !task.done) ? (task.date || '') : '';
+        // 碎时记 (fragment): 起始日期从 fragment_anchor 读取（权威副本，不受完成状态影响）
+        //   - 未完成：fragment_anchor 与 date 一致，两者都可读
+        //   - 已完成：date 是冻结的完成日期，fragment_anchor 才是起始日期
+        // 优先读 fragment_anchor（后端 formatTodo 已透传），兜底读 date（兼容旧数据）
+        tempFragmentAnchor = (task.repeat_type === 'fragment') ? (task.fragment_anchor || task.date || '') : '';
         tempSubtasks = JSON.parse(JSON.stringify(task.subtasks ||[]));
         tempSearchTerms = JSON.parse(JSON.stringify(task.search_terms ||[]));
         tempSearchProvider = appSettings.provider || 'auto';

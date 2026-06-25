@@ -273,9 +273,9 @@ export const todos = `
         // 取消勾选：清空实例级 time_records（与普通重复 todo 一致，与服务端 TOGGLE_DONE 一致）
         // "继续计时"按钮路径（continueAfterDone）才会保留累计（keepRecords=true）
         todo.time_records = [];
-        // 碎时记取消勾选时 date 重置为空（任意日期可见）
+        // 碎时记取消勾选时 date 从 fragment_anchor 恢复（保留用户设置的起始日期）
         if (todo.repeat_type === 'fragment') {
-          todo.date = '';
+          todo.date = todo.fragment_anchor || '';
         }
       } else {
         // 勾选完成（无计时器）：构造零耗时 record，仅记录完成时刻
@@ -644,10 +644,10 @@ export const todos = `
       try {
         const continuedTodoId = todo.id;
         todo.done = false;
-        // 碎时记：取消完成时 date 重置为空（任意日期可见），与后端 TOGGLE_DONE 一致
-        // 用户在已完成的碎时记上点"继续计时"后，该事项应该在任何日期都重新可见
+        // 碎时记：取消完成时 date 从 fragment_anchor 恢复（保留用户设置的起始日期）
+        // 用户在已完成的碎时记上点"继续计时"后，该事项恢复到未完成状态，起始日期保留
         if (todo.repeat_type === 'fragment') {
-          todo.date = '';
+          todo.date = todo.fragment_anchor || '';
         }
         startTimer(todo.id);
         if (currentDetailIndex >= 0 && todos[currentDetailIndex] && todos[currentDetailIndex].id !== continuedTodoId) {
@@ -884,9 +884,9 @@ export const todos = `
           // 批量取消完成：清空本地 time_records（与服务端 TOGGLE_DONE/BATCH_TOGGLE_DONE 一致）
           // "继续计时"按钮路径才会保留累计；批量取消等同 checkbox 取消，应清空
           todo.time_records = [];
-          // 碎时记：取消完成时 date 重置为空（任意日期可见）
+          // 碎时记：取消完成时 date 从 fragment_anchor 恢复（保留用户设置的起始日期）
           if (todo.repeat_type === 'fragment') {
-            todo.date = '';
+            todo.date = todo.fragment_anchor || '';
           }
         }
       });

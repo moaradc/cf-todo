@@ -703,6 +703,12 @@
       }
       if (!m.repeat_custom) m.repeat_custom = '';
 
+      // fragment_anchor 补全（schema 2）：碎时记起始日期，默认 ''
+      // 老数据没有此字段，导入时后端会用默认值 ''，这里显式补全便于导出文件自洽
+      if (m.fragment_anchor === undefined || m.fragment_anchor === null) {
+        m.fragment_anchor = '';
+      }
+
       migratedTodos.push(m);
     }
 
