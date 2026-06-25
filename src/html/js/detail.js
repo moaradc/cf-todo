@@ -184,19 +184,12 @@ export const detail = `
     }
 
     // ==================== 详情面板计时区块 ====================
-    // 实例级记录直接读 todos[currentDetailIndex].time_records（todo 对象自带），
-    // 不再发 /api/time-records?todo_id= 拉取。原因：
-    //   1. /api/todos 已经把 time_records 字段带过来了，前端只需 JSON.parse
-    //   2. todo.id 唯一，从 todos[currentDetailIndex] 取出的就是当前实例的记录，
-    //      不会跨实例串台
-    //   3. 消除 SW 缓存命中旧空响应、D1 读副本延迟等导致的"拉到空 records"问题
-    //   4. 省一次网络往返
-    // 模板级 templateRecords 仍独立拉取（用于 predictDuration 预估时长），失败不影响主流程。
+    // 实例级记录直接读 todos[currentDetailIndex].time_records（todo 对象自带，无需额外请求）。
+    // 模板级 templateRecords 独立拉取（用于 predictDuration 预估），失败不影响主流程。
     let detailTimerOwnerId = null;
     let detailTemplateRecords = []; // 当前模板的跨实例记录（仅用于 predictDuration 预估）
 
-    // 取当前事项的实例级完成记录：直接从 todo.time_records 字段解析
-    // 兼容字符串（DB 原始格式）和数组（理论上服务端可能解析后返回）两种形式
+    // 取当前事项的实例级 session 记录，兼容 string / array 两种形式
     function getDetailTimeRecords() {
       const task = todos[currentDetailIndex];
       if (!task) return [];
@@ -212,11 +205,7 @@ export const detail = `
     }
 
     // 仅刷新计时区块，不重渲染整个面板（避免破坏用户阅读位置）
-    // overrideRecord: 可选，completeTimer 同步阶段直传的刚算出的 record。
-    //   不写入任何缓存，仅在本次调用中消费，避免状态残留/串台/失效问题。
-    //   await fetch 后 reloadDetailTimeRecords 会用服务器返回的最新 records 重新渲染（无参数调用）。
-    // 格式化完成时间戳为 "yyyy.MM.dd HH:mm:ss"（如 2026.06.24 10:59:32）
-    // 使用本地时区，padding 用 ('0'+n).slice(-2) 兼容老浏览器
+    // overrideRecord: completeTimer 同步阶段直传，未经缓存，避免状态残留/串台
     function formatDoneTime(ms) {
       const d = new Date(ms);
       const pad = function(n) { return ('0' + n).slice(-2); };
@@ -229,10 +218,7 @@ export const detail = `
       const slot = document.getElementById('timer-section');
       if (!task || !slot) return;
 
-      // 非重复 todo：只读显示计时区块（不展示按钮、不展示耗时）
-      // 原因：非重复 todo 不支持计时操作，但 time_records 字段每个 todo 都有，
-      // 用户可能通过"仅此项"从重复 todo 转换而来，此时 time_records 仍保留历史完成记录。
-      // 为保持 UI 一致性，展示只读区块：仅显示"无完成耗时记录"或"完成于 X"。
+      // 非重复 todo：只读显示（不支持计时操作，但可能保留从重复 todo 转换来的历史记录）
       const isRepeating = task.repeat_type && task.repeat_type !== 'none';
       if (!isRepeating) {
         let html = '<div class="detail-label">计时</div>';
@@ -252,24 +238,16 @@ export const detail = `
       const paused = timerState && isTimerPaused(timerState);
       const elapsed = timerState ? timerElapsed(timerState) : 0;
 
-      // 当前实例的所有 session 记录（实例级，不 FIFO）
       const records = getDetailTimeRecords();
-      // 累计耗时：所有历史 session 之和（不含当前正在进行的 session）
-      const cumMs = sumRecordsMs(records);
-      // 预估完成时间（中位数），仅用于进行中/已暂停/空闲态的提示
-      // 使用模板级记录预估：跨实例的中位数更稳定
+      const cumMs = sumRecordsMs(records); // 历史 session 累计（不含当前进行中的 session）
       const predict = predictDuration(detailTemplateRecords);
       const predictText = predict ? '预计 ' + formatMs(predict) : '';
 
       let html = '<div class="detail-label">计时</div>';
 
-      // 排版规则（1:1 还原 feat/more-ui-fixes 碎时记 UI 设计）：
-      // - 累计/时间/按钮全部包在同一个 <div class="detail-value" style="display:block;"> 里
-      // - 累计/时间用普通字号（无特殊 class），与"完成于 X"等其他详情值视觉一致
-      // - 当前 session 计时用大字（timer-elapsed-large）
-      // - 所有按钮统一放在时间/累计下方（独立 timer-row），不与时间同行
+      // 排版：累计/时间/按钮全部包在同一个 detail-value 内，垂直排列
       if (task.done) {
-        // 已完成：累计 + 最后记录时间 + 继续计时按钮（全部在同一 detail-value 内）
+        // 已完成：累计 + 最后记录于 X + [继续计时]
         const lastRec = overrideRecord || (records.length ? records[records.length - 1] : null);
         html += '<div class="detail-value" style="display:block;">';
         if (cumMs > 0) {
@@ -285,10 +263,7 @@ export const detail = `
         html += '</div>';
         html += '</div>';
       } else if (timerState) {
-        // 进行中 / 已暂停：大字时间 + 本次前累计（仅累计>0 时）+ 按钮组（全部在同一 detail-value 内）
-        // 记录：保存本段时间，任务保持未完成，可继续开始下一段
-        // 完成：保存本段时间 + 标记任务完成
-        // 取消：丢弃本段时间，不保存
+        // 进行中 / 已暂停：大字时间 + 本次前累计（仅>0 时）+ [暂停/继续][记录][完成][取消]
         html += '<div class="detail-value" style="display:block;">';
         html += '<div class="timer-row">';
         html += '<span class="timer-elapsed-large" data-timer-id="' + task.id + '-detail">' + formatElapsed(elapsed) + '</span>';
@@ -309,8 +284,7 @@ export const detail = `
         if (predictText) html += '<div style="font-size:0.85em; opacity:0.7; margin-top:6px;">' + predictText + '</div>';
         html += '</div>';
       } else {
-        // 空闲：累计（仅>0 时）+ [开始计时]（按状态表，空闲态只有"开始计时"一个按钮）
-        // "完成"只在计时进行中可用——空闲态无活动计时器，点完成无意义
+        // 空闲：累计（仅>0 时）+ [开始计时]（空闲态只有这一个按钮）
         html += '<div class="detail-value" style="display:block;">';
         if (cumMs > 0) {
           html += '<div>累计 ' + formatMs(cumMs) + '</div>';

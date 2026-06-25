@@ -2203,16 +2203,10 @@ self.addEventListener('fetch', (event) => {
       const { action, date, task, scope, ids, doneStatus, record, parentId, timerRecords, keepRecords } = await request.json();
 
       if (action === 'TOGGLE_DONE') {
-          // 取消勾选（done 1→0）默认清空实例级 time_records：
-          // 避免之后重新勾选（不通过计时器）时，详情页仍显示旧的"完成于 X，耗时 Y"。
-          // 模板级 time_records 不动（仅用于 predictDuration 跨实例预估，是历史数据）。
-          //
-          // keepRecords=true（来自"继续计时"路径）：保留实例级累计记录，不清空，
-          // 让"本次前累计 X"在新的计时片段中持续显示。
-          // 这是"碎片时间随用随计"语义：完成只是冻结一次时刻，再次"继续计时"应保留累计历史。
+          // done 1→0：默认清空实例级 time_records；keepRecords=true（"继续计时"路径）时保留。
+          // 模板级 time_records 不动（跨实例预估数据，不应因单实例取消而丢失）。
           if (!task.done) {
             if (keepRecords) {
-              // 继续计时：仅切换 done，保留 time_records
               try {
                 await env.DB.prepare('UPDATE todos SET done = 0 WHERE id = ?')
                   .bind(task.id).run();
@@ -2224,15 +2218,12 @@ self.addEventListener('fetch', (event) => {
                 await env.DB.prepare('UPDATE todos SET done = 0, time_records = ? WHERE id = ?')
                   .bind('[]', task.id).run();
               } catch (e) {
-                // 兜底：仅更新 done（极端情况：列不存在等）
                 await env.DB.prepare('UPDATE todos SET done = 0 WHERE id = ?').bind(task.id).run();
               }
             }
           } else {
-            // 勾选完成（done 0→1）：记录完成时刻（零耗时 record，s===e）
-            // 与 TIMER_COMPLETE 区分：勾选框完成无计时，仅记录"完成于 X"时间戳。
-            // 仅写实例级 time_records，不写模板级（模板级是计时器专用预估数据，
-            // 零耗时记录会污染 predictDuration 中位数）。
+            // done 0→1：记录完成时刻（零耗时 record，s===e）。仅写实例级，不写模板级
+            // （零耗时记录会污染 predictDuration 中位数）。真实耗时（s<e）走 TIMER_COMPLETE。
             try {
               if (record && typeof record.s === 'number' && typeof record.e === 'number'
                   && record.s === record.e && record.s > 0) {
@@ -2264,25 +2255,13 @@ self.addEventListener('fetch', (event) => {
           }
         }
         else if (action === 'TIMER_COMPLETE') {
-          // 计时"完成"：标记 done=1 + 追加 session 到 time_records（实例级 + 模板级双写）
-          // 单请求完成 3 件事，避免增加网络往返（D1 Free 单线程，少 query 更稳）
-          // record: { s: <epoch_ms>, e: <epoch_ms>, p: <paused_ms> }
-          //
-          // 数据模型（方案 B）：
-          // - 实例级（todos.time_records）：[{s,e,p}, ...]，【不 FIFO】
-          //   累计耗时 = Σ(e-s-p)。不截断保证累计永远准确。
-          //   存储风险：每条 ~60B，D1 单行 2MB ≈ 35000 条，实际不可能触达。
-          // - 模板级（todo_templates.time_records）：FIFO 10，仅存"完成"session
-          //   供 predictDuration 计算中位数预估时长。10 条样本算中位数已足够稳定。
-          //   "记录"产生的碎片 session 不写模板级（见 TIMER_RECORD），避免短 session 污染预估。
-          //
-          // 与 TIMER_RECORD 的区别：TIMER_COMPLETE 标记 done=1（冻结本次完成时刻）+ 写模板级。
-          // 与 TOGGLE_DONE 的区别：TIMER_COMPLETE 写真实耗时 record（s<e）。
+          // 计时"完成"：标记 done=1 + 追加 session 到实例级（不 FIFO）+ 模板级（FIFO 10）
+          // record: { s, e, p }，校验 1s ≤ (e-s) ≤ 7d、p ≥ 0、p < (e-s)
           const todoId = task && task.id;
           const pid = parentId || (task && task.parent_id);
           if (!todoId) return apiError("INVALID_PARAMS", 400);
 
-          // 1. 标记完成（始终执行，即便记录写入失败也不阻断完成）
+          // 1. 标记完成（始终执行，记录写入失败不阻断）
           try {
             await env.DB.prepare('UPDATE todos SET done = 1 WHERE id = ?').bind(todoId).run();
           } catch (eDone) {
@@ -2294,11 +2273,9 @@ self.addEventListener('fetch', (event) => {
             const s = Math.floor(record.s);
             const e = Math.floor(record.e);
             const p = Math.floor(record.p || 0);
-            // 服务端校验：s < e, 时长合理（1s ~ 7d），paused 不超过总时长
-            // 7d 上限兼容单次长会话；跨 session 累计无上限（每 session 独立校验）
             const MAX_DURATION_MS = 7 * 24 * 60 * 60 * 1000;
             if (s > 0 && e > s && (e - s) <= MAX_DURATION_MS && p >= 0 && p < (e - s)) {
-              // 2a. 实例级：写入 todos.time_records（不 FIFO，保留全部 session）
+              // 2a. 实例级（不 FIFO，保留全部 session 保证累计准确）
               try {
                 const cur = await env.DB.prepare(
                   'SELECT time_records FROM todos WHERE id = ?'
@@ -2313,8 +2290,6 @@ self.addEventListener('fetch', (event) => {
                 }
                 if (!Array.isArray(instArr)) instArr = [];
                 instArr.push({ s, e, p });
-                // 不 FIFO：累计必须准确，少一条就少算时间
-                // 安全：35000 条才到 D1 单行 2MB，实际不可能触达
                 await env.DB.prepare(
                   'UPDATE todos SET time_records = ? WHERE id = ?'
                 ).bind(JSON.stringify(instArr), todoId).run();
@@ -2322,8 +2297,7 @@ self.addEventListener('fetch', (event) => {
                 console.error("TIMER_COMPLETE per-instance record write failed:", eInst);
               }
 
-              // 2b. 模板级：写入 todo_templates.time_records（供 predictDuration）
-              //     仅"完成"session 写入，FIFO 10（中位数预估 10 条样本足够稳定）
+              // 2b. 模板级（FIFO 10，供 predictDuration 中位数预估）
               if (pid) {
                 try {
                   const tpl = await env.DB.prepare(
@@ -2334,14 +2308,12 @@ self.addEventListener('fetch', (event) => {
                     try { arr = Array.isArray(tpl.time_records) ? tpl.time_records : JSON.parse(tpl.time_records || '[]'); } catch (e2) { arr = []; }
                     if (!Array.isArray(arr)) arr = [];
                     arr.push({ s, e, p });
-                    // FIFO 10：中位数预估 10 条样本足够，多了反引入老旧数据噪音
                     if (arr.length > 10) arr = arr.slice(arr.length - 10);
                     await env.DB.prepare(
                       'UPDATE todo_templates SET time_records = ? WHERE parent_id = ?'
                     ).bind(JSON.stringify(arr), pid).run();
                   }
                 } catch (e3) {
-                  // 模板写入失败不影响完成状态，仅吞掉错误
                   console.error("TIMER_COMPLETE template record write failed:", e3);
                 }
               }
@@ -2349,24 +2321,9 @@ self.addEventListener('fetch', (event) => {
           }
         }
         else if (action === 'TIMER_RECORD') {
-          // 计时"记录"功能（参考 Toggl Track Split time entry + Continue 简化版）：
-          // 用户在计时中点"记录"→ 保存本次 session 到实例级 time_records，回到空闲态，不标记完成。
-          // 自由计时、碎片时间随用随计。
-          //
-          // 数据模型（方案 B）：
-          // - 实例级（todos.time_records）：[{s,e,p}, ...]，每个 session 独立，【不 FIFO】
-          //   累计耗时 = Σ(e-s-p)（前端遍历求和）。不截断保证累计永远准确。
-          //   存储风险：每条 ~60B，D1 单行 2MB ≈ 35000 条，实际不可能触达。
-          // - 模板级（todo_templates.time_records）：【不写】
-          //   "记录"产生的碎片 session 不参与 predictDuration 预估，
-          //   避免短 session 污染中位数（预估只看"完成"session）。
-          //
-          // 入参：
-          //   task.id, task.parent_id
-          //   record: { s: 本次开始, e: now, p: 本次 paused }
-          //
-          // 与 TIMER_COMPLETE 的区别：不标记 done，不冻结完成时刻，不写模板级。
-          // 与 TOGGLE_DONE 的区别：写真实耗时 record（s<e）。
+          // 计时"记录"：保存 session 到实例级 time_records（不 FIFO），不标记完成，不写模板级。
+          // 用于碎片时间累计：用户记录本段后可继续开始下一段。
+          // 不写模板级的原因：碎片 session 会污染 predictDuration 中位数预估。
           const todoId = task && task.id;
           if (!todoId) return apiError("INVALID_PARAMS", 400);
 
@@ -2374,10 +2331,8 @@ self.addEventListener('fetch', (event) => {
             const s = Math.floor(record.s);
             const e = Math.floor(record.e);
             const p = Math.floor(record.p || 0);
-            // 服务端校验：与 TIMER_COMPLETE 一致
             const MAX_DURATION_MS = 7 * 24 * 60 * 60 * 1000;
             if (s > 0 && e > s && (e - s) <= MAX_DURATION_MS && p >= 0 && p < (e - s)) {
-              // 实例级：写入 todos.time_records（不 FIFO，保留全部 session）
               try {
                 const cur = await env.DB.prepare(
                   'SELECT time_records FROM todos WHERE id = ?'
@@ -2392,15 +2347,12 @@ self.addEventListener('fetch', (event) => {
                 }
                 if (!Array.isArray(instArr)) instArr = [];
                 instArr.push({ s, e, p });
-                // 不 FIFO：累计必须准确，少一条就少算时间
-                // 安全：35000 条才到 D1 单行 2MB，实际不可能触达
                 await env.DB.prepare(
                   'UPDATE todos SET time_records = ? WHERE id = ?'
                 ).bind(JSON.stringify(instArr), todoId).run();
               } catch (eInst) {
                 console.error("TIMER_RECORD per-instance record write failed:", eInst);
               }
-              // 不写模板级：碎片 session 不参与 predictDuration 预估
             }
           }
         }
