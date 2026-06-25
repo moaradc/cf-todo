@@ -316,7 +316,7 @@ function formatTodo(row) {
   // - 实际耗时 = e - s - p
   // - s === e 表示零耗时（勾选框完成，仅记录完成时刻）
   // - s < e 表示有耗时（计时器完成）
-  // FIFO 保留最近 5 条，末尾为最新一次完成记录
+  // 不 FIFO，保留全部 session；累计耗时 = Σ(e-s-p)
   let timeRecords = [];
   try {
     const raw = row.time_records;
@@ -866,10 +866,11 @@ async function handleV1TodoToggle(request, DB, todoId) {
 
 // ==================== 计时记录写入工具函数 ====================
 // 校验并写入 time_records（实例级 + 模板级）
-// - 实例级：所有合法 record 都写（FIFO 5）
-// - 模板级：仅真实耗时（s<e）写（FIFO 10），零耗时跳过
+// - 实例级：所有合法 record 都写（不 FIFO，保留全部 session 保证累计准确）
+// - 模板级：仅真实耗时（s<e）写（FIFO 10，供 predictDuration 中位数预估），零耗时跳过
 // 非法 record 静默跳过（不影响调用方主流程）
 // 所有 DB 异常吞掉并记录日志，避免影响 done 状态
+// 与 /api/todo-action TIMER_COMPLETE 写入策略保持一致
 async function writeTimerRecord(DB, todoId, parentId, record) {
   // 校验
   if (!record || typeof record !== 'object') return;
@@ -884,7 +885,7 @@ async function writeTimerRecord(DB, todoId, parentId, record) {
   }
   const isZeroDuration = (s === e);
 
-  // 实例级写入
+  // 实例级写入（不 FIFO，保留全部 session）
   try {
     const cur = await DB.prepare('SELECT time_records FROM todos WHERE id = ?').bind(todoId).first();
     if (cur) {
@@ -896,7 +897,8 @@ async function writeTimerRecord(DB, todoId, parentId, record) {
       } catch (e2) { instArr = []; }
       if (!Array.isArray(instArr)) instArr = [];
       instArr.push({ s, e, p });
-      if (instArr.length > 5) instArr = instArr.slice(instArr.length - 5);
+      // 不 FIFO：累计必须准确，少一条就少算时间
+      // 安全：每条 ~60B，D1 单行 2MB ≈ 35000 条，实际不可能触达
       await DB.prepare('UPDATE todos SET time_records = ? WHERE id = ?')
         .bind(JSON.stringify(instArr), todoId).run();
     }
@@ -904,7 +906,7 @@ async function writeTimerRecord(DB, todoId, parentId, record) {
     console.error('v1 per-instance record write failed:', eInst);
   }
 
-  // 模板级写入（仅真实耗时，零耗时跳过避免污染 predictDuration）
+  // 模板级写入（仅真实耗时，FIFO 10；零耗时跳过避免污染 predictDuration）
   if (!isZeroDuration && parentId) {
     try {
       const tpl = await DB.prepare('SELECT time_records FROM todo_templates WHERE parent_id = ?').bind(parentId).first();
