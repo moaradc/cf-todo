@@ -345,16 +345,11 @@ export const detail = `
     function completeTimerDetail() {
       if (currentDetailIndex < 0) return;
       completeTimer(currentDetailIndex);
-      // completeTimer await fetch 后会调用 reloadDetailTimeRecords 重新拉取并刷新
+      // completeTimer await fetch 后会调用 reloadDetailAfterComplete 重新拉取并刷新
     }
     function recordTimerDetail() {
       if (currentDetailIndex < 0) return;
       recordTimer(currentDetailIndex);
-    }
-    function completeFromIdleDetail() {
-      // 从空闲态点"完成"：调用 completeTimer，内部会处理"无活动计时器"的分支（零耗时 record）
-      if (currentDetailIndex < 0) return;
-      completeTimer(currentDetailIndex);
     }
     function continueAfterDoneDetail() {
       if (currentDetailIndex < 0) return;

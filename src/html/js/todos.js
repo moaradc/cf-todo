@@ -439,7 +439,7 @@ export const todos = `
     }
 
     // 结束计时 + 标记完成 + 写入历史
-    // 多 session 模型：本次 session 作为一条独立记录追加到 time_records（FIFO 30）
+    // 多 session 模型：本次 session 作为一条独立记录追加到 time_records（不 FIFO）
     async function completeTimer(index) {
       const todo = todos[index];
       if (!todo) return;
@@ -455,12 +455,13 @@ export const todos = `
         if (elapsedMs >= 1000 && elapsedMs <= TIMER_MAX_SESSION_MS) {
           record = { s: st.s, e: now, p: Math.max(0, Math.floor(pausedMs)) };
         }
+        writeTimerState(todo.id, null);
       } else {
-        // 无活动计时器：构造零耗时 record（仅记录完成时刻）
-        // 与 toggleDone 行为一致；服务端 TIMER_COMPLETE 会写入实例级
+        // 防御性兜底：无活动计时器时构造零耗时 record（仅记录完成时刻）。
+        // 当前所有调用点都保证 st 存在（toggleDone 已路由、completeTimerDetail 来自进行中态、
+        // core.js checkbox 来自 timerActive），此分支理论上不会触发，保留以防未来新增调用点。
         record = { s: now, e: now, p: 0 };
       }
-      if (st) writeTimerState(todo.id, null);
       todo.done = true;
       // 同步把 record 追加到 todo.time_records（本地乐观更新，不 FIFO）
       // refreshDetailTimerBlock 会从 getDetailTimeRecords() 拿到最新累计
