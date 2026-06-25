@@ -668,8 +668,9 @@ API Key 传递方式（与 V1 一致）：
     | `CREATE` | 创建任务。若 `repeat_type` 不为 `none`，同时创建模板 |
     | `UPDATE` | 更新任务。支持 `scope` 参数控制重复任务更新范围 |
     | `DELETE` | 删除任务（软删除）。支持 `scope` 参数控制重复任务删除范围 |
-    | `TOGGLE_DONE` | 切换单个完成状态。`done: false → true` 时可附带 `record`：`s===e` 零耗时仅写实例级，`s<e` 真实耗时实例级 + 模板级双写。`done: true → false` 清空实例级 `time_records` |
-    | `TIMER_COMPLETE` | 计时结束：标记完成 + 写入 `time_records`（实例级 + 模板级双写）。需 `task.id`、`parentId`、`record`，服务端校验时长合理性 |
+    | `TOGGLE_DONE` | 切换单个完成状态。`done: false → true` 时可附带 `record`：`s===e` 零耗时仅写实例级（不 FIFO），`s<e` 真实耗时实例级（不 FIFO）+ 模板级 FIFO 10 双写。`done: true → false` 默认清空实例级 `time_records`；附带 `keepRecords: true`（来自"继续计时"路径）时保留累计记录不清空 |
+    | `TIMER_COMPLETE` | 计时"完成"：标记 done=1 + 追加 session 到 `time_records`（实例级【不 FIFO】 + 模板级 FIFO 10，仅"完成"session）。需 `task.id`、`parentId`、`record`，服务端校验时长合理性（1s ~ 7d） |
+    | `TIMER_RECORD` | 计时"记录"功能：保存本次 session 到实例级 `time_records`（【不 FIFO】），不标记完成，**不写模板级**（避免碎片 session 污染 predictDuration 预估）。需 `task.id`、`record`。用于碎片时间多次累计场景 |
     | `UPDATE_SUBTASKS` | 更新子任务 |
     | `UPDATE_SEARCH_TERMS` | 更新搜索词 |
     | `BATCH_TOGGLE_DONE` | 批量切换状态（需 `ids` + `doneStatus`）。`doneStatus: true` 可附带 `timerRecords` 数组，每条 record 写入规则同 `TOGGLE_DONE`；`doneStatus: false` 清空所有选中项实例级 `time_records` |

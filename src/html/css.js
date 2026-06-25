@@ -179,6 +179,8 @@ export const css = `
       font-size: 1.4rem; font-weight: bold; font-variant-numeric: tabular-nums;
       color: var(--accent);
     }
+    /* 累计/本次前累计 用普通 detail-value 字号 + 内联 style 控制副信息层级，
+       与 feat/more-ui-fixes 碎时记 UI 1:1 一致，不引入额外 class */
 
     .fab {
       position: fixed; bottom: 30px; right: 30px; width: 60px; height: 60px;

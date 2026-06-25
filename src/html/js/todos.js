@@ -262,25 +262,18 @@ export const todos = `
     async function toggleDone(index) {
       const todo = todos[index];
       if (!todo) return;
-      // 勾选完成（done 0→1）且该事项有活动计时器：转交 completeTimer
-      // 保留计时进度，显示"完成于 X，耗时 Y"（与点"结束"按钮一致），
-      // 避免 clearTimerState 丢弃进度后写入零耗时 record
+      // 有活动计时器时点完成：转交 completeTimer，保留计时进度写入真实耗时 record
       if (!todo.done && typeof readTimerState === 'function' && readTimerState(todo.id)) {
         await completeTimer(index);
         return;
       }
       todo.done = !todo.done;
-      // 若该事项有活动计时器，一并清除（不记录到历史）
-      // 走到这里说明 todo.done 是 false→true 但无计时器，或 true→false 取消勾选
       if (typeof clearTimerState === 'function') clearTimerState(todo.id);
-      // 取消勾选时：清空本地 time_records（与服务端 TOGGLE_DONE 一致），
-      // 避免详情面板仍显示旧的"完成于 X"
       if (!todo.done) {
+        // 取消勾选：清空实例级 time_records（与服务端 TOGGLE_DONE 一致）
         todo.time_records = [];
       } else {
-        // 勾选完成（无计时器）：构造零耗时 record（s===e），仅记录完成时刻
-        // 服务端 TOGGLE_DONE 会写入实例级 time_records（不写模板级）
-        // 乐观更新本地 todo.time_records，让详情面板即时显示"完成于 X"
+        // 勾选完成（无计时器）：构造零耗时 record，仅记录完成时刻
         const now = Date.now();
         try {
           let arr = Array.isArray(todo.time_records)
@@ -288,18 +281,17 @@ export const todos = `
             : (typeof todo.time_records === 'string' ? JSON.parse(todo.time_records || '[]') : []);
           if (!Array.isArray(arr)) arr = [];
           arr.push({ s: now, e: now, p: 0 });
-          if (arr.length > 5) arr = arr.slice(arr.length - 5);
           todo.time_records = arr;
         } catch (e) {
           todo.time_records = [{ s: now, e: now, p: 0 }];
         }
       }
-      // 乐观更新：先刷新 UI，再发请求（与 completeTimer 一致，避免等待网络）
       renderTodos();
       try {
         const now = Date.now();
-        const payload = { action: 'TOGGLE_DONE', task: { id: todo.id, done: todo.done } };
-        // 勾选完成时附带零耗时 record，服务端据此写入 time_records
+        // toggleDone（checkbox 路径）显式传 keepRecords: false，明确"取消完成应清除 records"语义。
+        // 与 continueAfterDone 的 keepRecords: true 形成对照，防止未来维护者误加 true。
+        const payload = { action: 'TOGGLE_DONE', task: { id: todo.id, done: todo.done }, keepRecords: false };
         if (todo.done) {
           payload.record = { s: now, e: now, p: 0 };
         }
@@ -309,17 +301,22 @@ export const todos = `
           headers: { 'Content-Type': 'application/json' }
         });
       } catch (e) {
-        // 网络失败不回滚本地状态，下次拉取会刷新
+        // 网络失败不回滚，下次拉取会刷新
       }
     }
 
     // ==================== 计时器（仅重复 todo） ====================
-    // 状态机: idle -> running -> paused -> running ... -> completed (调用 TIMER_COMPLETE)
+    // 状态机: idle -> running -> paused -> running ... -> completed (TIMER_COMPLETE)
+    //   或: idle -> running -> ... -> record (TIMER_RECORD) -> idle -> running ...
     // localStorage key: cf_timer_<todo_id>
     // value: { s: <start_ms>, p: <累计paused_ms>, lp: <last_pause_start_ms|null> }
-    // 服务端记录: { s, e, p } 三元组，elapsed = e - s - p
-    const TIMER_MAX_RECORDS = 10;
+    // 服务端记录: { s, e, p }，elapsed = e - s - p
+    //
+    // 多 session 累计模型：
+    // - 实例级 time_records: [{s,e,p}, ...]，不 FIFO，累计 = Σ(e-s-p)
+    // - 模板级 time_records: 仅"完成"session，FIFO 10，供 predictDuration 预估
     const TIMER_STALE_MS = 24 * 60 * 60 * 1000; // 超过 24h 视为遗留，自动清除
+    const TIMER_MAX_SESSION_MS = 7 * 24 * 60 * 60 * 1000; // 单 session 上限（与服务端一致）
     let timerTickHandle = null;
 
     function timerKey(todoId) { return 'cf_timer_' + todoId; }
@@ -374,6 +371,32 @@ export const todos = `
       return st;
     }
 
+    // 计算多条 session 记录的累计耗时（毫秒）
+    // records: [{s,e,p}, ...]，每条耗时 = max(0, e-s-p)，求和
+    function sumRecordsMs(records) {
+      if (!Array.isArray(records) || records.length === 0) return 0;
+      let total = 0;
+      for (let i = 0; i < records.length; i++) {
+        const r = records[i];
+        if (!r || typeof r.s !== 'number' || typeof r.e !== 'number') continue;
+        const dur = r.e - r.s - (typeof r.p === 'number' ? r.p : 0);
+        if (dur > 0) total += dur;
+      }
+      return total;
+    }
+
+    // 解析 todo.time_records，兼容 string / array 两种形式
+    function parseTimeRecords(raw) {
+      if (Array.isArray(raw)) return raw;
+      if (typeof raw === 'string' && raw) {
+        try {
+          const p = JSON.parse(raw);
+          return Array.isArray(p) ? p : [];
+        } catch (e) { return []; }
+      }
+      return [];
+    }
+
     function startTimer(todoId) {
       // 若已有计时器（含遗留），先清除
       writeTimerState(todoId, { s: Date.now(), p: 0, lp: null });
@@ -404,56 +427,45 @@ export const todos = `
       renderTodos();
     }
 
-    // 结束计时 + 标记完成 + 写入历史
+    // 计时"完成"：标记 done=1 + 追加 session 到实例级（不 FIFO）+ 模板级
     async function completeTimer(index) {
       const todo = todos[index];
       if (!todo) return;
       const st = readTimerState(todo.id);
-      if (!st) return;
-      const completedTodoId = todo.id; // 在 renderTodos 前记录 id，便于事后重定位
+      const completedTodoId = todo.id; // renderTodos 后用于重定位 currentDetailIndex
       const now = Date.now();
-      let endMs = now;
-      let pausedMs = st.p;
-      if (isTimerPaused(st)) pausedMs += (now - st.lp);
-      const elapsedMs = endMs - st.s - pausedMs;
-      // 本地兜底：时长不合理则不写记录，仅清除本地 + 完成事项
       let record = null;
-      if (elapsedMs >= 1000 && elapsedMs <= TIMER_STALE_MS) {
-        record = { s: st.s, e: endMs, p: Math.max(0, Math.floor(pausedMs)) };
+      if (st) {
+        let pausedMs = st.p;
+        if (isTimerPaused(st)) pausedMs += (now - st.lp);
+        const elapsedMs = now - st.s - pausedMs;
+        if (elapsedMs >= 1000 && elapsedMs <= TIMER_MAX_SESSION_MS) {
+          record = { s: st.s, e: now, p: Math.max(0, Math.floor(pausedMs)) };
+        }
+        writeTimerState(todo.id, null);
+      } else {
+        // 防御性兜底：当前调用点都保证 st 存在，此分支理论上不触发
+        record = { s: now, e: now, p: 0 };
       }
-      writeTimerState(todo.id, null);
       todo.done = true;
-      // 同步把 record 写入 todo.time_records（本地乐观更新），
-      // 这样 refreshDetailTimerBlock 即便没传 overrideRecord，也能从
-      // getDetailTimeRecords()（读 todo.time_records）拿到刚完成的记录。
-      // 与服务端 TIMER_COMPLETE 的写入逻辑保持一致：FIFO 保留最近 5 条。
+      // 乐观更新：追加 record 到本地 time_records
       if (record) {
         try {
-          let arr = Array.isArray(todo.time_records)
-            ? todo.time_records
-            : (typeof todo.time_records === 'string' ? JSON.parse(todo.time_records || '[]') : []);
-          if (!Array.isArray(arr)) arr = [];
+          let arr = parseTimeRecords(todo.time_records);
           arr.push(record);
-          if (arr.length > 5) arr = arr.slice(arr.length - 5);
-          todo.time_records = arr; // 统一用数组形式存（与 getDetailTimeRecords 兼容）
+          todo.time_records = arr;
         } catch (e) {
-          // 解析失败兜底：直接用新 record 覆盖
           todo.time_records = [record];
         }
       }
       ensureTimerTick();
       renderTodos();
-      // 防御性：即便 renderTodos 已经改成不 in-place sort 全局 todos，
-      // 仍用 id 重定位 currentDetailIndex，避免任何潜在的 index 漂移导致
-      // refreshDetailTimerBlock 取到错误的 todo（重现"开始计时"bug）。
+      // renderTodos 可能 sort 导致 index 漂移，用 id 重定位
       if (currentDetailIndex >= 0 && todos[currentDetailIndex] && todos[currentDetailIndex].id !== completedTodoId) {
         const newIdx = todos.findIndex(function(t) { return t.id === completedTodoId; });
         if (newIdx !== -1) currentDetailIndex = newIdx;
       }
-      // 同步阶段：把刚算出的 record 作为参数直传给 refreshDetailTimerBlock，
-      // 让 UI 即刻渲染"完成于 X，耗时 Y"。
-      // 不写入任何缓存（避免状态残留/串台/失效问题），record 仅在本次调用中消费。
-      // await fetch 之后的 reloadDetailTimeRecords 会用服务器返回的最新 records 重新渲染。
+      // 同步渲染（不等 fetch），record 直传避免缓存竞态
       if (typeof refreshDetailTimerBlock === 'function' && currentDetailIndex === index) {
         refreshDetailTimerBlock(record);
       }
@@ -469,10 +481,100 @@ export const todos = `
           headers: { 'Content-Type': 'application/json' }
         });
       } catch (e) {
-        // 网络失败不回滚本地状态（用户已视觉完成），下次拉取会刷新
+        // 网络失败不回滚，下次拉取会刷新
       }
-      // 服务器已写入新记录：实时调用 API 拉取权威数据（todos + time_records）
-      // 解决背景/前台切换后 todos 数组与服务器不一致、本地缓存导致 UI 显示错误的问题
+      if (typeof reloadDetailAfterComplete === 'function' && currentDetailIndex === index) {
+        reloadDetailAfterComplete();
+      }
+    }
+
+    // 计时"记录"：保存 session 到实例级 time_records，回到空闲态，不标记完成
+    async function recordTimer(index) {
+      const todo = todos[index];
+      if (!todo) return;
+      const st = readTimerState(todo.id);
+      if (!st) return;
+      const recordedTodoId = todo.id;
+      const now = Date.now();
+      let pausedMs = st.p;
+      if (isTimerPaused(st)) pausedMs += (now - st.lp);
+      const elapsedMs = now - st.s - pausedMs;
+      // 时长不合理（<1s 或 >7d）：仅清计时器，不写记录
+      if (elapsedMs < 1000 || elapsedMs > TIMER_MAX_SESSION_MS) {
+        writeTimerState(todo.id, null);
+        ensureTimerTick();
+        renderTodos();
+        if (typeof refreshDetailTimerBlock === 'function' && currentDetailIndex === index) {
+          refreshDetailTimerBlock();
+        }
+        return;
+      }
+      const record = { s: st.s, e: now, p: Math.max(0, Math.floor(pausedMs)) };
+
+      writeTimerState(todo.id, null);
+      try {
+        let arr = parseTimeRecords(todo.time_records);
+        arr.push(record);
+        todo.time_records = arr;
+      } catch (e) {
+        todo.time_records = [record];
+      }
+      ensureTimerTick();
+      renderTodos();
+      if (currentDetailIndex >= 0 && todos[currentDetailIndex] && todos[currentDetailIndex].id !== recordedTodoId) {
+        const newIdx = todos.findIndex(function(t) { return t.id === recordedTodoId; });
+        if (newIdx !== -1) currentDetailIndex = newIdx;
+      }
+      if (typeof refreshDetailTimerBlock === 'function' && currentDetailIndex === index) {
+        refreshDetailTimerBlock();
+      }
+      try {
+        await fetch('/api/todo-action', {
+          method: 'POST',
+          body: JSON.stringify({
+            action: 'TIMER_RECORD',
+            task: { id: todo.id, parent_id: todo.parent_id },
+            parentId: todo.parent_id,
+            record: record
+          }),
+          headers: { 'Content-Type': 'application/json' }
+        });
+      } catch (e) {
+        // 网络失败不回滚，下次拉取会刷新
+      }
+      if (typeof reloadDetailAfterComplete === 'function' && currentDetailIndex === index) {
+        reloadDetailAfterComplete();
+      }
+    }
+
+    // "继续计时"：已完成态重新开始计时，保留累计记录
+    // TOGGLE_DONE with keepRecords=true → 服务端置 done=0 不清 time_records；本地 startTimer 开新 session
+    async function continueAfterDone(index) {
+      const todo = todos[index];
+      if (!todo) return;
+      const continuedTodoId = todo.id;
+      todo.done = false;
+      startTimer(todo.id);
+      if (currentDetailIndex >= 0 && todos[currentDetailIndex] && todos[currentDetailIndex].id !== continuedTodoId) {
+        const newIdx = todos.findIndex(function(t) { return t.id === continuedTodoId; });
+        if (newIdx !== -1) currentDetailIndex = newIdx;
+      }
+      if (typeof refreshDetailTimerBlock === 'function' && currentDetailIndex === index) {
+        refreshDetailTimerBlock();
+      }
+      try {
+        await fetch('/api/todo-action', {
+          method: 'POST',
+          body: JSON.stringify({
+            action: 'TOGGLE_DONE',
+            task: { id: todo.id, done: false },
+            keepRecords: true
+          }),
+          headers: { 'Content-Type': 'application/json' }
+        });
+      } catch (e) {
+        // 网络失败不回滚，下次拉取会刷新
+      }
       if (typeof reloadDetailAfterComplete === 'function' && currentDetailIndex === index) {
         reloadDetailAfterComplete();
       }
@@ -670,7 +772,7 @@ export const todos = `
                 : (typeof todo.time_records === 'string' ? JSON.parse(todo.time_records || '[]') : []);
               if (!Array.isArray(arr)) arr = [];
               arr.push(tr.record);
-              if (arr.length > 5) arr = arr.slice(arr.length - 5);
+              // 不 FIFO：累计必须准确（与服务端 BATCH_TOGGLE_DONE 一致）
               todo.time_records = arr;
             } catch (e) {
               todo.time_records = [tr.record];

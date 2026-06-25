@@ -183,6 +183,8 @@ export const bootstrap = `
       pauseTimerDetail: pauseTimerDetail,
       resumeTimerDetail: resumeTimerDetail,
       completeTimerDetail: completeTimerDetail,
+      recordTimerDetail: recordTimerDetail,
+      continueAfterDoneDetail: continueAfterDoneDetail,
       cancelTimerDetail: cancelTimerDetail,
       // 回收站
       openTrash: openTrash,
