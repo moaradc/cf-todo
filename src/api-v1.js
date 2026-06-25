@@ -646,7 +646,12 @@ async function handleV1TodoPut(request, DB, todoId) {
   const rptType = newValues.repeat_type;
   const subtasksStr = newValues.subtasks;
   const searchTermsStr = newValues.search_terms;
-  const newDate = newValues.date;
+  // 健壮性兜底：非 fragment 类型必须有有效具体日期
+  // fragment 允许 date 为空（不限起始），但 none/daily/weekly/monthly/yearly 不允许
+  let newDate = newValues.date;
+  if (rptType !== 'fragment' && !newDate) {
+    newDate = date;
+  }
   const dateChanged = newDate !== date;
 
   if (!isSeries || !scope || scope === 'none') {

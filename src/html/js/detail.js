@@ -926,12 +926,18 @@ export const detail = `
         // 碎时记 (fragment): date 列即起始日期，由 tempFragmentAnchor 控制
         //   - 未完成时：date = 起始日期（空=任意日期可见）
         //   - 已完成时：date = 完成日期（冻结，编辑不改）
-        // 非碎时记: 实例日期 = tempEditDate
+        // 非碎时记: 实例日期 = tempEditDate（必须有效，空则用当前日期兜底）
         if (tempRepeatType === 'fragment') {
           // 仅未完成时允许改起始日期；已完成时 date 是冻结的完成日期，不动
           if (!task.done) task.date = tempFragmentAnchor || '';
+          // 碎时记：fragment_anchor 与 date 同步（未完成时）
+          if (!task.done) task.fragment_anchor = task.date;
         } else {
-          task.date = tempEditDate;
+          // 非 fragment：必须有有效具体日期
+          // tempEditDate 可能为空（从 fragment 不限起始切换过来），用当前日期兜底
+          task.date = tempEditDate || formatDate(currentDate);
+          // 非 fragment：清空 fragment_anchor（不再需要）
+          task.fragment_anchor = '';
         }
         task.text = document.getElementById('edit-text').value; task.time = tempTime; task.priority = tempPriority;
         task.end_time = tempEndTime;

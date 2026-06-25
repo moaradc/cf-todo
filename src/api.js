@@ -2689,7 +2689,14 @@ self.addEventListener('fetch', (event) => {
           const categoryId = task.category_id || '';
           const repeatEnd = task.repeat_end || '';
           const endTime = task.end_time || '';
-          const newDate = (task.date !== undefined && task.date !== null) ? task.date : date;
+          let newDate = (task.date !== undefined && task.date !== null) ? task.date : date;
+          // 健壮性兜底：非 fragment 类型必须有有效具体日期
+          // fragment 允许 date 为空（不限起始），但 none/daily/weekly/monthly/yearly 不允许
+          // 前端已兜底，这里防御 API 直接调用或异常情况
+          const rptTypeForCheck = task.repeat_type || 'none';
+          if (rptTypeForCheck !== 'fragment' && !newDate) {
+            newDate = date;
+          }
           const dateChanged = newDate !== date;
           const parentId = task.parentId || task.parent_id;
 
