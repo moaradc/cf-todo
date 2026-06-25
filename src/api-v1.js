@@ -425,14 +425,34 @@ async function handleV1Todos(request, env, url) {
       )`);
       params.push(date, date, date);
     } else if (startDate && endDate) {
-      conditions.push('date >= ? AND date <= ?');
-      params.push(startDate, endDate);
+      // 日期范围查询：碎时记也需应用可见性规则
+      // - 普通 todo: date 在 [start, end] 范围内
+      // - 碎时记已完成: date（完成日期）在 [start, end] 范围内
+      // - 碎时记未完成: date=''（任意日期可见，含范围内）OR date 在 [start, end] 范围内
+      //   注意：未完成碎时记若起始日期 < start 但仍活跃（date <= end），也应包含
+      //   简化：未完成碎时记只要 date='' OR date <= end 即在范围内可见
+      conditions.push(`(
+        (repeat_type != 'fragment' AND date >= ? AND date <= ?)
+        OR (repeat_type = 'fragment' AND done = 1 AND date >= ? AND date <= ?)
+        OR (repeat_type = 'fragment' AND done = 0 AND (date = '' OR date <= ?))
+      )`);
+      params.push(startDate, endDate, startDate, endDate, endDate);
     } else if (startDate) {
-      conditions.push('date >= ?');
-      params.push(startDate);
+      // 仅 start_date：碎时记未完成只要 date='' OR date >= start（起始在 start 之后仍可见）
+      conditions.push(`(
+        (repeat_type != 'fragment' AND date >= ?)
+        OR (repeat_type = 'fragment' AND done = 1 AND date >= ?)
+        OR (repeat_type = 'fragment' AND done = 0 AND (date = '' OR date >= ?))
+      )`);
+      params.push(startDate, startDate, startDate);
     } else if (endDate) {
-      conditions.push('date <= ?');
-      params.push(endDate);
+      // 仅 end_date：碎时记未完成只要 date='' OR date <= end
+      conditions.push(`(
+        (repeat_type != 'fragment' AND date <= ?)
+        OR (repeat_type = 'fragment' AND done = 1 AND date <= ?)
+        OR (repeat_type = 'fragment' AND done = 0 AND (date = '' OR date <= ?))
+      )`);
+      params.push(endDate, endDate, endDate);
     }
 
     if (categoryId) {
@@ -708,6 +728,16 @@ async function handleV1TodoPut(request, DB, todoId) {
       await DB.prepare(
         'UPDATE todos SET date=?, text=?, time=?, priority=?, desc=?, url=?, copy_text=?, subtasks=?, search_terms=?, repeat_type=?, repeat_custom=?, repeat_end=?, end_time=?, category_id=?, repeat_interval=?, fragment_anchor=? WHERE id=?'
       ).bind(effectiveUpdateDate, newValues.text, newValues.time, newValues.priority, newValues.desc, newValues.url, newValues.copy_text, subtasksStr, searchTermsStr, rptType, '', newValues.repeat_end, newValues.end_time, newValues.category_id, newValues.repeat_interval, effectiveFragmentAnchor, todoId).run();
+      // BUG 修复：原任务是系列主实例（id === parent_id）且新类型为 fragment 时，
+      // 必须删除旧模板，否则旧模板会持续按原 daily/weekly 规则生成新实例（幽灵重复事项）
+      if (rptType === 'fragment' && existing.repeat_type
+          && existing.repeat_type !== 'none'
+          && existing.repeat_type !== 'fragment'
+          && existing.parent_id === todoId) {
+        try {
+          await DB.prepare('DELETE FROM todo_templates WHERE parent_id = ?').bind(todoId).run();
+        } catch (e) {}
+      }
     }
   } else {
     const actions = computeUpdateActions({ task: { ...existing, parent_id: parentId, isSeries }, date, scope, newValues, newDate });
@@ -909,6 +939,15 @@ async function handleV1TodoToggle(request, DB, todoId) {
   } catch (e) {
     // body 解析失败：忽略 record，仅切换 done（向后兼容）
     record = null;
+  }
+
+  // 健壮性：碎时记完成时校验 bodyDate 不能是未来日期
+  // 否则恶意/错误客户端可将 fragment 冻结到未来日期，导致它在未来前完全不可见
+  if (isFragment && newDone && bodyDate) {
+    const todayStr = new Date().toISOString().slice(0, 10);
+    if (bodyDate > todayStr) {
+      bodyDate = todayStr; // 纠正为今天，而非拒绝请求（保持幂等）
+    }
   }
 
   if (newDone) {
@@ -1137,24 +1176,25 @@ async function handleV1TodoBatch(request, DB) {
 
     if (doneStatus) {
       // 批量完成
-      // 碎时记：冻结 date 为完成日期
+      // 碎时记：冻结 date 为完成日期，但仅对未完成项（done=0）执行，
+      //         避免覆盖已完成碎时记的冻结完成日期
       if (fragmentIds.length > 0) {
         const frPh = fragmentIds.map(() => '?').join(',');
         try {
-          await DB.prepare(`UPDATE todos SET done = 1, date = ? WHERE id IN (${frPh})`)
+          await DB.prepare(`UPDATE todos SET done = 1, date = ? WHERE id IN (${frPh}) AND done = 0`)
             .bind(date || '', ...fragmentIds).run();
         } catch (e) {
-          try { await DB.prepare(`UPDATE todos SET done = 1 WHERE id IN (${frPh})`).bind(...fragmentIds).run(); } catch (e2) {}
+          try { await DB.prepare(`UPDATE todos SET done = 1 WHERE id IN (${frPh}) AND done = 0`).bind(...fragmentIds).run(); } catch (e2) {}
         }
       }
-      // 普通 todo：仅更新 done
+      // 普通 todo：仅更新 done（加 done=0 过滤，避免无意义写入）
       if (plainIds.length > 0) {
         const plPh = plainIds.map(() => '?').join(',');
         try {
-          await DB.prepare(`UPDATE todos SET done = 1 WHERE id IN (${plPh})`)
+          await DB.prepare(`UPDATE todos SET done = 1 WHERE id IN (${plPh}) AND done = 0`)
             .bind(...plainIds).run();
         } catch (e) {
-          try { await DB.prepare(`UPDATE todos SET done = 1 WHERE id IN (${plPh})`).bind(...plainIds).run(); } catch (e2) {}
+          try { await DB.prepare(`UPDATE todos SET done = 1 WHERE id IN (${plPh}) AND done = 0`).bind(...plainIds).run(); } catch (e2) {}
         }
       }
 
@@ -1381,12 +1421,24 @@ async function handleV1Stats(DB, url) {
   const end = url.searchParams.get('end');
   if (!start || !end) return apiError('start 和 end 为必填参数 (YYYY-MM-DD)', 400);
 
-  const baseWhere = 'FROM todos WHERE date >= ?1 AND date <= ?2 AND deleted = 0';
+  // 统计 WHERE 子句：普通 todo 按 date 范围过滤，碎时记特殊处理
+  // - 普通 todo: date 在 [start, end] 范围内
+  // - 碎时记已完成: date（完成日期）在 [start, end] 范围内
+  // - 碎时记未完成: date=''（浮动，按 end 日计数）OR date 在 [start, end] 范围内
+  //   未完成碎时记若起始日期 < start 但仍活跃，按 end 日计数（它在 end 日可见）
+  // 注意：GROUP BY date 会把 date='' 的归到空字符串分组，byDate 聚合需特殊处理
+  //       这里用 COALESCE(NULLIF(date, ''), ?2) 把空 date 映射到 end 日
+  const baseWhere = `FROM todos WHERE deleted = 0 AND (
+    (repeat_type != 'fragment' AND date >= ?1 AND date <= ?2)
+    OR (repeat_type = 'fragment' AND done = 1 AND date >= ?1 AND date <= ?2)
+    OR (repeat_type = 'fragment' AND done = 0 AND (date = '' OR (date >= ?1 AND date <= ?2)))
+  )`;
 
   const batchResults = await DB.batch([
     // 1) 按日期聚合：byDate[date] = { total, done }
+    // 碎时记 date='' 的归到 end 日（浮动事项在 end 日可见）
     DB.prepare(
-      `SELECT date, COUNT(*) AS total, SUM(CASE WHEN done = 1 THEN 1 ELSE 0 END) AS done ${baseWhere} GROUP BY date`
+      `SELECT COALESCE(NULLIF(date, ''), ?2) AS date, COUNT(*) AS total, SUM(CASE WHEN done = 1 THEN 1 ELSE 0 END) AS done ${baseWhere} GROUP BY COALESCE(NULLIF(date, ''), ?2)`
     ).bind(start, end),
     // 2) 按分类聚合：byCategory[category_id] = { total, done }（空 category_id 归为 ''）
     DB.prepare(
@@ -1397,8 +1449,9 @@ async function handleV1Stats(DB, url) {
       `SELECT priority, done, COUNT(*) AS cnt ${baseWhere} GROUP BY priority, done`
     ).bind(start, end),
     // 4) 按周日 × 完成度聚合：weekdayCounts[0..6]（0=周日）
+    // 碎时记 date='' 的归到 end 日对应的周日
     DB.prepare(
-      `SELECT CAST(strftime('%w', date) AS INTEGER) AS weekday, done, COUNT(*) AS cnt ${baseWhere} GROUP BY weekday, done`
+      `SELECT CAST(strftime('%w', COALESCE(NULLIF(date, ''), ?2)) AS INTEGER) AS weekday, done, COUNT(*) AS cnt ${baseWhere} GROUP BY weekday, done`
     ).bind(start, end),
     // 5) 按时段聚合：hourBuckets[0..3]（0=凌晨0-6, 1=上午6-12, 2=下午12-18, 3=晚上18-24）
     DB.prepare(
@@ -1410,12 +1463,12 @@ async function handleV1Stats(DB, url) {
       ` ELSE 3 END AS bucket,` +
       ` COUNT(*) AS cnt ${baseWhere} GROUP BY bucket`
     ).bind(start, end),
-    // 6) 总量汇总
+    // 6) 总量汇总：active_days 排除 date='' 的浮动碎时记（它们不属于具体日期）
     DB.prepare(
       `SELECT COUNT(*) AS total,` +
       ` SUM(CASE WHEN done = 1 THEN 1 ELSE 0 END) AS done,` +
       ` SUM(CASE WHEN done = 0 THEN 1 ELSE 0 END) AS undone,` +
-      ` COUNT(DISTINCT date) AS active_days ${baseWhere}`
+      ` COUNT(DISTINCT CASE WHEN date = '' THEN NULL ELSE date END) AS active_days ${baseWhere}`
     ).bind(start, end),
   ]);
 

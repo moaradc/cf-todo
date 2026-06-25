@@ -858,6 +858,8 @@ export const todos = `
       Array.from(selectedTasks).forEach(idx => {
         const todo = todos[idx];
         if (!todo) return;
+        // 记录原始 done 状态，用于判断是否需要冻结 date（仅对未完成项执行）
+        todo._wasDone = !!todo.done;
         todo.done = targetDone;
         // 批量完成时：同步更新本地 todo.time_records（与 completeTimer 保持一致），
         // 让详情面板 getDetailTimeRecords() 能立即拿到新记录
@@ -877,7 +879,8 @@ export const todos = `
             }
           }
           // 碎时记：完成时 date 冻结到当前查看日期（与后端 BATCH_TOGGLE_DONE 一致）
-          if (todo.repeat_type === 'fragment') {
+          // 仅对原本未完成的碎时记执行，避免覆盖已完成碎时记的冻结完成日期
+          if (todo.repeat_type === 'fragment' && !todo._wasDone) {
             todo.date = formatDate(currentDate);
           }
         } else {
@@ -889,6 +892,8 @@ export const todos = `
             todo.date = todo.fragment_anchor || '';
           }
         }
+        // 清理临时标记
+        delete todo._wasDone;
       });
       renderTodos();
       // 乐观更新：先退出批量模式，再发请求（避免等待网络才退出）
@@ -929,6 +934,14 @@ export const todos = `
       if (selectedTasks.size === 0) return;
       if (!confirm(\`确认删除选中的 \${selectedTasks.size} 个事项吗？(仅删除当天的当前项)\`)) return;
       const ids = Array.from(selectedTasks).map(idx => todos[idx].id);
+      // 删除前清理选中项的本地计时器状态，避免 localStorage 孤儿
+      // 否则若用户从回收站恢复该 todo，maybePruneStaleTimer 可能复活为"计时中"
+      Array.from(selectedTasks).forEach(idx => {
+        const t = todos[idx];
+        if (t && typeof readTimerState === 'function' && readTimerState(t.id)) {
+          if (typeof clearTimerState === 'function') clearTimerState(t.id);
+        }
+      });
       await fetch('/api/todo-action', {
         method: 'POST', body: JSON.stringify({ action: 'BATCH_DELETE', ids: ids }),
         headers: { 'Content-Type': 'application/json' }
