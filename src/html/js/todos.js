@@ -270,8 +270,16 @@ export const todos = `
       todo.done = !todo.done;
       if (typeof clearTimerState === 'function') clearTimerState(todo.id);
       if (!todo.done) {
-        // 取消勾选：清空实例级 time_records（与服务端 TOGGLE_DONE 一致）
-        todo.time_records = [];
+        // 取消勾选：
+        // - 普通待办事项：清空实例级 time_records（与服务端 TOGGLE_DONE 一致）
+        // - 碎时记：保留 time_records（历史累计不应丢失，与服务端一致），仅重置 date=''
+        if (todo.repeat_type !== 'fragment') {
+          todo.time_records = [];
+        }
+        // 碎时记取消勾选时 date 重置为空（任意日期可见）
+        if (todo.repeat_type === 'fragment') {
+          todo.date = '';
+        }
       } else {
         // 勾选完成（无计时器）：构造零耗时 record，仅记录完成时刻
         const now = Date.now();
@@ -285,6 +293,11 @@ export const todos = `
         } catch (e) {
           todo.time_records = [{ s: now, e: now, p: 0 }];
         }
+        // 碎时记：完成时 date 冻结到当前查看日期（与后端 TOGGLE_DONE 一致）
+        // 仅当 repeat_type === 'fragment' 时才覆盖；普通 todo.date 不变
+        if (todo.repeat_type === 'fragment') {
+          todo.date = formatDate(currentDate);
+        }
       }
       renderTodos();
       try {
@@ -294,6 +307,8 @@ export const todos = `
         const payload = { action: 'TOGGLE_DONE', task: { id: todo.id, done: todo.done }, keepRecords: false };
         if (todo.done) {
           payload.record = { s: now, e: now, p: 0 };
+          // 碎时记完成需要 date 字段供后端冻结（取当前查看日期）
+          payload.date = formatDate(currentDate);
         }
         await fetch('/api/todo-action', {
           method: 'POST',
@@ -515,6 +530,10 @@ export const todos = `
             todo.time_records = [record];
           }
         }
+        // 碎时记：完成时 date 冻结到当前查看日期（与后端 TIMER_COMPLETE 一致）
+        if (todo.repeat_type === 'fragment') {
+          todo.date = formatDate(currentDate);
+        }
         ensureTimerTick();
         renderTodos();
         // renderTodos 可能 sort 导致 index 漂移，用 id 重定位
@@ -527,14 +546,19 @@ export const todos = `
           refreshDetailTimerBlock(record);
         }
         try {
+          // 碎时记完成需要 date 字段供后端冻结（取当前查看日期）
+          const completePayload = {
+            action: 'TIMER_COMPLETE',
+            task: { id: todo.id, parent_id: todo.parent_id },
+            parentId: todo.parent_id,
+            record: record
+          };
+          if (todo.repeat_type === 'fragment') {
+            completePayload.date = formatDate(currentDate);
+          }
           await fetch('/api/todo-action', {
             method: 'POST',
-            body: JSON.stringify({
-              action: 'TIMER_COMPLETE',
-              task: { id: todo.id, parent_id: todo.parent_id },
-              parentId: todo.parent_id,
-              record: record
-            }),
+            body: JSON.stringify(completePayload),
             headers: { 'Content-Type': 'application/json' }
           });
         } catch (e) {
@@ -623,6 +647,11 @@ export const todos = `
       try {
         const continuedTodoId = todo.id;
         todo.done = false;
+        // 碎时记：取消完成时 date 重置为空（任意日期可见），与后端 TOGGLE_DONE 一致
+        // 用户在已完成的碎时记上点"继续计时"后，该事项应该在任何日期都重新可见
+        if (todo.repeat_type === 'fragment') {
+          todo.date = '';
+        }
         startTimer(todo.id);
         if (currentDetailIndex >= 0 && todos[currentDetailIndex] && todos[currentDetailIndex].id !== continuedTodoId) {
           const newIdx = todos.findIndex(function(t) { return t.id === continuedTodoId; });
@@ -850,9 +879,21 @@ export const todos = `
               todo.time_records = [tr.record];
             }
           }
+          // 碎时记：完成时 date 冻结到当前查看日期（与后端 BATCH_TOGGLE_DONE 一致）
+          if (todo.repeat_type === 'fragment') {
+            todo.date = formatDate(currentDate);
+          }
         } else {
-          // 批量取消完成：清空本地 time_records（与服务端 TOGGLE_DONE/BATCH_TOGGLE_DONE 一致）
-          todo.time_records = [];
+          // 批量取消完成：
+          // - 普通待办事项：清空 time_records（与服务端 TOGGLE_DONE/BATCH_TOGGLE_DONE 一致）
+          // - 碎时记：保留 time_records（历史累计不应丢失，与服务端一致），仅重置 date=''
+          if (todo.repeat_type !== 'fragment') {
+            todo.time_records = [];
+          }
+          // 碎时记：取消完成时 date 重置为空（任意日期可见）
+          if (todo.repeat_type === 'fragment') {
+            todo.date = '';
+          }
         }
       });
       renderTodos();
@@ -860,14 +901,21 @@ export const todos = `
       exitBatchMode();
 
       try {
+        const batchPayload = {
+          action: 'BATCH_TOGGLE_DONE',
+          ids: ids,
+          doneStatus: targetDone,
+          timerRecords: timerRecords.length > 0 ? timerRecords : undefined
+        };
+        // 碎时记完成/取消完成都需要 date 字段（完成时冻结，取消时服务端会忽略并重置为空）
+        // 只要选中项中存在碎时记，就传 date
+        const hasFragment = Array.from(selectedTasks).some(idx => todos[idx] && todos[idx].repeat_type === 'fragment');
+        if (hasFragment) {
+          batchPayload.date = formatDate(currentDate);
+        }
         await fetch('/api/todo-action', {
           method: 'POST',
-          body: JSON.stringify({
-            action: 'BATCH_TOGGLE_DONE',
-            ids: ids,
-            doneStatus: targetDone,
-            timerRecords: timerRecords.length > 0 ? timerRecords : undefined
-          }),
+          body: JSON.stringify(batchPayload),
           headers: { 'Content-Type': 'application/json' }
         });
       } catch (e) {

@@ -98,6 +98,26 @@ export const categories = `
 
     function selectRepeat(val, label) {
       tempRepeatType = val;
+      // 碎时记 (fragment): 一次性浮动事项，无截止/间隔概念；
+      // 起始日期通过日期选择器单独控制，默认空（任意日期都出现）
+      if (val === 'fragment') {
+        tempFragmentAnchor = '';
+        if (activeMode === 'add') {
+          document.getElementById('add-repeat-display').innerText = '重复: ' + label;
+          var endRow = document.getElementById('add-repeat-end-row');
+          if (endRow) endRow.style.display = 'none';
+          var dateDisp = document.getElementById('add-date-display');
+          if (dateDisp) dateDisp.innerText = '起始: 不限';
+        } else if (activeMode === 'edit') {
+          document.getElementById('edit-repeat-display').innerText = '重复: ' + label;
+          var endRow = document.getElementById('edit-repeat-end-row');
+          if (endRow) endRow.style.display = 'none';
+          var dateDisp = document.getElementById('edit-date-display');
+          if (dateDisp) dateDisp.innerText = '起始: 不限';
+        }
+        document.getElementById('popover-repeat').style.display = 'none';
+        return;
+      }
       if (val !== 'none') {
         // 切换重复类型时更新间隔显示
         var intervalText = getIntervalDisplayText(tempRepeatInterval || 1, val);
@@ -106,22 +126,31 @@ export const categories = `
           document.getElementById('add-interval-display').innerText = intervalText;
           var endRow = document.getElementById('add-repeat-end-row');
           if (endRow) endRow.style.display = '';
+          // 从碎时记切回普通重复时，恢复日期显示为 tempAddDate
+          var dateDisp = document.getElementById('add-date-display');
+          if (dateDisp && tempAddDate) dateDisp.innerText = tempAddDate;
         } else if (activeMode === 'edit') {
           document.getElementById('edit-repeat-display').innerText = '重复: ' + label;
           var editIntervalEl = document.getElementById('edit-interval-display');
           if (editIntervalEl) editIntervalEl.innerText = intervalText;
           var endRow = document.getElementById('edit-repeat-end-row');
           if (endRow) endRow.style.display = '';
+          var dateDisp = document.getElementById('edit-date-display');
+          if (dateDisp && tempEditDate) dateDisp.innerText = tempEditDate;
         }
       } else {
         if (activeMode === 'add') {
           document.getElementById('add-repeat-display').innerText = '重复: ' + label;
           var endRow = document.getElementById('add-repeat-end-row');
           if (endRow) endRow.style.display = 'none';
+          var dateDisp = document.getElementById('add-date-display');
+          if (dateDisp && tempAddDate) dateDisp.innerText = tempAddDate;
         } else if (activeMode === 'edit') {
           document.getElementById('edit-repeat-display').innerText = '重复: ' + label;
           var endRow = document.getElementById('edit-repeat-end-row');
           if (endRow) endRow.style.display = 'none';
+          var dateDisp = document.getElementById('edit-date-display');
+          if (dateDisp && tempEditDate) dateDisp.innerText = tempEditDate;
         }
       }
       document.getElementById('popover-repeat').style.display = 'none';
