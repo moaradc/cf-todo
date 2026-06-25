@@ -2200,19 +2200,33 @@ self.addEventListener('fetch', (event) => {
     }
 
     if (url.pathname === '/api/todo-action' && request.method === 'POST') {
-      const { action, date, task, scope, ids, doneStatus, record, parentId, timerRecords } = await request.json();
+      const { action, date, task, scope, ids, doneStatus, record, parentId, timerRecords, keepRecords } = await request.json();
 
       if (action === 'TOGGLE_DONE') {
-          // 取消勾选（done 1→0）时清空实例级 time_records：
+          // 取消勾选（done 1→0）默认清空实例级 time_records：
           // 避免之后重新勾选（不通过计时器）时，详情页仍显示旧的"完成于 X，耗时 Y"。
           // 模板级 time_records 不动（仅用于 predictDuration 跨实例预估，是历史数据）。
+          //
+          // keepRecords=true（来自"继续计时"路径）：保留实例级累计记录，不清空，
+          // 让"本次前累计 X"在新的计时片段中持续显示。
+          // 这是"碎片时间随用随计"语义：完成只是冻结一次时刻，再次"继续计时"应保留累计历史。
           if (!task.done) {
-            try {
-              await env.DB.prepare('UPDATE todos SET done = 0, time_records = ? WHERE id = ?')
-                .bind('[]', task.id).run();
-            } catch (e) {
-              // 兜底：仅更新 done（极端情况：列不存在等）
-              await env.DB.prepare('UPDATE todos SET done = 0 WHERE id = ?').bind(task.id).run();
+            if (keepRecords) {
+              // 继续计时：仅切换 done，保留 time_records
+              try {
+                await env.DB.prepare('UPDATE todos SET done = 0 WHERE id = ?')
+                  .bind(task.id).run();
+              } catch (e) {
+                await env.DB.prepare('UPDATE todos SET done = 0 WHERE id = ?').bind(task.id).run();
+              }
+            } else {
+              try {
+                await env.DB.prepare('UPDATE todos SET done = 0, time_records = ? WHERE id = ?')
+                  .bind('[]', task.id).run();
+              } catch (e) {
+                // 兜底：仅更新 done（极端情况：列不存在等）
+                await env.DB.prepare('UPDATE todos SET done = 0 WHERE id = ?').bind(task.id).run();
+              }
             }
           } else {
             // 勾选完成（done 0→1）：记录完成时刻（零耗时 record，s===e）
@@ -2222,19 +2236,21 @@ self.addEventListener('fetch', (event) => {
             try {
               if (record && typeof record.s === 'number' && typeof record.e === 'number'
                   && record.s === record.e && record.s > 0) {
-                // 写入实例级 time_records（FIFO 5，与 TIMER_COMPLETE 一致）
+                // 写入实例级 time_records（FIFO 30，与 TIMER_COMPLETE 一致）
                 const cur = await env.DB.prepare(
                   'SELECT time_records FROM todos WHERE id = ?'
                 ).bind(task.id).first();
                 let instArr = [];
-                try {
-                  instArr = typeof cur.time_records === 'string'
-                    ? JSON.parse(cur.time_records || '[]')
-                    : cur.time_records;
-                } catch (e2) { instArr = []; }
+                if (cur && cur.time_records) {
+                  try {
+                    instArr = typeof cur.time_records === 'string'
+                      ? JSON.parse(cur.time_records || '[]')
+                      : cur.time_records;
+                  } catch (e2) { instArr = []; }
+                }
                 if (!Array.isArray(instArr)) instArr = [];
                 instArr.push({ s: record.s, e: record.e, p: 0 });
-                if (instArr.length > 5) instArr = instArr.slice(instArr.length - 5);
+                if (instArr.length > 30) instArr = instArr.slice(instArr.length - 30);
                 await env.DB.prepare(
                   'UPDATE todos SET done = 1, time_records = ? WHERE id = ?'
                 ).bind(JSON.stringify(instArr), task.id).run();
@@ -2248,21 +2264,28 @@ self.addEventListener('fetch', (event) => {
           }
         }
         else if (action === 'TIMER_COMPLETE') {
-          // 计时结束：标记完成 + 写入 time_records（实例级 + 模板级双写）
-          // 单请求完成 3 件事，避免增加网络往返
+          // 计时"完成"：标记 done=1 + 追加 session 到 time_records（实例级 + 模板级双写）
+          // 单请求完成 3 件事，避免增加网络往返（D1 Free 单线程，少 query 更稳）
           // record: { s: <epoch_ms>, e: <epoch_ms>, p: <paused_ms> }
           //
-          // 双写说明：
-          // - 实例级（todos.time_records）：每个重复实例独立存储，修复查看 06.25 实例
-          //   详情时显示 06.26 实例完成时间的串台 bug
-          // - 模板级（todo_templates.time_records）：跨实例共享，供 predictDuration
-          //   计算中位数预估时长，FIFO 保留最近 10 条
+          // 多 session 模型（参考 Toggl Track / Clockify）：
+          // - 实例级（todos.time_records）：每个 session 独立保留，FIFO 30 条
+          //   累计耗时 = Σ(e-s-p)。FIFO 30 ≈ 1.8KB，远低于 D1 单行 2MB 限制。
+          // - 模板级（todo_templates.time_records）：跨实例共享，FIFO 50 条
+          //   供 predictDuration 计算中位数预估时长。
+          //
+          // 与 TIMER_RECORD 的区别：TIMER_COMPLETE 标记 done=1（冻结本次完成时刻）。
+          // 与 TOGGLE_DONE 的区别：TIMER_COMPLETE 写真实耗时 record（s<e）。
           const todoId = task && task.id;
           const pid = parentId || (task && task.parent_id);
           if (!todoId) return apiError("INVALID_PARAMS", 400);
 
           // 1. 标记完成（始终执行，即便记录写入失败也不阻断完成）
-          await env.DB.prepare('UPDATE todos SET done = 1 WHERE id = ?').bind(todoId).run();
+          try {
+            await env.DB.prepare('UPDATE todos SET done = 1 WHERE id = ?').bind(todoId).run();
+          } catch (eDone) {
+            console.error("TIMER_COMPLETE mark done failed:", eDone);
+          }
 
           // 2. 写入 time_records（实例级 + 模板级双写）
           if (record && typeof record.s === 'number' && typeof record.e === 'number') {
@@ -2270,6 +2293,7 @@ self.addEventListener('fetch', (event) => {
             const e = Math.floor(record.e);
             const p = Math.floor(record.p || 0);
             // 服务端校验：s < e, 时长合理（1s ~ 7d），paused 不超过总时长
+            // 7d 上限兼容单次长会话；跨 session 累计无上限（每 session 独立校验）
             const MAX_DURATION_MS = 7 * 24 * 60 * 60 * 1000;
             if (s > 0 && e > s && (e - s) <= MAX_DURATION_MS && p >= 0 && p < (e - s)) {
               // 2a. 实例级：写入 todos.time_records（修复串台 bug）
@@ -2278,15 +2302,17 @@ self.addEventListener('fetch', (event) => {
                   'SELECT time_records FROM todos WHERE id = ?'
                 ).bind(todoId).first();
                 let instArr = [];
-                try {
-                  instArr = typeof cur.time_records === 'string'
-                    ? JSON.parse(cur.time_records || '[]')
-                    : cur.time_records;
-                } catch (e2) { instArr = []; }
+                if (cur && cur.time_records) {
+                  try {
+                    instArr = typeof cur.time_records === 'string'
+                      ? JSON.parse(cur.time_records || '[]')
+                      : cur.time_records;
+                  } catch (e2) { instArr = []; }
+                }
                 if (!Array.isArray(instArr)) instArr = [];
                 instArr.push({ s, e, p });
-                // 实例级通常只保留最近 1 条（每次重新开始计时会覆盖），但为防止异常重入保留 FIFO 5
-                if (instArr.length > 5) instArr = instArr.slice(instArr.length - 5);
+                // FIFO 30：保留最近 30 个 session（足够覆盖一周高频使用）
+                if (instArr.length > 30) instArr = instArr.slice(instArr.length - 30);
                 await env.DB.prepare(
                   'UPDATE todos SET time_records = ? WHERE id = ?'
                 ).bind(JSON.stringify(instArr), todoId).run();
@@ -2305,8 +2331,8 @@ self.addEventListener('fetch', (event) => {
                     try { arr = Array.isArray(tpl.time_records) ? tpl.time_records : JSON.parse(tpl.time_records || '[]'); } catch (e2) { arr = []; }
                     if (!Array.isArray(arr)) arr = [];
                     arr.push({ s, e, p });
-                    // FIFO 截断至最近 10 条
-                    if (arr.length > 10) arr = arr.slice(arr.length - 10);
+                    // FIFO 50：跨实例聚合，用于中位数预估
+                    if (arr.length > 50) arr = arr.slice(arr.length - 50);
                     await env.DB.prepare(
                       'UPDATE todo_templates SET time_records = ? WHERE parent_id = ?'
                     ).bind(JSON.stringify(arr), pid).run();
@@ -2314,6 +2340,80 @@ self.addEventListener('fetch', (event) => {
                 } catch (e3) {
                   // 模板写入失败不影响完成状态，仅吞掉错误
                   console.error("TIMER_COMPLETE template record write failed:", e3);
+                }
+              }
+            }
+          }
+        }
+        else if (action === 'TIMER_RECORD') {
+          // 计时"记录"功能（参考 Toggl Track Split time entry + Continue 简化版）：
+          // 用户在计时中点"记录"→ 保存本次 session 到 time_records，回到空闲态，不标记完成。
+          // 自由计时、碎片时间随用随计。
+          //
+          // 数据模型（多 session 数组，FIFO 30）：
+          // - todos.time_records: [{s,e,p}, ...]，每个 session 独立，FIFO 30
+          // - 累计耗时 = Σ(e-s-p)（前端遍历求和）
+          // - 模板级 todo_templates.time_records 也写入本次 session（FIFO 50，
+          //   供 predictDuration 跨实例预估；与 TIMER_COMPLETE 共享同一路径）
+          //
+          // 入参：
+          //   task.id, task.parent_id
+          //   record: { s: 本次开始, e: now, p: 本次 paused }
+          //
+          // 与 TIMER_COMPLETE 的区别：不标记 done，不冻结完成时刻。
+          // 与 TOGGLE_DONE 的区别：写真实耗时 record（s<e）。
+          const todoId = task && task.id;
+          const pid = parentId || (task && task.parent_id);
+          if (!todoId) return apiError("INVALID_PARAMS", 400);
+
+          if (record && typeof record.s === 'number' && typeof record.e === 'number') {
+            const s = Math.floor(record.s);
+            const e = Math.floor(record.e);
+            const p = Math.floor(record.p || 0);
+            // 服务端校验：与 TIMER_COMPLETE 一致
+            const MAX_DURATION_MS = 7 * 24 * 60 * 60 * 1000;
+            if (s > 0 && e > s && (e - s) <= MAX_DURATION_MS && p >= 0 && p < (e - s)) {
+              // 2a. 实例级：写入 todos.time_records
+              try {
+                const cur = await env.DB.prepare(
+                  'SELECT time_records FROM todos WHERE id = ?'
+                ).bind(todoId).first();
+                let instArr = [];
+                if (cur && cur.time_records) {
+                  try {
+                    instArr = typeof cur.time_records === 'string'
+                      ? JSON.parse(cur.time_records || '[]')
+                      : cur.time_records;
+                  } catch (e2) { instArr = []; }
+                }
+                if (!Array.isArray(instArr)) instArr = [];
+                instArr.push({ s, e, p });
+                if (instArr.length > 30) instArr = instArr.slice(instArr.length - 30);
+                await env.DB.prepare(
+                  'UPDATE todos SET time_records = ? WHERE id = ?'
+                ).bind(JSON.stringify(instArr), todoId).run();
+              } catch (eInst) {
+                console.error("TIMER_RECORD per-instance record write failed:", eInst);
+              }
+
+              // 2b. 模板级：写入 todo_templates.time_records（供 predictDuration）
+              if (pid) {
+                try {
+                  const tpl = await env.DB.prepare(
+                    'SELECT time_records FROM todo_templates WHERE parent_id = ?'
+                  ).bind(pid).first();
+                  if (tpl) {
+                    let arr = [];
+                    try { arr = Array.isArray(tpl.time_records) ? tpl.time_records : JSON.parse(tpl.time_records || '[]'); } catch (e2) { arr = []; }
+                    if (!Array.isArray(arr)) arr = [];
+                    arr.push({ s, e, p });
+                    if (arr.length > 50) arr = arr.slice(arr.length - 50);
+                    await env.DB.prepare(
+                      'UPDATE todo_templates SET time_records = ? WHERE parent_id = ?'
+                    ).bind(JSON.stringify(arr), pid).run();
+                  }
+                } catch (e3) {
+                  console.error("TIMER_RECORD template record write failed:", e3);
                 }
               }
             }
@@ -2378,7 +2478,7 @@ self.addEventListener('fetch', (event) => {
                     } catch (e2) { instArr = []; }
                     if (!Array.isArray(instArr)) instArr = [];
                     instArr.push({ s, e, p });
-                    if (instArr.length > 5) instArr = instArr.slice(instArr.length - 5);
+                    if (instArr.length > 30) instArr = instArr.slice(instArr.length - 30);
                     await env.DB.prepare(
                       'UPDATE todos SET time_records = ? WHERE id = ?'
                     ).bind(JSON.stringify(instArr), item.id).run();
@@ -2400,7 +2500,7 @@ self.addEventListener('fetch', (event) => {
                         try { arr = Array.isArray(tpl.time_records) ? tpl.time_records : JSON.parse(tpl.time_records || '[]'); } catch (e2) { arr = []; }
                         if (!Array.isArray(arr)) arr = [];
                         arr.push({ s, e, p });
-                        if (arr.length > 10) arr = arr.slice(arr.length - 10);
+                        if (arr.length > 50) arr = arr.slice(arr.length - 50);
                         await env.DB.prepare(
                           'UPDATE todo_templates SET time_records = ? WHERE parent_id = ?'
                         ).bind(JSON.stringify(arr), pid).run();

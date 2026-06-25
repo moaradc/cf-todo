@@ -183,6 +183,9 @@ export const bootstrap = `
       pauseTimerDetail: pauseTimerDetail,
       resumeTimerDetail: resumeTimerDetail,
       completeTimerDetail: completeTimerDetail,
+      recordTimerDetail: recordTimerDetail,
+      completeFromIdleDetail: completeFromIdleDetail,
+      continueAfterDoneDetail: continueAfterDoneDetail,
       cancelTimerDetail: cancelTimerDetail,
       // 回收站
       openTrash: openTrash,

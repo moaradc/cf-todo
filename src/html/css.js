@@ -179,6 +179,17 @@ export const css = `
       font-size: 1.4rem; font-weight: bold; font-variant-numeric: tabular-nums;
       color: var(--accent);
     }
+    /* 空闲态累计行：稍大字号、醒目色，让用户一眼看到总投入时间 */
+    .timer-cum-main {
+      font-size: 1.05rem; font-weight: 600; color: var(--accent);
+      font-variant-numeric: tabular-nums;
+      margin-bottom: 6px;
+    }
+    /* 进行中态"本次前累计"副信息行：小字号、低对比，与正在计时的 00:23:45 主信息形成层级 */
+    .timer-cum-sub {
+      font-size: 0.85em; opacity: 0.7; margin-top: 4px;
+      font-variant-numeric: tabular-nums;
+    }
 
     .fab {
       position: fixed; bottom: 30px; right: 30px; width: 60px; height: 60px;

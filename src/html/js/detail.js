@@ -252,10 +252,11 @@ export const detail = `
       const paused = timerState && isTimerPaused(timerState);
       const elapsed = timerState ? timerElapsed(timerState) : 0;
 
-      // 当前实例的完成记录（实例级，独立不串台）
+      // 当前实例的所有 session 记录（实例级 FIFO 30）
       const records = getDetailTimeRecords();
+      // 累计耗时：所有历史 session 之和（不含当前正在进行的 session）
+      const cumMs = sumRecordsMs(records);
       // 预估完成时间（中位数），仅用于进行中/已暂停/空闲态的提示
-      // 已完成态不显示（按用户要求精简）
       // 使用模板级记录预估：跨实例的中位数更稳定
       const predict = predictDuration(detailTemplateRecords);
       const predictText = predict ? '预计 ' + formatMs(predict) : '';
@@ -263,42 +264,62 @@ export const detail = `
       let html = '<div class="detail-label">计时</div>';
 
       if (task.done) {
-        // 已完成：优先使用 overrideRecord（completeTimer 同步阶段直传，未经过任何缓存），
+        // 已完成态：显示"完成于 X，耗时 Y" + [继续计时] 按钮
+        // overrideRecord 优先（completeTimer 同步阶段直传，未经缓存），
         // 其次回退到 records 末尾（reloadDetailTimeRecords fetch 后的正常路径）
         const lastRec = overrideRecord || (records.length ? records[records.length - 1] : null);
         if (lastRec) {
-          const dur = Math.max(0, (lastRec.e || 0) - (lastRec.s || 0) - (lastRec.p || 0));
           const endTimeStr = formatDoneTime(lastRec.e);
-          // 零耗时（s===e）：勾选框完成，无计时，仅显示"完成于 X"
-          // 有耗时（s<e）：计时器完成，显示"完成于 X，耗时 Y"
-          if (dur === 0 && lastRec.s === lastRec.e) {
+          // 累计耗时：cumMs 已包含所有 session（含 lastRec 自身，因为乐观更新已 push）
+          // 仅当 cumMs > 0 时显示"耗时 Y"
+          if (cumMs > 0) {
+            html += '<div class="detail-value">完成于 ' + endTimeStr + '，耗时 ' + formatMs(cumMs) + '</div>';
+          } else if (lastRec.s === lastRec.e) {
+            // 零耗时（s===e）：勾选框完成，无计时，仅显示"完成于 X"
             html += '<div class="detail-value">完成于 ' + endTimeStr + '</div>';
           } else {
-            html += '<div class="detail-value">完成于 ' + endTimeStr + '，耗时 ' + formatMs(dur) + '</div>';
+            // 有 session 但 cumMs 计算为 0 的极端情况（数据异常），fallback 显示单条耗时
+            const singleDur = Math.max(0, (lastRec.e || 0) - (lastRec.s || 0) - (lastRec.p || 0));
+            html += '<div class="detail-value">完成于 ' + endTimeStr + '，耗时 ' + formatMs(singleDur) + '</div>';
           }
         } else {
           html += '<div class="detail-value" style="color:var(--fg); opacity:0.6;">无完成耗时记录</div>';
         }
+        html += '<div class="timer-row" style="margin-top:8px;">';
+        html += '<button class="btn-ghost" onclick="continueAfterDoneDetail()">继续计时</button>';
+        html += '</div>';
       } else if (timerState) {
-        // 进行中 / 已暂停：内部有多行（timer-row + 预估），用 block 流
+        // 进行中 / 已暂停：00:23:45 + 本次前累计（仅累计>0 时显示）+ [暂停/继续] [记录] [完成] [取消]
         html += '<div class="detail-value" style="display:block;">';
         html += '<div class="timer-row">';
         html += '<span class="timer-elapsed-large" data-timer-id="' + task.id + '-detail">' + formatElapsed(elapsed) + '</span>';
+        html += '</div>';
+        // 本次前累计：仅当 cumMs > 0 时显示
+        if (cumMs > 0) {
+          html += '<div class="timer-cum-sub">本次前累计 ' + formatMs(cumMs) + '</div>';
+        }
+        html += '<div class="timer-row" style="margin-top:6px;">';
         if (paused) {
           html += '<button class="btn-ghost" onclick="resumeTimerDetail()">继续</button>';
         } else {
           html += '<button class="btn-ghost" onclick="pauseTimerDetail()">暂停</button>';
         }
-        html += '<button class="btn-ghost" onclick="completeTimerDetail()">结束</button>';
+        html += '<button class="btn-ghost" onclick="recordTimerDetail()">记录</button>';
+        html += '<button class="btn-ghost" onclick="completeTimerDetail()">完成</button>';
         html += '<button class="btn-ghost" onclick="cancelTimerDetail()">取消</button>';
         html += '</div>';
         if (predictText) html += '<div style="font-size:0.85em; opacity:0.7; margin-top:6px;">' + predictText + '</div>';
         html += '</div>';
       } else {
-        // 空闲：内部有多行（timer-row + 预估），用 block 流
+        // 空闲态：累计 X（仅有历史累计时显示）+ [开始计时] [完成]
+        // 累计行仅在 cumMs > 0 时显示
+        if (cumMs > 0) {
+          html += '<div class="timer-cum-main">累计 ' + formatMs(cumMs) + '</div>';
+        }
         html += '<div class="detail-value" style="display:block;">';
         html += '<div class="timer-row">';
         html += '<button class="btn-ghost" onclick="startTimerDetail()">开始计时</button>';
+        html += '<button class="btn-ghost" onclick="completeFromIdleDetail()">完成</button>';
         if (predictText) html += '<span style="font-size:0.85em; opacity:0.7; margin-left:10px;">' + predictText + '</span>';
         html += '</div>';
         html += '</div>';
@@ -328,6 +349,19 @@ export const detail = `
       if (currentDetailIndex < 0) return;
       completeTimer(currentDetailIndex);
       // completeTimer await fetch 后会调用 reloadDetailTimeRecords 重新拉取并刷新
+    }
+    function recordTimerDetail() {
+      if (currentDetailIndex < 0) return;
+      recordTimer(currentDetailIndex);
+    }
+    function completeFromIdleDetail() {
+      // 从空闲态点"完成"：调用 completeTimer，内部会处理"无活动计时器"的分支（零耗时 record）
+      if (currentDetailIndex < 0) return;
+      completeTimer(currentDetailIndex);
+    }
+    function continueAfterDoneDetail() {
+      if (currentDetailIndex < 0) return;
+      continueAfterDone(currentDetailIndex);
     }
     function cancelTimerDetail() {
       const task = todos[currentDetailIndex];
