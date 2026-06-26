@@ -54,17 +54,18 @@ export const trash = `
           const isSelected = selectedTrashTasks.has(index);
           checkboxHtml = \`<div class="checkbox \${isSelected ? 'batch-selected' : ''}" onclick="event.stopPropagation(); toggleTrashBatchSelect(\${index})"></div>\`;
         } else {
+          const safeId = escapeHtml(todo.id);
           actionsHtml = \`
-            <button class="btn-ghost" style="padding:4px 8px; border:1px solid #666;" onclick="event.stopPropagation(); actionTrash('\${todo.id}', 'RESTORE')">恢复</button>
-            <button class="btn-danger" style="padding:4px 8px; margin-left:8px;" onclick="event.stopPropagation(); actionTrash('\${todo.id}', 'DELETE_PERMANENT')">删除</button>
+            <button class="btn-ghost" style="padding:4px 8px; border:1px solid #666;" onclick="event.stopPropagation(); actionTrash('\${safeId}', 'RESTORE')">恢复</button>
+            <button class="btn-danger" style="padding:4px 8px; margin-left:8px;" onclick="event.stopPropagation(); actionTrash('\${safeId}', 'DELETE_PERMANENT')">删除</button>
           \`;
         }
 
         el.innerHTML = \`
           \${checkboxHtml}
           <div class="item-meta" style="opacity:0.7;">
-            <div class="item-title" style="text-decoration:line-through;">\${todo.text}</div>
-            <div class="item-info">原日期: \${todo.date}</div>
+            <div class="item-title" style="text-decoration:line-through;">\${escapeHtml(todo.text)}</div>
+            <div class="item-info">原日期: \${escapeHtml(todo.date)}</div>
           </div>
           \${actionsHtml}
         \`;
@@ -125,9 +126,15 @@ export const trash = `
     async function batchTrashRestore() {
       if (selectedTrashTasks.size === 0) return;
       const ids = Array.from(selectedTrashTasks).map(idx => trashTodos[idx].id);
-      await fetch('/api/trash-action', {
-        method: 'POST', body: JSON.stringify({ action: 'BATCH_RESTORE', ids })
-      });
+      try {
+        const res = await fetch('/api/trash-action', {
+          method: 'POST', body: JSON.stringify({ action: 'BATCH_RESTORE', ids }),
+          headers: { 'Content-Type': 'application/json' }
+        });
+        if (!res.ok) throw new Error('恢复失败：' + res.status);
+      } catch (e) {
+        alert('恢复失败，请重试：' + e.message);
+      }
       exitTrashBatchMode();
       loadTrashData();
     }
@@ -136,28 +143,44 @@ export const trash = `
       if (selectedTrashTasks.size === 0) return;
       if (!confirm(\`你会永远失去 \${selectedTrashTasks.size} 个事项！\`)) return;
       const ids = Array.from(selectedTrashTasks).map(idx => trashTodos[idx].id);
-      await fetch('/api/trash-action', {
-        method: 'POST', body: JSON.stringify({ action: 'BATCH_DELETE_PERMANENT', ids })
-      });
+      try {
+        const res = await fetch('/api/trash-action', {
+          method: 'POST', body: JSON.stringify({ action: 'BATCH_DELETE_PERMANENT', ids }),
+          headers: { 'Content-Type': 'application/json' }
+        });
+        if (!res.ok) throw new Error('删除失败：' + res.status);
+      } catch (e) {
+        alert('删除失败，请重试：' + e.message);
+      }
       exitTrashBatchMode();
       loadTrashData();
     }
 
     async function actionTrash(id, action) {
       if (action === 'DELETE_PERMANENT' && !confirm('你会永远失去它，确认？')) return;
-      await fetch('/api/trash-action', {
-        method: 'POST', body: JSON.stringify({ action, id }),
-        headers: { 'Content-Type': 'application/json' }
-      });
+      try {
+        const res = await fetch('/api/trash-action', {
+          method: 'POST', body: JSON.stringify({ action, id }),
+          headers: { 'Content-Type': 'application/json' }
+        });
+        if (!res.ok) throw new Error('操作失败：' + res.status);
+      } catch (e) {
+        alert('操作失败，请重试：' + e.message);
+      }
       loadTrashData();
     }
 
     async function clearTrash() {
       if (!confirm('确认清空？你会永远失去它们！')) return;
-      await fetch('/api/trash-action', {
-        method: 'POST', body: JSON.stringify({ action: 'CLEAR_ALL' }),
-        headers: { 'Content-Type': 'application/json' }
-      });
+      try {
+        const res = await fetch('/api/trash-action', {
+          method: 'POST', body: JSON.stringify({ action: 'CLEAR_ALL' }),
+          headers: { 'Content-Type': 'application/json' }
+        });
+        if (!res.ok) throw new Error('清空失败：' + res.status);
+      } catch (e) {
+        alert('清空失败，请重试：' + e.message);
+      }
       loadTrashData();
     }
 

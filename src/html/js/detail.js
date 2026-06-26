@@ -435,13 +435,18 @@ export const detail = `
       
       if (!isEditMode) {
         let urlSection = '';
-        if (task.url) urlSection = \`<div class="detail-label">链接 (URL)</div><div class="detail-value"><a href="\${task.url}" target="_blank">\${task.url}</a></div>\`;
+        if (task.url) {
+          // 仅允许 http(s)/ftp/mailto/tel/相对路径协议，阻断 javascript:/data: 等 XSS 向量
+          var safeUrl = String(task.url).trim();
+          var urlHref = /^(https?:|ftp:|mailto:|tel:|\/|\.\/|\.\.\/|#)/i.test(safeUrl) ? safeUrl : '#';
+          urlSection = \`<div class="detail-label">链接 (URL)</div><div class="detail-value"><a href="\${urlHref}" target="_blank" rel="noopener noreferrer">\${escapeHtml(task.url)}</a></div>\`;
+        }
 
         let copySection = '';
         if (task.copy_text) {
           const safeText = encodeURIComponent(task.copy_text).replace(/'/g, "%27");
           copySection = \`<div class="detail-label">快捷复制内容</div><div class="detail-value" style="display:flex; justify-content:space-between; align-items:center;">
-              <span>\${task.copy_text}</span><button class="btn-ghost" style="padding:4px 8px;" onclick="copyText(decodeURIComponent('\${safeText}'))">复制</button>
+              <span>\${escapeHtml(task.copy_text)}</span><button class="btn-ghost" style="padding:4px 8px;" onclick="copyText(decodeURIComponent('\${safeText}'))">复制</button>
             </div>\`;
         }
 
@@ -456,7 +461,7 @@ export const detail = `
           let stHtml = task.subtasks.map((st, i) => \`
             <div class="subtask-view-item \${st.done ? 'done' : ''}" onclick="toggleSubtask(\${currentDetailIndex}, \${i})">
                 <div class="checkbox"></div>
-                <div class="item-meta"><div class="item-title">\${st.text}</div></div>
+                <div class="item-meta"><div class="item-title">\${escapeHtml(st.text)}</div></div>
             </div>
           \`).join('');
           subtasksSection = \`<div class="detail-label">子任务</div><div style="margin-bottom:20px;">\${stHtml}</div>\`;
@@ -469,7 +474,7 @@ export const detail = `
             const safeText = encodeURIComponent(text).replace(/'/g, "%27");
             return \`<div class="search-term-tag \${termObj.done ? 'done' : ''}">
               <div class="search-term-checkbox" onclick="toggleSearchTerm(\${currentDetailIndex}, \${i})"></div>
-              <span>\${text}</span>
+              <span>\${escapeHtml(text)}</span>
               <button onclick="copySearchTerm(\${currentDetailIndex}, \${i}, '\${safeText}')">⎘</button>
             </div>\`;
           }).join('');
@@ -522,11 +527,11 @@ export const detail = `
         }
 
         container.innerHTML = \`
-          <div class="detail-label">事项内容</div><div class="detail-value">\${task.text}</div>
+          <div class="detail-label">事项内容</div><div class="detail-value">\${escapeHtml(task.text)}</div>
           \${subtasksSection}
           \${searchSection}
           <div class="row">
-            <div class="flex-1"><div class="detail-label">时间点</div><div class="detail-value">\${task.time || '--:--'}\${task.end_time ? ' - ' + task.end_time : ''}</div></div>
+            <div class="flex-1"><div class="detail-label">时间点</div><div class="detail-value">\${escapeHtml(task.time || '--:--')}\${task.end_time ? ' - ' + escapeHtml(task.end_time) : ''}</div></div>
             <div class="flex-1"><div class="detail-label">优先级</div><div class="detail-value">\${pMap[task.priority]}</div></div>
           </div>
           \${urlSection}\${copySection}
@@ -542,7 +547,7 @@ export const detail = `
         activeMode = 'edit';
         var intervalText = getIntervalDisplayText(tempRepeatInterval, tempRepeatType);
         container.innerHTML = \`
-          <input type="text" id="edit-text" value="\${task.text}" class="detail-value editable" placeholder="事项标题（必填）">
+          <input type="text" id="edit-text" value="\${escapeHtml(task.text)}" class="detail-value editable" placeholder="事项标题（必填）">
           
           <div class="detail-label modal-section">子任务</div>
           <div class="row modal-subtask-row">
@@ -588,8 +593,8 @@ export const detail = `
               <span class="arrow">▼</span>
             </div>
           </div>
-          <input type="url" id="edit-url" value="\${task.url || ''}" class="detail-value editable" placeholder="URL / APP Scheme (可选)">
-          <input type="text" id="edit-copy" value="\${task.copy_text || ''}" class="detail-value editable" placeholder="快捷复制内容（可选）">
+          <input type="url" id="edit-url" value="\${escapeHtml(task.url || '')}" class="detail-value editable" placeholder="URL / APP Scheme (可选)">
+          <input type="text" id="edit-copy" value="\${escapeHtml(task.copy_text || '')}" class="detail-value editable" placeholder="快捷复制内容（可选）">
 
           <div class="detail-label modal-section">其他</div>
           <div class="switch-label" onclick="toggleEditSearch()">
@@ -607,7 +612,7 @@ export const detail = `
             <div class="search-card" id="edit-search-preview"></div>
           </div>
           
-          <textarea id="edit-desc" rows="3" class="detail-value editable" placeholder="输入备注/详细描述（可选）">\${task.desc || ''}</textarea>
+          <textarea id="edit-desc" rows="3" class="detail-value editable" placeholder="输入备注/详细描述（可选）">\${escapeHtml(task.desc || '')}</textarea>
         \`;
         renderTempSubtasks('edit');
         if (tempSearchTerms.length > 0) renderSearchTerms('edit');

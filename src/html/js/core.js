@@ -266,8 +266,9 @@ export const core = `
 
     function escapeHtml(text) {
       var div = document.createElement('div');
-      div.appendChild(document.createTextNode(text));
-      return div.innerHTML;
+      div.appendChild(document.createTextNode(text == null ? '' : String(text)));
+      // textContent->innerHTML 只转义 & < >；补转义引号以安全用于属性值
+      return div.innerHTML.replace(/"/g, '&quot;').replace(/'/g, '&#39;');
     }
 
     // 实时从 GitHub 拉取最新 changelog（改 version.json 推 main 后立即可见）
@@ -616,7 +617,7 @@ export const core = `
       if (todo.time) {
         var timeLabel = todo.time;
         if (todo.end_time) timeLabel += '-' + todo.end_time;
-        badges += '<span class="badge badge-time">' + timeLabel + '</span> ';
+        badges += '<span class="badge badge-time">' + escapeHtml(timeLabel) + '</span> ';
       }
 
       if (!todo.done && todo.end_time && todo.time && todo.date) {
@@ -655,7 +656,7 @@ export const core = `
         }
         // 碎时记不显示 repeat_end（完成时自动管理，对用户无意义）
         if (todo.repeat_end && todo.repeat_type !== 'fragment') repeatLabel += '·至' + todo.repeat_end;
-        badges += '<span class="badge" style="background:transparent;border:1px solid var(--fg);color:var(--fg);">' + repeatLabel + '</span> ';
+        badges += '<span class="badge" style="background:transparent;border:1px solid var(--fg);color:var(--fg);">' + escapeHtml(repeatLabel) + '</span> ';
       }
 
       if (todo.subtasks && todo.subtasks.length > 0) {
@@ -667,7 +668,7 @@ export const core = `
 
       var meta = document.createElement('div');
       meta.className = 'item-meta';
-      meta.innerHTML = '<div class="item-title">' + todo.text + '</div><div class="item-info">' + badges + '</div>';
+      meta.innerHTML = '<div class="item-title">' + escapeHtml(todo.text) + '</div><div class="item-info">' + badges + '</div>';
 
       var checkbox = document.createElement('div');
       // 计时激活时点击 checkbox = 结束+完成；不改变 checkbox 视觉（计时状态用 badges 行的"计时中"标签表达）
@@ -685,8 +686,15 @@ export const core = `
       if (!isBatchMode) {
         if (todo.url) {
           var linkBtn = document.createElement('a');
-          linkBtn.href = todo.url;
+          // 仅允许 http(s)/ftp 协议，阻断 javascript:/data: 等 XSS 向量
+          var safeUrl = String(todo.url).trim();
+          if (/^(https?:|ftp:|mailto:|tel:|\/|\.\/|\.\.\/|#)/i.test(safeUrl)) {
+            linkBtn.href = safeUrl;
+          } else {
+            linkBtn.href = '#';
+          }
           linkBtn.target = '_blank';
+          linkBtn.rel = 'noopener noreferrer';
           linkBtn.className = 'btn-link';
           linkBtn.innerText = '↗';
           linkBtn.addEventListener('click', function(e){ e.stopPropagation(); });

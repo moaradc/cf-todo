@@ -945,10 +945,15 @@ export const todos = `
           if (typeof clearTimerState === 'function') clearTimerState(t.id);
         }
       });
-      await fetch('/api/todo-action', {
-        method: 'POST', body: JSON.stringify({ action: 'BATCH_DELETE', ids: ids }),
-        headers: { 'Content-Type': 'application/json' }
-      });
+      try {
+        const res = await fetch('/api/todo-action', {
+          method: 'POST', body: JSON.stringify({ action: 'BATCH_DELETE', ids: ids }),
+          headers: { 'Content-Type': 'application/json' }
+        });
+        if (!res.ok) throw new Error('删除失败：' + res.status);
+      } catch (e) {
+        alert('删除失败，请重试：' + e.message);
+      }
       exitBatchMode(); loadTodos();
     }
 `;
