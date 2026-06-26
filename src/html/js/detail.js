@@ -842,7 +842,7 @@ export const detail = `
       );
       if (fragOnDelete || fragOnSave) {
         const verb = action === 'delete' ? '删除' : '保存';
-        title.innerText = '确认' + verb + '碎时记';
+        title.innerText = '确认' + verb;
         options.innerHTML = \`<button onclick="confirmAction('this')">确认\${verb}</button>\`;
         _showActionPopover(e.target);
         return;
