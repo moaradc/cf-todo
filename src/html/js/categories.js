@@ -102,6 +102,14 @@ export const categories = `
       // 起始日期通过日期选择器单独控制，默认空（任意日期都出现）
       if (val === 'fragment') {
         tempFragmentAnchor = '';
+        // 碎时记无间隔/截止概念，清空临时状态避免：
+        // 1) 切回普通重复时 getIntervalDisplayText(tempRepeatInterval || 1, val)
+        //    显示成"每2天"而非"今天"（用户从每2天切到碎时记再切回 daily 的场景）
+        // 2) 切回普通重复时 tempRepeatEnd 仍是旧值，显示错误的"截止: X"
+        // confirmAddTask 里有 isFragment ? 1 / '' 兜底，但 UI 显示依赖 temp* 变量
+        // 不清空会误导用户。这里同步清空，保持 UI 与最终 payload 一致。
+        tempRepeatInterval = 1;
+        tempRepeatEnd = '';
         if (activeMode === 'add') {
           document.getElementById('add-repeat-display').innerText = '重复: ' + label;
           var endRow = document.getElementById('add-repeat-end-row');
