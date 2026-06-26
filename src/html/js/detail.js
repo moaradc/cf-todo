@@ -841,9 +841,9 @@ export const detail = `
         (typeof tempRepeatType !== 'undefined' && tempRepeatType === 'fragment')
       );
       if (fragOnDelete || fragOnSave) {
-        const verb = action === 'delete' ? '删除' : '保存';
-        title.innerText = '确认' + verb;
-        options.innerHTML = \`<button onclick="confirmAction('this')">确认\${verb}</button>\`;
+        const isDelete = action === 'delete';
+        title.innerText = isDelete ? '确认删除' : '保存范围：';
+        options.innerHTML = \`<button onclick="confirmAction('this')">\${isDelete ? '确认删除' : '仅此日程'}</button>\`;
         _showActionPopover(e.target);
         return;
       }
