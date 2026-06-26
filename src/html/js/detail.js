@@ -438,7 +438,7 @@ export const detail = `
         if (task.url) {
           // 仅允许 http(s)/ftp/mailto/tel/相对路径协议，阻断 javascript:/data: 等 XSS 向量
           var safeUrl = String(task.url).trim();
-          var urlHref = /^(https?:|ftp:|mailto:|tel:|\/|\.\/|\.\.\/|#)/i.test(safeUrl) ? safeUrl : '#';
+          var urlHref = /^(https?:|ftp:|mailto:|tel:|\\/|\\.\\/|\\.\\.\\/|#)/i.test(safeUrl) ? safeUrl : '#';
           urlSection = \`<div class="detail-label">链接 (URL)</div><div class="detail-value"><a href="\${urlHref}" target="_blank" rel="noopener noreferrer">\${escapeHtml(task.url)}</a></div>\`;
         }
 

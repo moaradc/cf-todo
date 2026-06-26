@@ -688,7 +688,7 @@ export const core = `
           var linkBtn = document.createElement('a');
           // 仅允许 http(s)/ftp 协议，阻断 javascript:/data: 等 XSS 向量
           var safeUrl = String(todo.url).trim();
-          if (/^(https?:|ftp:|mailto:|tel:|\/|\.\/|\.\.\/|#)/i.test(safeUrl)) {
+          if (/^(https?:|ftp:|mailto:|tel:|\\/|\\.\\/|\\.\\.\\/|#)/i.test(safeUrl)) {
             linkBtn.href = safeUrl;
           } else {
             linkBtn.href = '#';
