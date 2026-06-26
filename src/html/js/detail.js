@@ -260,16 +260,34 @@ export const detail = `
 
       // 排版：累计/时间/按钮全部包在同一个 detail-value 内，垂直排列
       if (task.done) {
-        // 已完成：累计 + 最后记录于 X + [继续计时]（仅碎时记）
+        // 已完成态展示按 todo 类型分流：
+        // - 碎时记：累计 + 最后记录于 X + [继续计时]（多 session 累计模型，[继续计时] 可开新 session）
+        // - 普通重复 todo：完成于 X，累计 Y（实例时效性 = 当日完成时刻 + 当次耗时，无跨实例语义）
         const lastRec = overrideRecord || (records.length ? records[records.length - 1] : null);
         html += '<div class="detail-value" style="display:block;">';
-        if (cumMs > 0) {
-          html += '<div>累计 ' + formatMs(cumMs) + '</div>';
-        }
-        if (lastRec && lastRec.e) {
-          html += '<div style="font-size:0.85em; opacity:0.7; margin-top:4px;">最后记录于 ' + formatDoneTime(lastRec.e) + '</div>';
-        } else if (cumMs === 0) {
-          html += '<div style="color:var(--fg); opacity:0.6;">无完成耗时记录</div>';
+        if (isFragment) {
+          // 碎时记：累计 + 最后记录于 X（多 session 模型保留原展示）
+          if (cumMs > 0) {
+            html += '<div>累计 ' + formatMs(cumMs) + '</div>';
+          }
+          if (lastRec && lastRec.e) {
+            html += '<div style="font-size:0.85em; opacity:0.7; margin-top:4px;">最后记录于 ' + formatDoneTime(lastRec.e) + '</div>';
+          } else if (cumMs === 0) {
+            html += '<div style="color:var(--fg); opacity:0.6;">无完成耗时记录</div>';
+          }
+        } else {
+          // 普通重复 todo：完成于 X，累计 Y（实例时效性语义）
+          // - 完成 moment（lastRec.e）：用户最关心的"今天几点完成的"
+          // - 累计耗时（cumMs）：完成这次花了多久
+          // 若无 lastRec（如直接勾选 checkbox 但零耗时 record 未写入），降级显示"无完成耗时记录"
+          if (lastRec && lastRec.e) {
+            html += '<div>完成于 ' + formatDoneTime(lastRec.e) + (cumMs > 0 ? '，累计 ' + formatMs(cumMs) : '') + '</div>';
+          } else if (cumMs > 0) {
+            // 兜底：有累计但缺最后 record.e（异常路径），仍显示累计
+            html += '<div>累计 ' + formatMs(cumMs) + '</div>';
+          } else {
+            html += '<div style="color:var(--fg); opacity:0.6;">无完成耗时记录</div>';
+          }
         }
         // 碎时记独有：[继续计时] 按钮（bd3f88d 普通重复 todo 无此按钮）
         if (isFragment) {
