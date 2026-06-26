@@ -243,6 +243,10 @@ export const detail = `
         return;
       }
 
+      // 碎时记独有功能：[记录]/[继续计时] 仅对 fragment 渲染
+      // 普通重复 todo 复刻 bd3f88d：仅 [开始/暂停/继续/完成/取消]
+      const isFragment = task.repeat_type === 'fragment';
+
       const timerState = task.done ? null : maybePruneStaleTimer(task.id);
       const paused = timerState && isTimerPaused(timerState);
       const elapsed = timerState ? timerElapsed(timerState) : 0;
@@ -256,7 +260,7 @@ export const detail = `
 
       // 排版：累计/时间/按钮全部包在同一个 detail-value 内，垂直排列
       if (task.done) {
-        // 已完成：累计 + 最后记录于 X + [继续计时]
+        // 已完成：累计 + 最后记录于 X + [继续计时]（仅碎时记）
         const lastRec = overrideRecord || (records.length ? records[records.length - 1] : null);
         html += '<div class="detail-value" style="display:block;">';
         if (cumMs > 0) {
@@ -267,12 +271,15 @@ export const detail = `
         } else if (cumMs === 0) {
           html += '<div style="color:var(--fg); opacity:0.6;">无完成耗时记录</div>';
         }
-        html += '<div class="timer-row" style="margin-top:8px;">';
-        html += '<button class="btn-ghost" onclick="continueAfterDoneDetail()">继续计时</button>';
-        html += '</div>';
+        // 碎时记独有：[继续计时] 按钮（bd3f88d 普通重复 todo 无此按钮）
+        if (isFragment) {
+          html += '<div class="timer-row" style="margin-top:8px;">';
+          html += '<button class="btn-ghost" onclick="continueAfterDoneDetail()">继续计时</button>';
+          html += '</div>';
+        }
         html += '</div>';
       } else if (timerState) {
-        // 进行中 / 已暂停：大字时间 + 本次前累计（仅>0 时）+ [暂停/继续][记录][完成][取消]
+        // 进行中 / 已暂停：大字时间 + 本次前累计（仅>0 时）+ [暂停/继续][记录(仅碎时记)][完成][取消]
         html += '<div class="detail-value" style="display:block;">';
         html += '<div class="timer-row">';
         html += '<span class="timer-elapsed-large" data-timer-id="' + task.id + '-detail">' + formatElapsed(elapsed) + '</span>';
@@ -286,7 +293,10 @@ export const detail = `
         } else {
           html += '<button class="btn-ghost" onclick="pauseTimerDetail()">暂停</button>';
         }
-        html += '<button class="btn-ghost" onclick="recordTimerDetail()">记录</button>';
+        // 碎时记独有：[记录] 按钮（bd3f88d 普通重复 todo 无此按钮）
+        if (isFragment) {
+          html += '<button class="btn-ghost" onclick="recordTimerDetail()">记录</button>';
+        }
         html += '<button class="btn-ghost" onclick="completeTimerDetail()">完成</button>';
         html += '<button class="btn-ghost" onclick="cancelTimerDetail()">取消</button>';
         html += '</div>';

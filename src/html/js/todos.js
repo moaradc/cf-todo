@@ -262,19 +262,22 @@ export const todos = `
     async function toggleDone(index) {
       const todo = todos[index];
       if (!todo) return;
+      // 计时功能为碎时记独有；普通重复 todo 不支持计时（前端无计时按钮），
+      // 但仍兼容遗留 localStorage 计时器状态：清空并走 toggleDone。
+      const isFragment = todo.repeat_type === 'fragment';
       // 有活动计时器时点完成：转交 completeTimer，保留计时进度写入真实耗时 record
-      if (!todo.done && typeof readTimerState === 'function' && readTimerState(todo.id)) {
+      if (isFragment && !todo.done && typeof readTimerState === 'function' && readTimerState(todo.id)) {
         await completeTimer(index);
         return;
       }
       todo.done = !todo.done;
       if (typeof clearTimerState === 'function') clearTimerState(todo.id);
       if (!todo.done) {
-        // 取消勾选：清空实例级 time_records（与普通重复 todo 一致，与服务端 TOGGLE_DONE 一致）
-        // "继续计时"按钮路径（continueAfterDone）才会保留累计（keepRecords=true）
+        // 取消勾选：清空实例级 time_records（与服务端 TOGGLE_DONE 一致）
+        // 碎时记"继续计时"按钮路径（continueAfterDone）才会保留累计（keepRecords=true）
         todo.time_records = [];
         // 碎时记取消勾选时 date 从 fragment_anchor 恢复（保留用户设置的起始日期）
-        if (todo.repeat_type === 'fragment') {
+        if (isFragment) {
           todo.date = todo.fragment_anchor || '';
         }
       } else {
@@ -286,26 +289,35 @@ export const todos = `
             : (typeof todo.time_records === 'string' ? JSON.parse(todo.time_records || '[]') : []);
           if (!Array.isArray(arr)) arr = [];
           arr.push({ s: now, e: now, p: 0 });
+          // 普通 todo：FIFO 5 截断（与 bd3f88d / 后端 TOGGLE_DONE 一致）
+          // 碎时记：不截断（保留全部 session 用于累计统计）
+          if (!isFragment && arr.length > 5) arr = arr.slice(arr.length - 5);
           todo.time_records = arr;
         } catch (e) {
           todo.time_records = [{ s: now, e: now, p: 0 }];
         }
         // 碎时记：完成时 date 冻结到当前查看日期（与后端 TOGGLE_DONE 一致）
-        // 仅当 repeat_type === 'fragment' 时才覆盖；普通 todo.date 不变
-        if (todo.repeat_type === 'fragment') {
+        // 普通 todo.date 不变（bd3f88d 行为）
+        if (isFragment) {
           todo.date = formatDate(currentDate);
         }
       }
       renderTodos();
       try {
         const now = Date.now();
-        // toggleDone（checkbox 路径）显式传 keepRecords: false，明确"取消完成应清除 records"语义。
-        // 与 continueAfterDone 的 keepRecords: true 形成对照，防止未来维护者误加 true。
-        const payload = { action: 'TOGGLE_DONE', task: { id: todo.id, done: todo.done }, keepRecords: false };
+        // 碎时记：toggleDone 显式传 keepRecords: false，明确"取消完成应清除 records"语义。
+        //          与 continueAfterDone 的 keepRecords: true 形成对照，防止未来维护者误加 true。
+        // 普通 todo：不传 keepRecords（bd3f88d 行为，服务端默认清空 records）
+        const payload = { action: 'TOGGLE_DONE', task: { id: todo.id, done: todo.done } };
+        if (isFragment) {
+          payload.keepRecords = false;
+        }
         if (todo.done) {
           payload.record = { s: now, e: now, p: 0 };
           // 碎时记完成需要 date 字段供后端冻结（取当前查看日期）
-          payload.date = formatDate(currentDate);
+          if (isFragment) {
+            payload.date = formatDate(currentDate);
+          }
         }
         await fetch('/api/todo-action', {
           method: 'POST',
@@ -317,16 +329,26 @@ export const todos = `
       }
     }
 
-    // ==================== 计时器（仅重复 todo） ====================
+    // ==================== 计时器 ====================
     // 状态机: idle -> running -> paused -> running ... -> completed (TIMER_COMPLETE)
     //   或: idle -> running -> ... -> record (TIMER_RECORD) -> idle -> running ...
     // localStorage key: cf_timer_<todo_id>
     // value: { s: <start_ms>, p: <累计paused_ms>, lp: <last_pause_start_ms|null> }
     // 服务端记录: { s, e, p }，elapsed = e - s - p
     //
-    // 多 session 累计模型：
+    // 多 session 累计模型（碎时记）：
     // - 实例级 time_records: [{s,e,p}, ...]，不 FIFO，累计 = Σ(e-s-p)
     // - 模板级 time_records: 仅"完成"session，FIFO 10，供 predictDuration 预估
+    //
+    // 普通 todo 计时功能（复刻 bd3f88d）：
+    // - 仅支持 [开始/暂停/继续/完成/取消]，无"记录"/"继续计时"
+    // - 实例级 time_records FIFO 5 截断
+    // - 模板级 time_records FIFO 10 截断
+    // - TIMER_RECORD 对普通 todo no-op（前端不暴露按钮，后端拒绝）
+    function isFragmentTodo(todoId) {
+      const t = todos.find(function(t) { return t.id === todoId; });
+      return !!(t && t.repeat_type === 'fragment');
+    }
     const TIMER_STALE_MS = 24 * 60 * 60 * 1000; // 超过 24h 视为遗留，自动清除
     const TIMER_MAX_SESSION_MS = 7 * 24 * 60 * 60 * 1000; // 单 session 上限（与服务端一致）
     let timerTickHandle = null;
@@ -489,10 +511,13 @@ export const todos = `
       renderTodos();
     }
 
-    // 计时"完成"：标记 done=1 + 追加 session 到实例级（不 FIFO）+ 模板级
+    // 计时"完成"：标记 done=1 + 追加 session 到实例级 + 模板级
+    // - 碎时记：实例级不 FIFO（保留全部 session 用于累计统计）；无模板级
+    // - 普通 todo：实例级 FIFO 5（复刻 bd3f88d）；模板级 FIFO 10（供 predictDuration）
     async function completeTimer(index) {
       const todo = todos[index];
       if (!todo) return;
+      const isFragment = todo.repeat_type === 'fragment';
       // 问题 4 防御：todo 已 done 直接返回（recordTimer 飞行中或重复触发）
       if (todo.done) return;
       // 问题 3 防御：操作锁，防止连点重复触发
@@ -506,7 +531,10 @@ export const todos = `
           let pausedMs = st.p;
           if (isTimerPaused(st)) pausedMs += (now - st.lp);
           const elapsedMs = now - st.s - pausedMs;
-          if (elapsedMs >= 1000 && elapsedMs <= TIMER_MAX_SESSION_MS) {
+          // 普通 todo 使用 TIMER_STALE_MS（24h）作为时长上限（bd3f88d 行为）
+          // 碎时记使用 TIMER_MAX_SESSION_MS（7d）
+          const maxMs = isFragment ? TIMER_MAX_SESSION_MS : TIMER_STALE_MS;
+          if (elapsedMs >= 1000 && elapsedMs <= maxMs) {
             record = { s: st.s, e: now, p: Math.max(0, Math.floor(pausedMs)) };
           }
           writeTimerState(todo.id, null);
@@ -522,13 +550,17 @@ export const todos = `
           try {
             let arr = parseTimeRecords(todo.time_records);
             arr.push(record);
+            // 普通 todo：FIFO 5 截断（复刻 bd3f88d）
+            // 碎时记：不截断（保留全部 session 用于累计统计）
+            if (!isFragment && arr.length > 5) arr = arr.slice(arr.length - 5);
             todo.time_records = arr;
           } catch (e) {
             todo.time_records = [record];
           }
         }
         // 碎时记：完成时 date 冻结到当前查看日期（与后端 TIMER_COMPLETE 一致）
-        if (todo.repeat_type === 'fragment') {
+        // 普通 todo.date 不变（bd3f88d 行为）
+        if (isFragment) {
           todo.date = formatDate(currentDate);
         }
         ensureTimerTick();
@@ -570,9 +602,16 @@ export const todos = `
     }
 
     // 计时"记录"：保存 session 到实例级 time_records，回到空闲态，不标记完成
+    // 碎时记独有功能；普通 todo 不支持"记录"（bd3f88d 无此操作）。
+    // 若调用链误触发非碎时记 todo 的 recordTimer，防御清空计时器后早退。
     async function recordTimer(index) {
       const todo = todos[index];
       if (!todo) return;
+      // 普通 todo：no-op（bd3f88d 无此功能；前端按钮已不渲染）
+      if (todo.repeat_type !== 'fragment') {
+        writeTimerState(todo.id, null);
+        return;
+      }
       const st = readTimerState(todo.id);
       if (!st) return;
       // 问题 3 防御：操作锁，防止连点重复触发
@@ -636,9 +675,16 @@ export const todos = `
 
     // "继续计时"：已完成态重新开始计时，保留累计记录
     // TOGGLE_DONE with keepRecords=true → 服务端置 done=0 不清 time_records；本地 startTimer 开新 session
+    // 碎时记独有功能；普通 todo 不支持"继续计时"（bd3f88d 无此操作）。
+    // 若调用链误触发非碎时记 todo 的 continueAfterDone，防御清空计时器后早退。
     async function continueAfterDone(index) {
       const todo = todos[index];
       if (!todo) return;
+      // 普通 todo：no-op（bd3f88d 无此功能；前端按钮已不渲染）
+      if (todo.repeat_type !== 'fragment') {
+        writeTimerState(todo.id, null);
+        return;
+      }
       // 问题 3 防御：操作锁
       if (!acquireTimerLock(todo.id)) return;
       try {
@@ -872,7 +918,9 @@ export const todos = `
                 : (typeof todo.time_records === 'string' ? JSON.parse(todo.time_records || '[]') : []);
               if (!Array.isArray(arr)) arr = [];
               arr.push(tr.record);
-              // 不 FIFO：累计必须准确（与服务端 BATCH_TOGGLE_DONE 一致）
+              // 普通 todo：FIFO 5 截断（与 bd3f88d / 服务端 BATCH_TOGGLE_DONE 一致）
+              // 碎时记：不截断（累计必须准确）
+              if (todo.repeat_type !== 'fragment' && arr.length > 5) arr = arr.slice(arr.length - 5);
               todo.time_records = arr;
             } catch (e) {
               todo.time_records = [tr.record];
