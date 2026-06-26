@@ -8,6 +8,7 @@ export const detail = `
       tempEndTime = ''; tempRepeatType = 'none';
       tempRepeatEnd = ''; tempCategoryId = '';
       tempRepeatInterval = 1;
+      tempFragmentAnchor = '';
       tempAddDate = formatDate(currentDate);
       document.getElementById('add-date-display').innerText = tempAddDate;
       document.getElementById('add-repeat-display').innerText = '重复: 不重复';
@@ -82,14 +83,18 @@ export const detail = `
       const text = document.getElementById('add-text').value.trim();
       if (!text) return;
       const newId = Date.now().toString() + Math.floor(Math.random() * 10000).toString().padStart(4, '0');
+      // 碎时记 (fragment): date 列即起始日期（空=任意日期都出现）
+      // 非碎时记: 实例日期 = tempAddDate（用户选择器挑选的日期）
+      const isFragment = tempRepeatType === 'fragment';
+      const instanceDate = isFragment ? (tempFragmentAnchor || '') : tempAddDate;
       const newTask = {
         id: newId, parentId: newId, text: text, time: tempTime,
         end_time: tempEndTime,
         priority: tempPriority, 
         repeat_type: tempRepeatType,
         repeat_custom: '',
-        repeat_end: tempRepeatEnd,
-        repeat_interval: tempRepeatInterval || 1,
+        repeat_end: isFragment ? '' : tempRepeatEnd,
+        repeat_interval: isFragment ? 1 : (tempRepeatInterval || 1),
         category_id: tempCategoryId,
         desc: document.getElementById('add-desc').value, url: document.getElementById('add-url').value,
         copyText: document.getElementById('add-copy').value, done: false,
@@ -98,7 +103,7 @@ export const detail = `
       closeAddModal();
       await fetch('/api/todo-action', {
         method: 'POST',
-        body: JSON.stringify({ action: 'CREATE', date: tempAddDate, task: newTask }),
+        body: JSON.stringify({ action: 'CREATE', date: instanceDate, task: newTask }),
         headers: { 'Content-Type': 'application/json' }
       });
       loadTodos(); 
@@ -164,6 +169,10 @@ export const detail = `
 
     function getRepeatDisplayText(repeatType, dateStr, repeatEnd, repeatInterval) {
       if (!repeatType || repeatType === 'none') return '单次任务';
+      // 碎时记: 一次性浮动事项，固定显示"碎时记"
+      if (repeatType === 'fragment') {
+        return '碎时记';
+      }
       var days = ['日','一','二','三','四','五','六'];
       var n = repeatInterval && repeatInterval > 1 ? repeatInterval : null;
       var rText = '';
@@ -234,36 +243,52 @@ export const detail = `
         return;
       }
 
+      // [记录]/[继续计时] 仅对碎时记渲染
+      const isFragment = task.repeat_type === 'fragment';
+
       const timerState = task.done ? null : maybePruneStaleTimer(task.id);
       const paused = timerState && isTimerPaused(timerState);
       const elapsed = timerState ? timerElapsed(timerState) : 0;
 
       const records = getDetailTimeRecords();
-      const cumMs = sumRecordsMs(records); // 历史 session 累计（不含当前进行中的 session）
+      const cumMs = sumRecordsMs(records); // 历史 session 累计（不含当前进行中 session）
       const predict = predictDuration(detailTemplateRecords);
       const predictText = predict ? '预计 ' + formatMs(predict) : '';
 
       let html = '<div class="detail-label">计时</div>';
 
-      // 排版：累计/时间/按钮全部包在同一个 detail-value 内，垂直排列
       if (task.done) {
-        // 已完成：累计 + 最后记录于 X + [继续计时]
+        // 已完成态按 todo 类型分流：
+        // - 碎时记：累计 X + 最后记录于 Y + [继续计时]（多 session 累计模型）
+        // - 普通 todo：完成于 X，耗时 Y（实例时效性语义，无跨日累计）
         const lastRec = overrideRecord || (records.length ? records[records.length - 1] : null);
         html += '<div class="detail-value" style="display:block;">';
-        if (cumMs > 0) {
-          html += '<div>累计 ' + formatMs(cumMs) + '</div>';
+        if (isFragment) {
+          if (cumMs > 0) html += '<div>累计 ' + formatMs(cumMs) + '</div>';
+          if (lastRec && lastRec.e) {
+            html += '<div style="font-size:0.85em; opacity:0.7; margin-top:4px;">最后记录于 ' + formatDoneTime(lastRec.e) + '</div>';
+          } else if (cumMs === 0) {
+            html += '<div style="color:var(--fg); opacity:0.6;">无完成耗时记录</div>';
+          }
+        } else {
+          // 普通 todo：完成于 X（+ 耗时 Y，仅 cumMs>0 时）
+          if (lastRec && lastRec.e) {
+            html += '<div>完成于 ' + formatDoneTime(lastRec.e) + (cumMs > 0 ? '，耗时 ' + formatMs(cumMs) : '') + '</div>';
+          } else if (cumMs > 0) {
+            html += '<div>耗时 ' + formatMs(cumMs) + '</div>';  // 兜底：有耗时但缺 lastRec.e
+          } else {
+            html += '<div style="color:var(--fg); opacity:0.6;">无完成耗时记录</div>';
+          }
         }
-        if (lastRec && lastRec.e) {
-          html += '<div style="font-size:0.85em; opacity:0.7; margin-top:4px;">最后记录于 ' + formatDoneTime(lastRec.e) + '</div>';
-        } else if (cumMs === 0) {
-          html += '<div style="color:var(--fg); opacity:0.6;">无完成耗时记录</div>';
+        // 碎时记独有：[继续计时]
+        if (isFragment) {
+          html += '<div class="timer-row" style="margin-top:8px;">';
+          html += '<button class="btn-ghost" onclick="continueAfterDoneDetail()">继续计时</button>';
+          html += '</div>';
         }
-        html += '<div class="timer-row" style="margin-top:8px;">';
-        html += '<button class="btn-ghost" onclick="continueAfterDoneDetail()">继续计时</button>';
-        html += '</div>';
         html += '</div>';
       } else if (timerState) {
-        // 进行中 / 已暂停：大字时间 + 本次前累计（仅>0 时）+ [暂停/继续][记录][完成][取消]
+        // 进行中 / 已暂停：大字时间 + 本次前累计（仅>0 时）+ [暂停/继续][记录(仅碎时记)][完成][取消]
         html += '<div class="detail-value" style="display:block;">';
         html += '<div class="timer-row">';
         html += '<span class="timer-elapsed-large" data-timer-id="' + task.id + '-detail">' + formatElapsed(elapsed) + '</span>';
@@ -277,14 +302,17 @@ export const detail = `
         } else {
           html += '<button class="btn-ghost" onclick="pauseTimerDetail()">暂停</button>';
         }
-        html += '<button class="btn-ghost" onclick="recordTimerDetail()">记录</button>';
+        // [记录] 仅碎时记
+        if (isFragment) {
+          html += '<button class="btn-ghost" onclick="recordTimerDetail()">记录</button>';
+        }
         html += '<button class="btn-ghost" onclick="completeTimerDetail()">完成</button>';
         html += '<button class="btn-ghost" onclick="cancelTimerDetail()">取消</button>';
         html += '</div>';
         if (predictText) html += '<div style="font-size:0.85em; opacity:0.7; margin-top:6px;">' + predictText + '</div>';
         html += '</div>';
       } else {
-        // 空闲：累计（仅>0 时）+ [开始计时]（空闲态只有这一个按钮）
+        // 空闲：累计（仅>0 时）+ [开始计时]
         html += '<div class="detail-value" style="display:block;">';
         if (cumMs > 0) {
           html += '<div>累计 ' + formatMs(cumMs) + '</div>';
@@ -398,7 +426,7 @@ export const detail = `
       hideAndRescuePopovers();
       const task = todos[currentDetailIndex]; const container = document.getElementById('detail-content');
       const pMap = {low:'优先级: 低', med:'优先级: 中', high:'优先级: 高'};
-      const rMap = { none: '不重复', daily: '每天', weekly: '每周', monthly: '每月', yearly: '每年' };
+      const rMap = { none: '不重复', daily: '每天', weekly: '每周', monthly: '每月', yearly: '每年', fragment: '碎时记' };
 
       // 实例级 records 已直接来自 todos[currentDetailIndex].time_records（见 getDetailTimeRecords），
       // 不再 fetch。这里仅清空模板级缓存，下面会按需拉取模板级记录用于 predictDuration 预估。
@@ -467,12 +495,11 @@ export const detail = `
           }
         }
 
-        // 计时区块：所有 todo 都渲染（非重复 todo 只读，重复 todo 支持计时操作）
+        // 计时区块：所有 todo 都渲染；templateRecords 仅对非碎时记的重复 todo 拉取
+        // （碎时记无模板，非重复 todo 无计时按钮，都跳过省一次网络往返）
         let timerSection = '<div id="timer-section"></div>';
-        if (task.repeat_type && task.repeat_type !== 'none') {
-          // 实例级 records 已直接来自 todo.time_records，无需 fetch。
-          // 这里仅拉取模板级记录（templateRecords），用于 predictDuration 预估时长。
-          // 模板级记录缺失不影响"完成于"显示，仅影响"预计 X 分"提示。
+        if (task.repeat_type && task.repeat_type !== 'none' && task.repeat_type !== 'fragment') {
+          // 仅拉取模板级记录（templateRecords），用于 predictDuration 预估时长
           const fetchTodoId = task.id;
           if (fetchTodoId) {
             const bustUrl = '/api/time-records?todo_id=' + encodeURIComponent(fetchTodoId) + '&_t=' + Date.now();
@@ -527,7 +554,7 @@ export const detail = `
           <div class="detail-label modal-section">时间与重复</div>
           <div class="row modal-row">
             <div class="fake-input detail-value editable flex-1" onclick="openCalendarForEdit()">
-              <span id="edit-date-display">\${tempEditDate || '----/--/--'}</span>
+              <span id="edit-date-display">\${tempRepeatType === 'fragment' ? (task.done ? '完成于 ' + (task.date || '?') : (tempFragmentAnchor ? '起始: ' + tempFragmentAnchor : '起始: 不限')) : (tempEditDate || '----/--/--')}</span>
               <span class="arrow">▼</span>
             </div>
             <div class="fake-input detail-value editable flex-1" onclick="toggleRepeatMenu('edit', this)">
@@ -535,7 +562,7 @@ export const detail = `
               <span class="arrow">▼</span>
             </div>
           </div>
-          <div id="edit-repeat-end-row" class="row modal-row" \${tempRepeatType !== 'none' ? '' : 'style="display:none;"'}>
+          <div id="edit-repeat-end-row" class="row modal-row" \${(tempRepeatType !== 'none' && tempRepeatType !== 'fragment') ? '' : 'style="display:none;"'}>
             <div class="fake-input detail-value editable flex-1" onclick="openCalendarForRepeatEnd('edit')">
               <span id="edit-repeat-end-display">截止: \${tempRepeatEnd || '永不'}</span>
               <span class="arrow">▼</span>
@@ -599,6 +626,14 @@ export const detail = `
         tempRepeatType = task.repeat_type || 'none';
         tempRepeatEnd = task.repeat_end || '';
         tempRepeatInterval = task.repeat_interval || 1;
+        // 碎时记 (fragment): 从 task.date 读起始日期
+        //   - 未完成：date = 起始日期（空=任意日期可见）
+        //   - 已完成：date = 完成日期（冻结，编辑模式只读）
+        // 碎时记 (fragment): 起始日期从 fragment_anchor 读取（权威副本，不受完成状态影响）
+        //   - 未完成：fragment_anchor 与 date 一致，两者都可读
+        //   - 已完成：date 是冻结的完成日期，fragment_anchor 才是起始日期
+        // 优先读 fragment_anchor（后端 formatTodo 已透传），兜底读 date（兼容旧数据）
+        tempFragmentAnchor = (task.repeat_type === 'fragment') ? (task.fragment_anchor || task.date || '') : '';
         tempSubtasks = JSON.parse(JSON.stringify(task.subtasks ||[]));
         tempSearchTerms = JSON.parse(JSON.stringify(task.search_terms ||[]));
         tempSearchProvider = appSettings.provider || 'auto';
@@ -767,7 +802,7 @@ export const detail = `
       tempRepeatInterval = intervalPickerCount;
       tempRepeatType = INTERVAL_TYPE_MAP[intervalPickerUnitIndex];
       var intervalText = getIntervalDisplayText(tempRepeatInterval, tempRepeatType);
-      var rMap = { none: '不重复', daily: '每天', weekly: '每周', monthly: '每月', yearly: '每年' };
+      var rMap = { none: '不重复', daily: '每天', weekly: '每周', monthly: '每月', yearly: '每年', fragment: '碎时记' };
       
       if (activeMode === 'add') {
         document.getElementById('add-interval-display').innerText = intervalText;
@@ -811,8 +846,26 @@ export const detail = `
 
     function handleActionClick(e, action) {
       const task = todos[currentDetailIndex]; pendingAction = action;
-      const popover = document.getElementById('popover-action'); const title = document.getElementById('popover-title'); const options = document.getElementById('popover-options');
+      const popover = document.getElementById('popover-action');
+      const title = document.getElementById('popover-title');
+      const options = document.getElementById('popover-options');
       options.innerHTML = '';
+
+      // 碎时记 (fragment): 一次性事项，编辑/删除直接生效，需二次确认
+      // 碎时记是单实例，等同"仅此日程"语义，不显示范围选择器
+      const fragOnDelete = action === 'delete' && task && task.repeat_type === 'fragment';
+      const fragOnSave = action === 'save' && (
+        (task && task.repeat_type === 'fragment') ||
+        (typeof tempRepeatType !== 'undefined' && tempRepeatType === 'fragment')
+      );
+      if (fragOnDelete || fragOnSave) {
+        const isDelete = action === 'delete';
+        title.innerText = isDelete ? '确认删除' : '保存范围：';
+        options.innerHTML = \`<button onclick="confirmAction('this')">\${isDelete ? '确认删除' : '仅此日程'}</button>\`;
+        _showActionPopover(e.target);
+        return;
+      }
+
       if (action === 'delete') {
         title.innerText = "确认删除";
         if (task.isSeries) {
@@ -828,9 +881,19 @@ export const detail = `
           options.innerHTML += \`<button onclick="confirmAction('all')">所有日程</button>\`;
         } else { confirmAction('this'); return; }
       }
+      _showActionPopover(e.target);
+    }
 
-      const btn = e.target; btn.parentNode.style.position = 'relative'; btn.parentNode.appendChild(popover);
-      popover.style.display = 'flex'; popover.style.top = 'auto'; popover.style.bottom = (btn.parentNode.offsetHeight - btn.offsetTop + 5) + 'px';
+    // 显示 action popover 并绑定点击外部关闭
+    // 复用：碎时记二次确认 + 普通范围选择都调用此函数
+    function _showActionPopover(btn) {
+      const popover = document.getElementById('popover-action');
+      if (!btn || !popover) return;
+      btn.parentNode.style.position = 'relative';
+      btn.parentNode.appendChild(popover);
+      popover.style.display = 'flex';
+      popover.style.top = 'auto';
+      popover.style.bottom = (btn.parentNode.offsetHeight - btn.offsetTop + 5) + 'px';
       // 先按原逻辑设置左右锚点，再调用 clamp 兜底，避免在窄屏溢出父容器/视口
       if (btn.offsetLeft > btn.parentNode.offsetWidth / 2) {
         popover.style.right = (btn.parentNode.offsetWidth - btn.offsetLeft - btn.offsetWidth) + 'px';
@@ -840,8 +903,7 @@ export const detail = `
         popover.style.right = 'auto';
       }
       _clampActionPopoverWithinParent(popover, btn);
-
-      const closeHandler = (event) => { if (!popover.contains(event.target) && event.target !== e.target) { popover.style.display = 'none'; document.removeEventListener('click', closeHandler); } };
+      const closeHandler = (event) => { if (!popover.contains(event.target) && event.target !== btn) { popover.style.display = 'none'; document.removeEventListener('click', closeHandler); } };
       setTimeout(() => document.addEventListener('click', closeHandler), 0);
     }
 
@@ -891,8 +953,25 @@ export const detail = `
       } 
       else if (pendingAction === 'save') {
         // 保存原始日期，后端需要它定位当前实例
-        const originalDate = task.date || formatDate(currentDate);
-        task.date = tempEditDate;
+        // 注意：碎时记未完成时 task.date 可能是 ''（不限起始），不能用 || 兜底为 currentDate
+        //       否则会把空起始误传成当前日期，导致后端 newDate 计算错误
+        const originalDate = (task.date !== undefined && task.date !== null) ? task.date : formatDate(currentDate);
+        // 碎时记 (fragment): date 列即起始日期，由 tempFragmentAnchor 控制
+        //   - 未完成时：date = 起始日期（空=任意日期可见）
+        //   - 已完成时：date = 完成日期（冻结，编辑不改）
+        // 非碎时记: 实例日期 = tempEditDate（必须有效，空则用当前日期兜底）
+        if (tempRepeatType === 'fragment') {
+          // 仅未完成时允许改起始日期；已完成时 date 是冻结的完成日期，不动
+          if (!task.done) task.date = tempFragmentAnchor || '';
+          // 碎时记：fragment_anchor 与 date 同步（未完成时）
+          if (!task.done) task.fragment_anchor = task.date;
+        } else {
+          // 非 fragment：必须有有效具体日期
+          // tempEditDate 可能为空（从 fragment 不限起始切换过来），用当前日期兜底
+          task.date = tempEditDate || formatDate(currentDate);
+          // 非 fragment：清空 fragment_anchor（不再需要）
+          task.fragment_anchor = '';
+        }
         task.text = document.getElementById('edit-text').value; task.time = tempTime; task.priority = tempPriority;
         task.end_time = tempEndTime;
         task.desc = document.getElementById('edit-desc').value; task.url = document.getElementById('edit-url').value;
@@ -945,7 +1024,9 @@ export const detail = `
         }
         
         // 根据scope处理重复属性
-        if (scope === 'this' && task.isSeries) {
+        // 碎时记 (fragment): 即使原任务是系列（如 daily），编辑为碎时记后应保留 fragment 类型
+        // 不能走 "仅此项 → repeat_type=none" 分支，否则会把 fragment 误改为 none
+        if (scope === 'this' && task.isSeries && tempRepeatType !== 'fragment') {
           // 仅此项：脱离系列，变为非重复单次事项
           // 重复相关变更（间隔、频率、截止）对"仅此项"无意义，遵循标准规则
           task.repeat_type = 'none';
@@ -955,11 +1036,17 @@ export const detail = `
           task.isSeries = false;
         } else {
           // 此项及之后 / 所有日程：应用重复变更
+          // 碎时记也走此分支：保留 fragment 类型，清空无意义字段
           task.repeat_type = tempRepeatType;
           task.repeat_custom = '';
-          task.repeat_end = tempRepeatEnd;
-          task.repeat_interval = tempRepeatInterval || 1;
-          if (tempRepeatType === 'none') {
+          task.repeat_end = tempRepeatType === 'fragment' ? '' : tempRepeatEnd;
+          task.repeat_interval = tempRepeatType === 'fragment' ? 1 : (tempRepeatInterval || 1);
+          // 清空 time/end_time（碎时记无意义）
+          if (tempRepeatType === 'fragment') {
+            task.time = '';
+            task.end_time = '';
+          }
+          if (tempRepeatType === 'none' || tempRepeatType === 'fragment') {
             task.isSeries = false;
           }
         }

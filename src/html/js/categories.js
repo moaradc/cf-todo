@@ -98,30 +98,82 @@ export const categories = `
 
     function selectRepeat(val, label) {
       tempRepeatType = val;
+      // 碎时记 (fragment): 一次性浮动事项，无截止/间隔概念；
+      // 起始日期通过日期选择器单独控制，默认空（任意日期都出现）
+      if (val === 'fragment') {
+        tempFragmentAnchor = '';
+        // 碎时记无间隔/截止概念，清空临时状态避免切回普通重复时显示成"每2天/截止 X"
+        // （confirmAddTask 里有 isFragment 兜底，但 UI 显示依赖 temp* 变量）
+        tempRepeatInterval = 1;
+        tempRepeatEnd = '';
+        if (activeMode === 'add') {
+          document.getElementById('add-repeat-display').innerText = '重复: ' + label;
+          var endRow = document.getElementById('add-repeat-end-row');
+          if (endRow) endRow.style.display = 'none';
+          var dateDisp = document.getElementById('add-date-display');
+          if (dateDisp) dateDisp.innerText = '起始: 不限';
+        } else if (activeMode === 'edit') {
+          document.getElementById('edit-repeat-display').innerText = '重复: ' + label;
+          var endRow = document.getElementById('edit-repeat-end-row');
+          if (endRow) endRow.style.display = 'none';
+          var dateDisp = document.getElementById('edit-date-display');
+          if (dateDisp) dateDisp.innerText = '起始: 不限';
+        }
+        document.getElementById('popover-repeat').style.display = 'none';
+        return;
+      }
+      // 辅助函数：获取非 fragment 模式下应显示的日期
+      // 从 fragment 切回普通类型时，tempEditDate/tempAddDate 可能为空（原 fragment 不限起始），
+      // 此时用当前查看日期兜底，确保非 fragment 始终有有效具体日期
+      var getNonFragmentDate = function(defaultDate) {
+        return defaultDate || formatDate(currentDate);
+      };
       if (val !== 'none') {
         // 切换重复类型时更新间隔显示
         var intervalText = getIntervalDisplayText(tempRepeatInterval || 1, val);
+        // 截止日期显示：tempRepeatEnd 已在切到 fragment 时清空，切回普通重复时同步刷新 UI
+        var repeatEndText = '截止: ' + (tempRepeatEnd || '永不');
         if (activeMode === 'add') {
           document.getElementById('add-repeat-display').innerText = '重复: ' + label;
           document.getElementById('add-interval-display').innerText = intervalText;
           var endRow = document.getElementById('add-repeat-end-row');
           if (endRow) endRow.style.display = '';
+          var endDisp = document.getElementById('add-repeat-end-display');
+          if (endDisp) endDisp.innerText = repeatEndText;
+          // 从碎时记切回普通重复时，恢复日期显示；tempAddDate 为空时用当前日期兜底
+          tempAddDate = getNonFragmentDate(tempAddDate);
+          var dateDisp = document.getElementById('add-date-display');
+          if (dateDisp) dateDisp.innerText = tempAddDate;
         } else if (activeMode === 'edit') {
           document.getElementById('edit-repeat-display').innerText = '重复: ' + label;
           var editIntervalEl = document.getElementById('edit-interval-display');
           if (editIntervalEl) editIntervalEl.innerText = intervalText;
           var endRow = document.getElementById('edit-repeat-end-row');
           if (endRow) endRow.style.display = '';
+          var editEndDisp = document.getElementById('edit-repeat-end-display');
+          if (editEndDisp) editEndDisp.innerText = repeatEndText;
+          // 从碎时记切回普通重复时，恢复日期显示；tempEditDate 为空时用当前日期兜底
+          tempEditDate = getNonFragmentDate(tempEditDate);
+          var dateDisp = document.getElementById('edit-date-display');
+          if (dateDisp) dateDisp.innerText = tempEditDate;
         }
       } else {
         if (activeMode === 'add') {
           document.getElementById('add-repeat-display').innerText = '重复: ' + label;
           var endRow = document.getElementById('add-repeat-end-row');
           if (endRow) endRow.style.display = 'none';
+          // 从碎时记切回不重复时，恢复日期显示；tempAddDate 为空时用当前日期兜底
+          tempAddDate = getNonFragmentDate(tempAddDate);
+          var dateDisp = document.getElementById('add-date-display');
+          if (dateDisp) dateDisp.innerText = tempAddDate;
         } else if (activeMode === 'edit') {
           document.getElementById('edit-repeat-display').innerText = '重复: ' + label;
           var endRow = document.getElementById('edit-repeat-end-row');
           if (endRow) endRow.style.display = 'none';
+          // 从碎时记切回不重复时，恢复日期显示；tempEditDate 为空时用当前日期兜底
+          tempEditDate = getNonFragmentDate(tempEditDate);
+          var dateDisp = document.getElementById('edit-date-display');
+          if (dateDisp) dateDisp.innerText = tempEditDate;
         }
       }
       document.getElementById('popover-repeat').style.display = 'none';

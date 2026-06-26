@@ -7,9 +7,38 @@ export const calendar = `
       else if (calMode === 'month') { calDate.setFullYear(calDate.getFullYear() + offset); openMonthPicker(); }
     }
 
-    function openCalendarForAdd() { calendarMode = 'select'; calDate = new Date(tempAddDate || currentDate); renderCalendar(); document.getElementById('modal-calendar').classList.add('active'); _navPush('modal-calendar', closeCalendar, '/calendar');
+    function openCalendarForAdd() {
+      calendarMode = 'select';
+      // 碎时记模式：日期选择器控制起始日期（tempFragmentAnchor），可清除（不限）
+      if (tempRepeatType === 'fragment') {
+        calendarMode = 'select_fragment_anchor';
+        calDate = tempFragmentAnchor ? new Date(tempFragmentAnchor) : new Date(tempAddDate || currentDate);
+      } else {
+        calDate = new Date(tempAddDate || currentDate);
+      }
+      renderCalendar();
+      document.getElementById('modal-calendar').classList.add('active');
+      _navPush('modal-calendar', closeCalendar, '/calendar');
     }
-    function openCalendarForEdit() { calendarMode = 'edit_date'; calDate = new Date(tempEditDate || currentDate); renderCalendar(); document.getElementById('modal-calendar').classList.add('active'); _navPush('modal-calendar', closeCalendar, '/calendar'); }
+    function openCalendarForEdit() {
+      // 已完成的碎时记：date 是冻结的完成日期，不允许编辑
+      // 直接返回不打开日历，避免用户误改
+      if (tempRepeatType === 'fragment') {
+        const cur = (typeof currentDetailIndex === 'number' && currentDetailIndex >= 0) ? todos[currentDetailIndex] : null;
+        if (cur && cur.done) return;
+      }
+      calendarMode = 'edit_date';
+      // 碎时记模式：日期选择器控制起始日期（tempFragmentAnchor），可清除（不限）
+      if (tempRepeatType === 'fragment') {
+        calendarMode = 'edit_fragment_anchor';
+        calDate = tempFragmentAnchor ? new Date(tempFragmentAnchor) : new Date(tempEditDate || currentDate);
+      } else {
+        calDate = new Date(tempEditDate || currentDate);
+      }
+      renderCalendar();
+      document.getElementById('modal-calendar').classList.add('active');
+      _navPush('modal-calendar', closeCalendar, '/calendar');
+    }
 
     let calendarRepeatEndTarget = '';
     function openCalendarForRepeatEnd(mode) {
@@ -62,7 +91,23 @@ export const calendar = `
     function renderCalendar() {
       calMode = 'date';
       const year = calDate.getFullYear(); const month = calDate.getMonth();
-      const actionBtn = document.getElementById('cal-action-btn'); actionBtn.innerText = '返回今日'; actionBtn.onclick = jumpToToday;
+      const actionBtn = document.getElementById('cal-action-btn');
+      // 碎时记模式：action 按钮为"清除起始"，点击后起始日期清空（任意日期都出现）
+      const isFragmentAnchorMode = (calendarMode === 'select_fragment_anchor' || calendarMode === 'edit_fragment_anchor');
+      if (isFragmentAnchorMode) {
+        actionBtn.innerText = '清除起始'; actionBtn.onclick = function() {
+          tempFragmentAnchor = '';
+          if (calendarMode === 'select_fragment_anchor') {
+            document.getElementById('add-date-display').innerText = '起始: 不限';
+          } else {
+            document.getElementById('edit-date-display').innerText = '起始: 不限';
+          }
+          calendarMode = 'navigate';
+          closeCalendar();
+        };
+      } else {
+        actionBtn.innerText = '返回今日'; actionBtn.onclick = jumpToToday;
+      }
 
       document.getElementById('cal-prev').innerText = '< 上月'; document.getElementById('cal-next').innerText = '下月 >';
       document.getElementById('cal-title').innerHTML = \`<span class="cal-title-btn" onclick="openYearPicker()">\${year}年</span> <span class="cal-title-btn" onclick="openMonthPicker()">\${month + 1}月</span>\`;
@@ -70,7 +115,14 @@ export const calendar = `
       const grid = document.getElementById('cal-grid'); grid.style.gridTemplateColumns = 'repeat(7, 1fr)'; grid.innerHTML = '';
       const days = ['日','一','二','三','四','五','六']; days.forEach(d => grid.innerHTML += \`<div class="cal-day-name">\${d}</div>\`);
       const firstDay = new Date(year, month, 1).getDay(); const daysInMonth = new Date(year, month + 1, 0).getDate();
-      const todayStr = formatDate(new Date()); const selectedStr = (calendarMode === 'select' || calendarMode === 'edit_date') ? formatDate(calDate) : formatDate(currentDate);
+      const todayStr = formatDate(new Date());
+      const selectedStr = (function() {
+        if (calendarMode === 'select' || calendarMode === 'edit_date') return formatDate(calDate);
+        if (calendarMode === 'select_fragment_anchor' || calendarMode === 'edit_fragment_anchor') {
+          return tempFragmentAnchor || '';
+        }
+        return formatDate(currentDate);
+      })();
 
       for(let i=0; i<firstDay; i++) grid.innerHTML += \`<div class="cal-date empty"></div>\`;
       for(let i=1; i<=daysInMonth; i++) {
@@ -87,6 +139,16 @@ export const calendar = `
           } else if (calendarMode === 'edit_date') {
             tempEditDate = formatDate(new Date(year, month, i));
             document.getElementById('edit-date-display').innerText = tempEditDate;
+            calendarMode = 'navigate';
+            closeCalendar();
+          } else if (calendarMode === 'select_fragment_anchor') {
+            tempFragmentAnchor = formatDate(new Date(year, month, i));
+            document.getElementById('add-date-display').innerText = '起始: ' + tempFragmentAnchor;
+            calendarMode = 'navigate';
+            closeCalendar();
+          } else if (calendarMode === 'edit_fragment_anchor') {
+            tempFragmentAnchor = formatDate(new Date(year, month, i));
+            document.getElementById('edit-date-display').innerText = '起始: ' + tempFragmentAnchor;
             calendarMode = 'navigate';
             closeCalendar();
           } else {

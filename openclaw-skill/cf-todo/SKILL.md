@@ -370,8 +370,9 @@ Each record is `{ "s": <epoch_ms>, "e": <epoch_ms>, "p": <paused_ms> }`:
 - **Actual duration** = `e - s - p`
 - `s === e` — zero-duration (checkbox completion, only records completion timestamp)
 - `s < e` — real duration (timer completion)
-- FIFO, keeps the most recent 5 records; **the last element is the latest completion**.
-- Empty array `[]` when `done: false` (unchecking clears records).
+- Retention: **fragment todos keep all sessions** (no truncation, for cumulative stats); **regular todos FIFO 5** (keep most recent 5)
+- **The last element is always the latest completion**
+- Empty array `[]` when `done: false` (unchecking clears records)
 
 #### Computed fields (calculated from the latest record)
 
@@ -535,8 +536,10 @@ Toggles `done` between `true` and `false`. For recurring todos, only the specifi
 **Optional `record` body** (only effective when toggling to `done: true`):
 - `s === e` (zero-duration): Records completion timestamp only. Writes to instance-level `time_records`, **not** template-level (avoids polluting `predictDuration` median estimate). Web UI shows "完成于 X".
 - `s < e` (real duration): Records completion timestamp + duration. Writes to both instance-level + template-level `time_records` (same as `TIMER_COMPLETE`). Web UI shows "完成于 X，耗时 Y".
+- Instance-level retention: **fragment todos keep all sessions** (no truncation); **regular todos FIFO 5**.
+- Template-level `time_records` FIFO 10 (only real-duration records, only non-fragment todos; fragment has no template, zero-duration skipped).
 - Validation: `s > 0`, `e >= s`, duration ≤ 7 days, `0 <= p <= (e-s)`. Invalid records are silently skipped.
-- Toggling to `done: false` clears instance-level `time_records`.
+- Toggling to `done: false` clears instance-level `time_records`; fragment `date` is restored from `fragment_anchor`.
 - No `record` or body parse failure: only updates `done` (backward compatible).
 
 Response:

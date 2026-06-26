@@ -175,6 +175,8 @@ export const core = `
     let tempRepeatInterval = 1;
     let tempAddDate = '';
     let tempEditDate = '';
+    // 碎时记 (fragment) 起始日期：空字符串=任意日期都出现；'YYYY-MM-DD'=该日期及之后出现
+    let tempFragmentAnchor = '';
     let tempCategoryId = '';
     let categoriesList = [];
     let categoriesMap = new Map();
@@ -634,7 +636,10 @@ export const core = `
       if (todo.repeat_type && todo.repeat_type !== 'none') {
         var repeatLabel = '';
         var n = todo.repeat_interval && todo.repeat_interval > 1 ? todo.repeat_interval : null;
-        if (todo.repeat_type === 'daily') {
+        if (todo.repeat_type === 'fragment') {
+          // 碎时记: 一次性浮动事项，固定显示"碎时记"标签（与"每天"样式一致）
+          repeatLabel = '碎时记';
+        } else if (todo.repeat_type === 'daily') {
           repeatLabel = n ? '每' + n + '天' : '每天';
         } else if (todo.repeat_type === 'weekly') {
           var days = ['日','一','二','三','四','五','六'];
@@ -648,7 +653,8 @@ export const core = `
           var parts3 = todo.date.split('-');
           repeatLabel = n ? '每' + n + '年' + parseInt(parts3[1], 10) + '月' + parseInt(parts3[2], 10) + '日' : '每年' + parseInt(parts3[1], 10) + '月' + parseInt(parts3[2], 10) + '日';
         }
-        if (todo.repeat_end) repeatLabel += '·至' + todo.repeat_end;
+        // 碎时记不显示 repeat_end（完成时自动管理，对用户无意义）
+        if (todo.repeat_end && todo.repeat_type !== 'fragment') repeatLabel += '·至' + todo.repeat_end;
         badges += '<span class="badge" style="background:transparent;border:1px solid var(--fg);color:var(--fg);">' + repeatLabel + '</span> ';
       }
 

@@ -530,6 +530,7 @@ export function getBody(isAuthorized) {
     <button onclick="selectRepeat('weekly', '每周')">每周</button>
     <button onclick="selectRepeat('monthly', '每月')">每月</button>
     <button onclick="selectRepeat('yearly', '每年')">每年</button>
+    <button onclick="selectRepeat('fragment', '碎时记')">碎时记</button>
   </div>
 
   <div id="modal-category" class="modal-overlay" style="z-index:85;" onclick="if(event.target===this) closeCategoryModal()">

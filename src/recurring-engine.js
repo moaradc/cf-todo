@@ -183,6 +183,8 @@ function createICALComponent(template) {
  */
 export function isOccurrenceOnDate(template, dateStr) {
   if (!template.repeat_type || template.repeat_type === 'none') return false;
+  // 碎时记 (fragment) 无模板，永远不会通过模板扩展生成实例
+  if (template.repeat_type === 'fragment') return false;
   if (!template.anchor_date || template.anchor_date > dateStr) return false;
 
   // 检查是否在EXDATE中
@@ -266,6 +268,8 @@ function simpleIsOccurrence(template, dateStr) {
  */
 export function getOccurrencesBetween(template, startDate, endDate, limit = 365) {
   if (!template.repeat_type || template.repeat_type === 'none') return [];
+  // 碎时记 (fragment) 无模板，不会通过模板扩展生成实例
+  if (template.repeat_type === 'fragment') return [];
 
   const results = [];
 
@@ -322,7 +326,8 @@ export function getOccurrencesBetween(template, startDate, endDate, limit = 365)
  */
 export function computeDeleteActions({ task, date, scope }) {
   const parentId = task.parentId || task.parent_id;
-  const isSeries = task.isSeries || (task.repeat_type && task.repeat_type !== 'none');
+  // 碎时记 (fragment) 不算重复系列，直接软删除
+  const isSeries = task.isSeries || (task.repeat_type && task.repeat_type !== 'none' && task.repeat_type !== 'fragment');
 
   const actions = {
     deleteTodoIds: [],
@@ -378,9 +383,11 @@ export function computeDeleteActions({ task, date, scope }) {
  */
 export function computeUpdateActions({ task, date, scope, newValues, newDate }) {
   const parentId = task.parentId || task.parent_id;
-  const isSeries = task.isSeries || (task.repeat_type && task.repeat_type !== 'none');
+  // 碎时记 (fragment) 不算重复系列
+  const isSeries = task.isSeries || (task.repeat_type && task.repeat_type !== 'none' && task.repeat_type !== 'fragment');
   const rptType = newValues.repeat_type || task.repeat_type || 'none';
-  const isRecurring = rptType !== 'none';
+  // 碎时记不算 recurring（不会创建模板、不会分裂系列）
+  const isRecurring = rptType !== 'none' && rptType !== 'fragment';
 
   // 检测重复规则是否变更（频率、间隔）
   const originalRepeatType = task.repeat_type || 'none';
@@ -582,6 +589,8 @@ export function offsetDate(dateStr, days) {
  * 获取重复类型的中文标签 (对齐Google Calendar)
  */
 export function getRepeatLabel(repeatType, dateStr, repeatEnd, repeatInterval) {
+  // 碎时记 (fragment): 一次性浮动事项，固定显示"碎时记"
+  if (repeatType === 'fragment') return '碎时记';
   const labels = {
     none: '不重复',
     daily: '每天',
