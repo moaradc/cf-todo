@@ -828,42 +828,26 @@ export const detail = `
 
     function handleActionClick(e, action) {
       const task = todos[currentDetailIndex]; pendingAction = action;
-      // 碎时记 (fragment): 一次性事项，编辑/删除即对全部生效（不显示范围选择器）
-      // - delete: 任务本身是碎时记 → 二次确认后删除
-      // - save: 编辑后是碎时记，或编辑前是碎时记 → 二次确认后保存（等同"仅此日程"）
+      const popover = document.getElementById('popover-action');
+      const title = document.getElementById('popover-title');
+      const options = document.getElementById('popover-options');
+      options.innerHTML = '';
+
+      // 碎时记 (fragment): 一次性事项，编辑/删除直接生效，需二次确认
+      // 碎时记是单实例，等同"仅此日程"语义，不显示范围选择器
       const fragOnDelete = action === 'delete' && task && task.repeat_type === 'fragment';
       const fragOnSave = action === 'save' && (
         (task && task.repeat_type === 'fragment') ||
         (typeof tempRepeatType !== 'undefined' && tempRepeatType === 'fragment')
       );
       if (fragOnDelete || fragOnSave) {
-        // 二次确认：碎时记是单实例，操作直接生效，需提示用户
-        const popover = document.getElementById('popover-action');
-        const title = document.getElementById('popover-title');
-        const options = document.getElementById('popover-options');
-        if (action === 'delete') {
-          title.innerText = '确认删除碎时记';
-          options.innerHTML = \`<button onclick="confirmAction('this')">确认删除</button>\`;
-        } else {
-          title.innerText = '确认保存碎时记';
-          options.innerHTML = \`<button onclick="confirmAction('this')">确认保存</button>\`;
-        }
-        const btn = e.target; btn.parentNode.style.position = 'relative'; btn.parentNode.appendChild(popover);
-        popover.style.display = 'flex'; popover.style.top = 'auto'; popover.style.bottom = (btn.parentNode.offsetHeight - btn.offsetTop + 5) + 'px';
-        if (btn.offsetLeft > btn.parentNode.offsetWidth / 2) {
-          popover.style.right = (btn.parentNode.offsetWidth - btn.offsetLeft - btn.offsetWidth) + 'px';
-          popover.style.left = 'auto';
-        } else {
-          popover.style.left = btn.offsetLeft + 'px';
-          popover.style.right = 'auto';
-        }
-        _clampActionPopoverWithinParent(popover, btn);
-        const closeHandler = (event) => { if (!popover.contains(event.target) && event.target !== e.target) { popover.style.display = 'none'; document.removeEventListener('click', closeHandler); } };
-        setTimeout(() => document.addEventListener('click', closeHandler), 0);
+        const verb = action === 'delete' ? '删除' : '保存';
+        title.innerText = '确认' + verb + '碎时记';
+        options.innerHTML = \`<button onclick="confirmAction('this')">确认\${verb}</button>\`;
+        _showActionPopover(e.target);
         return;
       }
-      const popover = document.getElementById('popover-action'); const title = document.getElementById('popover-title'); const options = document.getElementById('popover-options');
-      options.innerHTML = '';
+
       if (action === 'delete') {
         title.innerText = "确认删除";
         if (task.isSeries) {
@@ -879,9 +863,19 @@ export const detail = `
           options.innerHTML += \`<button onclick="confirmAction('all')">所有日程</button>\`;
         } else { confirmAction('this'); return; }
       }
+      _showActionPopover(e.target);
+    }
 
-      const btn = e.target; btn.parentNode.style.position = 'relative'; btn.parentNode.appendChild(popover);
-      popover.style.display = 'flex'; popover.style.top = 'auto'; popover.style.bottom = (btn.parentNode.offsetHeight - btn.offsetTop + 5) + 'px';
+    // 显示 action popover 并绑定点击外部关闭
+    // 复用：碎时记二次确认 + 普通范围选择都调用此函数
+    function _showActionPopover(btn) {
+      const popover = document.getElementById('popover-action');
+      if (!btn || !popover) return;
+      btn.parentNode.style.position = 'relative';
+      btn.parentNode.appendChild(popover);
+      popover.style.display = 'flex';
+      popover.style.top = 'auto';
+      popover.style.bottom = (btn.parentNode.offsetHeight - btn.offsetTop + 5) + 'px';
       // 先按原逻辑设置左右锚点，再调用 clamp 兜底，避免在窄屏溢出父容器/视口
       if (btn.offsetLeft > btn.parentNode.offsetWidth / 2) {
         popover.style.right = (btn.parentNode.offsetWidth - btn.offsetLeft - btn.offsetWidth) + 'px';
@@ -891,8 +885,7 @@ export const detail = `
         popover.style.right = 'auto';
       }
       _clampActionPopoverWithinParent(popover, btn);
-
-      const closeHandler = (event) => { if (!popover.contains(event.target) && event.target !== e.target) { popover.style.display = 'none'; document.removeEventListener('click', closeHandler); } };
+      const closeHandler = (event) => { if (!popover.contains(event.target) && event.target !== btn) { popover.style.display = 'none'; document.removeEventListener('click', closeHandler); } };
       setTimeout(() => document.addEventListener('click', closeHandler), 0);
     }
 
