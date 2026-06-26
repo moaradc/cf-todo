@@ -276,15 +276,15 @@ export const detail = `
             html += '<div style="color:var(--fg); opacity:0.6;">无完成耗时记录</div>';
           }
         } else {
-          // 普通重复 todo：完成于 X，累计 Y（实例时效性语义）
+          // 普通重复 todo：完成于 X，耗时 Y（实例时效性语义）
           // - 完成 moment（lastRec.e）：用户最关心的"今天几点完成的"
-          // - 累计耗时（cumMs）：完成这次花了多久
+          // - 耗时（cumMs）：完成这次花了多久（单实例语义，不跨日累计）
           // 若无 lastRec（如直接勾选 checkbox 但零耗时 record 未写入），降级显示"无完成耗时记录"
           if (lastRec && lastRec.e) {
-            html += '<div>完成于 ' + formatDoneTime(lastRec.e) + (cumMs > 0 ? '，累计 ' + formatMs(cumMs) : '') + '</div>';
+            html += '<div>完成于 ' + formatDoneTime(lastRec.e) + (cumMs > 0 ? '，耗时 ' + formatMs(cumMs) : '') + '</div>';
           } else if (cumMs > 0) {
-            // 兜底：有累计但缺最后 record.e（异常路径），仍显示累计
-            html += '<div>累计 ' + formatMs(cumMs) + '</div>';
+            // 兜底：有耗时但缺最后 record.e（异常路径），仍显示耗时
+            html += '<div>耗时 ' + formatMs(cumMs) + '</div>';
           } else {
             html += '<div style="color:var(--fg); opacity:0.6;">无完成耗时记录</div>';
           }
