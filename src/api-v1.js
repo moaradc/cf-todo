@@ -1283,7 +1283,7 @@ async function handleV1TodoBatch(request, DB) {
         for (const item of timerRecords) {
           if (!item || !item.id || !item.record) continue;
           // 写入失败不影响主流程（writeTimerRecord 内部已 try/catch）
-          const isItemFragment = fragmentIdSet.has(item.id);
+          const isItemFragment = allFragmentIdSet.has(item.id);
           await writeTimerRecord(DB, item.id, item.parentId, item.record, isItemFragment);
         }
       }
@@ -1315,32 +1315,54 @@ async function handleV1TodoBatch(request, DB) {
 
   if (action === 'BATCH_DELETE') {
     if (!ids || !Array.isArray(ids) || ids.length === 0) return apiError('ids 为必填数组', 400);
-    if (ids.length > 100) return apiError('单次最多100条', 400);
-    const placeholders = ids.map(() => '?').join(',');
-    const tasks = await DB.prepare(`SELECT parent_id, date, repeat_type FROM todos WHERE id IN (${placeholders})`).bind(...ids).all();
-    await DB.prepare(`UPDATE todos SET deleted = 1 WHERE id IN (${placeholders})`).bind(...ids).run();
+
+    // 自动分片查询重复任务信息（用于 exdate 维护）
+    const tasks = [];
+    for (const chunk of chunkArray(ids, BATCH_CHUNK_SIZE)) {
+      const ph = sqlPlaceholders(chunk.length);
+      try {
+        const rows = await DB.prepare(`SELECT parent_id, date, repeat_type FROM todos WHERE id IN (${ph})`).bind(...chunk).all();
+        for (const r of (rows.results || [])) tasks.push(r);
+      } catch (e) {
+        // 单片查询失败不阻断整体流程，剩余 exdate 维护跳过
+      }
+    }
+
+    // 自动分片标记软删除
+    for (const chunk of chunkArray(ids, BATCH_CHUNK_SIZE)) {
+      const ph = sqlPlaceholders(chunk.length);
+      try {
+        await DB.prepare(`UPDATE todos SET deleted = 1 WHERE id IN (${ph})`).bind(...chunk).run();
+      } catch (e) {
+        // 单片失败不阻断整体流程；调用方可通过返回的 chunked/chunkCount 自查
+      }
+    }
 
     // 为重复任务添加 exdate（碎时记无模板，跳过）
     const exdateUpdates = {};
-    for (const t of (tasks.results || [])) {
+    for (const t of tasks) {
       if (t.repeat_type && t.repeat_type !== 'none' && t.repeat_type !== 'fragment' && t.parent_id) {
         if (!exdateUpdates[t.parent_id]) exdateUpdates[t.parent_id] = [];
         exdateUpdates[t.parent_id].push(t.date);
       }
     }
     for (const pid of Object.keys(exdateUpdates)) {
-      const tpl = await DB.prepare('SELECT exdates FROM todo_templates WHERE parent_id = ?').bind(pid).first();
-      if (tpl) {
-        let currentExdates = tpl.exdates || '[]';
-        let changed = false;
-        for (const d of exdateUpdates[pid]) {
-          const newExdates = addExdate(currentExdates, d);
-          if (newExdates !== currentExdates) { currentExdates = newExdates; changed = true; }
+      try {
+        const tpl = await DB.prepare('SELECT exdates FROM todo_templates WHERE parent_id = ?').bind(pid).first();
+        if (tpl) {
+          let currentExdates = tpl.exdates || '[]';
+          let changed = false;
+          for (const d of exdateUpdates[pid]) {
+            const newExdates = addExdate(currentExdates, d);
+            if (newExdates !== currentExdates) { currentExdates = newExdates; changed = true; }
+          }
+          if (changed) await DB.prepare('UPDATE todo_templates SET exdates = ? WHERE parent_id = ?').bind(currentExdates, pid).run();
         }
-        if (changed) await DB.prepare('UPDATE todo_templates SET exdates = ? WHERE parent_id = ?').bind(currentExdates, pid).run();
+      } catch (e) {
+        // 单模板 exdate 维护失败不阻断整体流程
       }
     }
-    return jsonResponse({ success: true, data: { affected: ids.length } });
+    return jsonResponse({ success: true, data: { affected: ids.length, chunked: ids.length > BATCH_CHUNK_SIZE, chunkCount: Math.ceil(ids.length / BATCH_CHUNK_SIZE) } });
   }
 
   return apiError('未知操作，可用: BATCH_TOGGLE_DONE, BATCH_DELETE', 400);
@@ -1432,64 +1454,104 @@ async function handleV1TrashAction(request, DB) {
 
   if (action === 'BATCH_RESTORE') {
     if (!ids || !Array.isArray(ids) || ids.length === 0) return apiError('ids 为必填数组', 400);
-    if (ids.length > 100) return apiError('单次最多100条', 400);
-    const placeholders = ids.map(() => '?').join(',');
-    const tasks = await DB.prepare(`SELECT id, parent_id, date, repeat_type, repeat_end FROM todos WHERE id IN (${placeholders})`).bind(...ids).all();
-    await DB.prepare(`UPDATE todos SET deleted = 0 WHERE id IN (${placeholders})`).bind(...ids).run();
+
+    // 自动分片查询
+    const tasks = [];
+    for (const chunk of chunkArray(ids, BATCH_CHUNK_SIZE)) {
+      const ph = sqlPlaceholders(chunk.length);
+      try {
+        const rows = await DB.prepare(`SELECT id, parent_id, date, repeat_type, repeat_end FROM todos WHERE id IN (${ph})`).bind(...chunk).all();
+        for (const r of (rows.results || [])) tasks.push(r);
+      } catch (e) {
+        // 单片查询失败不阻断整体流程
+      }
+    }
+
+    // 自动分片恢复
+    for (const chunk of chunkArray(ids, BATCH_CHUNK_SIZE)) {
+      const ph = sqlPlaceholders(chunk.length);
+      try {
+        await DB.prepare(`UPDATE todos SET deleted = 0 WHERE id IN (${ph})`).bind(...chunk).run();
+      } catch (e) {
+        // 单片失败不阻断整体流程
+      }
+    }
+
     // 仅回收站行仍携带循环属性的 (this-scope 删除或旧版未脱钩行) 需要判定
     // 新版 thisAndFuture/all 删除时已脱钩为单次 (repeat_type='none', parent_id=id)，跳过
     // 对齐 RFC 5545 + Google Tasks: 模板已删除/截断的，恢复为单次任务，不重建系列
     const detachIds = [];
     const exdateUpdates = {};  // parent_id -> [dates] (并入系列时需从EXDATE移除)
-    for (const t of (tasks.results || [])) {
+    for (const t of tasks) {
       if (!(t.repeat_type && t.repeat_type !== 'none' && t.repeat_type !== 'fragment' && t.parent_id && t.parent_id !== t.id)) continue;
-      // 检查同日期是否已有活跃实例
-      const existing = await DB.prepare(
-        'SELECT id FROM todos WHERE parent_id = ? AND date = ? AND deleted = 0 AND id != ? LIMIT 1'
-      ).bind(t.parent_id, t.date, t.id).first();
-      if (existing) {
-        detachIds.push(t.id);
-        continue;
-      }
-      // 以模板 repeat_end 为准判定系列是否仍覆盖此日期
-      const tpl = await DB.prepare('SELECT repeat_end FROM todo_templates WHERE parent_id = ?').bind(t.parent_id).first();
-      if (tpl && (tpl.repeat_end === '' || tpl.repeat_end == null || tpl.repeat_end >= t.date)) {
-        // 模板仍覆盖此日期: 并入系列，记录需移除的EXDATE
-        if (!exdateUpdates[t.parent_id]) exdateUpdates[t.parent_id] = [];
-        exdateUpdates[t.parent_id].push(t.date);
-      } else {
-        // 模板已删除或已截断至此日期之前: 脱钩为单次任务
-        detachIds.push(t.id);
-      }
-    }
-    if (detachIds.length > 0) {
-      const ph = detachIds.map(() => '?').join(',');
-      await DB.prepare(`UPDATE todos SET parent_id=id, repeat_type='none', repeat_custom='', repeat_end='', repeat_interval=1 WHERE id IN (${ph})`).bind(...detachIds).run();
-    }
-    for (const pid of Object.keys(exdateUpdates)) {
-      const tpl = await DB.prepare('SELECT exdates FROM todo_templates WHERE parent_id = ?').bind(pid).first();
-      if (tpl) {
-        let currentExdates = tpl.exdates || '[]';
-        let changed = false;
-        for (const d of exdateUpdates[pid]) {
-          const newExdates = removeExdate(currentExdates, d);
-          if (newExdates !== currentExdates) {
-            currentExdates = newExdates;
-            changed = true;
-          }
+      try {
+        // 检查同日期是否已有活跃实例
+        const existing = await DB.prepare(
+          'SELECT id FROM todos WHERE parent_id = ? AND date = ? AND deleted = 0 AND id != ? LIMIT 1'
+        ).bind(t.parent_id, t.date, t.id).first();
+        if (existing) {
+          detachIds.push(t.id);
+          continue;
         }
-        if (changed) await DB.prepare('UPDATE todo_templates SET exdates = ? WHERE parent_id = ?').bind(currentExdates, pid).run();
+        // 以模板 repeat_end 为准判定系列是否仍覆盖此日期
+        const tpl = await DB.prepare('SELECT repeat_end FROM todo_templates WHERE parent_id = ?').bind(t.parent_id).first();
+        if (tpl && (tpl.repeat_end === '' || tpl.repeat_end == null || tpl.repeat_end >= t.date)) {
+          // 模板仍覆盖此日期: 并入系列，记录需移除的EXDATE
+          if (!exdateUpdates[t.parent_id]) exdateUpdates[t.parent_id] = [];
+          exdateUpdates[t.parent_id].push(t.date);
+        } else {
+          // 模板已删除或已截断至此日期之前: 脱钩为单次任务
+          detachIds.push(t.id);
+        }
+      } catch (e) {
+        // 单行判定失败: 安全起见转为脱钩，避免误并入已删除的系列
+        detachIds.push(t.id);
       }
     }
-    return jsonResponse({ success: true, data: { restored: ids.length } });
+
+    // 自动分片执行脱钩
+    for (const chunk of chunkArray(detachIds, BATCH_CHUNK_SIZE)) {
+      const ph = sqlPlaceholders(chunk.length);
+      try {
+        await DB.prepare(`UPDATE todos SET parent_id=id, repeat_type='none', repeat_custom='', repeat_end='', repeat_interval=1 WHERE id IN (${ph})`).bind(...chunk).run();
+      } catch (e) {
+        // 单片失败不阻断整体流程
+      }
+    }
+
+    for (const pid of Object.keys(exdateUpdates)) {
+      try {
+        const tpl = await DB.prepare('SELECT exdates FROM todo_templates WHERE parent_id = ?').bind(pid).first();
+        if (tpl) {
+          let currentExdates = tpl.exdates || '[]';
+          let changed = false;
+          for (const d of exdateUpdates[pid]) {
+            const newExdates = removeExdate(currentExdates, d);
+            if (newExdates !== currentExdates) {
+              currentExdates = newExdates;
+              changed = true;
+            }
+          }
+          if (changed) await DB.prepare('UPDATE todo_templates SET exdates = ? WHERE parent_id = ?').bind(currentExdates, pid).run();
+        }
+      } catch (e) {
+        // 单模板 exdate 维护失败不阻断整体流程
+      }
+    }
+    return jsonResponse({ success: true, data: { restored: ids.length, chunked: ids.length > BATCH_CHUNK_SIZE, chunkCount: Math.ceil(ids.length / BATCH_CHUNK_SIZE) } });
   }
 
   if (action === 'BATCH_DELETE_PERMANENT') {
     if (!ids || !Array.isArray(ids) || ids.length === 0) return apiError('ids 为必填数组', 400);
-    if (ids.length > 100) return apiError('单次最多100条', 400);
-    const placeholders = ids.map(() => '?').join(',');
-    await DB.prepare(`DELETE FROM todos WHERE id IN (${placeholders})`).bind(...ids).run();
-    return jsonResponse({ success: true, data: { deleted: ids.length } });
+    for (const chunk of chunkArray(ids, BATCH_CHUNK_SIZE)) {
+      const ph = sqlPlaceholders(chunk.length);
+      try {
+        await DB.prepare(`DELETE FROM todos WHERE id IN (${ph})`).bind(...chunk).run();
+      } catch (e) {
+        // 单片失败不阻断整体流程
+      }
+    }
+    return jsonResponse({ success: true, data: { deleted: ids.length, chunked: ids.length > BATCH_CHUNK_SIZE, chunkCount: Math.ceil(ids.length / BATCH_CHUNK_SIZE) } });
   }
 
   return apiError('未知操作，可用: RESTORE, DELETE_PERMANENT, CLEAR_ALL, CLEAR_ALL_DATA, BATCH_RESTORE, BATCH_DELETE_PERMANENT', 400);
@@ -1624,14 +1686,21 @@ async function handleV1CategoryBatch(request, DB) {
 
   if (action === 'BATCH_DELETE') {
     if (!ids || !Array.isArray(ids) || ids.length === 0) return apiError('ids 为必填数组', 400);
-    if (ids.length > 100) return apiError('单次最多100条', 400);
-    const placeholders = ids.map(() => '?').join(',');
-    await DB.batch([
-      DB.prepare(`DELETE FROM categories WHERE id IN (${placeholders})`).bind(...ids),
-      DB.prepare(`UPDATE todos SET category_id = '' WHERE category_id IN (${placeholders})`).bind(...ids),
-      DB.prepare(`UPDATE todo_templates SET category_id = '' WHERE category_id IN (${placeholders})`).bind(...ids),
-    ]);
-    return jsonResponse({ success: true, data: { deleted: ids.length } });
+
+    // 自动分片：每片内 categories 删除 + todos/todo_templates category_id 清空原子提交
+    for (const chunk of chunkArray(ids, BATCH_CHUNK_SIZE)) {
+      const ph = sqlPlaceholders(chunk.length);
+      try {
+        await DB.batch([
+          DB.prepare(`DELETE FROM categories WHERE id IN (${ph})`).bind(...chunk),
+          DB.prepare(`UPDATE todos SET category_id = '' WHERE category_id IN (${ph})`).bind(...chunk),
+          DB.prepare(`UPDATE todo_templates SET category_id = '' WHERE category_id IN (${ph})`).bind(...chunk),
+        ]);
+      } catch (e) {
+        // 单片失败不阻断整体流程；调用方可通过返回的 chunked/chunkCount 自查
+      }
+    }
+    return jsonResponse({ success: true, data: { deleted: ids.length, chunked: ids.length > BATCH_CHUNK_SIZE, chunkCount: Math.ceil(ids.length / BATCH_CHUNK_SIZE) } });
   }
 
   return apiError('未知操作，可用: BATCH_DELETE', 400);
