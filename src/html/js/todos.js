@@ -860,8 +860,10 @@ export const todos = `
       const ids = Array.from(selectedTasks).map(idx => todos[idx].id);
 
       // 批量完成时：对所有选中项构造 record
-      // - 有活动计时器：计算真实耗时（s<e），清本地计时器状态
-      // - 无活动计时器：零耗时 record（s===e），仅记录完成时刻
+      // - 碎时记：读 timer state，有则真实耗时（s<e），无则零耗时 record；清本地计时器状态
+      // - 单次 / 普通重复 todo：直接零耗时 record（s===e），跳过 readTimerState
+      //   原因：前端不暴露计时按钮，core.js 的 canTimer 已限定为 fragment，每次 render
+      //   都会清理非 fragment 的遗留 timer state；这里直接跳过更清晰，行为等价
       // 与单选 toggleDone 行为一致：勾选框完成都记录"完成于 X"
       const timerRecords = [];  // [{ id, parentId, record }]
       if (targetDone) {
@@ -869,31 +871,41 @@ export const todos = `
         Array.from(selectedTasks).forEach(idx => {
           const todo = todos[idx];
           if (!todo) return;
-          const st = readTimerState(todo.id);
-          if (st) {
-            // 有活动计时器：真实耗时 record
-            let pausedMs = st.p;
-            if (isTimerPaused(st)) pausedMs += (now - st.lp);
-            const elapsedMs = now - st.s - pausedMs;
-            // 时长合理才记录真实耗时（与 completeTimer 一致），否则降级为零耗时
-            if (elapsedMs >= 1000 && elapsedMs <= TIMER_STALE_MS) {
-              timerRecords.push({
-                id: todo.id,
-                parentId: todo.parent_id,
-                record: { s: st.s, e: now, p: Math.max(0, Math.floor(pausedMs)) }
-              });
+          const isFragmentItem = todo.repeat_type === 'fragment';
+          if (isFragmentItem) {
+            const st = readTimerState(todo.id);
+            if (st) {
+              // 有活动计时器：真实耗时 record
+              let pausedMs = st.p;
+              if (isTimerPaused(st)) pausedMs += (now - st.lp);
+              const elapsedMs = now - st.s - pausedMs;
+              // 时长合理才记录真实耗时（与 completeTimer 一致），否则降级为零耗时
+              if (elapsedMs >= 1000 && elapsedMs <= TIMER_MAX_SESSION_MS) {
+                timerRecords.push({
+                  id: todo.id,
+                  parentId: todo.parent_id,
+                  record: { s: st.s, e: now, p: Math.max(0, Math.floor(pausedMs)) }
+                });
+              } else {
+                // 时长不合理（<1s 或超 7d）：降级为零耗时，至少记录完成时刻
+                timerRecords.push({
+                  id: todo.id,
+                  parentId: todo.parent_id,
+                  record: { s: now, e: now, p: 0 }
+                });
+              }
+              // 清除本地计时器状态（无论是否记录真实耗时）
+              writeTimerState(todo.id, null);
             } else {
-              // 时长不合理（<1s 或超 24h）：降级为零耗时，至少记录完成时刻
+              // 无活动计时器：零耗时 record（s===e），仅记录完成时刻
               timerRecords.push({
                 id: todo.id,
                 parentId: todo.parent_id,
                 record: { s: now, e: now, p: 0 }
               });
             }
-            // 清除本地计时器状态（无论是否记录真实耗时）
-            writeTimerState(todo.id, null);
           } else {
-            // 无活动计时器：零耗时 record（s===e），仅记录完成时刻
+            // 非 fragment todo：直接零耗时 record，跳过 readTimerState
             timerRecords.push({
               id: todo.id,
               parentId: todo.parent_id,
