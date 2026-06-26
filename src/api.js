@@ -251,7 +251,7 @@ async function handleRequest(request, env, ctx) {
         return apiError("ACCOUNT LOCKED", 429);
       }
 
-      const { password } = await request.json();
+      const { password } = await (async () => { try { return await request.json(); } catch(e) { return {}; } })();
       const isAdmin = await secureCompare(password, env.ADMIN_PASSWORD, env.JWT_SECRET);
 
       if (isAdmin) {
@@ -715,7 +715,20 @@ self.addEventListener('fetch', (event) => {
     }
 
     if (url.pathname === '/api/session-action' && request.method === 'POST') {
-      const { action, ua } = await request.json();
+      let sessionParsedBody;
+      try {
+        sessionParsedBody = await request.json();
+      } catch(e) {
+        return apiError('请求体不是有效的 JSON', 400);
+      }
+      const { action, ua } = sessionParsedBody;
+      // 健壮性：校验 action
+      if (!action || !['DELETE', 'DELETE_ALL'].includes(action)) {
+        return apiError('action 必须为 DELETE 或 DELETE_ALL', 400);
+      }
+      if (action === 'DELETE' && (!ua || typeof ua !== 'string')) {
+        return apiError('DELETE 操作需要 ua 参数', 400);
+      }
       const record = await env.DB.prepare(
         "SELECT value FROM settings WHERE key = 'active_session_token'"
       ).first();
@@ -796,7 +809,9 @@ self.addEventListener('fetch', (event) => {
     }
     
     if (url.pathname === '/api/custom-code' && request.method === 'POST') {
-      const { customHeader, customContent } = await request.json();
+      let ccBody;
+      try { ccBody = await request.json(); } catch(e) { return apiError('请求体不是有效的 JSON', 400); }
+      const { customHeader, customContent } = ccBody;
       const stmts = [];
       if (customHeader !== undefined) {
         stmts.push(env.DB.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('custom_header', ?)").bind(customHeader));
@@ -1428,8 +1443,9 @@ self.addEventListener('fetch', (event) => {
           return new Response(JSON.stringify({ success: true }), { headers: { 'Content-Type': 'application/json' } });
         }
 
-        const body = await request.json();
-        const phase = body.phase;
+        let impBody;
+        try { impBody = await request.json(); } catch(e) { return apiError('请求体不是有效的 JSON', 400); }
+        const phase = impBody.phase;
 
         if (phase === 'status') {
           await cleanExpiredBackups();
@@ -1818,8 +1834,10 @@ self.addEventListener('fetch', (event) => {
     }
 
     if (url.pathname === '/api/settings' && request.method === 'POST') {
-      const data = await request.json();
-      await env.DB.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('app_settings', ?)").bind(JSON.stringify(data)).run();
+      let settingsData;
+      try { settingsData = await request.json(); } catch(e) { return apiError('请求体不是有效的 JSON', 400); }
+      if (!settingsData || typeof settingsData !== 'object') return apiError('设置必须为 JSON 对象', 400);
+      await env.DB.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('app_settings', ?)").bind(JSON.stringify(settingsData)).run();
       return new Response(JSON.stringify({ success: true }), { headers: { 'Content-Type': 'application/json' } });
     }
 
@@ -1843,7 +1861,9 @@ self.addEventListener('fetch', (event) => {
     }
 
     if (url.pathname === '/api/custom-colors' && request.method === 'POST') {
-      const { colors } = await request.json();
+      let clrBody;
+      try { clrBody = await request.json(); } catch(e) { return apiError('请求体不是有效的 JSON', 400); }
+      const { colors } = clrBody;
       if (!Array.isArray(colors)) {
         return apiError('colors must be an array', 400);
       }
@@ -1857,7 +1877,9 @@ self.addEventListener('fetch', (event) => {
     }
 
     if (url.pathname === '/api/category-action' && request.method === 'POST') {
-      const { action, id, ids, name, color } = await request.json();
+      let catBody;
+      try { catBody = await request.json(); } catch(e) { return apiError('请求体不是有效的 JSON', 400); }
+      const { action, id, ids, name, color } = catBody;
 
       if (action === 'CREATE') {
         if (!name || !name.trim()) {
@@ -1899,6 +1921,7 @@ self.addEventListener('fetch', (event) => {
         if (!ids || !Array.isArray(ids) || ids.length === 0) {
           return apiError('缺少分类ID列表', 400);
         }
+        if (ids.length > 100) return apiError('单次最多100条', 400);
         const placeholders = ids.map(() => '?').join(',');
         await env.DB.batch([
           env.DB.prepare(`DELETE FROM categories WHERE id IN (${placeholders})`).bind(...ids),
@@ -1917,7 +1940,9 @@ self.addEventListener('fetch', (event) => {
     }
 
     if (url.pathname === '/api/trash-action' && request.method === 'POST') {
-      const { action, id, ids } = await request.json();
+      let trashBodyV0;
+      try { trashBodyV0 = await request.json(); } catch(e) { return apiError('请求体不是有效的 JSON', 400); }
+      const { action, id, ids } = trashBodyV0;
       if (action === 'RESTORE') {
         const t = await env.DB.prepare('SELECT parent_id, date, repeat_type, repeat_end FROM todos WHERE id = ?').bind(id).first();
         await env.DB.prepare('UPDATE todos SET deleted = 0 WHERE id = ?').bind(id).run();
@@ -1957,6 +1982,7 @@ self.addEventListener('fetch', (event) => {
         await env.DB.prepare('DELETE FROM todos WHERE deleted = 1').run();
       } else if (action === 'BATCH_RESTORE') {
         if (ids && ids.length > 0) {
+        if (ids.length > 100) return apiError('单次最多100条', 400);
           const placeholders = ids.map(() => '?').join(',');
           const tasks = await env.DB.prepare(`SELECT id, parent_id, date, repeat_type, repeat_end FROM todos WHERE id IN (${placeholders})`).bind(...ids).all();
           await env.DB.prepare(`UPDATE todos SET deleted = 0 WHERE id IN (${placeholders})`).bind(...ids).run();
@@ -2008,6 +2034,7 @@ self.addEventListener('fetch', (event) => {
         }
       } else if (action === 'BATCH_DELETE_PERMANENT') {
         if (ids && ids.length > 0) {
+        if (ids.length > 100) return apiError('单次最多100条', 400);
           const placeholders = ids.map(() => '?').join(',');
           await env.DB.prepare(`DELETE FROM todos WHERE id IN (${placeholders})`).bind(...ids).run();
         }
@@ -2237,7 +2264,22 @@ self.addEventListener('fetch', (event) => {
     }
 
     if (url.pathname === '/api/todo-action' && request.method === 'POST') {
-      const { action, date, task, scope, ids, doneStatus, record, parentId, timerRecords, keepRecords } = await request.json();
+      let parsedBody;
+      try {
+        parsedBody = await request.json();
+      } catch (e) {
+        return apiError('请求体不是有效的 JSON', 400);
+      }
+      const { action, date, task, scope, ids, doneStatus, record, parentId, timerRecords, keepRecords } = parsedBody;
+
+      // 健壮性：校验 action 必填且有效
+      if (!action || typeof action !== 'string') {
+        return apiError('action 为必填字段', 400);
+      }
+      const VALID_ACTIONS = ['CREATE', 'UPDATE', 'DELETE', 'TOGGLE_DONE', 'TIMER_COMPLETE', 'TIMER_RECORD', 'UPDATE_SUBTASKS', 'UPDATE_SEARCH_TERMS', 'BATCH_TOGGLE_DONE', 'BATCH_DELETE'];
+      if (!VALID_ACTIONS.includes(action)) {
+        return apiError(`未知的 action: ${action}，有效值: ${VALID_ACTIONS.join(', ')}`, 400);
+      }
 
       // 健壮性：碎时记完成场景校验 date 不能是未来日期
       // 否则恶意/错误客户端可将 fragment 冻结到未来日期，导致它在未来前完全不可见
@@ -2517,6 +2559,7 @@ self.addEventListener('fetch', (event) => {
         }
         else if (action === 'BATCH_TOGGLE_DONE') {
           if (ids && ids.length > 0) {
+          if (ids.length > 100) return apiError('单次最多100条', 400);
             const placeholders = ids.map(() => '?').join(',');
             // 先查询这批 todos 的 repeat_type，区分碎时记和普通 todo 分别处理
             let fragmentIds = [];
@@ -2655,6 +2698,7 @@ self.addEventListener('fetch', (event) => {
         }
         else if (action === 'BATCH_DELETE') {
           if (ids && ids.length > 0) {
+          if (ids.length > 100) return apiError('单次最多100条', 400);
             const placeholders = ids.map(() => '?').join(',');
             const tasks = await env.DB.prepare(`SELECT parent_id, date, repeat_type FROM todos WHERE id IN (${placeholders})`).bind(...ids).all();
             await env.DB.prepare(`UPDATE todos SET deleted = 1 WHERE id IN (${placeholders})`).bind(...ids).run();
@@ -2685,7 +2729,19 @@ self.addEventListener('fetch', (event) => {
           }
         }
         else if (action === 'CREATE') {
+          // 健壮性：校验 task.id 和 task.text
+          if (!task || !task.id || typeof task.id !== 'string' || !task.id.trim()) {
+            return apiError('task.id 为必填字段且不能为空字符串', 400);
+          }
+          if (!task.text || typeof task.text !== 'string' || !task.text.trim()) {
+            return apiError('task.text 为必填字段', 400);
+          }
           const rptType = task.repeat_type || 'none';
+          // 健壮性：校验 repeat_type 合法值
+          const VALID_REPEAT_TYPES = ['none', 'daily', 'weekly', 'monthly', 'yearly', 'fragment'];
+          if (rptType !== 'none' && !VALID_REPEAT_TYPES.includes(rptType)) {
+            return apiError(`无效的 repeat_type: ${rptType}`, 400);
+          }
           const categoryId = task.category_id || '';
           // 碎时记 (repeat_type='fragment')：强制无开始/结束时间、无重复截止、间隔为1
           // 客户端已在 selectRepeat('fragment') 中清空相关字段，此处兜底防御（API 也能创建碎时记）
@@ -2717,7 +2773,16 @@ self.addEventListener('fetch', (event) => {
           }
         }
         else if (action === 'UPDATE') {
+          // 健壮性：校验 task.id
+          if (!task || !task.id || typeof task.id !== 'string' || !task.id.trim()) {
+            return apiError('task.id 为必填字段', 400);
+          }
           const rptType = task.repeat_type || 'none';
+          // 健壮性：校验 repeat_type 合法值
+          const VALID_REPEAT_TYPES_UPD = ['none', 'daily', 'weekly', 'monthly', 'yearly', 'fragment'];
+          if (task.repeat_type && !VALID_REPEAT_TYPES_UPD.includes(task.repeat_type)) {
+            return apiError(`无效的 repeat_type: ${task.repeat_type}`, 400);
+          }
           const subtasksStr = JSON.stringify(task.subtasks ||[]);
           const searchTermsStr = JSON.stringify(task.search_terms ||[]);
           const categoryId = task.category_id || '';
@@ -2748,6 +2813,10 @@ self.addEventListener('fetch', (event) => {
           // 碎时记 (fragment) 不算重复系列
           // 若新值是 fragment，强制按"非系列"处理：脱离旧系列 + 删除旧模板 + 不创建新模板
           const isSeries = originalTask.repeat_type && originalTask.repeat_type !== 'none' && originalTask.repeat_type !== 'fragment' && rptType !== 'fragment';
+          // 健壮性：校验 scope 合法值
+          if (scope && scope !== 'none' && !['this', 'thisAndFuture', 'all'].includes(scope)) {
+            return apiError(`无效的 scope: ${scope}，有效值: this, thisAndFuture, all`, 400);
+          }
           // 循环任务未指定 scope 时，默认 scope=this（仅更新此实例）
           const effectiveScope = isSeries && (!scope || scope === 'none') ? 'this' : (scope || 'none');
 
@@ -3011,6 +3080,10 @@ self.addEventListener('fetch', (event) => {
             }
           } catch(e) {}
 
+          // 健壮性：校验 scope 合法值
+          if (scope && !['this', 'thisAndFuture', 'all'].includes(scope)) {
+            return apiError(`无效的 scope: ${scope}，有效值: this, thisAndFuture, all`, 400);
+          }
           if (!deleteIsSeries || !scope) {
             // 非循环任务（含碎时记）: 直接软删除
             await env.DB.prepare('UPDATE todos SET deleted = 1 WHERE id = ?').bind(task.id).run();
@@ -3073,7 +3146,17 @@ self.addEventListener('fetch', (event) => {
 
     return apiError('Not Found', 404);
     } catch (e) {
-      return apiError(e instanceof Error ? e.message : String(e));
+      // 健壮性：区分错误类型返回不同 HTTP 状态码
+      if (e instanceof SyntaxError) {
+        return apiError('请求体不是有效的 JSON', 400);
+      }
+      // D1 约束错误 → 409 Conflict
+      const msg = e instanceof Error ? e.message : String(e);
+      if (msg.includes('UNIQUE constraint') || msg.includes('SQLITE_CONSTRAINT')) {
+        return apiError('数据约束冲突: ' + msg, 409);
+      }
+      // 其他错误 → 500
+      return apiError(msg);
     }
 }
 

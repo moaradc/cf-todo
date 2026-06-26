@@ -13,6 +13,29 @@ import {
   parseCookies,
   verify as verifySig,
 } from './utils.js';
+
+// 健壮性：统一安全解析 JSON 请求体，解析失败返回 400
+async function safeParseJson(request) {
+  try {
+    return await request.json();
+  } catch (e) {
+    return null; // 调用方检查 null 即可
+  }
+}
+
+// 健壮性：批量操作自动分片工具
+const BATCH_CHUNK_SIZE = 100;
+function chunkArray(arr, size) {
+  const chunks = [];
+  for (let i = 0; i < arr.length; i += size) {
+    chunks.push(arr.slice(i, i + size));
+  }
+  return chunks;
+}
+function sqlPlaceholders(count) {
+  return Array.from({ length: count }, () => '?').join(',');
+}
+
 import {
   isOccurrenceOnDate,
   computeDeleteActions,
@@ -174,7 +197,9 @@ async function handleApiKeys(request, env, url) {
   }
 
   if (request.method === 'POST') {
-    const { action, id, name } = await request.json();
+    const parsed = await safeParseJson(request);
+    if (!parsed) return apiError('请求体不是有效的 JSON', 400);
+    const { action, id, name } = parsed;
 
     if (action === 'CREATE') {
       const keys = await getApiKeys(env.DB);
@@ -543,8 +568,26 @@ async function handleV1Todos(request, env, url) {
   // POST /api/v1/todos - 创建 todo
   // 请求体字段名与 v0 (Web API) 保持一致，均使用 snake_case
   if (request.method === 'POST') {
-    const body = await request.json();
+    let body;
+    try {
+      body = await request.json();
+    } catch(e) {
+      return apiError('请求体不是有效的 JSON', 400);
+    }
     const { date, text, time, priority, desc, url, copy_text, subtasks, search_terms, repeat_type, repeat_end, end_time, category_id, repeat_interval } = body;
+
+    // 健壮性：校验 repeat_type 合法值
+    const VALID_REPEAT_TYPES_V1 = ['none', 'daily', 'weekly', 'monthly', 'yearly', 'fragment'];
+    const rptType = repeat_type || 'none';
+    if (rptType !== 'none' && !VALID_REPEAT_TYPES_V1.includes(rptType)) {
+      return apiError(`无效的 repeat_type: ${rptType}，有效值: ${VALID_REPEAT_TYPES_V1.join(', ')}`, 400);
+    }
+
+    // 健壮性：校验 repeat_interval 正整数
+    const rawInterval = repeat_interval || 1;
+    if (typeof rawInterval !== 'number' || !Number.isInteger(rawInterval) || rawInterval < 1) {
+      return apiError('repeat_interval 必须为正整数', 400);
+    }
 
     // 碎时记 (repeat_type='fragment') 允许 date 为空（表示不限开始日期）
     const isFragment = (repeat_type === 'fragment');
@@ -556,7 +599,6 @@ async function handleV1Todos(request, env, url) {
     }
 
     const id = Date.now().toString() + Math.floor(Math.random() * 10000).toString().padStart(4, '0');
-    const rptType = repeat_type || 'none';
     const catId = category_id || '';
     // 碎时记强制约束：无开始/结束时间、无重复截止、间隔为1、date 可空
     const rEnd = isFragment ? '' : (repeat_end || '');
@@ -599,9 +641,10 @@ async function handleV1Todos(request, env, url) {
       ).run();
     }
 
+    // 健壮性：创建响应增加关键字段，减少客户端额外 GET
     return jsonResponse({
       success: true,
-      data: { id, date: effectiveDate, text, repeat_type: rptType, category_id: catId }
+      data: { id, parent_id: id, date: effectiveDate, text, time: effectiveTime, priority: normPriority, repeat_type: rptType, category_id: catId, repeat_interval: rInterval, fragment_anchor: effectiveFragmentAnchor }
     }, 201);
   }
 
@@ -621,8 +664,33 @@ async function handleV1TodoPut(request, DB, todoId) {
   const existing = await DB.prepare('SELECT * FROM todos WHERE id = ?').bind(todoId).first();
   if (!existing) return apiError('Todo 不存在', 404);
 
-  const body = await request.json();
+  let body;
+  try {
+    body = await request.json();
+  } catch(e) {
+    return apiError('请求体不是有效的 JSON', 400);
+  }
   const parentId = existing.parent_id; // 始终使用数据库中的 parent_id，不可被用户篡改
+  // 健壮性：校验 repeat_type 合法值
+  if (body.repeat_type !== undefined) {
+    const VALID_RT = ['none', 'daily', 'weekly', 'monthly', 'yearly', 'fragment'];
+    if (!VALID_RT.includes(body.repeat_type)) {
+      return apiError(`无效的 repeat_type: ${body.repeat_type}`, 400);
+    }
+  }
+  // 健壮性：校验 repeat_interval
+  if (body.repeat_interval !== undefined) {
+    if (typeof body.repeat_interval !== 'number' || !Number.isInteger(body.repeat_interval) || body.repeat_interval < 1) {
+      return apiError('repeat_interval 必须为正整数', 400);
+    }
+  }
+  // 健壮性：校验 scope 合法值
+  if (body.scope !== undefined && body.scope !== 'none') {
+    const VALID_SCOPES = ['this', 'thisAndFuture', 'all'];
+    if (!VALID_SCOPES.includes(body.scope)) {
+      return apiError(`无效的 scope: ${body.scope}，有效值: ${VALID_SCOPES.join(', ')}`, 400);
+    }
+  }
   // 碎时记 (fragment) 不算重复系列
   // 若新值是 fragment，强制按"非系列"处理：脱离旧系列 + 不创建新模板
   const rptTypeFromBody = body.repeat_type !== undefined ? body.repeat_type : (existing.repeat_type || 'none');
@@ -991,7 +1059,17 @@ async function handleV1TodoToggle(request, DB, todoId) {
     }
   }
 
-  return jsonResponse({ success: true, data: { id: todoId, done: !!newDone } });
+  // 健壮性：toggle 响应增加 date 和 time_records，减少客户端额外 GET
+  const updatedTodo = await DB.prepare('SELECT date, time_records FROM todos WHERE id = ?').bind(todoId).first();
+  const responseData = { id: todoId, done: !!newDone };
+  if (updatedTodo) {
+    if (newDone && updatedTodo.date) responseData.date = updatedTodo.date;
+    try {
+      const tr = typeof updatedTodo.time_records === 'string' ? JSON.parse(updatedTodo.time_records || '[]') : (updatedTodo.time_records || []);
+      if (Array.isArray(tr) && tr.length > 0) responseData.time_records = tr;
+    } catch(e) {}
+  }
+  return jsonResponse({ success: true, data: responseData });
 }
 
 // ==================== 计时记录写入工具函数 ====================
@@ -1069,7 +1147,9 @@ async function handleV1Categories(request, env, url) {
 
   // POST /api/v1/categories - 创建分类
   if (request.method === 'POST') {
-    const { name, color } = await request.json();
+    const catParsed = await safeParseJson(request);
+    if (!catParsed) return apiError('请求体不是有效的 JSON', 400);
+    const { name, color } = catParsed;
     if (!name || !name.trim()) return apiError('name 为必填项', 400);
 
     const existing = await DB.prepare("SELECT id FROM categories WHERE LOWER(name) = ?").bind(name.trim().toLowerCase()).first();
@@ -1096,7 +1176,8 @@ async function handleV1CategoryPut(request, DB, catId) {
   const existing = await DB.prepare('SELECT id FROM categories WHERE id = ?').bind(catId).first();
   if (!existing) return apiError('分类不存在', 404);
 
-  const body = await request.json();
+  const body = await safeParseJson(request);
+  if (!body) return apiError('请求体不是有效的 JSON', 400);
   const sets = [];
   const vals = [];
 
@@ -1146,50 +1227,54 @@ async function handleV1CategoryDelete(DB, catId) {
 //   - ids 中有但 timerRecords 没有的：done=1 但无 time_records（向后兼容）
 // - BATCH_TOGGLE_DONE + doneStatus=false：批量 UPDATE done=0, time_records='[]'
 async function handleV1TodoBatch(request, DB) {
-  const { action, ids, doneStatus, timerRecords, date } = await request.json();
+  let batchBody;
+  try {
+    batchBody = await request.json();
+  } catch(e) {
+    return apiError('请求体不是有效的 JSON', 400);
+  }
+  const { action, ids, doneStatus, timerRecords, date } = batchBody;
 
   if (action === 'BATCH_TOGGLE_DONE') {
     if (!ids || !Array.isArray(ids) || ids.length === 0) return apiError('ids 为必填数组', 400);
-    if (ids.length > 100) return apiError('单次最多100条', 400);
-    const placeholders = ids.map(() => '?').join(',');
 
-    // 先查询这批 todos 的 repeat_type，区分碎时记和普通 todo 分别处理
-    let fragmentIds = [];
-    let fragmentIdSet = new Set();
-    let plainIds = [];
-    const rows = await DB.prepare(
-      `SELECT id, repeat_type FROM todos WHERE id IN (${placeholders})`
-    ).bind(...ids).all();
-    for (const r of (rows.results || [])) {
-      if (r.repeat_type === 'fragment') {
-        fragmentIds.push(r.id);
-        fragmentIdSet.add(r.id);
-      } else {
-        plainIds.push(r.id);
+    let totalAffected = 0;
+    const allFragmentIds = [];
+    const allFragmentIdSet = new Set();
+    const allPlainIds = [];
+
+    // 自动分片查询 repeat_type，汇总 fragment/plain 分类
+    for (const chunk of chunkArray(ids, BATCH_CHUNK_SIZE)) {
+      const ph = sqlPlaceholders(chunk.length);
+      const rows = await DB.prepare(`SELECT id, repeat_type FROM todos WHERE id IN (${ph})`).bind(...chunk).all();
+      for (const r of (rows.results || [])) {
+        if (r.repeat_type === 'fragment') {
+          allFragmentIds.push(r.id);
+          allFragmentIdSet.add(r.id);
+        } else {
+          allPlainIds.push(r.id);
+        }
       }
     }
 
     if (doneStatus) {
-      // 批量完成
-      // 碎时记：冻结 date 为完成日期，但仅对未完成项（done=0）执行，
-      //         避免覆盖已完成碎时记的冻结完成日期
-      if (fragmentIds.length > 0) {
-        const frPh = fragmentIds.map(() => '?').join(',');
+      // 自动分片批量完成
+      for (const chunk of chunkArray(allFragmentIds, BATCH_CHUNK_SIZE)) {
+        const ph = sqlPlaceholders(chunk.length);
         try {
-          await DB.prepare(`UPDATE todos SET done = 1, date = ? WHERE id IN (${frPh}) AND done = 0`)
-            .bind(date || '', ...fragmentIds).run();
+          await DB.prepare(`UPDATE todos SET done = 1, date = ? WHERE id IN (${ph}) AND done = 0`)
+            .bind(date || '', ...chunk).run();
         } catch (e) {
-          try { await DB.prepare(`UPDATE todos SET done = 1 WHERE id IN (${frPh}) AND done = 0`).bind(...fragmentIds).run(); } catch (e2) {}
+          try { await DB.prepare(`UPDATE todos SET done = 1 WHERE id IN (${ph}) AND done = 0`).bind(...chunk).run(); } catch (e2) {}
         }
       }
-      // 普通 todo：仅更新 done（加 done=0 过滤，避免无意义写入）
-      if (plainIds.length > 0) {
-        const plPh = plainIds.map(() => '?').join(',');
+      for (const chunk of chunkArray(allPlainIds, BATCH_CHUNK_SIZE)) {
+        const ph = sqlPlaceholders(chunk.length);
         try {
-          await DB.prepare(`UPDATE todos SET done = 1 WHERE id IN (${plPh}) AND done = 0`)
-            .bind(...plainIds).run();
+          await DB.prepare(`UPDATE todos SET done = 1 WHERE id IN (${ph}) AND done = 0`)
+            .bind(...chunk).run();
         } catch (e) {
-          try { await DB.prepare(`UPDATE todos SET done = 1 WHERE id IN (${plPh}) AND done = 0`).bind(...plainIds).run(); } catch (e2) {}
+          try { await DB.prepare(`UPDATE todos SET done = 1 WHERE id IN (${ph}) AND done = 0`).bind(...chunk).run(); } catch (e2) {}
         }
       }
 
@@ -1203,32 +1288,29 @@ async function handleV1TodoBatch(request, DB) {
         }
       }
     } else {
-      // 批量取消完成
-      // 碎时记：清空 time_records，done=0，date 从 fragment_anchor 恢复（保留用户设置的起始日期）
-      // 用 date = fragment_anchor 让 DB 取每行各自的起始日期，无需逐条 UPDATE
-      if (fragmentIds.length > 0) {
-        const frPh = fragmentIds.map(() => '?').join(',');
+      // 自动分片批量取消完成
+      for (const chunk of chunkArray(allFragmentIds, BATCH_CHUNK_SIZE)) {
+        const ph = sqlPlaceholders(chunk.length);
         try {
-          await DB.prepare(`UPDATE todos SET done = 0, date = fragment_anchor, time_records = ? WHERE id IN (${frPh})`)
-            .bind('[]', ...fragmentIds).run();
+          await DB.prepare(`UPDATE todos SET done = 0, date = fragment_anchor, time_records = ? WHERE id IN (${ph})`)
+            .bind('[]', ...chunk).run();
         } catch (e) {
-          try { await DB.prepare(`UPDATE todos SET done = 0 WHERE id IN (${frPh})`).bind(...fragmentIds).run(); } catch (e2) {}
+          try { await DB.prepare(`UPDATE todos SET done = 0 WHERE id IN (${ph})`).bind(...chunk).run(); } catch (e2) {}
         }
       }
-      // 普通 todo：done=0 + 清空 time_records
-      if (plainIds.length > 0) {
-        const plPh = plainIds.map(() => '?').join(',');
+      for (const chunk of chunkArray(allPlainIds, BATCH_CHUNK_SIZE)) {
+        const ph = sqlPlaceholders(chunk.length);
         try {
-          await DB.prepare(`UPDATE todos SET done = 0, time_records = ? WHERE id IN (${plPh})`)
-            .bind('[]', ...plainIds).run();
+          await DB.prepare(`UPDATE todos SET done = 0, time_records = ? WHERE id IN (${ph})`)
+            .bind('[]', ...chunk).run();
         } catch (e) {
-          await DB.prepare(`UPDATE todos SET done = 0 WHERE id IN (${plPh})`)
-            .bind(...plainIds).run();
+          await DB.prepare(`UPDATE todos SET done = 0 WHERE id IN (${ph})`)
+            .bind(...chunk).run();
         }
       }
     }
-
-    return jsonResponse({ success: true, data: { affected: ids.length, done: !!doneStatus } });
+    totalAffected = ids.length;
+    return jsonResponse({ success: true, data: { affected: totalAffected, done: !!doneStatus, chunked: ids.length > BATCH_CHUNK_SIZE, chunkCount: Math.ceil(ids.length / BATCH_CHUNK_SIZE) } });
   }
 
   if (action === 'BATCH_DELETE') {
@@ -1281,7 +1363,13 @@ async function handleV1TrashList(DB, url) {
 
 // POST /api/v1/trash-action - 回收站操作
 async function handleV1TrashAction(request, DB) {
-  const { action, id, ids } = await request.json();
+  let trashBody;
+  try {
+    trashBody = await request.json();
+  } catch(e) {
+    return apiError('请求体不是有效的 JSON', 400);
+  }
+  const { action, id, ids } = trashBody;
 
   if (action === 'RESTORE') {
     if (!id) return apiError('缺少 id', 400);
@@ -1344,6 +1432,7 @@ async function handleV1TrashAction(request, DB) {
 
   if (action === 'BATCH_RESTORE') {
     if (!ids || !Array.isArray(ids) || ids.length === 0) return apiError('ids 为必填数组', 400);
+    if (ids.length > 100) return apiError('单次最多100条', 400);
     const placeholders = ids.map(() => '?').join(',');
     const tasks = await DB.prepare(`SELECT id, parent_id, date, repeat_type, repeat_end FROM todos WHERE id IN (${placeholders})`).bind(...ids).all();
     await DB.prepare(`UPDATE todos SET deleted = 0 WHERE id IN (${placeholders})`).bind(...ids).run();
@@ -1397,6 +1486,7 @@ async function handleV1TrashAction(request, DB) {
 
   if (action === 'BATCH_DELETE_PERMANENT') {
     if (!ids || !Array.isArray(ids) || ids.length === 0) return apiError('ids 为必填数组', 400);
+    if (ids.length > 100) return apiError('单次最多100条', 400);
     const placeholders = ids.map(() => '?').join(',');
     await DB.prepare(`DELETE FROM todos WHERE id IN (${placeholders})`).bind(...ids).run();
     return jsonResponse({ success: true, data: { deleted: ids.length } });
@@ -1527,10 +1617,14 @@ async function handleV1Stats(DB, url) {
 
 // POST /api/v1/categories/batch - 批量操作
 async function handleV1CategoryBatch(request, DB) {
-  const { action, ids } = await request.json();
+  const catBatchParsed = await safeParseJson(request);
+  if (!catBatchParsed) return apiError('请求体不是有效的 JSON', 400);
+  const { action, ids } = catBatchParsed;
+  if (!action) return apiError('action 为必填字段', 400);
 
   if (action === 'BATCH_DELETE') {
     if (!ids || !Array.isArray(ids) || ids.length === 0) return apiError('ids 为必填数组', 400);
+    if (ids.length > 100) return apiError('单次最多100条', 400);
     const placeholders = ids.map(() => '?').join(',');
     await DB.batch([
       DB.prepare(`DELETE FROM categories WHERE id IN (${placeholders})`).bind(...ids),
@@ -1557,7 +1651,8 @@ async function handleV1SettingsGet(DB) {
 
 // POST /api/v1/settings - 保存应用配置（整体覆盖）
 async function handleV1SettingsPost(request, DB) {
-  const data = await request.json();
+  const data = await safeParseJson(request);
+  if (!data || typeof data !== 'object') return apiError('请求体不是有效的 JSON 对象', 400);
   await DB.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('app_settings', ?)").bind(JSON.stringify(data)).run();
   return jsonResponse({ success: true });
 }
@@ -1579,7 +1674,9 @@ async function handleV1CustomCodeGet(DB) {
 
 // POST /api/v1/custom-code - 保存自定义代码
 async function handleV1CustomCodePost(request, DB) {
-  const { customHeader, customContent } = await request.json();
+  const ccParsed = await safeParseJson(request);
+  if (!ccParsed) return apiError('请求体不是有效的 JSON', 400);
+  const { customHeader, customContent } = ccParsed;
   const stmts = [];
   if (customHeader !== undefined) {
     stmts.push(DB.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('custom_header', ?)").bind(customHeader));
@@ -1619,7 +1716,9 @@ async function handleV1CustomColorsGet(DB) {
 
 // POST /api/v1/custom-colors - 保存自定义颜色列表
 async function handleV1CustomColorsPost(request, DB) {
-  const { colors } = await request.json();
+  const colorsParsed = await safeParseJson(request);
+  if (!colorsParsed) return apiError('请求体不是有效的 JSON', 400);
+  const { colors } = colorsParsed;
   if (!Array.isArray(colors)) {
     return apiError('colors 必须为数组', 400);
   }
@@ -1631,7 +1730,9 @@ async function handleV1CustomColorsPost(request, DB) {
 
 // PATCH /api/v1/todos/:id/subtasks - 更新子任务
 async function handleV1TodoSubtasks(request, DB, todoId) {
-  const { subtasks } = await request.json();
+  const subParsed = await safeParseJson(request);
+  if (!subParsed) return apiError('请求体不是有效的 JSON', 400);
+  const { subtasks } = subParsed;
   if (!Array.isArray(subtasks)) return apiError('subtasks 必须为数组', 400);
   const existing = await DB.prepare('SELECT id FROM todos WHERE id = ?').bind(todoId).first();
   if (!existing) return apiError('待办不存在', 404);
@@ -1642,7 +1743,9 @@ async function handleV1TodoSubtasks(request, DB, todoId) {
 // PATCH /api/v1/todos/:id/search-terms - 更新搜索词
 // 请求体字段名与 v0 保持一致：search_terms
 async function handleV1TodoSearchTerms(request, DB, todoId) {
-  const { search_terms } = await request.json();
+  const stParsed = await safeParseJson(request);
+  if (!stParsed) return apiError('请求体不是有效的 JSON', 400);
+  const { search_terms } = stParsed;
   if (!Array.isArray(search_terms)) return apiError('search_terms 必须为数组', 400);
   const existing = await DB.prepare('SELECT id FROM todos WHERE id = ?').bind(todoId).first();
   if (!existing) return apiError('待办不存在', 404);
@@ -1696,6 +1799,10 @@ export async function handleV1Request(request, env, ctx) {
     if (request.method === 'PUT') return handleV1TodoPut(request, env.DB, todoId);
     if (request.method === 'DELETE') {
       const scope = url.searchParams.get('scope') || undefined;
+      // 健壮性：校验 scope 合法值
+      if (scope && !['this', 'thisAndFuture', 'all'].includes(scope)) {
+        return apiError(`无效的 scope: ${scope}，有效值: this, thisAndFuture, all`, 400);
+      }
       return handleV1TodoDelete(env.DB, todoId, scope);
     }
     return apiError('Method Not Allowed', 405);
