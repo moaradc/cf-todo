@@ -102,12 +102,8 @@ export const categories = `
       // 起始日期通过日期选择器单独控制，默认空（任意日期都出现）
       if (val === 'fragment') {
         tempFragmentAnchor = '';
-        // 碎时记无间隔/截止概念，清空临时状态避免：
-        // 1) 切回普通重复时 getIntervalDisplayText(tempRepeatInterval || 1, val)
-        //    显示成"每2天"而非"今天"（用户从每2天切到碎时记再切回 daily 的场景）
-        // 2) 切回普通重复时 tempRepeatEnd 仍是旧值，显示错误的"截止: X"
-        // confirmAddTask 里有 isFragment ? 1 / '' 兜底，但 UI 显示依赖 temp* 变量
-        // 不清空会误导用户。这里同步清空，保持 UI 与最终 payload 一致。
+        // 碎时记无间隔/截止概念，清空临时状态避免切回普通重复时显示成"每2天/截止 X"
+        // （confirmAddTask 里有 isFragment 兜底，但 UI 显示依赖 temp* 变量）
         tempRepeatInterval = 1;
         tempRepeatEnd = '';
         if (activeMode === 'add') {
@@ -135,8 +131,7 @@ export const categories = `
       if (val !== 'none') {
         // 切换重复类型时更新间隔显示
         var intervalText = getIntervalDisplayText(tempRepeatInterval || 1, val);
-        // 截止日期显示文案：tempRepeatEnd 已在切到 fragment 时清空（b5cbe69），
-        // 切回普通重复时需同步刷新 add/edit-repeat-end-display，否则 UI 仍显示旧值
+        // 截止日期显示：tempRepeatEnd 已在切到 fragment 时清空，切回普通重复时同步刷新 UI
         var repeatEndText = '截止: ' + (tempRepeatEnd || '永不');
         if (activeMode === 'add') {
           document.getElementById('add-repeat-display').innerText = '重复: ' + label;

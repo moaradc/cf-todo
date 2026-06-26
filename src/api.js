@@ -2378,22 +2378,23 @@ self.addEventListener('fetch', (event) => {
           }
         }
         else if (action === 'TIMER_COMPLETE') {
-          // 计时"完成"：标记 done=1 + 追加 session 到实例级 + 模板级（普通重复 todo）
-          // 碎时记 (fragment)：标记 done=1 + 冻结 date 到完成日期 + 实例级（不 FIFO）+ 无模板级
+          // 计时"完成"：标记 done=1 + 追加 session 到实例级（+ 模板级，仅普通 todo）
+          // - 碎时记：实例级不截断 + 冻结 date 到完成日期 + 无模板级
+          // - 普通 todo：实例级 FIFO 5 + 模板级 FIFO 10
           // record: { s, e, p }，校验 1s ≤ (e-s) ≤ 7d、p ≥ 0、p < (e-s)
           const todoId = task && task.id;
           const pid = parentId || (task && task.parent_id);
           if (!todoId) return apiError("INVALID_PARAMS", 400);
 
-          // 1. 读取 repeat_type，区分碎时记 / 普通重复 todo
+          // 读取 repeat_type，区分碎时记 / 普通 todo
           let isFragment = false;
           try {
             const row = await env.DB.prepare('SELECT repeat_type FROM todos WHERE id = ?').bind(todoId).first();
             if (row && row.repeat_type === 'fragment') isFragment = true;
           } catch (e) { /* 读取失败按普通 todo 处理 */ }
 
-          // 2. 标记完成（始终执行，即便记录写入失败也不阻断完成）
-          //    碎时记完成时同时冻结 date 到完成日期（effectiveDate 已校验不超过今天）
+          // 标记完成（始终执行，即便记录写入失败也不阻断）
+          // 碎时记完成时同时冻结 date（effectiveDate 已校验不超过今天）
           if (isFragment) {
             try {
               await env.DB.prepare('UPDATE todos SET done = 1, date = ? WHERE id = ?')
@@ -2409,14 +2410,14 @@ self.addEventListener('fetch', (event) => {
             }
           }
 
-          // 3. 写入 time_records
+          // 写入 time_records
           if (record && typeof record.s === 'number' && typeof record.e === 'number') {
             const s = Math.floor(record.s);
             const e = Math.floor(record.e);
             const p = Math.floor(record.p || 0);
             const MAX_DURATION_MS = 7 * 24 * 60 * 60 * 1000;
             if (s > 0 && e > s && (e - s) <= MAX_DURATION_MS && p >= 0 && p < (e - s)) {
-              // 3a. 实例级：写入 todos.time_records
+              // 实例级：碎时记不截断 / 普通 todo FIFO 5
               try {
                 const cur = await env.DB.prepare(
                   'SELECT time_records FROM todos WHERE id = ?'
@@ -2431,8 +2432,6 @@ self.addEventListener('fetch', (event) => {
                 }
                 if (!Array.isArray(instArr)) instArr = [];
                 instArr.push({ s, e, p });
-                // 碎时记：保留全部 session（用于累计统计），不 FIFO 截断
-                // 普通重复 todo：FIFO 5 截断（复刻 bd3f88d，避免实例级记录无限增长）
                 if (!isFragment && instArr.length > 5) instArr = instArr.slice(instArr.length - 5);
                 await env.DB.prepare(
                   'UPDATE todos SET time_records = ? WHERE id = ?'
@@ -2441,8 +2440,7 @@ self.addEventListener('fetch', (event) => {
                 console.error("TIMER_COMPLETE per-instance record write failed:", eInst);
               }
 
-              // 3b. 模板级：写入 todo_templates.time_records（供 predictDuration）
-              //     碎时记无模板，跳过
+              // 模板级：仅普通 todo（FIFO 10）；碎时记无模板，跳过
               if (!isFragment && pid) {
                 try {
                   const tpl = await env.DB.prepare(
@@ -2466,16 +2464,11 @@ self.addEventListener('fetch', (event) => {
           }
         }
         else if (action === 'TIMER_RECORD') {
-          // 计时"记录"：保存 session 到实例级 time_records（不 FIFO），不标记完成，不写模板级。
-          // 用于碎时记累计：用户记录本段后可继续开始下一段。
-          // 不写模板级的原因：碎片 session 会污染 predictDuration 中位数预估。
-          //
-          // 碎时记独有功能；普通重复 todo 收到 TIMER_RECORD 时直接忽略（no-op），
-          // 不写任何 time_records（复刻 bd3f88d：普通 todo 无"记录"操作）。
+          // 计时"记录"：保存 session 到实例级 time_records，不标记完成，不写模板级
+          // 碎时记独有；普通 todo 收到此 action 直接 no-op（返回 downgraded:true 兼容旧客户端）
           const todoId = task && task.id;
           if (!todoId) return apiError("INVALID_PARAMS", 400);
 
-          // 非 fragment todo：no-op
           let isFragment = false;
           try {
             const row = await env.DB.prepare('SELECT repeat_type FROM todos WHERE id = ?').bind(todoId).first();
@@ -2622,8 +2615,7 @@ self.addEventListener('fetch', (event) => {
                     } catch (e2) { instArr = []; }
                     if (!Array.isArray(instArr)) instArr = [];
                     instArr.push({ s, e, p });
-                    // 碎时记：不 FIFO（累计必须准确）
-                    // 普通重复 todo：FIFO 5 截断（复刻 bd3f88d，与 TIMER_COMPLETE / TOGGLE_DONE 一致）
+                    // 碎时记不截断 / 普通 todo FIFO 5
                     if (!isItemFragment && instArr.length > 5) instArr = instArr.slice(instArr.length - 5);
                     await env.DB.prepare(
                       'UPDATE todos SET time_records = ? WHERE id = ?'

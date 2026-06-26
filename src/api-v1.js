@@ -308,15 +308,11 @@ function formatTodo(row) {
     return null;
   }).filter(Boolean);
 
-  // 解析实例级 time_records（每个 todo 独立存储的完成记录）
-  // 格式：[{ s: <epoch_ms>, e: <epoch_ms>, p: <paused_ms> }, ...]
-  // - s: 开始时间（epoch ms）
-  // - e: 结束时间（epoch ms）
-  // - p: 暂停累计时长（ms）
-  // - 实际耗时 = e - s - p
-  // - s === e 表示零耗时（勾选框完成，仅记录完成时刻）
-  // - s < e 表示有耗时（计时器完成）
-  // 不 FIFO，保留全部 session；累计耗时 = Σ(e-s-p)
+  // 解析实例级 time_records
+  // 格式：[{ s, e, p }, ...]，实际耗时 = e - s - p
+  // - s === e：零耗时（勾选框完成，仅记录完成时刻）
+  // - s < e：有耗时（计时器完成）
+  // 截断规则：碎时记不截断（保留全部 session），普通 todo FIFO 5
   let timeRecords = [];
   try {
     const raw = row.time_records;
@@ -330,11 +326,10 @@ function formatTodo(row) {
     timeRecords = [];
   }
 
-  // 计算字段：取最新一条 record（数组末尾）计算，对应 Web UI 显示的"完成于 X，耗时 Y"
-  // 客户端无需自行解析 epoch ms 或计算耗时，直接用这三个字段即可显示
-  let lastCompletedAt = null;      // 最新完成时刻（epoch ms），无记录时 null
-  let lastDurationMs = null;       // 最新一次实际耗时（ms），零耗时为 0，无记录时 null
-  let isZeroDuration = false;      // 最新记录是否零耗时（s===e），无记录时 false
+  // 计算字段：取最新一条 record（末尾）计算，对应 Web UI 显示
+  let lastCompletedAt = null;      // 最新完成时刻（epoch ms）
+  let lastDurationMs = null;       // 最新一次实际耗时（ms），零耗时为 0
+  let isZeroDuration = false;      // 最新记录是否零耗时（s===e）
   if (timeRecords.length > 0) {
     const last = timeRecords[timeRecords.length - 1];
     const s = Number(last.s) || 0;
@@ -912,12 +907,12 @@ async function handleV1TodoDelete(DB, todoId, scope) {
 }
 
 // PATCH /api/v1/todos/:id/toggle - 切换完成状态
-// 可选 body: { record: { s, e, p } }
-// - done 0→1 且 record 合法：写入实例级 time_records（与 /api/todo-action TOGGLE_DONE 一致）
-//   - 零耗时（s===e）：仅记录完成时刻，不写模板级（避免污染 predictDuration）
+// 可选 body: { record: { s, e, p }, date }
+// - done 0→1：碎时记冻结 date 到 body.date（或现有 date）；可选 record 写入实例级 time_records
+//   - 零耗时（s===e）：仅写实例级（避免污染 predictDuration）
 //   - 真实耗时（s<e）：实例级 + 模板级双写（与 TIMER_COMPLETE 一致）
-// - done 1→0：清空实例级 time_records（与 /api/todo-action TOGGLE_DONE 一致）
-// - 无 record 或 record 非法：仅更新 done 字段（向后兼容）
+// - done 1→0：清空实例级 time_records；碎时记 date 从 fragment_anchor 恢复
+// - 无 record：仅更新 done（向后兼容）
 async function handleV1TodoToggle(request, DB, todoId) {
   const existing = await DB.prepare('SELECT done, parent_id, repeat_type, date, fragment_anchor FROM todos WHERE id = ?').bind(todoId).first();
   if (!existing) return apiError('Todo 不存在', 404);
@@ -1001,10 +996,11 @@ async function handleV1TodoToggle(request, DB, todoId) {
 
 // ==================== 计时记录写入工具函数 ====================
 // 校验并写入 time_records（实例级 + 模板级）
-// - 实例级：所有合法 record 都写（不 FIFO，保留全部 session 保证累计准确）
-// - 模板级：仅真实耗时（s<e）写（FIFO 10，供 predictDuration 中位数预估），零耗时跳过
-// 非法 record 静默跳过（不影响调用方主流程）
-// 所有 DB 异常吞掉并记录日志，避免影响 done 状态
+// - 实例级：
+//   - 碎时记：保留全部 session（不 FIFO），用于多 session 累计统计
+//   - 普通 todo：FIFO 5（复刻 v0 bd3f88d 行为，避免无限增长）
+// - 模板级：仅真实耗时（s<e）且非碎时记写（FIFO 10，供 predictDuration 中位数预估）
+//   碎时记无模板，零耗时跳过（避免污染中位数）
 // 与 /api/todo-action TIMER_COMPLETE 写入策略保持一致
 async function writeTimerRecord(DB, todoId, parentId, record, isFragment) {
   // 校验
@@ -1014,13 +1010,12 @@ async function writeTimerRecord(DB, todoId, parentId, record, isFragment) {
   const e = Math.floor(record.e);
   const p = Math.floor(record.p || 0);
   const MAX_DURATION_MS = 7 * 24 * 60 * 60 * 1000;
-  // 校验：s>0, e>=s, 时长<=7d, paused 合理
   if (!(s > 0 && e >= s && (e - s) <= MAX_DURATION_MS && p >= 0 && p <= (e - s))) {
     return;
   }
   const isZeroDuration = (s === e);
 
-  // 实例级写入（不 FIFO，保留全部 session）
+  // 实例级写入
   try {
     const cur = await DB.prepare('SELECT time_records FROM todos WHERE id = ?').bind(todoId).first();
     if (cur) {
@@ -1032,8 +1027,9 @@ async function writeTimerRecord(DB, todoId, parentId, record, isFragment) {
       } catch (e2) { instArr = []; }
       if (!Array.isArray(instArr)) instArr = [];
       instArr.push({ s, e, p });
-      // 不 FIFO：累计必须准确，少一条就少算时间
-      // 安全：每条 ~60B，D1 单行 2MB ≈ 35000 条，实际不可能触达
+      // 碎时记：不截断（保留全部 session）
+      // 普通 todo：FIFO 5
+      if (!isFragment && instArr.length > 5) instArr = instArr.slice(instArr.length - 5);
       await DB.prepare('UPDATE todos SET time_records = ? WHERE id = ?')
         .bind(JSON.stringify(instArr), todoId).run();
     }
@@ -1042,7 +1038,6 @@ async function writeTimerRecord(DB, todoId, parentId, record, isFragment) {
   }
 
   // 模板级写入（仅真实耗时 + 非碎时记，FIFO 10；零耗时和碎时记都跳过）
-  // 碎时记无模板，跳过
   if (!isZeroDuration && !isFragment && parentId) {
     try {
       const tpl = await DB.prepare('SELECT time_records FROM todo_templates WHERE parent_id = ?').bind(parentId).first();

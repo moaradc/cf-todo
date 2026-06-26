@@ -243,8 +243,7 @@ export const detail = `
         return;
       }
 
-      // 碎时记独有功能：[记录]/[继续计时] 仅对 fragment 渲染
-      // 普通重复 todo 复刻 bd3f88d：仅 [开始/暂停/继续/完成/取消]
+      // [记录]/[继续计时] 仅对碎时记渲染
       const isFragment = task.repeat_type === 'fragment';
 
       const timerState = task.done ? null : maybePruneStaleTimer(task.id);
@@ -252,44 +251,36 @@ export const detail = `
       const elapsed = timerState ? timerElapsed(timerState) : 0;
 
       const records = getDetailTimeRecords();
-      const cumMs = sumRecordsMs(records); // 历史 session 累计（不含当前进行中的 session）
+      const cumMs = sumRecordsMs(records); // 历史 session 累计（不含当前进行中 session）
       const predict = predictDuration(detailTemplateRecords);
       const predictText = predict ? '预计 ' + formatMs(predict) : '';
 
       let html = '<div class="detail-label">计时</div>';
 
-      // 排版：累计/时间/按钮全部包在同一个 detail-value 内，垂直排列
       if (task.done) {
-        // 已完成态展示按 todo 类型分流：
-        // - 碎时记：累计 + 最后记录于 X + [继续计时]（多 session 累计模型，[继续计时] 可开新 session）
-        // - 普通重复 todo：完成于 X，累计 Y（实例时效性 = 当日完成时刻 + 当次耗时，无跨实例语义）
+        // 已完成态按 todo 类型分流：
+        // - 碎时记：累计 X + 最后记录于 Y + [继续计时]（多 session 累计模型）
+        // - 普通 todo：完成于 X，耗时 Y（实例时效性语义，无跨日累计）
         const lastRec = overrideRecord || (records.length ? records[records.length - 1] : null);
         html += '<div class="detail-value" style="display:block;">';
         if (isFragment) {
-          // 碎时记：累计 + 最后记录于 X（多 session 模型保留原展示）
-          if (cumMs > 0) {
-            html += '<div>累计 ' + formatMs(cumMs) + '</div>';
-          }
+          if (cumMs > 0) html += '<div>累计 ' + formatMs(cumMs) + '</div>';
           if (lastRec && lastRec.e) {
             html += '<div style="font-size:0.85em; opacity:0.7; margin-top:4px;">最后记录于 ' + formatDoneTime(lastRec.e) + '</div>';
           } else if (cumMs === 0) {
             html += '<div style="color:var(--fg); opacity:0.6;">无完成耗时记录</div>';
           }
         } else {
-          // 普通重复 todo：完成于 X，耗时 Y（实例时效性语义）
-          // - 完成 moment（lastRec.e）：用户最关心的"今天几点完成的"
-          // - 耗时（cumMs）：完成这次花了多久（单实例语义，不跨日累计）
-          // 若无 lastRec（如直接勾选 checkbox 但零耗时 record 未写入），降级显示"无完成耗时记录"
+          // 普通 todo：完成于 X（+ 耗时 Y，仅 cumMs>0 时）
           if (lastRec && lastRec.e) {
             html += '<div>完成于 ' + formatDoneTime(lastRec.e) + (cumMs > 0 ? '，耗时 ' + formatMs(cumMs) : '') + '</div>';
           } else if (cumMs > 0) {
-            // 兜底：有耗时但缺最后 record.e（异常路径），仍显示耗时
-            html += '<div>耗时 ' + formatMs(cumMs) + '</div>';
+            html += '<div>耗时 ' + formatMs(cumMs) + '</div>';  // 兜底：有耗时但缺 lastRec.e
           } else {
             html += '<div style="color:var(--fg); opacity:0.6;">无完成耗时记录</div>';
           }
         }
-        // 碎时记独有：[继续计时] 按钮（bd3f88d 普通重复 todo 无此按钮）
+        // 碎时记独有：[继续计时]
         if (isFragment) {
           html += '<div class="timer-row" style="margin-top:8px;">';
           html += '<button class="btn-ghost" onclick="continueAfterDoneDetail()">继续计时</button>';
@@ -311,7 +302,7 @@ export const detail = `
         } else {
           html += '<button class="btn-ghost" onclick="pauseTimerDetail()">暂停</button>';
         }
-        // 碎时记独有：[记录] 按钮（bd3f88d 普通重复 todo 无此按钮）
+        // [记录] 仅碎时记
         if (isFragment) {
           html += '<button class="btn-ghost" onclick="recordTimerDetail()">记录</button>';
         }
@@ -321,7 +312,7 @@ export const detail = `
         if (predictText) html += '<div style="font-size:0.85em; opacity:0.7; margin-top:6px;">' + predictText + '</div>';
         html += '</div>';
       } else {
-        // 空闲：累计（仅>0 时）+ [开始计时]（空闲态只有这一个按钮）
+        // 空闲：累计（仅>0 时）+ [开始计时]
         html += '<div class="detail-value" style="display:block;">';
         if (cumMs > 0) {
           html += '<div>累计 ' + formatMs(cumMs) + '</div>';
@@ -504,15 +495,11 @@ export const detail = `
           }
         }
 
-        // 计时区块：所有 todo 都渲染（非重复 todo 只读，重复 todo 支持计时操作）
-        // 模板级记录（templateRecords）仅对非碎时记的重复 todo 拉取：
-        // - 碎时记无模板，拉了也是空，跳过省一次网络往返
-        // - 非重复 todo 无计时按钮，predictDuration 不展示
+        // 计时区块：所有 todo 都渲染；templateRecords 仅对非碎时记的重复 todo 拉取
+        // （碎时记无模板，非重复 todo 无计时按钮，都跳过省一次网络往返）
         let timerSection = '<div id="timer-section"></div>';
         if (task.repeat_type && task.repeat_type !== 'none' && task.repeat_type !== 'fragment') {
-          // 实例级 records 已直接来自 todo.time_records，无需 fetch。
-          // 这里仅拉取模板级记录（templateRecords），用于 predictDuration 预估时长。
-          // 模板级记录缺失不影响"完成于"显示，仅影响"预计 X 分"提示。
+          // 仅拉取模板级记录（templateRecords），用于 predictDuration 预估时长
           const fetchTodoId = task.id;
           if (fetchTodoId) {
             const bustUrl = '/api/time-records?todo_id=' + encodeURIComponent(fetchTodoId) + '&_t=' + Date.now();
