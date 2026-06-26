@@ -1265,7 +1265,10 @@ async function handleV1TodoBatch(request, DB) {
           await DB.prepare(`UPDATE todos SET done = 1, date = ? WHERE id IN (${ph}) AND done = 0`)
             .bind(date || '', ...chunk).run();
         } catch (e) {
-          try { await DB.prepare(`UPDATE todos SET done = 1 WHERE id IN (${ph}) AND done = 0`).bind(...chunk).run(); } catch (e2) {}
+          // date 列可能不存在等边界场景，降级为仅切换 done
+          try {
+            await DB.prepare(`UPDATE todos SET done = 1 WHERE id IN (${ph}) AND done = 0`).bind(...chunk).run();
+          } catch (e2) {}
         }
       }
       for (const chunk of chunkArray(allPlainIds, BATCH_CHUNK_SIZE)) {
@@ -1274,7 +1277,7 @@ async function handleV1TodoBatch(request, DB) {
           await DB.prepare(`UPDATE todos SET done = 1 WHERE id IN (${ph}) AND done = 0`)
             .bind(...chunk).run();
         } catch (e) {
-          try { await DB.prepare(`UPDATE todos SET done = 1 WHERE id IN (${ph}) AND done = 0`).bind(...chunk).run(); } catch (e2) {}
+          // 单片失败不阻断整体流程
         }
       }
 
