@@ -487,8 +487,11 @@ export const detail = `
         }
 
         // 计时区块：所有 todo 都渲染（非重复 todo 只读，重复 todo 支持计时操作）
+        // 模板级记录（templateRecords）仅对非碎时记的重复 todo 拉取：
+        // - 碎时记无模板，拉了也是空，跳过省一次网络往返
+        // - 非重复 todo 无计时按钮，predictDuration 不展示
         let timerSection = '<div id="timer-section"></div>';
-        if (task.repeat_type && task.repeat_type !== 'none') {
+        if (task.repeat_type && task.repeat_type !== 'none' && task.repeat_type !== 'fragment') {
           // 实例级 records 已直接来自 todo.time_records，无需 fetch。
           // 这里仅拉取模板级记录（templateRecords），用于 predictDuration 预估时长。
           // 模板级记录缺失不影响"完成于"显示，仅影响"预计 X 分"提示。

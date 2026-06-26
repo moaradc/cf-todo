@@ -336,14 +336,17 @@ export const todos = `
     // value: { s: <start_ms>, p: <累计paused_ms>, lp: <last_pause_start_ms|null> }
     // 服务端记录: { s, e, p }，elapsed = e - s - p
     //
-    // 多 session 累计模型（碎时记）：
+    // 碎时记 (fragment) 计时模型：
+    // - 多 session 累计，支持 [记录]/[继续计时]
     // - 实例级 time_records: [{s,e,p}, ...]，不 FIFO，累计 = Σ(e-s-p)
-    // - 模板级 time_records: 仅"完成"session，FIFO 10，供 predictDuration 预估
+    // - 无模板级 time_records（碎时记不创建模板，predictDuration 不可用）
+    // - 单 session 上限 7d (TIMER_MAX_SESSION_MS)
     //
-    // 普通 todo 计时功能（复刻 bd3f88d）：
-    // - 仅支持 [开始/暂停/继续/完成/取消]，无"记录"/"继续计时"
+    // 普通重复 todo 计时功能（复刻 bd3f88d）：
+    // - 仅支持 [开始/暂停/继续/完成/取消]，无 [记录]/[继续计时]
     // - 实例级 time_records FIFO 5 截断
-    // - 模板级 time_records FIFO 10 截断
+    // - 模板级 time_records FIFO 10 截断（供 predictDuration 预估）
+    // - 单 session 上限 24h (TIMER_STALE_MS)
     // - TIMER_RECORD 对普通 todo no-op（前端不暴露按钮，后端拒绝）
     function isFragmentTodo(todoId) {
       const t = todos.find(function(t) { return t.id === todoId; });
