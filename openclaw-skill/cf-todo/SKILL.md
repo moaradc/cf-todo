@@ -1,7 +1,7 @@
 ---
 name: cf-todo
 description: Manage todos and categories on a self-hosted Cloudflare Worker + D1 Todo App. Use when users ask to add, create, view, complete, update, or delete todos, manage recurring/repeating tasks, organize categories, or check their to-do list.
-version: 1.2.0
+version: 1.4.0
 metadata: {"openclaw":{"emoji":"📝","requires":{"env":["CF_TODO_API_URL","CF_TODO_API_KEY"],"bins":["curl"]},"primaryEnv":"CF_TODO_API_KEY","envVars":[{"name":"CF_TODO_API_URL","required":true,"description":"Base URL of your cf-todo deployment (e.g. https://todo.example.com, no trailing slash)"},{"name":"CF_TODO_API_KEY","required":true,"description":"API Key (cfk_...) generated from the cf-todo web UI Settings page"}]}}
 ---
 
@@ -84,7 +84,7 @@ Endpoints under `/api/v1/keys` require **Cookie auth only** (web UI session), no
 | PUT | `/api/v1/todos/:id` | 更新 Todo | 仅传需改字段；可改 `date`；重复任务需设 `scope` |
 | PATCH | `/api/v1/todos/:id/toggle` | 切换完成状态 | 重复任务仅影响当天实例；`done: false→true` 时可附带 `record` 记录完成时刻/耗时 |
 | DELETE | `/api/v1/todos/:id` | 删除 Todo（软删除） | 重复任务默认 `scope=this`；可选 `thisAndFuture`, `all` |
-| POST | `/api/v1/todos/batch` | 批量操作 | `BATCH_TOGGLE_DONE`（需 `ids`+`doneStatus`，可选 `timerRecords`）或 `BATCH_DELETE`（需 `ids`）；**v2.7.8.2 起解除 100 条限制，自动分片** |
+| POST | `/api/v1/todos/batch` | 批量操作 | `BATCH_TOGGLE_DONE`（需 `ids`+`done_status`，可选 `timer_records`）或 `BATCH_DELETE`（需 `ids`）；**v2.7.8.2 起解除 100 条限制，自动分片** |
 | PATCH | `/api/v1/todos/:id/subtasks` | 独立更新子任务 | 需 `subtasks` 数组 |
 | PATCH | `/api/v1/todos/:id/search-terms` | 独立更新搜索词 | 需 `search_terms` 数组 |
 | **Category** | | | |
@@ -207,7 +207,7 @@ Weekday numbers: Sunday=0, Monday=1, ..., Saturday=6
 
 ## Recurring Todo Scope
 
-Recurring todos have `repeat_type` != `"none"` and `isSeries` = `true`. They belong to a series sharing the same `parent_id`.
+Recurring todos have `repeat_type` != `"none"` and `is_series` = `true`. They belong to a series sharing the same `parent_id`.
 
 When updating/deleting a recurring todo, choose the correct `scope`:
 
@@ -628,11 +628,11 @@ curl -s -X POST -H "X-API-Key: $CF_TODO_API_KEY" -H "Content-Type: application/j
   -d '{"action":"BATCH_DELETE","ids":["id1","id2"]}'
 ```
 
-**BATCH_TOGGLE_DONE** — Set `doneStatus` to `true` (mark done) or `false` (mark undone) for all given `ids`.
+**BATCH_TOGGLE_DONE** — Set `done_status` to `true` (mark done) or `false` (mark undone) for all given `ids`.
 
-- `doneStatus: true`: First batch-updates `done=1`, then writes `time_records` for each entry in `timerRecords` (if provided). Record write rules are identical to `PATCH /toggle`.
-- `doneStatus: false`: Batch-updates `done=0, time_records='[]'` (clears instance-level records for all selected ids).
-- `ids` present but missing from `timerRecords`: only `done=1` is set, no `time_records` written (backward compatible).
+- `done_status: true`: First batch-updates `done=1`, then writes `time_records` for each entry in `timer_records` (if provided). Record write rules are identical to `PATCH /toggle`.
+- `done_status: false`: Batch-updates `done=0, time_records='[]'` (clears instance-level records for all selected ids).
+- `ids` present but missing from `timer_records`: only `done=1` is set, no `time_records` written (backward compatible).
 
 **BATCH_DELETE** — Soft-deletes all given `ids` (moves to trash). For recurring todos in the batch, exdates are automatically added to their templates to prevent regeneration.
 
@@ -640,8 +640,8 @@ curl -s -X POST -H "X-API-Key: $CF_TODO_API_KEY" -H "Content-Type: application/j
 |---|---|---|---|
 | `action` | string | Yes | `BATCH_TOGGLE_DONE` or `BATCH_DELETE` |
 | `ids` | string[] | Yes | Array of todo IDs. **v2.7.8.2: no upper limit** (auto-chunked at 99) |
-| `doneStatus` | boolean | BATCH_TOGGLE_DONE | `true` = done, `false` = undone |
-| `timerRecords` | array | No | `[{id, parentId, record}]` — only effective when `doneStatus: true`. Each `record` follows the same validation rules as `PATCH /toggle`. |
+| `done_status` | boolean | BATCH_TOGGLE_DONE | `true` = done, `false` = undone |
+| `timer_records` | array | No | `[{id, parent_id, record}]` — only effective when `done_status: true`. Each `record` follows the same validation rules as `PATCH /toggle`. |
 
 Response:
 
@@ -1009,7 +1009,7 @@ POST response: `{"success": true, "data": ["#FF5733", "#3B82F6"]}`
 1. **Fetch first** — GET the list before update/delete to find the correct `id`
 2. **Identify target** — Match by `text` field. If multiple match, ASK
 3. **Calculate date** — Convert natural language to YYYY-MM-DD. For recurring, `date` = first occurrence
-4. **Check recurring** — If `isSeries: true`, determine `scope` from user intent
+4. **Check recurring** — If `is_series: true`, determine `scope` from user intent
 5. **Confirm destructive** — Before delete, `scope=all`, or `scope=thisAndFuture`
 6. **Execute only what was asked** — No extra operations
 7. **Verify** — GET again after the operation to confirm
@@ -1037,3 +1037,21 @@ HTTP status codes:
 - Settings POST is a full overwrite — always GET first, modify, then POST back
 - Custom code is injected directly into the web UI — malformed HTML/CSS/JS can break the interface
 - Custom colors must be an array of hex strings
+
+## v3.0 Breaking Changes
+
+All API field names are now **snake_case only**. The camelCase compatibility layer has been removed.
+
+| Field type | Old (camelCase, removed) | New (snake_case) |
+|---|---|---|
+| Response field | `isSeries` | `is_series` |
+| task object property | `copyText` / `parentId` / `isSeries` | `copy_text` / `parent_id` / `is_series` |
+| Top-level request field | `doneStatus` / `keepRecords` / `timerRecords` / `parentId` | `done_status` / `keep_records` / `timer_records` / `parent_id` |
+| `timer_records` inner field | `parentId` | `parent_id` |
+
+**Behavior**: Requests sending camelCase fields will still succeed (HTTP 200), but the camelCase field values are silently dropped — only snake_case fields are read by the backend.
+
+**Additional v3.0 changes**:
+- `is_series` is a backend-derived field (computed from `repeat_type`); sending it as input has no effect (backend ignores it).
+- V0 `UPDATE` / `DELETE` now derives `parent_id` from DB when missing (no more 500 on `scope=all` without `parent_id`).
+- V0 `UPDATE` field-fallback fix: omitting `copy_text` / `text` / `time` / etc. now correctly preserves the DB value (previously `copy_text` was silently cleared due to a `readCopyText(task)` vs `readCopyText(original_task)` bug).

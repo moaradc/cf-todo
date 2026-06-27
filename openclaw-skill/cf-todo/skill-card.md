@@ -30,9 +30,10 @@ Mitigation: The skill instructs agents to always GET settings first, modify, the
 **Other Properties Related to Output:** [Uses curl via cf-todo.sh helper script; requires CF_TODO_API_URL and CF_TODO_API_KEY environment variables] <br>
 
 ## Skill Version(s): <br>
-1.3.0 <br>
+1.4.0 <br>
 
 ## Changelog: <br>
+- **1.4.0** (2026-06-27, requires cf-todo v3.0+): **Breaking change** — all API field names unified to snake_case, camelCase compatibility layer removed. Migration: `isSeries`→`is_series`, `copyText`→`copy_text`, `parentId`→`parent_id`, `doneStatus`→`done_status`, `keepRecords`→`keep_records`, `timerRecords`→`timer_records` (and inner `parentId`→`parent_id`). Old camelCase fields are silently dropped by the backend (requests still succeed). Also documents v3.0 robustness fixes: V0 UPDATE/DELETE derives `parent_id` from DB when missing; V0 UPDATE field-fallback bug fixed (`copy_text` and other omitted fields now correctly preserved from DB). <br>
 - **1.3.0** (2026-06-27, requires cf-todo v2.7.8.2+): `todos:date` 新增 `--no-expand` 选项，跳过服务端重复任务展开，响应附带 `templates` 数组供调用方自算（降低 Worker CPU 占用）。批量接口解除 100 条限制，响应含 `chunked`/`chunkCount` 字段，`affected`/`restored`/`deleted` 为实际改动行数。 <br>
 - **1.2.0**: Initial release. <br>
 
