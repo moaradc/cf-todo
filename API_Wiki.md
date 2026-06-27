@@ -2,6 +2,35 @@
 
 本文档详细说明了项目中所有 API 端点，涵盖 V0（Web 内部）和 V1（RESTful 外部调用）两套体系。
 
+## 目录
+
+- [1. 架构概览](#1-架构概览)
+- [2. V1 RESTful API（用于外部调用）](#2-v1-restful-api用于外部调用)
+  - [2.1 鉴权](#21-鉴权-authentication)
+  - [2.2 API Key 管理](#22-api-key-管理)
+  - [2.3 Todo API](#23-todo-api)
+  - [2.4 Category API](#24-category-api)
+  - [2.5 回收站 API](#25-回收站-api)
+  - [2.6 Todo 子任务与搜索词](#26-todo-子任务与搜索词)
+  - [2.7 统计 API](#27-统计-api)
+  - [2.8 设置 API](#28-设置-api)
+  - [2.9 自定义代码 API](#29-自定义代码-api)
+  - [2.10 自定义颜色 API](#210-自定义颜色-api)
+  - [2.11 HTTP 状态码](#211-http-状态码)
+- [3. V0 Internal API（Web 端）](#3-v0-internal-apiweb-端)
+- [4. 数据模型](#4-数据模型)
+  - [4.1 Todo 对象（V1 响应格式）](#41-todo-对象v1-响应格式)
+  - [4.2 Todo 对象（V0 响应格式）](#42-todo-对象v0-响应格式)
+  - [4.3 Category 对象](#43-category-对象)
+- [5. Todo 类型专章](#5-todo-类型专章)
+  - [5.1 三种类型概览](#51-三种类型概览)
+  - [5.2 普通 todo（`repeat_type: "none"`）](#52-普通-todorepeat_type-none)
+  - [5.3 重复 todo（`repeat_type: "daily/weekly/monthly/yearly"`）](#53-重复-todorepeat_type-dailyweeklymonthlyyearly)
+  - [5.4 碎时记（`repeat_type: "fragment"`）](#54-碎时记repeat_type-fragment)
+  - [5.5 字段一致性参考](#55-字段一致性参考)
+- [6. 示例代码](#6-示例代码)
+- [7. 注意事项](#7-注意事项)
+
 ---
 
 ## 1. 架构概览
@@ -1248,48 +1277,147 @@ V0 和 V1 的 Category 对象格式一致：
 
 ---
 
-## 5. 碎时记（`repeat_type: "fragment"`）专章
+## 5. Todo 类型专章
 
-碎时记是一种特殊的「无固定周期、可累积计时」的任务类型，与 `daily`/`weekly`/`monthly`/`yearly` 这些有 RRULE 周期的重复任务在数据模型与生命周期上都有显著差异。本节集中说明其行为。
+按 `repeat_type` 字段，Todo 实际分为三种行为显著不同的类型：**普通 todo**（`none`）、**重复 todo**（`daily`/`weekly`/`monthly`/`yearly`）、**碎时记**（`fragment`）。本章集中说明三者差异，所有字段命名遵循 [4.1 节](#41-todo-对象v1-响应格式) / [4.2 节](#42-todo-对象v0-响应格式)的 snake_case 规则，下表不再重复列出字段名拼写。
 
-### 5.1 数据模型
+### 5.1 三种类型概览
 
-| 字段 | 碎时记取值 | 说明 |
-|------|------------|------|
-| `repeat_type` | `"fragment"` | 标识为碎时记 |
-| `date` | 可空 / `YYYY-MM-DD` | 未完成态：起始日期或空（不限起始）；完成态：被冻结为完成日期 |
-| `time` | `""` | 碎时记无开始时间，强制清空 |
-| `end_time` | `""` | 碎时记无结束时间，强制清空 |
-| `repeat_end` | `""` | 碎时记无重复截止，强制清空 |
-| `repeat_interval` | `1` | 强制为 1 |
-| `fragment_anchor` | `YYYY-MM-DD` 或 `""` | **起始日期权威副本**，不受完成/取消完成影响 |
-| `is_series` | `false` | 碎时记不算重复系列，永远为 `false` |
-| `parent_id` | 自身 `id` | 不挂载到任何模板 |
-| `time_records` | 数组 | 实例级完成记录，**不截断**（保留全部 session 用于累计统计） |
+| 维度 | 普通 todo (`none`) | 重复 todo (`daily/weekly/...`) | 碎时记 (`fragment`) |
+|------|--------------------|--------------------------------|---------------------|
+| 是否创建 `todo_templates` | 否 | 是 | 否 |
+| `is_series` | `false` | `true` | `false` |
+| `parent_id` | 自身 `id` | 系列 anchor `id`（CREATE 时与自身一致，后续实例沿用） | 自身 `id` |
+| `repeat_interval` | 始终 `1`（无意义） | 用户指定，正整数 | 强制 `1` |
+| `date` | 必填 `YYYY-MM-DD` | 必填 `YYYY-MM-DD`（首实例 / anchor） | 可空，未完成=起始或空，完成=冻结为完成日期 |
+| `time` / `end_time` | 可设置 | 可设置 | 强制空 |
+| `repeat_end` | 强制空 | 可设置 | 强制空 |
+| `fragment_anchor` | 始终空 | 始终空 | `YYYY-MM-DD` 或空（碎时记起始日期权威副本） |
+| 实例级 `time_records` 截断 | FIFO 5 | FIFO 5 | **不截断**（保留全部 session 用于累计） |
+| 模板级 `time_records` | 不写（无模板） | 仅真实耗时（`s<e`）写，FIFO 10 | 不写（无模板） |
+| `expand=false` 时是否出现在 `templates` 数组 | 否 | 是 | 否（无模板） |
+| 完成 `done: false → true` `date` 行为 | 不变 | 不变 | 冻结为完成日期（`body.date` 或现有 `date`） |
+| 取消完成 `done: true → false` `date` 行为 | 不变 | 不变 | 从 `fragment_anchor` 恢复 |
+| 取消完成 `time_records` 行为 | 清空实例级 | 清空实例级 | 清空实例级 |
 
-### 5.2 模板
+> **三态判定**：后端统一用 `repeat_type !== 'none' && repeat_type !== 'fragment'` 推导 `is_series`，因此「是否重复系列」只看 `daily`/`weekly`/`monthly`/`yearly`；普通 todo 和碎时记都不是系列。
 
-碎时记**不创建 `todo_templates` 记录**。`date`、`fragment_anchor`、`time_records` 都直接挂在 `todos` 行上。
+### 5.2 普通 todo（`repeat_type: "none"`）
 
-### 5.3 完成与取消完成
+最常见的一次性任务。
+
+**数据模型约束**
+
+| 字段 | 取值 | 说明 |
+|------|------|------|
+| `repeat_type` | `"none"` | — |
+| `date` | 必填 `YYYY-MM-DD` | 后端校验格式，POST 时缺 `date` 返回 400 |
+| `time` / `end_time` | 可设置 | HH:MM 字符串 |
+| `repeat_end` | 强制空 | POST/PUT 时即便传入也会被忽略 |
+| `repeat_interval` | 始终 `1` | 无意义，PUT 时若不传则回退为 1 |
+| `fragment_anchor` | 始终空 | DB 列存在但永远写空串 |
+| `is_series` | `false` | 后端派生 |
+| `parent_id` | 自身 `id` | CREATE 时由后端写入 |
+
+**模板**：不创建 `todo_templates`。
+
+**完成与取消完成**
 
 | 操作 | 行为 |
 |------|------|
-| `done: false → true` | 写入实例级 `time_records`；同步把 `date` 冻结为完成日期（`body.date` 或现有 `date`）；`fragment_anchor` 不变 |
+| `done: false → true` | 写入 `done=1`；若 body 带 `record` 则按 [2.3 节 PATCH /toggle](#patch-apiv1todosidtoggle) 规则写入实例级 `time_records`（零耗时仅实例级，真实耗时实例级 + 模板级双写——但普通 todo 无模板，所以模板级写入跳过） |
+| `done: true → false` | 写入 `done=0`，清空实例级 `time_records`；`date` 不变 |
+
+**`time_records` 截断**：实例级 FIFO 5（保留最近 5 条）；无模板级。
+
+**可见性**：`GET /api/v1/todos` 查询时按 `date` 精确匹配 / 范围匹配，无特殊规则。
+
+### 5.3 重复 todo（`repeat_type: "daily/weekly/monthly/yearly"`）
+
+有 RRULE 周期的重复任务，对齐 RFC 5545 + Google Tasks 行为。
+
+**数据模型约束**
+
+| 字段 | 取值 | 说明 |
+|------|------|------|
+| `repeat_type` | `daily`/`weekly`/`monthly`/`yearly` | 任一非 `none`/`fragment` 值会触发模板创建 |
+| `date` | 必填 `YYYY-MM-DD` | 作为 anchor date，首实例日期 |
+| `time` / `end_time` | 可设置 | — |
+| `repeat_end` | 可设置 | YYYY-MM-DD，重复截止日期；空表示无限 |
+| `repeat_interval` | 用户指定，正整数 | 如 `weekly` + `repeat_interval=2` 表示每两周 |
+| `repeat_custom` | 强制空 | 预留字段，当前后端不读取 |
+| `fragment_anchor` | 始终空 | — |
+| `is_series` | `true` | 后端派生 |
+| `parent_id` | CREATE 时 = 自身 `id`；UPDATE/DELETE 时若缺省则从 DB 派生 | 系列 anchor |
+
+**模板**：CREATE 时同步在 `todo_templates` 表插入一条记录，包含 `anchor_date` / `exdates` / `repeat_interval` 等字段，供后续展开。
+
+**RRULE 展开**
+
+- `GET /api/v1/todos?date=YYYY-MM-DD`（`expand=true` 默认）：服务端用 ical.js 计算当天是否应有实例，若无则自动创建并持久化。
+- `expand=false`：跳过服务端展开，响应附带 `templates` 数组（含 `parent_id` / `text` / `repeat_type` / `repeat_interval` / `anchor_date` / `repeat_end` / `exdates` / `subtasks` / `time_records` 等字段），调用方自行用 ical.js/rrule.js 计算。详见 [2.3 节](#23-todo-api)。
+
+**完成与取消完成**
+
+| 操作 | 行为 |
+|------|------|
+| `done: false → true` | 仅影响当天实例：`done=1`；`record` 写入实例级 `time_records`（FIFO 5）；真实耗时（`s<e`）额外写入模板级 `time_records`（FIFO 10，供 `predictDuration` 中位数预估）；`date` 不变 |
+| `done: true → false` | `done=0`，清空实例级 `time_records`；`date` 不变；模板级 `time_records` 保留 |
+
+**`scope` 参数（PUT/DELETE 重复 todo 时）**
+
+| scope | 行为 |
+|-------|------|
+| `this`（默认） | 仅此实例；向模板添加 exdate；若将 `repeat_type` 改为 `none` 则脱离系列（`parent_id` 设为自身 `id`） |
+| `thisAndFuture` | 此实例及未来实例；同时更新模板 |
+| `all` | 全系列；同时更新模板和所有已有实例；缺 `parent_id` 时后端从 DB 派生 |
+
+**可见性**：与普通 todo 一致，按 `date` 精确 / 范围匹配；当天未展开的重复实例若用 `expand=true` 会被服务端临时创建并返回。
+
+### 5.4 碎时记（`repeat_type: "fragment"`）
+
+无固定周期、可累积计时的特殊任务，与有 RRULE 周期的重复任务在数据模型与生命周期上都有显著差异。
+
+**数据模型约束**
+
+| 字段 | 取值 | 说明 |
+|------|------|------|
+| `repeat_type` | `"fragment"` | 标识为碎时记 |
+| `date` | 可空 / `YYYY-MM-DD` | 未完成态：起始日期或空（不限起始）；完成态：被冻结为完成日期 |
+| `time` | `""` | 强制清空 |
+| `end_time` | `""` | 强制清空 |
+| `repeat_end` | `""` | 强制清空 |
+| `repeat_interval` | `1` | 强制为 1 |
+| `fragment_anchor` | `YYYY-MM-DD` 或 `""` | **起始日期权威副本**，不受完成/取消完成影响 |
+| `is_series` | `false` | 碎时记不算重复系列 |
+| `parent_id` | 自身 `id` | 不挂载到任何模板 |
+| `time_records` | 数组 | 实例级完成记录，**不截断**（保留全部 session 用于累计统计） |
+
+POST 时碎时记允许 `date` 为空；`time` / `end_time` / `repeat_end` 即便传入也会被强制清空，`repeat_interval` 被强制为 1。
+
+**模板**：**不创建 `todo_templates` 记录**。`date`、`fragment_anchor`、`time_records` 都直接挂在 `todos` 行上。
+
+**完成与取消完成**
+
+| 操作 | 行为 |
+|------|------|
+| `done: false → true` | 写入实例级 `time_records`；同步把 `date` 冻结为完成日期（`body.date` 或现有 `date`，不能是未来日期，否则纠正为今天）；`fragment_anchor` 不变 |
 | `done: true → false` | 清空实例级 `time_records`；`date` 从 `fragment_anchor` 恢复（保留用户设置的起始日期）；`fragment_anchor` 不变 |
 
 碎时记 `time_records` 截断规则：**不截断**（与普通 todo FIFO 5 不同）。模板级 `time_records` 不写（碎时记无模板）。
 
-### 5.4 切换 `repeat_type` 进入 / 退出 `fragment`
+V0 Web API 还支持 `keep_records: true`（来自「继续计时」路径，仅碎时记）——保留累计记录不清空。V1 toggle 接口无此参数。
+
+**切换 `repeat_type` 进入 / 退出 `fragment`**
 
 | 切换方向 | 行为 |
 |----------|------|
 | `none`/`daily`/... → `fragment` | 脱离旧系列（旧模板加 exdate），强制清空 `time`/`end_time`/`repeat_end`，`repeat_interval=1`，`fragment_anchor` 同步为 `date`（未完成时）或保留原值（已完成时）；不创建新模板 |
 | `fragment` → `none`/`daily`/... | 视为「单次 → 重复」路径：若新值是 `daily`/`weekly`/`monthly`/`yearly` 则创建模板；`fragment_anchor` 同步清空 |
 
-### 5.5 可见性规则（GET /api/v1/todos 查询）
+**可见性规则（GET /api/v1/todos 查询）**
 
-碎时记的可见性与普通 todo 不同，查询时会按以下规则匹配：
+碎时记的可见性与普通 / 重复 todo 不同，查询时按以下规则匹配：
 
 | 查询模式 | 碎时记可见条件 |
 |----------|----------------|
@@ -1298,21 +1426,28 @@ V0 和 V1 的 Category 对象格式一致：
 | 仅 `start_date` | 已完成且 `date >= ?`，或未完成且（`date = ''` 或 `date >= ?`） |
 | 仅 `end_date` | 已完成且 `date <= ?`，或未完成且（`date = ''` 或 `date <= ?`） |
 
-> 设计意图：未完成的碎时记只要起始日期不晚于查询上界就应可见（仍在进行中）；已完成碎时记按完成日期匹配。
+> 设计意图：未完成的碎时记只要起始日期不晚于查询上界就应可见（仍在进行中）；已完成碎时记按完成日期匹配。普通 / 重复 todo 的可见性则严格按 `date` 精确或范围匹配，无此宽松规则。
 
-### 5.6 与普通重复任务的对比
+### 5.5 字段一致性参考
 
-| 维度 | 普通重复任务（daily/weekly/...） | 碎时记（fragment） |
-|------|----------------------------------|--------------------|
-| 是否创建模板 | 是 | 否 |
-| `is_series` | `true` | `false` |
-| `repeat_interval` | 用户指定（≥1） | 强制 `1` |
-| `time` / `end_time` | 可设置 | 强制空 |
-| `repeat_end` | 可设置 | 强制空 |
-| `time_records` 截断 | 普通 todo FIFO 5 / 模板级 FIFO 10 | 不截断，无模板级 |
-| 完成时 `date` 行为 | 不变 | 冻结为完成日期 |
-| 取消完成 `date` 行为 | 不变 | 从 `fragment_anchor` 恢复 |
-| `expand=false` 模板查询 | 出现在 `templates` 数组 | 不出现（无模板） |
+三种类型在以下字段上行为完全一致（无差异，无需区分类型处理）：
+
+| 字段 | 一致行为 |
+|------|----------|
+| `id` | `Date.now() + 4 位随机数` 拼成的纯数字字符串 |
+| `text` | 必填，字符串 |
+| `priority` | `low`/`med`/`high`，`medium` 自动转 `med` |
+| `desc` / `url` / `copy_text` | 可选字符串 |
+| `subtasks` / `search_terms` | 数组，元素可为字符串或 `{text, done}` 对象；纯字符串自动转为 `{text: "xxx", done: false}` |
+| `category_id` | 可选，关联 [4.3 节](#43-category-对象)的 Category id；空表示未分类 |
+| `recurrence_id` | RFC 5545 RECURRENCE-ID，重复 todo 例外实例使用，其余类型为空 |
+| `is_exception` | 是否为例外实例（重复 todo 脱离系列后为 `true`，其余为 `false`） |
+| `repeat_custom` | 预留字段，当前后端强制写空 |
+| `done` / `deleted` | V1 均为布尔；V0 `/api/todos` 中 `done` 为布尔、`deleted` 为整数 0/1；V0 `/api/trash` 均为整数 0/1 |
+| `last_completed_at` / `last_duration_ms` / `is_zero_duration` | 计算字段，取 `time_records` 末尾一条计算；无记录时分别为 `null` / `null` / `false` |
+| `time_records` 原始字段 | V1 已解析为数组；V0 `/api/todos` 与 `/api/trash` 均为未解析 JSON 字符串 |
+
+**字段回退**（PUT /api/v1/todos/:id 或 V0 UPDATE）：三种类型均适用——未传的字段（`text` / `time` / `priority` / `desc` / `url` / `copy_text` 等）会从 DB 当前值回退，不会被静默清空。
 
 ---
 
@@ -1473,4 +1608,4 @@ data = response.json()
     - 历史背景：V3.0 重构时仅对 Todo/Category 做了 snake_case 化（移除 camelCase 兼容层），其它端点保留原始 camelCase 字段名。客户端集成时需按端点区分命名风格。
 12. V0 `UPDATE` / `DELETE` 缺 `task.parent_id` 时后端自动从 DB 派生
 13. V0 `UPDATE` 未传的字段（`copy_text` / `text` / `time` 等）从 DB 当前值回退，不会被清空
-14. 碎时记（`repeat_type: "fragment"`）的数据模型、完成/取消完成行为、可见性规则、与普通重复任务的对比详见 [5. 碎时记专章](#5-碎时记repeat_type-fragment专章)。
+14. Todo 按 `repeat_type` 分为普通 todo（`none`）、重复 todo（`daily/weekly/monthly/yearly`）、碎时记（`fragment`）三种类型，三者的数据模型、模板、完成/取消完成、可见性、字段一致性对比详见 [5. Todo 类型专章](#5-todo-类型专章)。
