@@ -1456,7 +1456,10 @@ self.addEventListener('fetch', (event) => {
           while (true) {
             const { done, value } = await reader.read();
             if (done) break;
-            buffer += decoder.decode(value, { stream: true });
+            // 健壮性：value 可能为 undefined（CF Workers 边界场景），显式检查
+            if (value) {
+              buffer += decoder.decode(value, { stream: true });
+            }
             const lines = buffer.split('\n');
             buffer = lines.pop() || '';
 
@@ -1477,6 +1480,9 @@ self.addEventListener('fetch', (event) => {
               }
             }
           }
+
+          // 健壮性：flush TextDecoder 内部缓冲（stream:true 模式下可能残留字节）
+          buffer += decoder.decode();
 
           if (buffer.trim()) {
             const obj = JSON.parse(buffer.trim());
