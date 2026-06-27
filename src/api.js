@@ -1522,9 +1522,9 @@ self.addEventListener('fetch', (event) => {
         }
 
         if (phase === 'abort') {
-          const importId = body.importId;
-          const discard = !!body.discard;
-          const keepBackup = !!body.keepBackup;
+          const importId = impBody.importId;
+          const discard = !!impBody.discard;
+          const keepBackup = !!impBody.keepBackup;
           if (!importId) return apiError('importId required', 400);
 
           const session = await env.DB.prepare('SELECT * FROM import_sessions WHERE id = ?').bind(importId).first();
@@ -1563,8 +1563,8 @@ self.addEventListener('fetch', (event) => {
         }
 
         if (phase === 'init') {
-          const importId = body.importId;
-          const mode = body.mode || 'merge';
+          const importId = impBody.importId;
+          const mode = impBody.mode || 'merge';
           if (!importId) return apiError('importId required', 400);
 
           await cleanExpiredBackups();
@@ -1701,7 +1701,7 @@ self.addEventListener('fetch', (event) => {
         }
 
         else if (phase === 'finalize') {
-          const importId = body.importId;
+          const importId = impBody.importId;
           if (!importId) return apiError('importId required', 400);
 
           const session = await env.DB.prepare('SELECT * FROM import_sessions WHERE id = ?').bind(importId).first();
@@ -1718,22 +1718,22 @@ self.addEventListener('fetch', (event) => {
             } catch (e) { console.error("Index rebuild after finalize:", e); }
           }
 
-          if (body.custom_header !== undefined || body.custom_content !== undefined) {
+          if (impBody.custom_header !== undefined || impBody.custom_content !== undefined) {
             const customStmts = [];
-            if (body.custom_header !== undefined) {
-              customStmts.push(env.DB.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('custom_header', ?)").bind(body.custom_header));
+            if (impBody.custom_header !== undefined) {
+              customStmts.push(env.DB.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('custom_header', ?)").bind(impBody.custom_header));
             }
-            if (body.custom_content !== undefined) {
-              customStmts.push(env.DB.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('custom_content', ?)").bind(body.custom_content));
+            if (impBody.custom_content !== undefined) {
+              customStmts.push(env.DB.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('custom_content', ?)").bind(impBody.custom_content));
             }
             if (customStmts.length > 0) await env.DB.batch(customStmts);
           }
 
-          if (body.categories && Array.isArray(body.categories)) {
+          if (impBody.categories && Array.isArray(impBody.categories)) {
             if (session.mode === 'overwrite') {
               await env.DB.prepare("DELETE FROM categories").run();
             }
-            const insertStmts = body.categories.filter(c => c.id && c.name).map(c =>
+            const insertStmts = impBody.categories.filter(c => c.id && c.name).map(c =>
               env.DB.prepare("INSERT OR REPLACE INTO categories (id, name, color) VALUES (?, ?, ?)").bind(c.id, c.name, c.color || '#888888')
             );
             if (insertStmts.length > 0) await env.DB.batch(insertStmts);
@@ -1743,8 +1743,8 @@ self.addEventListener('fetch', (event) => {
             ]);
           }
 
-          if (body.customColors && Array.isArray(body.customColors)) {
-            await env.DB.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('customColors', ?)").bind(JSON.stringify(body.customColors)).run();
+          if (impBody.customColors && Array.isArray(impBody.customColors)) {
+            await env.DB.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('customColors', ?)").bind(JSON.stringify(impBody.customColors)).run();
           }
 
           await env.DB.prepare('DELETE FROM import_sessions WHERE id = ?').bind(importId).run();
