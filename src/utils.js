@@ -97,47 +97,66 @@ function offsetDate(dateStr, days) {
   return formatDateStr(d);
 }
 
+// 健壮性：统一带超时的 fetch，超时或异常返回 null，调用方降级处理
+// CF Workers subrequest fetch 90s 硬超时，这里主动 5s 超时避免长时间挂起
+const HOT_SEARCH_FETCH_TIMEOUT_MS = 5000;
+
+async function fetchJsonWithTimeout(url) {
+  const ctrl = new AbortController();
+  const timeoutId = setTimeout(() => ctrl.abort(), HOT_SEARCH_FETCH_TIMEOUT_MS);
+  try {
+    const res = await fetch(url, { signal: ctrl.signal });
+    if (!res.ok) {
+      // 释放响应体避免连接泄漏
+      try { res.body && res.body.cancel(); } catch (e) {}
+      return null;
+    }
+    return await res.json();
+  } catch (e) {
+    // AbortError 或网络错误，返回 null 让调用方降级
+    return null;
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
 async function fetchHotSearchData(providerName = 'auto') {
   const fetchers = {
-    'bilibili': async () => { 
-      const res = await fetch('https://uapis.cn/api/v1/misc/hotboard?type=bilibili');
-      const json = await res.json();
-      return json?.list?.map(i => i?.title).filter(Boolean) ||[];
+    'bilibili': async () => {
+      const json = await fetchJsonWithTimeout('https://uapis.cn/api/v1/misc/hotboard?type=bilibili');
+      return json?.list?.map(i => i?.title).filter(Boolean) || [];
     },
-    'weibo': async () => { 
-      const res = await fetch('https://uapis.cn/api/v1/misc/hotboard?type=weibo');
-      const json = await res.json();
-      return json?.list?.map(i => i?.title).filter(Boolean) ||[];
+    'weibo': async () => {
+      const json = await fetchJsonWithTimeout('https://uapis.cn/api/v1/misc/hotboard?type=weibo');
+      return json?.list?.map(i => i?.title).filter(Boolean) || [];
     },
-    'zhihu': async () => { 
-      const res = await fetch('https://uapis.cn/api/v1/misc/hotboard?type=zhihu');
-      const json = await res.json();
-      return json?.list?.map(i => i?.title).filter(Boolean) ||[];
+    'zhihu': async () => {
+      const json = await fetchJsonWithTimeout('https://uapis.cn/api/v1/misc/hotboard?type=zhihu');
+      return json?.list?.map(i => i?.title).filter(Boolean) || [];
     },
-    'baidu': async () => { 
-      const res = await fetch('https://top.baidu.com/api/board?platform=pc&tab=realtime');
-      const json = await res.json();
-      return json?.data?.cards?.[0]?.content?.map(i => i?.word).filter(Boolean) ||[];
+    'baidu': async () => {
+      const json = await fetchJsonWithTimeout('https://top.baidu.com/api/board?platform=pc&tab=realtime');
+      return json?.data?.cards?.[0]?.content?.map(i => i?.word).filter(Boolean) || [];
     }
   };
 
-  let providers =[];
+  let providers = [];
   if (providerName && fetchers[providerName]) {
-    providers =[fetchers[providerName]];
+    providers = [fetchers[providerName]];
   } else {
     providers = Object.values(fetchers);
-    providers.sort(() => Math.random() - 0.5); 
+    // 随机打散顺序，避免单点故障：第一个挂了快速切下一个
+    providers.sort(() => Math.random() - 0.5);
   }
-  
-  let allWords =[];
+
+  let allWords = [];
   for (const fetcher of providers) {
-    try {
-      const words = await fetcher();
-      if (words.length >= 10) {
-        allWords = words;
-        break; 
-      }
-    } catch(e) { console.error("Fetch API error:", e); }
+    // fetcher 内部已 try/catch（fetchJsonWithTimeout 返回 null），不会抛出
+    const words = await fetcher();
+    if (words.length >= 10) {
+      allWords = words;
+      break;
+    }
   }
   return allWords;
 }

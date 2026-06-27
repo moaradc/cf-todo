@@ -844,8 +844,29 @@ self.addEventListener('fetch', (event) => {
 
     if (url.pathname === '/api/hot-search' && request.method === 'GET') {
       const provider = url.searchParams.get('provider') || 'auto';
+      // 健壮性：Cache API 缓存 1 小时，避免每次都打外部 uapis.cn
+      // 热搜数据 1 小时更新一次足够，TTL 内用缓存（不消耗 KV 配额）
+      const cacheKey = new Request('https://internal/hot-search/' + encodeURIComponent(provider));
+      let cached = await caches.default.match(cacheKey);
+      if (cached) {
+        // 命中缓存，附加 X-Cache: HIT 头便于调试
+        const headers = new Headers(cached.headers);
+        headers.set('X-Cache', 'HIT');
+        return new Response(cached.body, { status: cached.status, headers });
+      }
       const allWords = await fetchHotSearchData(provider);
-      return new Response(JSON.stringify({ success: true, data: allWords }), { headers: { 'Content-Type': 'application/json' } });
+      const body = JSON.stringify({ success: true, data: allWords });
+      const res = new Response(body, {
+        headers: {
+          'Content-Type': 'application/json',
+          // Cache-Control 必须设置，否则 caches.default.put 不会缓存
+          'Cache-Control': 'max-age=3600',
+          'X-Cache': 'MISS',
+        },
+      });
+      // 异步写入缓存，不阻塞响应
+      ctx.waitUntil(caches.default.put(cacheKey, res.clone()));
+      return res;
     }
 
     if (url.pathname === '/api/stats' && request.method === 'GET') {
@@ -1321,7 +1342,13 @@ self.addEventListener('fetch', (event) => {
     
     if (url.pathname === '/api/import' && request.method === 'POST') {
       const contentType = request.headers.get('Content-Type') || '';
-      const BATCH_SIZE = 100;
+      // 健壮性：两个不同的 batch 概念
+      // BATCH_ROWS: 累积多少行触发一次 execBatch（与上传分片解耦）
+      // BATCH_STMTS: execBatch 内每多少 prepared statement 组一个 DB.batch
+      //   multi-row VALUES 后每 statement 含 4-5 行，25 statement = 100-125 行/事务
+      //   单事务 100 行左右平衡性能与锁持有时间（D1 单库单线程）
+      const BATCH_ROWS = 100;
+      const BATCH_STMTS = 25;
 
       const safeStringify = (v) => {
         if (typeof v === 'string') return v;
@@ -1348,39 +1375,62 @@ self.addEventListener('fetch', (event) => {
         return '[]';
       };
 
-      const buildTodoStmts = (items) => (items || []).map((t) => {
-        return env.DB.prepare(
-          `INSERT OR REPLACE INTO todos
-          (id, parent_id, date, text, time, priority, desc, url, copy_text, subtasks, search_terms, done, deleted, repeat_type, repeat_custom, repeat_end, end_time, category_id, recurrence_id, is_exception, repeat_interval, time_records, fragment_anchor)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-        ).bind(
-          t.id, t.parent_id, t.date, t.text, t.time || '', t.priority || 'low',
-          t.desc || '', t.url || '', t.copy_text || '',
-          safeStringify(t.subtasks), safeStringify(t.search_terms), t.done || 0, t.deleted || 0,
-          t.repeat_type || 'none', t.repeat_custom || '', t.repeat_end || '', t.end_time || '', t.category_id || '',
-          t.recurrence_id || '', t.is_exception || 0, t.repeat_interval || 1,
-          safeTimeRecords(t.time_records),
-          // fragment_anchor: 碎时记起始日期，导入时保留；非碎时记或旧数据为 ''
-          t.fragment_anchor || ''
-        );
-      });
+      // 健壮性：multi-row VALUES INSERT 优化
+      // D1 bound params/query 限制 100，单行 todos 23 列，4 行 = 92 params（留 8 余量）
+      // 单行 templates 18 列，5 行 = 90 params（留 10 余量）
+      // 性能：SQLite multi-row VALUES 比 N 个单行 INSERT 快 5-10x（减少 prepared statement 创建 + 网络往返）
+      // DB.batch 内 statement 数量也减少 4-5 倍
+      const TODO_ROWS_PER_INSERT = 4;  // 4 × 23 = 92 params
+      const TEMPLATE_ROWS_PER_INSERT = 5;  // 5 × 18 = 90 params
 
-      const buildTemplateStmts = (items) => (items || []).map((t) => {
+      const TODO_COLUMNS = '(id, parent_id, date, text, time, priority, desc, url, copy_text, subtasks, search_terms, done, deleted, repeat_type, repeat_custom, repeat_end, end_time, category_id, recurrence_id, is_exception, repeat_interval, time_records, fragment_anchor)';
+      const TODO_ROW_PLACEHOLDER = '(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)';
+
+      const TEMPLATE_COLUMNS = '(parent_id, text, time, priority, desc, url, copy_text, subtasks, search_terms, repeat_type, repeat_custom, repeat_end, end_time, anchor_date, exdates, category_id, repeat_interval, time_records)';
+      const TEMPLATE_ROW_PLACEHOLDER = '(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)';
+
+      const TODO_BIND_EXTRACTOR = (t) => [
+        t.id, t.parent_id, t.date, t.text, t.time || '', t.priority || 'low',
+        t.desc || '', t.url || '', t.copy_text || '',
+        safeStringify(t.subtasks), safeStringify(t.search_terms), t.done || 0, t.deleted || 0,
+        t.repeat_type || 'none', t.repeat_custom || '', t.repeat_end || '', t.end_time || '', t.category_id || '',
+        t.recurrence_id || '', t.is_exception || 0, t.repeat_interval || 1,
+        safeTimeRecords(t.time_records),
+        // fragment_anchor: 碎时记起始日期，导入时保留；非碎时记或旧数据为 ''
+        t.fragment_anchor || ''
+      ];
+
+      const TEMPLATE_BIND_EXTRACTOR = (t) => {
         const exdates = t.exdates || '[]';
-        return env.DB.prepare(
-          `INSERT OR REPLACE INTO todo_templates
-          (parent_id, text, time, priority, desc, url, copy_text, subtasks, search_terms, repeat_type, repeat_custom, repeat_end, end_time, anchor_date, exdates, category_id, repeat_interval, time_records)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-        ).bind(
+        return [
           t.parent_id, t.text || '', t.time || '', t.priority || 'low', t.desc || '', t.url || '', t.copy_text || '',
           safeStringify(t.subtasks), safeStringify(t.search_terms), t.repeat_type || 'none', t.repeat_custom || '', t.repeat_end || '', t.end_time || '', t.anchor_date || '', exdates, t.category_id || '', t.repeat_interval || 1,
           safeTimeRecords(t.time_records)
-        );
-      });
+        ];
+      };
+
+      // 构造 multi-row VALUES INSERT 语句数组
+      // 输入 items 数组，输出 prepared statement 数组（每 ROWS_PER_INSERT 行一个 statement）
+      const buildMultiRowStmts = (items, tableName, columns, rowPlaceholder, rowsPerInsert, bindExtractor) => {
+        if (!items || items.length === 0) return [];
+        const stmts = [];
+        for (let i = 0; i < items.length; i += rowsPerInsert) {
+          const chunk = items.slice(i, i + rowsPerInsert);
+          const placeholders = chunk.map(() => rowPlaceholder).join(', ');
+          const params = chunk.flatMap(bindExtractor);
+          stmts.push(
+            env.DB.prepare(`INSERT OR REPLACE INTO ${tableName} ${columns} VALUES ${placeholders}`).bind(...params)
+          );
+        }
+        return stmts;
+      };
+
+      const buildTodoStmts = (items) => buildMultiRowStmts(items, 'todos', TODO_COLUMNS, TODO_ROW_PLACEHOLDER, TODO_ROWS_PER_INSERT, TODO_BIND_EXTRACTOR);
+      const buildTemplateStmts = (items) => buildMultiRowStmts(items, 'todo_templates', TEMPLATE_COLUMNS, TEMPLATE_ROW_PLACEHOLDER, TEMPLATE_ROWS_PER_INSERT, TEMPLATE_BIND_EXTRACTOR);
 
       const execBatch = async (stmts) => {
-        for (let i = 0; i < stmts.length; i += BATCH_SIZE) {
-          await env.DB.batch(stmts.slice(i, i + BATCH_SIZE));
+        for (let i = 0; i < stmts.length; i += BATCH_STMTS) {
+          await env.DB.batch(stmts.slice(i, i + BATCH_STMTS));
         }
       };
 
@@ -1435,12 +1485,12 @@ self.addEventListener('fetch', (event) => {
               if (obj._type === 'template') {
                 const tpl = Object.assign({}, obj); delete tpl._type;
                 tplBatch.push(tpl);
-                if (tplBatch.length >= BATCH_SIZE) { await execBatch(buildTemplateStmts(tplBatch)); tplBatch = []; }
+                if (tplBatch.length >= BATCH_ROWS) { await execBatch(buildTemplateStmts(tplBatch)); tplBatch = []; }
               } else if (obj._type) {
                 // settings/categories etc. handled by frontend separately
               } else {
                 todoBatch.push(obj);
-                if (todoBatch.length >= BATCH_SIZE) { await execBatch(buildTodoStmts(todoBatch)); todoBatch = []; }
+                if (todoBatch.length >= BATCH_ROWS) { await execBatch(buildTodoStmts(todoBatch)); todoBatch = []; }
               }
             }
           }
