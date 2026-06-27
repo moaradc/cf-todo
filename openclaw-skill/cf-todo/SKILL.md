@@ -300,7 +300,8 @@ Response:
       "is_exception": false,
       "is_series": false,
       "repeat_interval": 1,
-      "time_records": []
+      "time_records": [],
+      "fragment_anchor": ""
     }
   ],
   "pagination": {
@@ -312,6 +313,12 @@ Response:
 ```
 
 **Note:** When querying by `date`, recurring todo templates are auto-expanded: if a recurring todo should appear on that date but no instance exists yet, one is created automatically and included in the results.
+
+**`fragment_anchor` field** — Authoritative copy of the start date for `repeat_type: "fragment"` todos (碎时记). Always present in todo responses; empty string `""` for non-fragment types.
+- Uncompleted fragment: `fragment_anchor` equals `date`
+- Completed fragment: `date` is frozen to the completion date, `fragment_anchor` still holds the original start date
+- On `done: true → false`, fragment `date` is restored from `fragment_anchor`
+- Non-fragment types (`none` / `daily` / `weekly` / `monthly` / `yearly`): always `""`
 
 **`expand=false` option** — Add `&expand=false` to skip both server-side RRULE expansion AND the auto-instance `INSERT` into `todos`. The response includes a `templates` array (active recurring templates covering that date, each carrying `repeat_type` / `repeat_interval` / `anchor_date` / `repeat_end` / `exdates` / `repeat_custom`) for the caller to compute occurrences locally via ical.js / rrule.js / any RRULE library. This reduces Worker CPU usage (Cloudflare Free plan 10ms CPU limit) and avoids side-effect writes (no D1 INSERT). Use cases: programmatic callers that already have RRULE computation capability, or read-only snapshots where you don't want to mutate the database. Note: `expand=false` is only valid on `date` queries (range queries never expand server-side anyway). Response format:
 
@@ -333,6 +340,8 @@ Response:
 3. Always apply `exdates` (cancel specific dates) and respect `repeat_end` (hard UNTIL bound) regardless of branch 1 or 2.
 
 **Caveat:** `expand=false` does NOT auto-create recurring instances (no D1 writes). The caller is fully responsible for filtering `templates` against the queried date (applying `exdates`, checking `repeat_end`, honoring `repeat_custom` precedence). Use default `expand=true` if you need persisted instances or don't want to re-implement RRULE evaluation.
+
+**Note on `fragment` type:** `templates` only contains rows where `repeat_type IN ('daily','weekly','monthly','yearly')`. Fragment (碎时记) todos have no template — they appear directly in `data` (filtered by the fragment visibility rule: uncompleted fragments with `date = '' OR date <= queried_date`, completed fragments with `date = queried_date`). `fragment_anchor` is a column on `todos` only, not `todo_templates`, so it never appears in `templates` entries.
 
 ### Get a single todo
 
@@ -373,7 +382,8 @@ Response:
     ],
     "last_completed_at": 1719000120000,
     "last_duration_ms": 120000,
-    "is_zero_duration": false
+    "is_zero_duration": false,
+    "fragment_anchor": ""
   }
 }
 ```
@@ -456,13 +466,20 @@ curl -s -X POST -H "X-API-Key: $CF_TODO_API_KEY" -H "Content-Type: application/j
 | `copy_text` | String | `""` |
 | `subtasks` | `[{"text":"...", "done":false}]` or `["..."]` | `[]` |
 | `search_terms` | `[{"text":"...", "done":false}]` or `["..."]` | `[]` |
-| `repeat_type` | `"none"`, `"daily"`, `"weekly"`, `"monthly"`, `"yearly"` | `"none"` |
+| `repeat_type` | `"none"`, `"daily"`, `"weekly"`, `"monthly"`, `"yearly"`, `"fragment"` | `"none"` |
 | `repeat_end` | YYYY-MM-DD or `""` | `""` |
 | `end_time` | HH:MM | `""` |
 | `category_id` | Category ID | `""` |
 | `repeat_interval` | Integer (every N units) | `1` |
 
 Note: `"medium"` priority is auto-converted to `"med"`. Subtask/search_term strings are auto-converted to `{text, done:false}` objects.
+
+**`repeat_type: "fragment"` (碎时记) constraints** — When `repeat_type` is `"fragment"`:
+- A floating todo not tied to a specific date; no template is created (same as `"none"`).
+- Server forces `time = ""`, `end_time = ""`, `repeat_end = ""`, `repeat_interval = 1`.
+- `fragment_anchor` is auto-set to the value of `date` (the start date).
+- Visible on any date `>= fragment_anchor` while uncompleted; on completion, `date` is frozen to the completion date and `fragment_anchor` retains the original start date.
+- Supports multi-segment timing (开始 / 暂停 / 继续 / 记录当前段 / 完成 / 继续计时). All sessions retained (no FIFO truncation). See `time_records` retention rules below.
 
 Response (HTTP 201):
 
@@ -474,12 +491,14 @@ Response (HTTP 201):
     "date": "2026-06-12",
     "text": "Buy groceries",
     "repeat_type": "none",
-    "category_id": ""
+    "category_id": "",
+    "repeat_interval": 1,
+    "fragment_anchor": ""
   }
 }
 ```
 
-**Creating a recurring todo:** When `repeat_type` is not `"none"`, a template is also created in `todo_templates`. The `date` field becomes the anchor (first occurrence) date.
+**Creating a recurring todo:** When `repeat_type` is `daily`/`weekly`/`monthly`/`yearly`, a template is also created in `todo_templates`. The `date` field becomes the anchor (first occurrence) date. When `repeat_type` is `"fragment"` or `"none"`, no template is created.
 
 ```bash
 # Create a daily recurring todo
@@ -491,6 +510,11 @@ curl -s -X POST -H "X-API-Key: $CF_TODO_API_KEY" -H "Content-Type: application/j
 curl -s -X POST -H "X-API-Key: $CF_TODO_API_KEY" -H "Content-Type: application/json" \
   "$CF_TODO_API_URL/api/v1/todos" \
   -d '{"date":"2026-06-13","text":"周会","repeat_type":"weekly","repeat_end":"2026-12-31"}'
+
+# Create a fragment (碎时记) todo — floating, multi-segment timing
+curl -s -X POST -H "X-API-Key: $CF_TODO_API_KEY" -H "Content-Type: application/json" \
+  "$CF_TODO_API_URL/api/v1/todos" \
+  -d '{"date":"2026-06-12","text":"读《深度工作》","repeat_type":"fragment"}'
 ```
 
 ### Update a todo
@@ -514,9 +538,12 @@ For recurring todos, set `scope`:
 - `"all"` — update all instances — **DESTRUCTIVE, confirm first**. Updates template + all existing instances.
 
 **Special behaviors:**
-- Changing a non-recurring todo to recurring (`repeat_type` != `"none"`) creates a template automatically.
+- Changing a non-recurring todo to recurring (`repeat_type` in `daily`/`weekly`/`monthly`/`yearly`) creates a template automatically.
 - Changing a recurring instance to non-recurring detaches it from the series (sets `parent_id` = own `id`, adds exdate to template).
 - Changing `date` on a recurring todo with `scope=all` or `thisAndFuture` will delete future instances and regenerate them from the updated template.
+- Changing `repeat_type` to `"fragment"`: detaches from old series (adds exdate to old template), forces `time=""`, `end_time=""`, `repeat_end=""`, `repeat_interval=1`, sets `fragment_anchor` to `date` (if uncompleted) or keeps existing `fragment_anchor` (if completed).
+- Changing `repeat_type` from `"fragment"` to `"none"` or any recurring type: clears `fragment_anchor` to `""`.
+- Updating `date` on a fragment todo: if uncompleted, `fragment_anchor` syncs to new `date`; if completed, `fragment_anchor` retains its original value.
 
 Response:
 

@@ -30,9 +30,10 @@ Mitigation: The skill instructs agents to always GET settings first, modify, the
 **Other Properties Related to Output:** [Uses curl via cf-todo.sh helper script; requires CF_TODO_API_URL and CF_TODO_API_KEY environment variables] <br>
 
 ## Skill Version(s): <br>
-1.4.0 <br>
+1.4.1 <br>
 
 ## Changelog: <br>
+- **1.4.1** (2026-06-28): SKILL.md 补全 `fragment_anchor` 字段文档（List / Get / Create 响应示例、字段说明）；`repeat_type` 枚举补 `"fragment"`（碎时记）并新增约束说明（无模板、强制清空 time/end_time/repeat_end、`fragment_anchor` 自动同步 `date`）；Update 章节补充 `repeat_type` 与 `fragment` 互转时 `fragment_anchor` 的清理/同步行为；`expand=false` 段补充 `templates` 不含 `fragment_anchor` 列的说明（`fragment_anchor` 仅在 `todos` 表上）。`expand=false` templates 字段清单补 `repeat_custom` + RRULE 计算优先级规则。Breaking Change 条目精确化（snake_case 前置落地、静默忽略风险、响应字段 `isSeries` 改名）。 <br>
 - **1.4.0** (2026-06-27): API 字段统一 snake_case。`todos:date` 新增 `--no-expand` 选项（跳过服务端重复任务展开）。批量接口自动分片（99/组），响应含 `chunked`/`chunkCount` 字段，`affected`/`restored`/`deleted` 为实际改动行数。 <br>
 - **1.2.0**: Initial release. <br>
 
