@@ -313,7 +313,7 @@ Response:
 
 **Note:** When querying by `date`, recurring todo templates are auto-expanded: if a recurring todo should appear on that date but no instance exists yet, one is created automatically and included in the results.
 
-**`expand=false` option** — Add `&expand=false` to skip both server-side RRULE expansion AND the auto-instance `INSERT` into `todos`. The response includes a `templates` array (active recurring templates covering that date, each carrying `repeat_type` / `repeat_interval` / `anchor_date` / `repeat_end` / `exdates`) for the caller to compute occurrences locally via ical.js / rrule.js / any RRULE library. This reduces Worker CPU usage (Cloudflare Free plan 10ms CPU limit) and avoids side-effect writes (no D1 INSERT). Use cases: programmatic callers that already have RRULE computation capability, or read-only snapshots where you don't want to mutate the database. Note: `expand=false` is only valid on `date` queries (range queries never expand server-side anyway). Response format:
+**`expand=false` option** — Add `&expand=false` to skip both server-side RRULE expansion AND the auto-instance `INSERT` into `todos`. The response includes a `templates` array (active recurring templates covering that date, each carrying `repeat_type` / `repeat_interval` / `anchor_date` / `repeat_end` / `exdates` / `repeat_custom`) for the caller to compute occurrences locally via ical.js / rrule.js / any RRULE library. This reduces Worker CPU usage (Cloudflare Free plan 10ms CPU limit) and avoids side-effect writes (no D1 INSERT). Use cases: programmatic callers that already have RRULE computation capability, or read-only snapshots where you don't want to mutate the database. Note: `expand=false` is only valid on `date` queries (range queries never expand server-side anyway). Response format:
 
 ```json
 {
@@ -321,13 +321,18 @@ Response:
   "data": [ /* existing todos for that date */ ],
   "pagination": { "total": 5, "limit": 100, "offset": 0 },
   "templates": [
-    { "parent_id": "uuid", "text": "Daily task", "repeat_type": "daily", "repeat_interval": 1, "anchor_date": "2026-01-01", "repeat_end": "", "exdates": "[]", /* ... */ }
+    { "parent_id": "uuid", "text": "Daily task", "repeat_type": "daily", "repeat_interval": 1, "anchor_date": "2026-01-01", "repeat_end": "", "exdates": "[]", "repeat_custom": "", /* ... */ }
   ],
   "expand": false
 }
 ```
 
-**Caveat:** `expand=false` does NOT auto-create recurring instances (no D1 writes). The caller is fully responsible for filtering `templates` against the queried date (e.g. applying `exdates`, checking `repeat_end`). Use default `expand=true` if you need persisted instances or don't want to re-implement RRULE evaluation.
+**RRULE computation precedence** — When computing occurrences from a `templates` entry locally, follow the same precedence the server uses (`src/recurring-engine.js buildRRuleString()`):
+1. If `repeat_custom` is non-empty → use it verbatim as the RRULE string (it overrides `repeat_type` / `repeat_interval` / `anchor_date` / `repeat_end` for frequency & by-day rules; `exdates` still apply).
+2. Else → build the RRULE from `repeat_type` + `repeat_interval` + `anchor_date` (DTSTART) + `repeat_end` (UNTIL).
+3. Always apply `exdates` (cancel specific dates) and respect `repeat_end` (hard UNTIL bound) regardless of branch 1 or 2.
+
+**Caveat:** `expand=false` does NOT auto-create recurring instances (no D1 writes). The caller is fully responsible for filtering `templates` against the queried date (applying `exdates`, checking `repeat_end`, honoring `repeat_custom` precedence). Use default `expand=true` if you need persisted instances or don't want to re-implement RRULE evaluation.
 
 ### Get a single todo
 
