@@ -1656,7 +1656,8 @@ self.addEventListener('fetch', (event) => {
                     recurrence_id TEXT DEFAULT '',
                     is_exception INTEGER NOT NULL DEFAULT 0,
                     repeat_interval INTEGER NOT NULL DEFAULT 1,
-                    time_records TEXT NOT NULL DEFAULT '[]'
+                    time_records TEXT NOT NULL DEFAULT '[]',
+                    fragment_anchor TEXT NOT NULL DEFAULT ''
                   )
                 `),
                 env.DB.prepare(`CREATE INDEX idx_todos_cursor ON todos(date, deleted, id)`),
