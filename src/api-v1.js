@@ -1262,20 +1262,23 @@ async function handleV1TodoBatch(request, DB) {
       for (const chunk of chunkArray(allFragmentIds, BATCH_CHUNK_SIZE)) {
         const ph = sqlPlaceholders(chunk.length);
         try {
-          await DB.prepare(`UPDATE todos SET done = 1, date = ? WHERE id IN (${ph}) AND done = 0`)
+          const r = await DB.prepare(`UPDATE todos SET done = 1, date = ? WHERE id IN (${ph}) AND done = 0`)
             .bind(date || '', ...chunk).run();
+          totalAffected += (r.meta?.changes || 0);
         } catch (e) {
           // date 列可能不存在等边界场景，降级为仅切换 done
           try {
-            await DB.prepare(`UPDATE todos SET done = 1 WHERE id IN (${ph}) AND done = 0`).bind(...chunk).run();
+            const r2 = await DB.prepare(`UPDATE todos SET done = 1 WHERE id IN (${ph}) AND done = 0`).bind(...chunk).run();
+            totalAffected += (r2.meta?.changes || 0);
           } catch (e2) {}
         }
       }
       for (const chunk of chunkArray(allPlainIds, BATCH_CHUNK_SIZE)) {
         const ph = sqlPlaceholders(chunk.length);
         try {
-          await DB.prepare(`UPDATE todos SET done = 1 WHERE id IN (${ph}) AND done = 0`)
+          const r = await DB.prepare(`UPDATE todos SET done = 1 WHERE id IN (${ph}) AND done = 0`)
             .bind(...chunk).run();
+          totalAffected += (r.meta?.changes || 0);
         } catch (e) {
           // 单片失败不阻断整体流程
         }
@@ -1295,24 +1298,31 @@ async function handleV1TodoBatch(request, DB) {
       for (const chunk of chunkArray(allFragmentIds, BATCH_CHUNK_SIZE)) {
         const ph = sqlPlaceholders(chunk.length);
         try {
-          await DB.prepare(`UPDATE todos SET done = 0, date = fragment_anchor, time_records = ? WHERE id IN (${ph})`)
+          const r = await DB.prepare(`UPDATE todos SET done = 0, date = fragment_anchor, time_records = ? WHERE id IN (${ph})`)
             .bind('[]', ...chunk).run();
+          totalAffected += (r.meta?.changes || 0);
         } catch (e) {
-          try { await DB.prepare(`UPDATE todos SET done = 0 WHERE id IN (${ph})`).bind(...chunk).run(); } catch (e2) {}
+          try {
+            const r2 = await DB.prepare(`UPDATE todos SET done = 0 WHERE id IN (${ph})`).bind(...chunk).run();
+            totalAffected += (r2.meta?.changes || 0);
+          } catch (e2) {}
         }
       }
       for (const chunk of chunkArray(allPlainIds, BATCH_CHUNK_SIZE)) {
         const ph = sqlPlaceholders(chunk.length);
         try {
-          await DB.prepare(`UPDATE todos SET done = 0, time_records = ? WHERE id IN (${ph})`)
+          const r = await DB.prepare(`UPDATE todos SET done = 0, time_records = ? WHERE id IN (${ph})`)
             .bind('[]', ...chunk).run();
+          totalAffected += (r.meta?.changes || 0);
         } catch (e) {
-          await DB.prepare(`UPDATE todos SET done = 0 WHERE id IN (${ph})`)
-            .bind(...chunk).run();
+          try {
+            const r2 = await DB.prepare(`UPDATE todos SET done = 0 WHERE id IN (${ph})`)
+              .bind(...chunk).run();
+            totalAffected += (r2.meta?.changes || 0);
+          } catch (e2) {}
         }
       }
     }
-    totalAffected = ids.length;
     return jsonResponse({ success: true, data: { affected: totalAffected, done: !!doneStatus, chunked: ids.length > BATCH_CHUNK_SIZE, chunkCount: Math.ceil(ids.length / BATCH_CHUNK_SIZE) } });
   }
 
@@ -1331,11 +1341,13 @@ async function handleV1TodoBatch(request, DB) {
       }
     }
 
-    // 自动分片标记软删除
+    // 自动分片标记软删除，累加实际 changes
+    let totalAffected = 0;
     for (const chunk of chunkArray(ids, BATCH_CHUNK_SIZE)) {
       const ph = sqlPlaceholders(chunk.length);
       try {
-        await DB.prepare(`UPDATE todos SET deleted = 1 WHERE id IN (${ph})`).bind(...chunk).run();
+        const r = await DB.prepare(`UPDATE todos SET deleted = 1 WHERE id IN (${ph})`).bind(...chunk).run();
+        totalAffected += (r.meta?.changes || 0);
       } catch (e) {
         // 单片失败不阻断整体流程；调用方可通过返回的 chunked/chunkCount 自查
       }
@@ -1365,7 +1377,7 @@ async function handleV1TodoBatch(request, DB) {
         // 单模板 exdate 维护失败不阻断整体流程
       }
     }
-    return jsonResponse({ success: true, data: { affected: ids.length, chunked: ids.length > BATCH_CHUNK_SIZE, chunkCount: Math.ceil(ids.length / BATCH_CHUNK_SIZE) } });
+    return jsonResponse({ success: true, data: { affected: totalAffected, chunked: ids.length > BATCH_CHUNK_SIZE, chunkCount: Math.ceil(ids.length / BATCH_CHUNK_SIZE) } });
   }
 
   return apiError('未知操作，可用: BATCH_TOGGLE_DONE, BATCH_DELETE', 400);
@@ -1470,11 +1482,13 @@ async function handleV1TrashAction(request, DB) {
       }
     }
 
-    // 自动分片恢复
+    // 自动分片恢复，累加实际 changes
+    let totalRestored = 0;
     for (const chunk of chunkArray(ids, BATCH_CHUNK_SIZE)) {
       const ph = sqlPlaceholders(chunk.length);
       try {
-        await DB.prepare(`UPDATE todos SET deleted = 0 WHERE id IN (${ph})`).bind(...chunk).run();
+        const r = await DB.prepare(`UPDATE todos SET deleted = 0 WHERE id IN (${ph})`).bind(...chunk).run();
+        totalRestored += (r.meta?.changes || 0);
       } catch (e) {
         // 单片失败不阻断整体流程
       }
@@ -1541,20 +1555,22 @@ async function handleV1TrashAction(request, DB) {
         // 单模板 exdate 维护失败不阻断整体流程
       }
     }
-    return jsonResponse({ success: true, data: { restored: ids.length, chunked: ids.length > BATCH_CHUNK_SIZE, chunkCount: Math.ceil(ids.length / BATCH_CHUNK_SIZE) } });
+    return jsonResponse({ success: true, data: { restored: totalRestored, chunked: ids.length > BATCH_CHUNK_SIZE, chunkCount: Math.ceil(ids.length / BATCH_CHUNK_SIZE) } });
   }
 
   if (action === 'BATCH_DELETE_PERMANENT') {
     if (!ids || !Array.isArray(ids) || ids.length === 0) return apiError('ids 为必填数组', 400);
+    let totalDeleted = 0;
     for (const chunk of chunkArray(ids, BATCH_CHUNK_SIZE)) {
       const ph = sqlPlaceholders(chunk.length);
       try {
-        await DB.prepare(`DELETE FROM todos WHERE id IN (${ph})`).bind(...chunk).run();
+        const r = await DB.prepare(`DELETE FROM todos WHERE id IN (${ph})`).bind(...chunk).run();
+        totalDeleted += (r.meta?.changes || 0);
       } catch (e) {
         // 单片失败不阻断整体流程
       }
     }
-    return jsonResponse({ success: true, data: { deleted: ids.length, chunked: ids.length > BATCH_CHUNK_SIZE, chunkCount: Math.ceil(ids.length / BATCH_CHUNK_SIZE) } });
+    return jsonResponse({ success: true, data: { deleted: totalDeleted, chunked: ids.length > BATCH_CHUNK_SIZE, chunkCount: Math.ceil(ids.length / BATCH_CHUNK_SIZE) } });
   }
 
   return apiError('未知操作，可用: RESTORE, DELETE_PERMANENT, CLEAR_ALL, CLEAR_ALL_DATA, BATCH_RESTORE, BATCH_DELETE_PERMANENT', 400);
@@ -1691,19 +1707,25 @@ async function handleV1CategoryBatch(request, DB) {
     if (!ids || !Array.isArray(ids) || ids.length === 0) return apiError('ids 为必填数组', 400);
 
     // 自动分片：每片内 categories 删除 + todos/todo_templates category_id 清空原子提交
+    // 累加实际删除的分类数（取 batch 第一个语句 DELETE FROM categories 的 changes）
+    let totalDeleted = 0;
     for (const chunk of chunkArray(ids, BATCH_CHUNK_SIZE)) {
       const ph = sqlPlaceholders(chunk.length);
       try {
-        await DB.batch([
+        const results = await DB.batch([
           DB.prepare(`DELETE FROM categories WHERE id IN (${ph})`).bind(...chunk),
           DB.prepare(`UPDATE todos SET category_id = '' WHERE category_id IN (${ph})`).bind(...chunk),
           DB.prepare(`UPDATE todo_templates SET category_id = '' WHERE category_id IN (${ph})`).bind(...chunk),
         ]);
+        // D1 DB.batch 返回 ExecutedResult[]，取第一条（DELETE categories）的 changes
+        if (Array.isArray(results) && results[0] && results[0].meta) {
+          totalDeleted += (results[0].meta.changes || 0);
+        }
       } catch (e) {
         // 单片失败不阻断整体流程；调用方可通过返回的 chunked/chunkCount 自查
       }
     }
-    return jsonResponse({ success: true, data: { deleted: ids.length, chunked: ids.length > BATCH_CHUNK_SIZE, chunkCount: Math.ceil(ids.length / BATCH_CHUNK_SIZE) } });
+    return jsonResponse({ success: true, data: { deleted: totalDeleted, chunked: ids.length > BATCH_CHUNK_SIZE, chunkCount: Math.ceil(ids.length / BATCH_CHUNK_SIZE) } });
   }
 
   return apiError('未知操作，可用: BATCH_DELETE', 400);
