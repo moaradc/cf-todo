@@ -9,9 +9,9 @@
  *   3. UPDATE scope=all without `parent_id` → derives from DB stub (no 500)
  *   4. UPDATE scope=all with only `text` → uses DB text fallback for missing fields
  *   5. CREATE with `copy_text` (snake_case) → readCopyText helper reads it
- *   6. CREATE with `copyText` (camelCase) → backward compat
+ *   6. v3.0: camelCase `copyText` is deprecated and ignored (returns '')
  *
- * Run: node /home/z/my-project/scripts/verify_fixes_locally.js
+ * Run: node /home/z/my-project/cf-todo/docs/test-reports/_v0-api-robustness-fix-verification.js
  */
 
 import { readFileSync } from 'fs';
@@ -69,9 +69,10 @@ const db = {
 // Given the user just wants confirmation the fix logic is sound, we test the
 // fix code in isolation here.
 
+// 与 src/api.js 中 readCopyText() 一致：v3.0 仅读 snake_case `copy_text`，camelCase 已废弃
 function readCopyText(task) {
   if (!task) return '';
-  return task.copyText !== undefined ? task.copyText : (task.copy_text || '');
+  return task.copy_text !== undefined ? task.copy_text : '';
 }
 
 // --- Test cases ------------------------------------------------------------
@@ -145,7 +146,8 @@ async function testUpdateFieldFallback() {
     if (task.priority === undefined) originalTask.priority = orig.priority;
     if (task.desc === undefined) originalTask.desc = orig.desc;
     if (task.url === undefined) originalTask.url = orig.url;
-    if (task.copyText === undefined && task.copy_text === undefined) originalTask.copyText = orig.copy_text || '';
+    // 与 src/api.js 一致：内部一律写 copy_text；v3.0 仅检测 snake_case 输入
+    if (task.copy_text === undefined) originalTask.copy_text = orig.copy_text || '';
   }
 
   expect('UPDATE: text falls back to DB value', originalTask.text === 'original text', { text: originalTask.text });
@@ -153,21 +155,25 @@ async function testUpdateFieldFallback() {
   expect('UPDATE: priority falls back to DB value', originalTask.priority === 'med', { priority: originalTask.priority });
   expect('UPDATE: desc falls back to DB value', originalTask.desc === 'orig desc', { desc: originalTask.desc });
   expect('UPDATE: url falls back to DB value', originalTask.url === 'https://orig', { url: originalTask.url });
-  expect('UPDATE: copyText falls back to DB value', originalTask.copyText === 'orig-copy', { copyText: originalTask.copyText });
+  expect('UPDATE: copy_text falls back to DB value', originalTask.copy_text === 'orig-copy', { copy_text: originalTask.copy_text });
 }
 
 // Test 4: readCopyText helper
 function testReadCopyText() {
   expect('readCopyText: snake_case copy_text',
     readCopyText({ copy_text: 'snake' }) === 'snake', {});
-  expect('readCopyText: camelCase copyText',
-    readCopyText({ copyText: 'camel' }) === 'camel', {});
-  expect('readCopyText: both present → camelCase wins (backward compat)',
-    readCopyText({ copyText: 'camel', copy_text: 'snake' }) === 'camel', {});
+  // v3.0：camelCase copyText 已废弃，不再兼容读取
+  expect('readCopyText: camelCase copyText (v3.0 deprecated → ignored)',
+    readCopyText({ copyText: 'camel' }) === '', {});
+  expect('readCopyText: both present → snake_case wins (camelCase ignored)',
+    readCopyText({ copyText: 'camel', copy_text: 'snake' }) === 'snake', {});
   expect('readCopyText: empty object → ""',
     readCopyText({}) === '', {});
   expect('readCopyText: null task → ""',
     readCopyText(null) === '', {});
+  // 健壮性：空字符串显式传入时应保留（不当作缺失）
+  expect('readCopyText: explicit empty string copy_text preserved',
+    readCopyText({ copy_text: '' }) === '', {});
 }
 
 // Run all

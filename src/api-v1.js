@@ -391,7 +391,7 @@ function formatTodo(row) {
     category_id: row.category_id || '',
     recurrence_id: row.recurrence_id || '',
     is_exception: !!row.is_exception,
-    isSeries: rType !== 'none' && rType !== 'fragment',
+    is_series: rType !== 'none' && rType !== 'fragment',
     repeat_interval: row.repeat_interval || 1,
     // 原始记录数组（供需要历史/预估的客户端）
     time_records: timeRecords,
@@ -723,9 +723,9 @@ async function handleV1TodoPut(request, DB, todoId) {
   // 碎时记 (fragment) 不算重复系列
   // 若新值是 fragment，强制按"非系列"处理：脱离旧系列 + 不创建新模板
   const rptTypeFromBody = body.repeat_type !== undefined ? body.repeat_type : (existing.repeat_type || 'none');
-  const isSeries = existing.repeat_type && existing.repeat_type !== 'none' && existing.repeat_type !== 'fragment' && rptTypeFromBody !== 'fragment';
+  const is_series = existing.repeat_type && existing.repeat_type !== 'none' && existing.repeat_type !== 'fragment' && rptTypeFromBody !== 'fragment';
   // 重复 todo 未指定 scope 时，默认 scope=this（仅更新此实例）
-  const scope = isSeries && (!body.scope || body.scope === 'none') ? 'this' : (body.scope || 'none');
+  const scope = is_series && (!body.scope || body.scope === 'none') ? 'this' : (body.scope || 'none');
 
   const newValues = {
     text: body.text !== undefined ? body.text : existing.text,
@@ -766,7 +766,7 @@ async function handleV1TodoPut(request, DB, todoId) {
   }
   const dateChanged = newDate !== date;
 
-  if (!isSeries || !scope || scope === 'none') {
+  if (!is_series || !scope || scope === 'none') {
     if (rptType !== 'none' && rptType !== 'fragment') {
       // 单次 → 重复
       await DB.prepare(
@@ -832,7 +832,7 @@ async function handleV1TodoPut(request, DB, todoId) {
       }
     }
   } else {
-    const actions = computeUpdateActions({ task: { ...existing, parent_id: parentId, isSeries }, date, scope, newValues, newDate });
+    const actions = computeUpdateActions({ task: { ...existing, parent_id: parentId, is_series }, date, scope, newValues, newDate });
 
     // Split 系列时生成新 parent_id
     let splitNewPid = null;
@@ -948,16 +948,16 @@ async function handleV1TodoDelete(DB, todoId, scope) {
 
   const parentId = existing.parent_id;
   // 碎时记 (fragment) 不算重复系列，直接软删除
-  const isSeries = existing.repeat_type && existing.repeat_type !== 'none' && existing.repeat_type !== 'fragment';
+  const is_series = existing.repeat_type && existing.repeat_type !== 'none' && existing.repeat_type !== 'fragment';
   const date = existing.date;
 
   // 重复 todo 未指定 scope 时，默认 scope=this（仅删除此实例，加 exdate 防止重新生成）
-  const effectiveScope = isSeries && !scope ? 'this' : scope;
+  const effectiveScope = is_series && !scope ? 'this' : scope;
 
-  if (!isSeries || !effectiveScope) {
+  if (!is_series || !effectiveScope) {
     await DB.prepare('UPDATE todos SET deleted = 1 WHERE id = ?').bind(todoId).run();
   } else {
-    const actions = computeDeleteActions({ task: { ...existing, parent_id: parentId, isSeries }, date, scope: effectiveScope });
+    const actions = computeDeleteActions({ task: { ...existing, parent_id: parentId, is_series }, date, scope: effectiveScope });
 
     if (actions.deleteTodoIds && actions.deleteTodoIds.length > 0) {
       for (const id of actions.deleteTodoIds) {
@@ -1066,8 +1066,8 @@ async function handleV1TodoToggle(request, DB, todoId) {
   } else {
     // 取消勾选
     // 碎时记：清空 time_records，done=0，date 从 fragment_anchor 恢复（保留用户设置的起始日期）
-    // 注意：v1 toggle 是简单切换接口，无 keepRecords 参数；
-    //       "继续计时"保留累计的路径在 v0 Web API（continueAfterDone → keepRecords=true）
+    // 注意：v1 toggle 是简单切换接口，无 keep_records 参数；
+    //       "继续计时"保留累计的路径在 v0 Web API（continueAfterDone → keep_records=true）
     if (isFragment) {
       const savedAnchor = existing.fragment_anchor || '';
       try {
@@ -1249,15 +1249,15 @@ async function handleV1CategoryDelete(DB, catId) {
 // ==================== 批量操作 ====================
 
 // POST /api/v1/todos/batch - 批量操作
-// body: { action, ids, doneStatus, timerRecords? }
-// timerRecords: [{ id, parentId, record: {s, e, p} }]（可选）
-// - BATCH_TOGGLE_DONE + doneStatus=true：
+// body: { action, ids, done_status, timer_records? }（v3.0；旧 camelCase doneStatus/timerRecords 仍兼容）
+// timer_records: [{ id, parent_id, record: {s, e, p} }]（可选）
+// - BATCH_TOGGLE_DONE + done_status=true：
 //   - 先批量 UPDATE done=1
-//   - 再对 timerRecords 中每条 record 写入 time_records
+//   - 再对 timer_records 中每条 record 写入 time_records
 //     - 真实耗时（s<e）：实例级 + 模板级双写
 //     - 零耗时（s===e）：仅实例级
-//   - ids 中有但 timerRecords 没有的：done=1 但无 time_records（向后兼容）
-// - BATCH_TOGGLE_DONE + doneStatus=false：批量 UPDATE done=0, time_records='[]'
+//   - ids 中有但 timer_records 没有的：done=1 但无 time_records（向后兼容）
+// - BATCH_TOGGLE_DONE + done_status=false：批量 UPDATE done=0, time_records='[]'
 async function handleV1TodoBatch(request, DB) {
   let batchBody;
   try {
@@ -1265,7 +1265,10 @@ async function handleV1TodoBatch(request, DB) {
   } catch(e) {
     return apiError('请求体不是有效的 JSON', 400);
   }
-  const { action, ids, doneStatus, timerRecords, date } = batchBody;
+  // v3.0 兼容：旧 camelCase 客户端可能仍传 doneStatus/timerRecords
+  const { action, ids, date } = batchBody;
+  const doneStatus = batchBody.done_status !== undefined ? batchBody.done_status : batchBody.doneStatus;
+  const timerRecords = batchBody.timer_records !== undefined ? batchBody.timer_records : batchBody.timerRecords;
 
   if (action === 'BATCH_TOGGLE_DONE') {
     if (!ids || !Array.isArray(ids) || ids.length === 0) return apiError('ids 为必填数组', 400);
@@ -1347,7 +1350,7 @@ async function handleV1TodoBatch(request, DB) {
           if (!(s > 0 && e >= s && (e - s) <= MAX_DURATION_MS && p >= 0 && p <= (e - s))) continue;
           validItems.push({
             id: item.id,
-            parentId: item.parentId,
+            parent_id: item.parent_id,
             isFragment: allFragmentIdSet.has(item.id),
             isZeroDuration: s === e,
             s, e, p,
@@ -1374,11 +1377,11 @@ async function handleV1TodoBatch(request, DB) {
           }
         }
 
-        // 批量预取模板级 time_records（仅非零耗时 + 非碎时记 + 有 parentId 的）
+        // 批量预取模板级 time_records（仅非零耗时 + 非碎时记 + 有 parent_id 的）
         const tplParentIds = [...new Set(
           validItems
-            .filter(it => !it.isZeroDuration && !it.isFragment && it.parentId)
-            .map(it => it.parentId)
+            .filter(it => !it.isZeroDuration && !it.isFragment && it.parent_id)
+            .map(it => it.parent_id)
         )];
         const tplTimeRecordsMap = new Map(); // parent_id -> current time_records array
         for (const chunk of chunkArray(tplParentIds, BATCH_CHUNK_SIZE)) {
@@ -1411,14 +1414,14 @@ async function handleV1TodoBatch(request, DB) {
         // 模板级 merge：仅真实耗时 + 非碎时记，FIFO 10
         const tplUpdates = new Map(); // parent_id -> time_records array（同一 parent 多 record 累加）
         for (const it of validItems) {
-          if (it.isZeroDuration || it.isFragment || !it.parentId) continue;
-          const arr = tplTimeRecordsMap.get(it.parentId);
+          if (it.isZeroDuration || it.isFragment || !it.parent_id) continue;
+          const arr = tplTimeRecordsMap.get(it.parent_id);
           if (!arr) continue; // 模板不存在，跳过
-          let target = tplUpdates.get(it.parentId);
+          let target = tplUpdates.get(it.parent_id);
           if (!target) {
             // 复制一份避免污染预取 map
             target = arr.slice();
-            tplUpdates.set(it.parentId, target);
+            tplUpdates.set(it.parent_id, target);
           }
           target.push({ s: it.s, e: it.e, p: it.p });
           if (target.length > 10) target.splice(0, target.length - 10);

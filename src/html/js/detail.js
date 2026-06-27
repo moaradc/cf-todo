@@ -88,7 +88,7 @@ export const detail = `
       const isFragment = tempRepeatType === 'fragment';
       const instanceDate = isFragment ? (tempFragmentAnchor || '') : tempAddDate;
       const newTask = {
-        id: newId, parentId: newId, text: text, time: tempTime,
+        id: newId, parent_id: newId, text: text, time: tempTime,
         end_time: tempEndTime,
         priority: tempPriority, 
         repeat_type: tempRepeatType,
@@ -97,7 +97,7 @@ export const detail = `
         repeat_interval: isFragment ? 1 : (tempRepeatInterval || 1),
         category_id: tempCategoryId,
         desc: document.getElementById('add-desc').value, url: document.getElementById('add-url').value,
-        copyText: document.getElementById('add-copy').value, done: false,
+        copy_text: document.getElementById('add-copy').value, done: false,
         subtasks: tempSubtasks, search_terms: tempSearchTerms
       };
       closeAddModal();
@@ -487,7 +487,7 @@ export const detail = `
         }
 
         let rText = getRepeatDisplayText(task.repeat_type, task.date, task.repeat_end, task.repeat_interval);
-        if ((!task.repeat_type || task.repeat_type === 'none') && task.isSeries) {
+        if ((!task.repeat_type || task.repeat_type === 'none') && task.is_series) {
             rText = '已停止重复';
         }
 
@@ -873,13 +873,13 @@ export const detail = `
 
       if (action === 'delete') {
         title.innerText = "确认删除";
-        if (task.isSeries) {
+        if (task.is_series) {
           options.innerHTML += \`<button onclick="confirmAction('this')">仅此日程</button>\`;
           options.innerHTML += \`<button onclick="confirmAction('thisAndFuture')">此日程及之后</button>\`;
           options.innerHTML += \`<button onclick="confirmAction('all')">所有日程</button>\`;
         } else { options.innerHTML += \`<button onclick="confirmAction('this')">确认删除</button>\`; }
       } else if (action === 'save') {
-        if (task.isSeries) {
+        if (task.is_series) {
           title.innerText = "保存范围：";
           options.innerHTML += \`<button onclick="confirmAction('this')">仅此日程</button>\`;
           options.innerHTML += \`<button onclick="confirmAction('thisAndFuture')">此日程及之后</button>\`;
@@ -980,24 +980,24 @@ export const detail = `
         task.text = document.getElementById('edit-text').value; task.time = tempTime; task.priority = tempPriority;
         task.end_time = tempEndTime;
         task.desc = document.getElementById('edit-desc').value; task.url = document.getElementById('edit-url').value;
-        task.copyText = document.getElementById('edit-copy').value; task.copy_text = task.copyText; 
+        task.copy_text = document.getElementById('edit-copy').value;
         task.subtasks = tempSubtasks; task.search_terms = tempSearchTerms;
         task.category_id = tempCategoryId;
         
         // === 编辑保存前清理同系列计时器，避免 localStorage 孤儿 ===
         // 必须在 await fetch / loadTodos 之前完成：fetch 后 todos 数组会被刷新，
         // 同系列其他实例（siblings）就拿不到了。
-        // 必须在 scope 处理改 task.isSeries 之前读原值：原 isSeries 决定是否走清理分支。
+        // 必须在 scope 处理改 task.is_series 之前读原值：原 is_series 决定是否走清理分支。
         // 不调用 completeTimer：被 DELETE 的实例在后端已不存在，TIMER_COMPLETE 会失败。
         // 进度丢失是已知限制（与原行为一致，只是不再静默残留孤儿）。
-        const _origIsSeries = task.isSeries;
+        const _origIsSeries = task.is_series;
         const _taskId = task.id;
-        const _taskParentId = task.parent_id || task.parentId;
+        const _taskParentId = task.parent_id;
         if (_origIsSeries && typeof clearTimerState === 'function' && typeof readTimerState === 'function') {
           // 同系列、当前正在计时（running 或 paused）的其他实例
           const _siblingsWithTimer = todos.filter(function(t) {
             return t.id !== _taskId
-              && (t.parent_id === _taskParentId || t.parentId === _taskParentId)
+              && t.parent_id === _taskParentId
               && readTimerState(t.id);
           });
 
@@ -1031,14 +1031,14 @@ export const detail = `
         // 根据scope处理重复属性
         // 碎时记 (fragment): 即使原任务是系列（如 daily），编辑为碎时记后应保留 fragment 类型
         // 不能走 "仅此项 → repeat_type=none" 分支，否则会把 fragment 误改为 none
-        if (scope === 'this' && task.isSeries && tempRepeatType !== 'fragment') {
+        if (scope === 'this' && task.is_series && tempRepeatType !== 'fragment') {
           // 仅此项：脱离系列，变为非重复单次事项
           // 重复相关变更（间隔、频率、截止）对"仅此项"无意义，遵循标准规则
           task.repeat_type = 'none';
           task.repeat_custom = '';
           task.repeat_end = '';
           task.repeat_interval = 1;
-          task.isSeries = false;
+          task.is_series = false;
         } else {
           // 此项及之后 / 所有日程：应用重复变更
           // 碎时记也走此分支：保留 fragment 类型，清空无意义字段
@@ -1052,12 +1052,12 @@ export const detail = `
             task.end_time = '';
           }
           if (tempRepeatType === 'none' || tempRepeatType === 'fragment') {
-            task.isSeries = false;
+            task.is_series = false;
           }
         }
         
         // 系列任务：直接关闭详情；非系列任务：切回查看模式保留详情
-        if (task.isSeries) {
+        if (task.is_series) {
           closeDetail();
         } else {
           toggleEditMode();
@@ -1066,7 +1066,7 @@ export const detail = `
         await fetch('/api/todo-action', { method: 'POST', body: JSON.stringify({ action: 'UPDATE', date: originalDate, task: task, scope: scope }), headers: { 'Content-Type': 'application/json' } });
         await loadTodos();
         
-        if (!task.isSeries) {
+        if (!task.is_series) {
           const newIndex = todos.findIndex(t => t.id === task.id);
           if (newIndex !== -1) { currentDetailIndex = newIndex; renderDetailContent(); }
           else closeDetail();

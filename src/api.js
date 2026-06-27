@@ -47,12 +47,11 @@ function sqlPlaceholders(count) {
   return Array.from({ length: count }, () => '?').join(',');
 }
 
-// 健壮性修复：V0 todo-action 接受 camelCase `copyText` 或 snake_case `copy_text`
-// API_Wiki §4.2 文档要求 snake_case，但前端 (src/html/js/detail.js:983) 同时写入两者，
-// 外部 API 调用方常按 V1 风格传 copy_text。统一在此 helper 兼容读取。
+// v3.0 统一命名：所有 task 对象属性一律使用 snake_case `copy_text`（与 DB 列名 / API_Wiki §4.2 / V1 API 一致）。
+// 历史 camelCase `copyText` 已废弃，不再兼容读取（v3.0 破坏性变更）。
 function readCopyText(task) {
   if (!task) return '';
-  return task.copyText !== undefined ? task.copyText : (task.copy_text || '');
+  return task.copy_text !== undefined ? task.copy_text : '';
 }
 
 // 同 date 的 GET /api/todos 串行化，避免并发展开重复事项实例。
@@ -2349,8 +2348,8 @@ self.addEventListener('fetch', (event) => {
           repeat_custom: row.repeat_custom || '',
           repeat_end: row.repeat_end || '',
           end_time: row.end_time || '',
-          // isSeries: 重复系列（daily/weekly/monthly/yearly），碎时记 (fragment) 不算重复系列
-          isSeries: rType && rType !== 'none' && rType !== 'fragment',
+          // is_series: 重复系列（daily/weekly/monthly/yearly），碎时记 (fragment) 不算重复系列
+          is_series: rType && rType !== 'none' && rType !== 'fragment',
           done: !!row.done,
           subtasks: parsedSubtasks,
           search_terms: parsedSearchTerms,
@@ -2422,7 +2421,13 @@ self.addEventListener('fetch', (event) => {
       } catch (e) {
         return apiError('请求体不是有效的 JSON', 400);
       }
-      const { action, date, task, scope, ids, doneStatus, record, parentId, timerRecords, keepRecords } = parsedBody;
+      const { action, date, task, scope, ids, done_status, record, parent_id, timer_records, keep_records } = parsedBody;
+      // v3.0 兼容：旧 camelCase 客户端可能仍传 doneStatus/timerRecords/keepRecords/parentId
+      // 在使用点统一通过 snake_case 访问；下面做一次映射以保证健壮性。
+      const doneStatus = done_status !== undefined ? done_status : parsedBody.doneStatus;
+      const timerRecords = timer_records !== undefined ? timer_records : parsedBody.timerRecords;
+      const keepRecords = keep_records !== undefined ? keep_records : parsedBody.keepRecords;
+      const parentId = parent_id !== undefined ? parent_id : parsedBody.parentId;
 
       // 健壮性：校验 action 必填且有效
       if (!action || typeof action !== 'string') {
@@ -2800,7 +2805,7 @@ self.addEventListener('fetch', (event) => {
             }
 
             // 批量完成时：对带 record 的 todo 写入 time_records
-            // timerRecords: [{ id, parentId, record: {s, e, p} }]
+            // timerRecords (legacy) / timer_records (v3.0): [{ id, parent_id, record: {s, e, p} }]
             // - 真实耗时（s<e）：实例级 + 模板级双写（与 TIMER_COMPLETE 一致；碎时记跳过模板级）
             // - 零耗时（s===e）：仅实例级，不写模板级（与 TOGGLE_DONE 一致，
             //   避免零耗时记录污染 predictDuration 中位数预估）
@@ -2819,7 +2824,7 @@ self.addEventListener('fetch', (event) => {
                 if (!(s > 0 && e >= s && (e - s) <= MAX_DURATION_MS && p >= 0 && p <= (e - s))) continue;
                 validItems.push({
                   id: item.id,
-                  parentId: item.parentId,
+                  parent_id: item.parent_id,
                   isFragment: fragmentIdSet.has(item.id),
                   isZeroDuration: s === e,
                   s, e, p,
@@ -2849,8 +2854,8 @@ self.addEventListener('fetch', (event) => {
               // 批量预取模板级 time_records
               const tplParentIds = [...new Set(
                 validItems
-                  .filter(it => !it.isZeroDuration && !it.isFragment && it.parentId)
-                  .map(it => it.parentId)
+                  .filter(it => !it.isZeroDuration && !it.isFragment && it.parent_id)
+                  .map(it => it.parent_id)
               )];
               const tplTimeRecordsMap = new Map();
               for (const chunk of chunkArray(tplParentIds, BATCH_CHUNK_SIZE)) {
@@ -2879,13 +2884,13 @@ self.addEventListener('fetch', (event) => {
               }
               const tplUpdates = new Map();
               for (const it of validItems) {
-                if (it.isZeroDuration || it.isFragment || !it.parentId) continue;
-                const arr = tplTimeRecordsMap.get(it.parentId);
+                if (it.isZeroDuration || it.isFragment || !it.parent_id) continue;
+                const arr = tplTimeRecordsMap.get(it.parent_id);
                 if (!arr) continue;
-                let target = tplUpdates.get(it.parentId);
+                let target = tplUpdates.get(it.parent_id);
                 if (!target) {
                   target = arr.slice();
-                  tplUpdates.set(it.parentId, target);
+                  tplUpdates.set(it.parent_id, target);
                 }
                 target.push({ s: it.s, e: it.e, p: it.p });
                 if (target.length > 10) target.splice(0, target.length - 10);
@@ -3054,7 +3059,7 @@ self.addEventListener('fetch', (event) => {
           // 健壮性修复：parentId 缺失时从 DB 派生
           // 原 bug：UPDATE scope=all 不传 task.parent_id → DELETE FROM todos WHERE parent_id=undefined → 500
           // V0 调用方（含外部 API）可能省略 parent_id（V1 风格），需要服务端补全
-          let parentId = task.parentId || task.parent_id;
+          let parentId = task.parent_id;
           if (!parentId) {
             try {
               const pidRow = await env.DB.prepare('SELECT parent_id FROM todos WHERE id = ?').bind(task.id).first();
@@ -3079,7 +3084,7 @@ self.addEventListener('fetch', (event) => {
               if (task.priority === undefined) originalTask.priority = orig.priority;
               if (task.desc === undefined) originalTask.desc = orig.desc;
               if (task.url === undefined) originalTask.url = orig.url;
-              if (task.copyText === undefined && task.copy_text === undefined) originalTask.copyText = orig.copy_text || '';
+              if (task.copy_text === undefined) originalTask.copy_text = orig.copy_text || '';
             }
           } catch(e) {}
 
@@ -3101,7 +3106,7 @@ self.addEventListener('fetch', (event) => {
             priority: originalTask.priority || 'low',
             desc: originalTask.desc || '',
             url: originalTask.url || '',
-            copyText: readCopyText(originalTask),
+            copy_text: readCopyText(originalTask),
             subtasks: subtasksStr,
             search_terms: searchTermsStr,
             repeat_type: rptType,
@@ -3345,17 +3350,18 @@ self.addEventListener('fetch', (event) => {
         else if (action === 'DELETE') {
           const rptType = task.repeat_type || 'none';
           // 健壮性修复：与 UPDATE 路径一致，parentId 缺失时从 DB 派生
-          let parentId = task.parentId || task.parent_id;
+          let parentId = task.parent_id;
           if (!parentId) {
             try {
               const pidRow = await env.DB.prepare('SELECT parent_id FROM todos WHERE id = ?').bind(task.id).first();
               if (pidRow) parentId = pidRow.parent_id;
             } catch (e) {}
           }
-          // DELETE 兜底：若仍无 parentId（任务不存在），后续 isSeries 分支会跳过模板操作，无需 400
-          // 从数据库获取原始 repeat_type，确保 isSeries 判断正确
+          // DELETE 兜底：若仍无 parentId（任务不存在），后续 is_series 分支会跳过模板操作，无需 400
+          // 从数据库获取原始 repeat_type，确保 is_series 判断正确
           // 碎时记 (fragment) 不算重复系列，直接软删除
-          let deleteIsSeries = task.isSeries || (rptType && rptType !== 'none' && rptType !== 'fragment');
+          // v3.0：忽略前端传入的 isSeries（v2 历史字段），统一用 task.is_series 或 repeat_type 推导
+          let deleteIsSeries = task.is_series || (rptType && rptType !== 'none' && rptType !== 'fragment');
           try {
             const orig = await env.DB.prepare('SELECT repeat_type FROM todos WHERE id = ?').bind(task.id).first();
             if (orig) {

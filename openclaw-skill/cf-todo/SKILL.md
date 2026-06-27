@@ -298,7 +298,7 @@ Response:
       "category_id": "",
       "recurrence_id": "",
       "is_exception": false,
-      "isSeries": false,
+      "is_series": false,
       "repeat_interval": 1,
       "time_records": []
     }
@@ -361,7 +361,7 @@ Response:
     "category_id": "",
     "recurrence_id": "",
     "is_exception": false,
-    "isSeries": false,
+    "is_series": false,
     "repeat_interval": 1,
     "time_records": [
       { "s": 1719000000000, "e": 1719000120000, "p": 0 }
@@ -607,18 +607,18 @@ Response:
 # Batch toggle done (basic, no completion timestamp)
 curl -s -X POST -H "X-API-Key: $CF_TODO_API_KEY" -H "Content-Type: application/json" \
   "$CF_TODO_API_URL/api/v1/todos/batch" \
-  -d '{"action":"BATCH_TOGGLE_DONE","ids":["id1","id2"],"doneStatus":true}'
+  -d '{"action":"BATCH_TOGGLE_DONE","ids":["id1","id2"],"done_status":true}'
 
-# Batch toggle done WITH timerRecords (mixed: one zero-duration, one real-duration)
+# Batch toggle done WITH timer_records (mixed: one zero-duration, one real-duration)
 curl -s -X POST -H "X-API-Key: $CF_TODO_API_KEY" -H "Content-Type: application/json" \
   "$CF_TODO_API_URL/api/v1/todos/batch" \
   -d '{
     "action":"BATCH_TOGGLE_DONE",
     "ids":["id1","id2"],
-    "doneStatus":true,
-    "timerRecords":[
-      {"id":"id1","parentId":"parent-uuid-1","record":{"s":1719000000000,"e":1719000000000,"p":0}},
-      {"id":"id2","parentId":"parent-uuid-2","record":{"s":1719000000000,"e":1719000120000,"p":0}}
+    "done_status":true,
+    "timer_records":[
+      {"id":"id1","parent_id":"parent-uuid-1","record":{"s":1719000000000,"e":1719000000000,"p":0}},
+      {"id":"id2","parent_id":"parent-uuid-2","record":{"s":1719000000000,"e":1719000120000,"p":0}}
     ]
   }'
 

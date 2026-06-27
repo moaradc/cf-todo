@@ -296,8 +296,8 @@ export const todos = `
       try {
         const now = Date.now();
         const payload = { action: 'TOGGLE_DONE', task: { id: todo.id, done: todo.done } };
-        // 碎时记显式传 keepRecords:false（与 continueAfterDone 的 true 形成对照）
-        if (isFragment) payload.keepRecords = false;
+        // 碎时记显式传 keep_records:false（与 continueAfterDone 的 true 形成对照）
+        if (isFragment) payload.keep_records = false;
         if (todo.done) {
           payload.record = { s: now, e: now, p: 0 };
           // 碎时记完成需 date 字段供后端冻结
@@ -421,7 +421,7 @@ export const todos = `
                 body: JSON.stringify({
                   action: 'TIMER_RECORD',
                   task: { id: todo.id, parent_id: todo.parent_id },
-                  parentId: todo.parent_id,
+                  parent_id: todo.parent_id,
                   record: record
                 }),
                 headers: { 'Content-Type': 'application/json' }
@@ -544,7 +544,7 @@ export const todos = `
           const completePayload = {
             action: 'TIMER_COMPLETE',
             task: { id: todo.id, parent_id: todo.parent_id },
-            parentId: todo.parent_id,
+            parent_id: todo.parent_id,
             record: record
           };
           // 碎时记完成需 date 供后端冻结
@@ -618,7 +618,7 @@ export const todos = `
             body: JSON.stringify({
               action: 'TIMER_RECORD',
               task: { id: todo.id, parent_id: todo.parent_id },
-              parentId: todo.parent_id,
+              parent_id: todo.parent_id,
               record: record
             }),
             headers: { 'Content-Type': 'application/json' }
@@ -636,7 +636,7 @@ export const todos = `
 
     // "继续计时"：已完成态重新开始计时，保留累计记录
     // 碎时记独有；普通 todo no-op（前端按钮已不渲染，此处防御）
-    // 服务端 TOGGLE_DONE with keepRecords=true → 置 done=0 不清 time_records；本地 startTimer 开新 session
+    // 服务端 TOGGLE_DONE with keep_records=true → 置 done=0 不清 time_records；本地 startTimer 开新 session
     async function continueAfterDone(index) {
       const todo = todos[index];
       if (!todo) return;
@@ -667,7 +667,7 @@ export const todos = `
             body: JSON.stringify({
               action: 'TOGGLE_DONE',
               task: { id: todo.id, done: false },
-              keepRecords: true
+              keep_records: true
             }),
             headers: { 'Content-Type': 'application/json' }
           });
@@ -834,13 +834,13 @@ export const todos = `
               if (elapsedMs >= 1000 && elapsedMs <= TIMER_MAX_SESSION_MS) {
                 timerRecords.push({
                   id: todo.id,
-                  parentId: todo.parent_id,
+                  parent_id: todo.parent_id,
                   record: { s: st.s, e: now, p: Math.max(0, Math.floor(pausedMs)) }
                 });
               } else {
                 timerRecords.push({
                   id: todo.id,
-                  parentId: todo.parent_id,
+                  parent_id: todo.parent_id,
                   record: { s: now, e: now, p: 0 }
                 });
               }
@@ -848,14 +848,14 @@ export const todos = `
             } else {
               timerRecords.push({
                 id: todo.id,
-                parentId: todo.parent_id,
+                parent_id: todo.parent_id,
                 record: { s: now, e: now, p: 0 }
               });
             }
           } else {
             timerRecords.push({
               id: todo.id,
-              parentId: todo.parent_id,
+              parent_id: todo.parent_id,
               record: { s: now, e: now, p: 0 }
             });
           }
@@ -906,8 +906,8 @@ export const todos = `
         const batchPayload = {
           action: 'BATCH_TOGGLE_DONE',
           ids: ids,
-          doneStatus: targetDone,
-          timerRecords: timerRecords.length > 0 ? timerRecords : undefined
+          done_status: targetDone,
+          timer_records: timerRecords.length > 0 ? timerRecords : undefined
         };
         // 碎时记完成/取消完成都需要 date 字段（完成时冻结，取消时服务端会忽略并重置为空）
         // 只要选中项中存在碎时记，就传 date
