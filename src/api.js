@@ -3127,11 +3127,11 @@ self.addEventListener('fetch', (event) => {
               // 单次任务 → 重复：更新 todo 并创建模板
               await env.DB.prepare(
                 'UPDATE todos SET date=?, text=?, time=?, priority=?, desc=?, url=?, copy_text=?, subtasks=?, search_terms=?, repeat_type=?, repeat_custom=?, repeat_end=?, end_time=?, category_id=?, repeat_interval=? WHERE id=?'
-              ).bind(new_date, original_task.text, original_task.time || '', original_task.priority || 'low', original_task.desc || '', original_task.url || '', readCopyText(task), subtasks_str, search_terms_str, rpt_type, '', repeat_end, end_time, category_id, task.repeat_interval || 1, task.id).run();
+              ).bind(new_date, original_task.text, original_task.time || '', original_task.priority || 'low', original_task.desc || '', original_task.url || '', readCopyText(original_task), subtasks_str, search_terms_str, rpt_type, '', repeat_end, end_time, category_id, task.repeat_interval || 1, task.id).run();
               await env.DB.prepare(
                 'INSERT OR REPLACE INTO todo_templates (parent_id, text, time, priority, desc, url, copy_text, subtasks, search_terms, repeat_type, repeat_custom, repeat_end, end_time, anchor_date, exdates, category_id, repeat_interval) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
               ).bind(
-                task.id, original_task.text, original_task.time || '', original_task.priority || 'low', original_task.desc || '', original_task.url || '', readCopyText(task),
+                task.id, original_task.text, original_task.time || '', original_task.priority || 'low', original_task.desc || '', original_task.url || '', readCopyText(original_task),
                 subtasks_str, search_terms_str, rpt_type, '', repeat_end, end_time, new_date, '[]', category_id, task.repeat_interval || 1
               ).run();
             } else if (rpt_type === 'fragment' && parent_id && parent_id !== task.id) {
@@ -3152,7 +3152,7 @@ self.addEventListener('fetch', (event) => {
               }
               await env.DB.prepare(
                 'UPDATE todos SET parent_id=?, date=?, text=?, time=?, priority=?, desc=?, url=?, copy_text=?, subtasks=?, search_terms=?, repeat_type=?, repeat_custom=?, repeat_end=?, end_time=?, category_id=?, repeat_interval=?, fragment_anchor=? WHERE id=?'
-              ).bind(task.id, effective_update_date, original_task.text, new_values.time, original_task.priority || 'low', original_task.desc || '', original_task.url || '', readCopyText(task), subtasks_str, search_terms_str, rpt_type, '', new_values.repeat_end, new_values.end_time, category_id, new_values.repeat_interval, effective_fragment_anchor, task.id).run();
+              ).bind(task.id, effective_update_date, original_task.text, new_values.time, original_task.priority || 'low', original_task.desc || '', original_task.url || '', readCopyText(original_task), subtasks_str, search_terms_str, rpt_type, '', new_values.repeat_end, new_values.end_time, category_id, new_values.repeat_interval, effective_fragment_anchor, task.id).run();
               // 给旧模板加 exdate 防止该日期重新生成实例
               const tpl = await env.DB.prepare('SELECT exdates FROM todo_templates WHERE parent_id = ?').bind(parent_id).first();
               if (tpl) {
@@ -3163,7 +3163,7 @@ self.addEventListener('fetch', (event) => {
               // 重复 → 单次：脱离系列
               await env.DB.prepare(
                 'UPDATE todos SET parent_id=?, date=?, text=?, time=?, priority=?, desc=?, url=?, copy_text=?, subtasks=?, search_terms=?, repeat_type=\'none\', repeat_custom=\'\', repeat_end=\'\', end_time=?, category_id=?, repeat_interval=1, fragment_anchor=? WHERE id=?'
-              ).bind(task.id, new_date, original_task.text, original_task.time || '', original_task.priority || 'low', original_task.desc || '', original_task.url || '', readCopyText(task), subtasks_str, search_terms_str, end_time, category_id, '', task.id).run();
+              ).bind(task.id, new_date, original_task.text, original_task.time || '', original_task.priority || 'low', original_task.desc || '', original_task.url || '', readCopyText(original_task), subtasks_str, search_terms_str, end_time, category_id, '', task.id).run();
               const tpl = await env.DB.prepare('SELECT exdates FROM todo_templates WHERE parent_id = ?').bind(parent_id).first();
               if (tpl) {
                 const new_exdates = addExdate(tpl.exdates || '[]', date);
@@ -3188,7 +3188,7 @@ self.addEventListener('fetch', (event) => {
               }
               await env.DB.prepare(
                 'UPDATE todos SET date=?, text=?, time=?, priority=?, desc=?, url=?, copy_text=?, subtasks=?, search_terms=?, repeat_type=?, repeat_custom=?, repeat_end=?, end_time=?, category_id=?, repeat_interval=?, fragment_anchor=? WHERE id=?'
-              ).bind(effective_update_date, original_task.text, new_values.time, original_task.priority || 'low', original_task.desc || '', original_task.url || '', readCopyText(task), subtasks_str, search_terms_str, rpt_type, '', new_values.repeat_end, new_values.end_time, category_id, new_values.repeat_interval, effective_fragment_anchor, task.id).run();
+              ).bind(effective_update_date, original_task.text, new_values.time, original_task.priority || 'low', original_task.desc || '', original_task.url || '', readCopyText(original_task), subtasks_str, search_terms_str, rpt_type, '', new_values.repeat_end, new_values.end_time, category_id, new_values.repeat_interval, effective_fragment_anchor, task.id).run();
               // BUG 修复：原任务是系列主实例（id === parent_id）且新类型为 fragment 时，
               // 必须删除旧模板，否则旧模板会持续按原 daily/weekly 规则生成新实例（幽灵重复事项）
               if (rpt_type === 'fragment' && original_task._orig_repeat_type
@@ -3216,7 +3216,7 @@ self.addEventListener('fetch', (event) => {
                 // Split: 脱离旧系列，加入新系列（thisAndFuture + is_recurring）
                 await env.DB.prepare(
                   'UPDATE todos SET parent_id=?, date=?, text=?, time=?, priority=?, desc=?, url=?, copy_text=?, subtasks=?, search_terms=?, repeat_type=?, repeat_custom=?, repeat_end=?, end_time=?, category_id=?, repeat_interval=? WHERE id=?'
-                ).bind(split_new_pid, new_date, original_task.text, original_task.time || '', original_task.priority || 'low', original_task.desc || '', original_task.url || '', readCopyText(task), subtasks_str, search_terms_str, rpt_type, '', repeat_end, end_time, category_id, task.repeat_interval || 1, task.id).run();
+                ).bind(split_new_pid, new_date, original_task.text, original_task.time || '', original_task.priority || 'low', original_task.desc || '', original_task.url || '', readCopyText(original_task), subtasks_str, search_terms_str, rpt_type, '', repeat_end, end_time, category_id, task.repeat_interval || 1, task.id).run();
               } else if (cv.detach_from_series) {
                 // 脱离系列，变为单次任务（"仅此项"或 thisAndFuture 改为不重复）
                 // 保留实例级 time_records：非重复 todo 详情面板也渲染只读计时区块
@@ -3225,15 +3225,15 @@ self.addEventListener('fetch', (event) => {
                 // 不会复活成"进行中"。
                 await env.DB.prepare(
                   'UPDATE todos SET parent_id=?, date=?, text=?, time=?, priority=?, desc=?, url=?, copy_text=?, subtasks=?, search_terms=?, repeat_type=\'none\', repeat_custom=\'\', repeat_end=\'\', end_time=?, category_id=?, repeat_interval=1 WHERE id=?'
-                ).bind(task.id, new_date, original_task.text, original_task.time || '', original_task.priority || 'low', original_task.desc || '', original_task.url || '', readCopyText(task), subtasks_str, search_terms_str, end_time, category_id, task.id).run();
+                ).bind(task.id, new_date, original_task.text, original_task.time || '', original_task.priority || 'low', original_task.desc || '', original_task.url || '', readCopyText(original_task), subtasks_str, search_terms_str, end_time, category_id, task.id).run();
               } else if (cv.is_recurring) {
                 await env.DB.prepare(
                   'UPDATE todos SET date=?, text=?, time=?, priority=?, desc=?, url=?, copy_text=?, subtasks=?, search_terms=?, repeat_type=?, repeat_custom=?, repeat_end=?, end_time=?, category_id=?, repeat_interval=? WHERE id=?'
-                ).bind(new_date, original_task.text, original_task.time || '', original_task.priority || 'low', original_task.desc || '', original_task.url || '', readCopyText(task), subtasks_str, search_terms_str, rpt_type, '', repeat_end, end_time, category_id, task.repeat_interval || 1, task.id).run();
+                ).bind(new_date, original_task.text, original_task.time || '', original_task.priority || 'low', original_task.desc || '', original_task.url || '', readCopyText(original_task), subtasks_str, search_terms_str, rpt_type, '', repeat_end, end_time, category_id, task.repeat_interval || 1, task.id).run();
               } else {
                 await env.DB.prepare(
                   'UPDATE todos SET date=?, text=?, time=?, priority=?, desc=?, url=?, copy_text=?, subtasks=?, search_terms=?, repeat_type=\'none\', repeat_custom=\'\', repeat_end=\'\', category_id=?, repeat_interval=1 WHERE id=?'
-                ).bind(new_date, original_task.text, original_task.time || '', original_task.priority || 'low', original_task.desc || '', original_task.url || '', readCopyText(task), subtasks_str, search_terms_str, category_id, task.id).run();
+                ).bind(new_date, original_task.text, original_task.time || '', original_task.priority || 'low', original_task.desc || '', original_task.url || '', readCopyText(original_task), subtasks_str, search_terms_str, category_id, task.id).run();
               }
             }
 
@@ -3273,7 +3273,7 @@ self.addEventListener('fetch', (event) => {
                 } else {
                   await env.DB.prepare(
                     'UPDATE todos SET text=?, time=?, priority=?, desc=?, url=?, copy_text=?, subtasks=?, search_terms=?, repeat_type=?, repeat_custom=?, repeat_end=?, end_time=?, category_id=?, repeat_interval=? WHERE parent_id=? AND id != ? AND deleted = 0'
-                  ).bind(original_task.text, original_task.time || '', original_task.priority || 'low', original_task.desc || '', original_task.url || '', readCopyText(task), subtasks_str, search_terms_str, rpt_type, '', repeat_end, end_time, category_id, task.repeat_interval || 1, parent_id, task.id).run();
+                  ).bind(original_task.text, original_task.time || '', original_task.priority || 'low', original_task.desc || '', original_task.url || '', readCopyText(original_task), subtasks_str, search_terms_str, rpt_type, '', repeat_end, end_time, category_id, task.repeat_interval || 1, parent_id, task.id).run();
                 }
               } else {
                 // 改为不重复：其他非回收站项删除
@@ -3319,7 +3319,7 @@ self.addEventListener('fetch', (event) => {
                   await env.DB.prepare(
                     'INSERT OR REPLACE INTO todo_templates (parent_id, text, time, priority, desc, url, copy_text, subtasks, search_terms, repeat_type, repeat_custom, repeat_end, end_time, anchor_date, exdates, category_id, repeat_interval, time_records) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
                   ).bind(
-                    parent_id, original_task.text, original_task.time || '', original_task.priority || 'low', original_task.desc || '', original_task.url || '', readCopyText(task),
+                    parent_id, original_task.text, original_task.time || '', original_task.priority || 'low', original_task.desc || '', original_task.url || '', readCopyText(original_task),
                     subtasks_str, search_terms_str, rpt_type, '', repeat_end, end_time, new_date, existing_exdates, category_id, task.repeat_interval || 1, existing_time_records
                   ).run();
                 }
