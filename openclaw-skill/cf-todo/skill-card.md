@@ -30,7 +30,11 @@ Mitigation: The skill instructs agents to always GET settings first, modify, the
 **Other Properties Related to Output:** [Uses curl via cf-todo.sh helper script; requires CF_TODO_API_URL and CF_TODO_API_KEY environment variables] <br>
 
 ## Skill Version(s): <br>
-1.2.0 <br>
+1.3.0 <br>
+
+## Changelog: <br>
+- **1.3.0** (2026-06-27, requires cf-todo v2.7.8.2+): `todos:date` 新增 `--no-expand` 选项，跳过服务端重复任务展开，响应附带 `templates` 数组供调用方自算（降低 Worker CPU 占用）。批量接口解除 100 条限制，响应含 `chunked`/`chunkCount` 字段，`affected`/`restored`/`deleted` 为实际改动行数。 <br>
+- **1.2.0**: Initial release. <br>
 
 ## Ethical Considerations: <br>
 Users should evaluate whether this skill is appropriate for their environment, review any changes before confirming destructive actions, and apply their organization's safety, security, and compliance requirements before deployment. <br>

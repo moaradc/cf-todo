@@ -7,7 +7,7 @@
 #   CF_TODO_API_KEY  - API Key (cfk_...)
 #
 # Actions:
-#   todos:date <YYYY-MM-DD>              - List todos by date
+#   todos:date <YYYY-MM-DD> [--no-expand]  - List todos by date (v2.7.8.2: --no-expand 跳过服务端展开，返回 templates 供自算)
 #   todos:range <start> <end>            - List todos by date range
 #   todos:get <id>                        - Get a single todo
 #   todos:create <date> <text> [priority] - Create a todo
@@ -60,8 +60,13 @@ shift || true
 
 case "$action" in
   todos:date)
-    date="${1:?Usage: todos:date <YYYY-MM-DD>}"
-    curl "${curl_opts[@]}" "$BASE_URL/api/v1/todos?date=$date"
+    date="${1:?Usage: todos:date <YYYY-MM-DD> [--no-expand]}"
+    shift
+    expand_param=""
+    if [[ "${1:-}" == "--no-expand" ]]; then
+      expand_param="&expand=false"
+    fi
+    curl "${curl_opts[@]}" "$BASE_URL/api/v1/todos?date=$date$expand_param"
     ;;
   todos:range)
     start="${1:?Usage: todos:range <start> <end>}"
