@@ -418,7 +418,10 @@ function formatCategory(row) {
 // ==================== v1 Todo CRUD ====================
 
 async function handleV1Todos(request, env, url) {
-  const DB = env.DB;
+  // 健壮性：GET 用 D1 Sessions API (first-primary) 路由到读副本降低延迟；写仍走 primary
+  const DB = request.method === 'GET' && env.DB.withSession
+    ? env.DB.withSession('first-primary')
+    : env.DB;
 
   // GET /api/v1/todos - 查询 todo 列表
   if (request.method === 'GET') {
@@ -429,6 +432,10 @@ async function handleV1Todos(request, env, url) {
     const done = url.searchParams.get('done'); // 'true' | 'false' | 不传=全部
     const limit = Math.min(Math.max(parseInt(url.searchParams.get('limit') || '100', 10) || 100, 1), 500);
     const offset = Math.max(parseInt(url.searchParams.get('offset') || '0', 10) || 0, 0);
+    // 健壮性：expand=false 时跳过服务端 RRULE 展开，调用方自行用 ical.js/rrule.js 计算
+    // 适用场景：程序化调用方需降低 Worker CPU time（Free 10ms 限制），或需自定义展开逻辑
+    // 默认 true（向后兼容）；仅在 date 查询时有效，范围查询本就不展开
+    const expand = url.searchParams.get('expand') !== 'false';
 
     const execGet = async () => {
 
@@ -499,53 +506,71 @@ async function handleV1Todos(request, env, url) {
 
     // 如果按日期查询，还需要处理重复任务模板
     let recurringResults = [];
+    let templates = []; // expand=false 时返回给调用方自算
     if (date) {
-      const templatesReq = await DB.prepare(`
-        SELECT * FROM todo_templates t
-        WHERE t.repeat_type IN ('daily','weekly','monthly','yearly')
-        AND t.anchor_date <= ?
-        AND (t.repeat_end = '' OR t.repeat_end IS NULL OR t.repeat_end >= ?)
-        AND NOT EXISTS (
-          SELECT 1 FROM todos td
-          WHERE td.parent_id = t.parent_id
-            AND td.date = ?
-            AND td.deleted = 0
-        )
-      `).bind(date, date, date).all();
+      if (expand) {
+        // 默认行为：服务端展开 RRULE（向后兼容）
+        const templatesReq = await DB.prepare(`
+          SELECT * FROM todo_templates t
+          WHERE t.repeat_type IN ('daily','weekly','monthly','yearly')
+          AND t.anchor_date <= ?
+          AND (t.repeat_end = '' OR t.repeat_end IS NULL OR t.repeat_end >= ?)
+          AND NOT EXISTS (
+            SELECT 1 FROM todos td
+            WHERE td.parent_id = t.parent_id
+              AND td.date = ?
+              AND td.deleted = 0
+          )
+        `).bind(date, date, date).all();
 
-      const insertStmts = [];
-      for (const tpl of (templatesReq.results || [])) {
-        let templateForEngine = { ...tpl, exdates: tpl.exdates || '[]' };
-        if (!isOccurrenceOnDate(templateForEngine, date)) continue;
+        const insertStmts = [];
+        for (const tpl of (templatesReq.results || [])) {
+          let templateForEngine = { ...tpl, exdates: tpl.exdates || '[]' };
+          if (!isOccurrenceOnDate(templateForEngine, date)) continue;
 
-        const newId = crypto.randomUUID();
-        let parsedSubtasks = parseJsonField(tpl.subtasks);
-        parsedSubtasks.forEach(st => st.done = false);
+          const newId = crypto.randomUUID();
+          let parsedSubtasks = parseJsonField(tpl.subtasks);
+          parsedSubtasks.forEach(st => st.done = false);
 
-        const newRecord = {
-          ...tpl, id: newId, date, parent_id: tpl.parent_id,
-          done: 0, deleted: 0,
-          subtasks: parsedSubtasks,
-          search_terms: [],
-          // 关键修复：模板的 time_records 是跨实例预估数据，不能带到新实例上。
-          // 新实例的实例级 time_records 应为空，否则前端会错误显示历史累计。
-          time_records: '[]'
-        };
-        recurringResults.push(newRecord);
+          const newRecord = {
+            ...tpl, id: newId, date, parent_id: tpl.parent_id,
+            done: 0, deleted: 0,
+            subtasks: parsedSubtasks,
+            search_terms: [],
+            // 关键修复：模板的 time_records 是跨实例预估数据，不能带到新实例上。
+            // 新实例的实例级 time_records 应为空，否则前端会错误显示历史累计。
+            time_records: '[]'
+          };
+          recurringResults.push(newRecord);
 
-        insertStmts.push(DB.prepare(
-          'INSERT INTO todos (id, parent_id, date, text, time, priority, desc, url, copy_text, subtasks, search_terms, done, deleted, repeat_type, repeat_custom, repeat_end, end_time, category_id, repeat_interval) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
-        ).bind(
-          newId, tpl.parent_id, date, tpl.text, tpl.time || '', tpl.priority || 'low',
-          tpl.desc || '', tpl.url || '', tpl.copy_text || '',
-          JSON.stringify(parsedSubtasks), '[]',
-          0, 0, tpl.repeat_type || 'none', tpl.repeat_custom || '', tpl.repeat_end || '', tpl.end_time || '', tpl.category_id || '', tpl.repeat_interval || 1
-        ));
-      }
-      if (insertStmts.length > 0) {
-        for (let i = 0; i < insertStmts.length; i += 100) {
-          await DB.batch(insertStmts.slice(i, i + 100));
+          insertStmts.push(DB.prepare(
+            'INSERT INTO todos (id, parent_id, date, text, time, priority, desc, url, copy_text, subtasks, search_terms, done, deleted, repeat_type, repeat_custom, repeat_end, end_time, category_id, repeat_interval) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+          ).bind(
+            newId, tpl.parent_id, date, tpl.text, tpl.time || '', tpl.priority || 'low',
+            tpl.desc || '', tpl.url || '', tpl.copy_text || '',
+            JSON.stringify(parsedSubtasks), '[]',
+            0, 0, tpl.repeat_type || 'none', tpl.repeat_custom || '', tpl.repeat_end || '', tpl.end_time || '', tpl.category_id || '', tpl.repeat_interval || 1
+          ));
         }
+        if (insertStmts.length > 0) {
+          for (let i = 0; i < insertStmts.length; i += 100) {
+            await DB.batch(insertStmts.slice(i, i + 100));
+          }
+        }
+      } else {
+        // expand=false：跳过服务端 RRULE 计算和 INSERT，仅返回 templates 供调用方自算
+        // 只查覆盖该 date 的 active 模板（不做 isOccurrenceOnDate 过滤，由调用方决定）
+        const templatesReq = await DB.prepare(`
+          SELECT * FROM todo_templates t
+          WHERE t.repeat_type IN ('daily','weekly','monthly','yearly')
+          AND t.anchor_date <= ?
+          AND (t.repeat_end = '' OR t.repeat_end IS NULL OR t.repeat_end >= ?)
+        `).bind(date, date).all();
+        templates = (templatesReq.results || []).map(t => ({
+          ...t,
+          exdates: t.exdates || '[]',
+          subtasks: parseJsonField(t.subtasks),
+        }));
       }
     }
 
@@ -559,11 +584,13 @@ async function handleV1Todos(request, env, url) {
         total: (countRes?.total || 0) + recurringResults.length,
         limit,
         offset,
-      }
+      },
+      // expand=false 时附带 templates，调用方自算 RRULE
+      ...(expand ? {} : { templates, expand: false }),
     });
     }; // end execGet
 
-    if (date) return _withV1TodosDateLock(date, execGet);
+    if (date && expand) return _withV1TodosDateLock(date, execGet);
     return execGet();
   }
 
@@ -1139,7 +1166,10 @@ async function writeTimerRecord(DB, todoId, parentId, record, isFragment) {
 // ==================== v1 Category CRUD ====================
 
 async function handleV1Categories(request, env, url) {
-  const DB = env.DB;
+  // 健壮性：GET 用 D1 Sessions API (first-primary) 路由到读副本；写仍走 primary
+  const DB = request.method === 'GET' && env.DB.withSession
+    ? env.DB.withSession('first-primary')
+    : env.DB;
 
   // GET /api/v1/categories - 列出所有分类
   if (request.method === 'GET') {
@@ -2066,6 +2096,10 @@ export async function handleV1Request(request, env, ctx) {
   }
 
   // ---- Todo 路由 ----
+  // 健壮性：GET 请求用 D1 Sessions API (first-primary 策略) 路由到读副本，降低延迟
+  // 写请求仍走 primary 保证强一致
+  // first-primary: 第一查询走 primary (保证刚写入的数据可见)，后续走 replica
+  const readDB = env.DB.withSession && env.DB.withSession('first-primary') || env.DB;
   if (path === '/api/v1/todos') {
     return handleV1Todos(request, env, url);
   }
@@ -2079,7 +2113,7 @@ export async function handleV1Request(request, env, ctx) {
   const todoMatch = path.match(/^\/api\/v1\/todos\/([a-zA-Z0-9_-]+)$/);
   if (todoMatch) {
     const todoId = todoMatch[1];
-    if (request.method === 'GET') return handleV1TodoGet(env.DB, todoId);
+    if (request.method === 'GET') return handleV1TodoGet(readDB, todoId);
     if (request.method === 'PUT') return handleV1TodoPut(request, env.DB, todoId);
     if (request.method === 'DELETE') {
       const scope = url.searchParams.get('scope') || undefined;
@@ -2112,7 +2146,7 @@ export async function handleV1Request(request, env, ctx) {
 
   // ---- Trash 路由 ----
   if (path === '/api/v1/trash' && request.method === 'GET') {
-    return handleV1TrashList(env.DB, url);
+    return handleV1TrashList(readDB, url);
   }
   if (path === '/api/v1/trash-action' && request.method === 'POST') {
     return handleV1TrashAction(request, env.DB);
@@ -2120,7 +2154,7 @@ export async function handleV1Request(request, env, ctx) {
 
   // ---- Stats 路由 ----
   if (path === '/api/v1/stats' && request.method === 'GET') {
-    return handleV1Stats(env.DB, url);
+    return handleV1Stats(readDB, url);
   }
 
   // ---- Category 路由 ----
@@ -2136,7 +2170,7 @@ export async function handleV1Request(request, env, ctx) {
   const catMatch = path.match(/^\/api\/v1\/categories\/([a-zA-Z0-9_.-]+)$/);
   if (catMatch) {
     const catId = catMatch[1];
-    if (request.method === 'GET') return handleV1CategoryGet(env.DB, catId);
+    if (request.method === 'GET') return handleV1CategoryGet(readDB, catId);
     if (request.method === 'PUT') return handleV1CategoryPut(request, env.DB, catId);
     if (request.method === 'DELETE') return handleV1CategoryDelete(env.DB, catId);
     return apiError('Method Not Allowed', 405);
@@ -2144,27 +2178,27 @@ export async function handleV1Request(request, env, ctx) {
 
   // ---- Settings 路由 ----
   if (path === '/api/v1/settings') {
-    if (request.method === 'GET') return handleV1SettingsGet(env.DB);
+    if (request.method === 'GET') return handleV1SettingsGet(readDB);
     if (request.method === 'POST') return handleV1SettingsPost(request, env.DB);
     return apiError('Method Not Allowed', 405);
   }
 
   // ---- Custom Code 路由 ----
   if (path === '/api/v1/custom-code') {
-    if (request.method === 'GET') return handleV1CustomCodeGet(env.DB);
+    if (request.method === 'GET') return handleV1CustomCodeGet(readDB);
     if (request.method === 'POST') return handleV1CustomCodePost(request, env.DB);
     return apiError('Method Not Allowed', 405);
   }
 
   // ---- Custom Header/Content/Colors 路由 ----
   if (path === '/api/v1/custom-header' && request.method === 'GET') {
-    return handleV1CustomHeaderGet(env.DB);
+    return handleV1CustomHeaderGet(readDB);
   }
   if (path === '/api/v1/custom-content' && request.method === 'GET') {
-    return handleV1CustomContentGet(env.DB);
+    return handleV1CustomContentGet(readDB);
   }
   if (path === '/api/v1/custom-colors') {
-    if (request.method === 'GET') return handleV1CustomColorsGet(env.DB);
+    if (request.method === 'GET') return handleV1CustomColorsGet(readDB);
     if (request.method === 'POST') return handleV1CustomColorsPost(request, env.DB);
     return apiError('Method Not Allowed', 405);
   }

@@ -6,3 +6,7 @@ compatibility_date = "2024-12-01"
 binding = "DB"
 database_name = "todo-db"
 database_id = ""
+# 启用 D1 读副本：读查询可路由到全球副本，降低延迟（Free 可用，无额外费用）
+# 必须配合 D1 Sessions API (env.DB.withSession()) 才会路由到副本，否则全部走 primary
+# 详见 https://developers.cloudflare.com/d1/best-practices/read-replication
+read_replication = true

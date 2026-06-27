@@ -231,23 +231,59 @@ export const core = `
       var s = document.getElementById('update-status');
       if (!s) return;
       s.innerHTML = '<span style="color:#888;font-size:0.8rem;">检查中...</span>';
+
+      // 健壮性：localStorage 24h 缓存，避免每次打开页面都打 GitHub raw
+      // 缓存键：vcheck_data (version.json 内容) + vcheck_ts (时间戳)
+      // 24h 内用缓存；过期或无缓存才发请求；请求失败回退到缓存（即使过期）
+      var CACHE_TTL_MS = 24 * 60 * 60 * 1000;
+      var now = Date.now();
+      var cachedTs = 0;
+      var cachedData = null;
       try {
-        var res = await fetch('https://raw.githubusercontent.com/moaradc/cf-todo/main/version.json');
-        if (!res.ok) throw new Error('HTTP ' + res.status);
-        var d = await res.json();
-        if (!d.version) throw new Error('No version');
-        var latest = d.version;
-        var cmp = compareVersions(CURRENT_VERSION, latest);
-        if (cmp < 0) {
-          remoteLatestVersion = latest;
-          s.innerHTML = '<span style="font-size:0.8rem;font-weight:bold;cursor:pointer;color:var(--accent);" onclick="openChangelogModal()">→ v' + escapeHtml(latest) + '</span>';
-        } else {
-          remoteLatestVersion = null;
-          s.innerHTML = '<span style="font-size:0.8rem;">已是最新</span>';
+        cachedTs = parseInt(localStorage.getItem('vcheck_ts') || '0', 10);
+        cachedData = localStorage.getItem('vcheck_data');
+      } catch (e) { /* localStorage 不可用时降级为每次都请求 */ }
+
+      var d = null;
+      var fromCache = false;
+      if (cachedData && (now - cachedTs) < CACHE_TTL_MS) {
+        // 缓存有效
+        try { d = JSON.parse(cachedData); fromCache = true; } catch (e) { d = null; }
+      }
+
+      if (!d) {
+        // 缓存无效或过期，发请求
+        try {
+          var res = await fetch('https://raw.githubusercontent.com/moaradc/cf-todo/main/version.json');
+          if (!res.ok) throw new Error('HTTP ' + res.status);
+          d = await res.json();
+          if (!d.version) throw new Error('No version');
+          // 写入缓存
+          try {
+            localStorage.setItem('vcheck_ts', String(now));
+            localStorage.setItem('vcheck_data', JSON.stringify(d));
+          } catch (e) { /* 配额满等忽略 */ }
+        } catch (e) {
+          // 请求失败：回退到缓存（即使过期），避免断网时显示"检查失败"
+          if (cachedData) {
+            try { d = JSON.parse(cachedData); fromCache = true; } catch (e2) { d = null; }
+          }
+          if (!d) {
+            remoteLatestVersion = null;
+            s.innerHTML = '<span style="color:var(--accent);font-size:0.8rem;">检查失败</span>';
+            return;
+          }
         }
-      } catch (e) {
+      }
+
+      var latest = d.version;
+      var cmp = compareVersions(CURRENT_VERSION, latest);
+      if (cmp < 0) {
+        remoteLatestVersion = latest;
+        s.innerHTML = '<span style="font-size:0.8rem;font-weight:bold;cursor:pointer;color:var(--accent);" onclick="openChangelogModal()">→ v' + escapeHtml(latest) + '</span>';
+      } else {
         remoteLatestVersion = null;
-        s.innerHTML = '<span style="color:var(--accent);font-size:0.8rem;">检查失败</span>';
+        s.innerHTML = '<span style="font-size:0.8rem;">已是最新' + (fromCache ? '' : '') + '</span>';
       }
     }
 
