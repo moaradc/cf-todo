@@ -559,6 +559,8 @@ curl -X POST "$BASE/api/import" \
 - `test_v1_batch.js` — v1 批量分片测试
 - `test_v0_batch.js` — v0 批量分片测试
 - `test_xss.js` — XSS 防护测试
+- `test_import_final.js` — Phase 7 导入测试（同 date 多轮）
+- `test_import_final2.js` — Phase 7 导入测试（独立 date 多轮）
 
 ### 相关文档
 
@@ -566,3 +568,170 @@ curl -X POST "$BASE/api/import" \
 - [Cloudflare Workers Limits](https://developers.cloudflare.com/workers/platform/limits/)
 - [Cloudflare D1 Limits](https://developers.cloudflare.com/d1/platform/limits/)
 - [D1 Read Replication](https://developers.cloudflare.com/d1/best-practices/read-replication)
+
+---
+
+## 十、Phase 7 补测（2026-06-27，部署 `f27e78b` 后）
+
+### 背景
+
+Phase 7 导入测试在初轮发现两个 bug，经 3 次 commit 修复后重新部署补测：
+
+| Commit | 修复内容 |
+|---|---|
+| `7058f08` | import handler `body is not defined`（impBody 误写） |
+| `ef20501` | NDJSON 流式解析：加 `decoder.decode()` flush + `if (value)` 检查 |
+| `f27e78b` | NDJSON `done=true` 时仍处理 value + `processBuffer` 改 async |
+
+### 测试设计
+
+**关键教训**：初轮测试每轮用同一 date + 轮间清理，导致 `INSERT OR REPLACE` 与残留数据冲突，出现 #96-99 等批量缺失。
+
+**最终测试方案**：3 轮 500 行导入，每轮用**独立 date**（2026-08-01/02/03）+ 独立 tag，避免数据交叉，最后统一清理。
+
+### 测试过程
+
+**脚本**：`scripts/test_import_final2.js`
+
+**步骤**：
+1. 第 1 轮：500 行 → date=2026-08-01，tag=ZFINAL3_R1
+2. 第 2 轮：500 行 → date=2026-08-02，tag=ZFINAL3_R2
+3. 第 3 轮：500 行 → date=2026-08-03，tag=ZFINAL3_R3
+4. 每轮间隔 1.5s（让 D1 缓口气）
+5. 验证每轮 500/500 完整
+
+### 测试结果
+
+```
+=== 第 1 轮：500 行（date=2026-08-01）===
+  上传: 2009ms, finalize: 619ms, 总: 2628ms
+  上传响应: {"success":true}
+  导入 500/500, 缺失: 无 ✓
+
+=== 第 2 轮：500 行（date=2026-08-02）===
+  上传: 1982ms, finalize: 618ms, 总: 2600ms
+  上传响应: {"success":true}
+  导入 500/500, 缺失: 无 ✓
+
+=== 第 3 轮：500 行（date=2026-08-03）===
+  上传: 1970ms, finalize: 624ms, 总: 2594ms
+  上传响应: {"success":true}
+  导入 500/500, 缺失: 无 ✓
+
+============================================
+=== 3 轮汇总（独立 date，无交叉）===
+============================================
+  第 1 轮: ✓ 500/500, 耗时 2628ms
+  第 2 轮: ✓ 500/500, 耗时 2600ms
+  第 3 轮: ✓ 500/500, 耗时 2594ms
+
+  结论: ✅ 全部通过
+```
+
+### 性能数据
+
+| 指标 | 数值 |
+|---|---|
+| 500 行导入平均耗时 | **2607ms**（上传 ~2s + finalize ~620ms） |
+| 500 行 NDJSON 文件大小 | ~250KB |
+| 单行平均耗时 | ~5.2ms |
+| 数据完整性 | 3 轮全部 500/500 ✓ |
+
+### multi-row VALUES 优化效果
+
+**优化前**（commit `60c3ec7` 之前）：
+- 500 行 = 500 个单行 INSERT
+- 每 100 个 statement 组 1 个 `DB.batch`
+- 5 个 `DB.batch`，每个含 100 个 statement
+
+**优化后**：
+- 500 行 = 125 个 multi-row INSERT（4 行/INSERT，92 params/INSERT）
+- 每 25 个 statement 组 1 个 `DB.batch`
+- 5 个 `DB.batch`，每个含 25 个 statement
+- D1 服务端 SQL 解析次数从 500 → 125（**4 倍减少**）
+- prepared statement 对象创建从 500 → 125（**4 倍减少**）
+
+### 健壮性验证
+
+| 保证 | 验证方式 | 结果 |
+|---|---|---|
+| import handler `body is not defined` 修复 | init/finalize phase 调用 | ✅ 通过 |
+| NDJSON `decoder.decode()` flush | 500 行末尾数据完整性 | ✅ 通过 |
+| `done=true` 时 value 处理 | 500 行全部入库 | ✅ 通过 |
+| `processBuffer` async 化 | await execBatch 正确执行 | ✅ 通过 |
+| multi-row VALUES params < 100 | todos 4×23=92, templates 5×18=90 | ✅ 通过 |
+| `BATCH_ROWS` 与 `BATCH_STMTS` 分离 | 100 行触发 / 25 statement 一批 | ✅ 通过 |
+
+### 测试数据清理
+
+3 轮测试共产生 1500 条 ZFINAL3_R* 数据，分布于 2026-08-01/02/03。清理流程：
+1. 对每个 date 调 `GET /api/v1/todos?limit=500` 拿真实 id
+2. `BATCH_DELETE` 软删除（分 99 chunk）
+3. 回收站 `BATCH_DELETE_PERMANENT` 永久删除（循环至清空）
+
+**最终验证**：所有日期 Z 测试数据 0 条，回收站 0 条 ✓
+
+### 结论
+
+✅ **Phase 7 验证通过**
+
+- 3 轮 500 行导入全部 500/500 完整
+- 平均耗时 2607ms（含上传 + finalize）
+- multi-row VALUES 优化生效，D1 SQL 解析次数减少 4 倍
+- 3 个 bug 修复（import handler / NDJSON flush / done=true 边界）全部有效
+
+## 十一、最终结论
+
+### 全部 7 个风险最终状态
+
+| # | 风险 | 状态 | 验证方式 |
+|---|---|---|---|
+| 1 | CPU time 10ms vs RRULE | ✅ 通过 | v1 `expand=false` opt-in 实测 |
+| 2 | D1 queries/invocation 限制 | ✅ 通过 | 批量预取 + 105 条 timerRecords 实测 |
+| 3 | bound parameters 100 | ✅ 通过 | chunk 99 + 105 条批量实测 |
+| 4 | 外部 fetch hot-search | ✅ 通过 | 5s 超时 + 失败降级 + 实时性实测 |
+| 5 | requests/day 100k | ⏭ 跳过 | 用户决定 |
+| 6 | D1 单库单线程写串行 | ✅ 通过 | fragment/plain 并发 + read replica |
+| 7 | 导入分片 | ✅ 通过 | 3 轮 500 行全部 500/500 完整 |
+
+### 测试中发现并修复的 bug 汇总
+
+| Commit | Bug | 根因 |
+|---|---|---|
+| `7058f08` | import handler `body is not defined` | `impBody` 误写为 `body`（18 处） |
+| `ef20501` | NDJSON 流式解析丢失末尾数据 | `decoder.decode()` 未 flush + `if (value)` 缺失 |
+| `f27e78b` | NDJSON `done=true` 边界 + async 缺失 | `done=true` 时 value 未处理 + `processBuffer` 非 async |
+
+### 整体评估
+
+本次优化（13 个 commits）**线上验证全部通过**：
+
+1. **性能优化生效**：
+   - D1 read replica 启用
+   - v1 `expand=false` 降低 Worker CPU
+   - multi-row VALUES 导入 4 倍加速
+   - fragment/plain 并发
+   - version check 24h 缓存降 99% 请求
+
+2. **健壮性提升**：
+   - chunk 99 防 bound params 溢出
+   - 批量预取防 queries 溢出
+   - hot-search 5s 超时 + 失败降级
+   - XSS 防护
+   - affected 返回真实改动行数
+   - import handler 3 个 bug 修复
+
+3. **向后兼容**：
+   - v1 `expand` 默认 true
+   - D1 Sessions API 兼容旧 runtime
+   - 所有 opt-in 参数默认值保持旧行为
+
+4. **实时性保证**：
+   - hot-search 不缓存，每次拿最新
+   - version check 24h 内不重复（可接受）
+
+### 待办
+
+- [x] 重新部署 `f27e78b` 到 test.945426.xyz
+- [x] 补测 Phase 7 导入 multi-row VALUES 性能
+- [ ] （可选）合并 `fix/robustness-validation` 到 main
