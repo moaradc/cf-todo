@@ -169,6 +169,24 @@ function apiError(msg, status = 500, extra = null) {
   });
 }
 
+/**
+ * 规范化优先级值（前端使用 med，API 同时接受 medium 和 med）
+ * 统一 V0 / V1 行为：
+ *   - 'medium' → 'med'（前端历史习惯，外部调用方常误传）
+ *   - 'low' / 'med' / 'high' 原样返回
+ *   - 其它非法值（含 undefined / null / 空串 / 数字 / 任意字符串）→ 'low'（DB 默认）
+ * 该函数纯函数无副作用，调用方应在所有 priority 写入点（CREATE / UPDATE / 模板展开）
+ * 统一调用，避免 DB 出现 'medium' 等非标准值导致 stats 聚合（priCounts 仅识别 low/med/high）漏统计。
+ *
+ * @param {*} val - 调用方传入的原始 priority 值
+ * @returns {'low'|'med'|'high'} 规范化后的 priority
+ */
+function normalizePriority(val) {
+  if (val === 'medium') return 'med';
+  if (val === 'low' || val === 'med' || val === 'high') return val;
+  return 'low';
+}
+
 export {
   APP_VERSION,
   DB_SCHEMA,
@@ -184,5 +202,6 @@ export {
   formatDateStr,
   offsetDate,
   fetchHotSearchData,
-  apiError
+  apiError,
+  normalizePriority
 };

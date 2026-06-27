@@ -1592,14 +1592,8 @@ data = response.json()
 3. 最多创建 10 个 API Key
 4. 禁用的密钥无法通过验证
 5. 每次成功调用会异步更新密钥的最后使用时间（5分钟限频）
-6. **重复任务 `scope` 默认值**：
-    - **V1 API**（`PUT/DELETE /api/v1/todos/:id`）：重复任务未指定 `scope` 时默认 `scope=this`，仅操作当前实例；PUT 会向模板添加 exdate，DELETE 也会向模板添加 exdate 防止重新生成。实测确认 V1 DELETE 不传 scope 时模板 `exdates` 数组会加入该日期。
-    - **V0 API**（`POST /api/todo-action` 的 `UPDATE` / `DELETE`）：
-      - **UPDATE**：重复任务未指定 `scope`（或 `scope='none'`）时默认 `scope=this`，与 V1 一致。
-      - **DELETE**：⚠️ **不一致**——重复任务未指定 `scope` 时**直接软删除当前实例，但不会给模板添加 exdate**。下次 `GET /api/todos?date=X` 时模板仍会展开生成新实例，导致被删除的实例「复活」。如需 V1 一致的「删除当前 + 防止重新生成」行为，V0 DELETE 必须显式传 `scope: "this"`。
-7. **`priority` 规范化**：
-    - **V1 API**（`POST/PUT /api/v1/todos`）：`priority` 接受 `low`、`med`、`high`，`medium` 会自动转为 `med`，其它非法值回退为 `low`（`normalizePriority` 函数）。
-    - **V0 API**（`POST /api/todo-action` 的 `CREATE`/`UPDATE`）：⚠️ **不接受 `medium` 自动转换**——V0 直接写 `task.priority || 'low'`，传 `medium` 会原样存入 DB，造成 stats 聚合（`priCounts` 只识别 `low/med/high`）漏统计。前端 web 已统一用 `med`，但外部 API 调用方需自行传 `med`。
+6. **重复任务 `scope` 默认值**：重复任务（`daily`/`weekly`/`monthly`/`yearly`）未指定 `scope` 时，V0 和 V1 均默认 `scope=this`，仅操作当前实例——软删除当前实例 + 向模板添加 exdate 防止下次 `GET /api/todos?date=X` 时模板重新展开生成新实例（避免「复活」）。非重复任务（`none`/`fragment`）不受 `scope` 影响，直接软删除。
+7. **`priority` 规范化**：`priority` 接受 `low`、`med`、`high`，`medium` 会自动转为 `med`，其它非法值回退为 `low`。V0 和 V1 均在所有写入点（CREATE / UPDATE / 模板展开）统一走 `normalizePriority` 函数（`src/utils.js`），保证 DB 不会出现 `medium` 等非标准值，stats 聚合（`priCounts` 仅识别 `low/med/high`）不会漏统计。
 8. **批量接口**（`BATCH_TOGGLE_DONE` / `BATCH_DELETE` / `BATCH_RESTORE` / `BATCH_DELETE_PERMANENT` / category `BATCH_DELETE`）按 99 一组自动分片。响应含 `chunked`（是否分片）和 `chunkCount`（分片数）字段。`affected`/`restored`/`deleted` 为实际改动行数（非 `ids.length`）
 9. `GET /api/v1/todos?date=X` 支持 `expand=false` 参数，跳过服务端重复任务展开，响应附带 `templates` 数组供调用方自算
 10. 后端代码适配 D1 读副本会话 API（`env.DB.withSession('first-primary')`）。**默认关闭**（`wrangler.toml` 中 `read_replication = false`），需手动启用 wrangler 配置并在 Cloudflare 控制台开启读副本后才生效。详见 [D1 Read Replication](https://developers.cloudflare.com/d1/best-practices/read-replication)

@@ -12,6 +12,7 @@ import {
   apiError,
   parseCookies,
   verify as verifySig,
+  normalizePriority,
 } from './utils.js';
 
 // 健壮性：统一安全解析 JSON 请求体，解析失败返回 400
@@ -310,14 +311,7 @@ function parseJsonField(val) {
   return [];
 }
 
-/**
- * 规范化优先级值（前端使用 med，API 同时接受 medium 和 med）
- */
-function normalizePriority(val) {
-  if (val === 'medium') return 'med';
-  if (['low', 'med', 'high'].includes(val)) return val;
-  return 'low';
-}
+// normalizePriority 已抽到 utils.js，供 V0 / V1 共享
 
 /**
  * 格式化 todo 记录为 API 响应格式
