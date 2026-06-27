@@ -78,13 +78,13 @@ Endpoints under `/api/v1/keys` require **Cookie auth only** (web UI session), no
 | Method | Endpoint | Description | Notes |
 |--------|----------|-------------|-------|
 | **Todo** | | | |
-| GET | `/api/v1/todos?date=` | 查询 Todo 列表 | 必填 `date`；可选 `start_date`+`end_date`, `category_id`, `done`, `limit`, `offset`, `expand`（v2.7.8.2: `false` 跳过服务端展开，返回 `templates`） |
+| GET | `/api/v1/todos?date=` | 查询 Todo 列表 | 必填 `date`；可选 `start_date`+`end_date`, `category_id`, `done`, `limit`, `offset`, `expand`（`false` 跳过服务端展开，返回 `templates`） |
 | GET | `/api/v1/todos/:id` | 获取单个 Todo | — |
 | POST | `/api/v1/todos` | 创建 Todo | 必填 `date`, `text`；返回 201；`date` 为首次出现日期 |
 | PUT | `/api/v1/todos/:id` | 更新 Todo | 仅传需改字段；可改 `date`；重复任务需设 `scope` |
 | PATCH | `/api/v1/todos/:id/toggle` | 切换完成状态 | 重复任务仅影响当天实例；`done: false→true` 时可附带 `record` 记录完成时刻/耗时 |
 | DELETE | `/api/v1/todos/:id` | 删除 Todo（软删除） | 重复任务默认 `scope=this`；可选 `thisAndFuture`, `all` |
-| POST | `/api/v1/todos/batch` | 批量操作 | `BATCH_TOGGLE_DONE`（需 `ids`+`done_status`，可选 `timer_records`）或 `BATCH_DELETE`（需 `ids`）；**v2.7.8.2 起解除 100 条限制，自动分片** |
+| POST | `/api/v1/todos/batch` | 批量操作 | `BATCH_TOGGLE_DONE`（需 `ids`+`done_status`，可选 `timer_records`）或 `BATCH_DELETE`（需 `ids`）；自动分片 |
 | PATCH | `/api/v1/todos/:id/subtasks` | 独立更新子任务 | 需 `subtasks` 数组 |
 | PATCH | `/api/v1/todos/:id/search-terms` | 独立更新搜索词 | 需 `search_terms` 数组 |
 | **Category** | | | |
@@ -313,7 +313,7 @@ Response:
 
 **Note:** When querying by `date`, recurring todo templates are auto-expanded: if a recurring todo should appear on that date but no instance exists yet, one is created automatically and included in the results.
 
-**v2.7.8.2: `expand=false` option** — Add `&expand=false` to skip server-side expansion. The response includes a `templates` array (active recurring templates covering that date) for the caller to compute occurrences locally via ical.js/rrule.js. This reduces Worker CPU usage (Cloudflare Free plan 10ms CPU limit) and avoids side-effect writes (no auto-instance creation). Use case: programmatic callers that already have RRULE computation capability, or read-only snapshots. Response format:
+**`expand=false` option** — Add `&expand=false` to skip server-side expansion. The response includes a `templates` array (active recurring templates covering that date) for the caller to compute occurrences locally via ical.js/rrule.js. This reduces Worker CPU usage (Cloudflare Free plan 10ms CPU limit) and avoids side-effect writes (no auto-instance creation). Use case: programmatic callers that already have RRULE computation capability, or read-only snapshots. Response format:
 
 ```json
 {
@@ -622,7 +622,7 @@ curl -s -X POST -H "X-API-Key: $CF_TODO_API_KEY" -H "Content-Type: application/j
     ]
   }'
 
-# Batch delete (soft delete, v2.7.8.2: no limit, auto-chunked)
+# Batch delete (soft delete, auto-chunked)
 curl -s -X POST -H "X-API-Key: $CF_TODO_API_KEY" -H "Content-Type: application/json" \
   "$CF_TODO_API_URL/api/v1/todos/batch" \
   -d '{"action":"BATCH_DELETE","ids":["id1","id2"]}'
@@ -639,21 +639,21 @@ curl -s -X POST -H "X-API-Key: $CF_TODO_API_KEY" -H "Content-Type: application/j
 | Parameter | Type | Required | Description |
 |---|---|---|---|
 | `action` | string | Yes | `BATCH_TOGGLE_DONE` or `BATCH_DELETE` |
-| `ids` | string[] | Yes | Array of todo IDs. **v2.7.8.2: no upper limit** (auto-chunked at 99) |
+| `ids` | string[] | Yes | Array of todo IDs. No upper limit (auto-chunked at 99) |
 | `done_status` | boolean | BATCH_TOGGLE_DONE | `true` = done, `false` = undone |
 | `timer_records` | array | No | `[{id, parent_id, record}]` — only effective when `done_status: true`. Each `record` follows the same validation rules as `PATCH /toggle`. |
 
 Response:
 
 ```json
-// BATCH_TOGGLE_DONE (v2.7.8.2: includes chunked/chunkCount, affected = actual changed rows)
+// BATCH_TOGGLE_DONE (includes chunked/chunkCount, affected = actual changed rows)
 {"success": true, "data": {"affected": 105, "done": true, "chunked": true, "chunkCount": 2}}
 
 // BATCH_DELETE
 {"success": true, "data": {"affected": 105, "chunked": true, "chunkCount": 2}}
 ```
 
-**v2.7.8.2 auto-chunking**: When `ids.length > 99`, the backend processes in chunks of 99. `chunked` indicates whether chunking was triggered; `chunkCount` = `ceil(ids.length / 99)`. `affected` is the actual number of changed rows (excludes non-existent/already-deleted ids), not `ids.length`.
+**Auto-chunking**: When `ids.length > 99`, the backend processes in chunks of 99. `chunked` indicates whether chunking was triggered; `chunkCount` = `ceil(ids.length / 99)`. `affected` is the actual number of changed rows (excludes non-existent/already-deleted ids), not `ids.length`.
 
 ### List categories
 
@@ -1030,28 +1030,10 @@ HTTP status codes:
 
 - Date format must be YYYY-MM-DD
 - Max 500 todos per query (use pagination)
-- ~~Max 100 items per batch operation~~ **Removed in v2.7.8.2**: Batch operations auto-chunk (99 per chunk), no upper limit. Response includes `chunked` (boolean) and `chunkCount` (number) fields. `affected`/`restored`/`deleted` reflect actual changed rows (not `ids.length`).
+- Batch operations auto-chunk (99 per chunk), no upper limit. Response includes `chunked` (boolean) and `chunkCount` (number) fields. `affected`/`restored`/`deleted` reflect actual changed rows (not `ids.length`).
 - Category names must be unique (case-insensitive)
 - Category delete is hard delete (cannot be restored); todo delete is soft delete (restorable from trash)
 - Deleting a recurring todo with `scope=all` also permanently deletes the template — the series cannot be restored from trash
 - Settings POST is a full overwrite — always GET first, modify, then POST back
 - Custom code is injected directly into the web UI — malformed HTML/CSS/JS can break the interface
 - Custom colors must be an array of hex strings
-
-## v3.0 Breaking Changes
-
-All API field names are now **snake_case only**. The camelCase compatibility layer has been removed.
-
-| Field type | Old (camelCase, removed) | New (snake_case) |
-|---|---|---|
-| Response field | `isSeries` | `is_series` |
-| task object property | `copyText` / `parentId` / `isSeries` | `copy_text` / `parent_id` / `is_series` |
-| Top-level request field | `doneStatus` / `keepRecords` / `timerRecords` / `parentId` | `done_status` / `keep_records` / `timer_records` / `parent_id` |
-| `timer_records` inner field | `parentId` | `parent_id` |
-
-**Behavior**: Requests sending camelCase fields will still succeed (HTTP 200), but the camelCase field values are silently dropped — only snake_case fields are read by the backend.
-
-**Additional v3.0 changes**:
-- `is_series` is a backend-derived field (computed from `repeat_type`); sending it as input has no effect (backend ignores it).
-- V0 `UPDATE` / `DELETE` now derives `parent_id` from DB when missing (no more 500 on `scope=all` without `parent_id`).
-- V0 `UPDATE` field-fallback fix: omitting `copy_text` / `text` / `time` / etc. now correctly preserves the DB value (previously `copy_text` was silently cleared due to a `readCopyText(task)` vs `readCopyText(original_task)` bug).
