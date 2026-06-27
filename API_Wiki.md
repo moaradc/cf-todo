@@ -1367,4 +1367,4 @@ data = response.json()
 7. `priority` 接受 `low`、`med`、`high`，`medium` 会自动转为 `med`
 8. **v2.7.8.2 起**：批量接口（`BATCH_TOGGLE_DONE` / `BATCH_DELETE` / `BATCH_RESTORE` / `BATCH_DELETE_PERMANENT` / category `BATCH_DELETE`）解除 100 条限制，后端按 99 一组自动分片。响应含 `chunked`（是否分片）和 `chunkCount`（分片数）字段。`affected`/`restored`/`deleted` 为实际改动行数（非 `ids.length`）
 9. **v2.7.8.2 起**：`GET /api/v1/todos?date=X` 支持 `expand=false` 参数，跳过服务端重复任务展开，响应附带 `templates` 数组供调用方自算（适合程序化调用方降低 Worker CPU 占用）
-10. **v2.7.8.2 起**：后端适配 D1 读副本会话 API（`env.DB.withSession('first-primary')`）。代码已就位，未来在 Cloudflare 控制台启用读副本后自动生效（Beta 功能，对部分地区延迟无实际优化，默认不启用）。详见 [D1 Read Replication](https://developers.cloudflare.com/d1/best-practices/read-replication)
+10. **v2.7.8.2 起**：后端代码适配 D1 读副本会话 API（`env.DB.withSession('first-primary')`）。**默认关闭**（`wrangler.toml` 中 `read_replication = false`），需手动启用 wrangler 配置并在 Cloudflare 控制台开启读副本后才生效（Beta 功能，对部分地区延迟无实际优化）。详见 [D1 Read Replication](https://developers.cloudflare.com/d1/best-practices/read-replication)

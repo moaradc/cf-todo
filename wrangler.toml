@@ -6,7 +6,11 @@ compatibility_date = "2024-12-01"
 binding = "DB"
 database_name = "todo-db"
 database_id = ""
-# 启用 D1 读副本：读查询可路由到全球副本，降低延迟（Free 可用，无额外费用）
-# 必须配合 D1 Sessions API (env.DB.withSession()) 才会路由到副本，否则全部走 primary
+# D1 读副本（Beta 功能）：
+# - false（默认）：不启用，所有读查询走 primary
+# - true：启用后，配合代码里的 env.DB.withSession('first-primary') 可路由读查询到就近副本
+# 注意：read replica 是 Cloudflare D1 Beta 功能，需在 D1 控制台手动启用才真正生效；
+#       对部分地区（如中国大陆，CF 无本地节点）延迟无显著影响，故默认关闭。
+#       如需启用：将下方改为 true 并在 CF Dashboard → D1 → Settings → 读取复制 中启用。
 # 详见 https://developers.cloudflare.com/d1/best-practices/read-replication
-read_replication = true
+read_replication = false
