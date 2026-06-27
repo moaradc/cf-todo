@@ -844,29 +844,12 @@ self.addEventListener('fetch', (event) => {
 
     if (url.pathname === '/api/hot-search' && request.method === 'GET') {
       const provider = url.searchParams.get('provider') || 'auto';
-      // 健壮性：Cache API 缓存 1 小时，避免每次都打外部 uapis.cn
-      // 热搜数据 1 小时更新一次足够，TTL 内用缓存（不消耗 KV 配额）
-      const cacheKey = new Request('https://internal/hot-search/' + encodeURIComponent(provider));
-      let cached = await caches.default.match(cacheKey);
-      if (cached) {
-        // 命中缓存，附加 X-Cache: HIT 头便于调试
-        const headers = new Headers(cached.headers);
-        headers.set('X-Cache', 'HIT');
-        return new Response(cached.body, { status: cached.status, headers });
-      }
+      // 注：hot-search 不做服务端缓存，保证实时性（用户主动点「换一批」、创建带热搜的 todo 都需要最新数据）
+      // fetchHotSearchData 内部已有 5s 超时 + 失败降级，足够健壮
       const allWords = await fetchHotSearchData(provider);
-      const body = JSON.stringify({ success: true, data: allWords });
-      const res = new Response(body, {
-        headers: {
-          'Content-Type': 'application/json',
-          // Cache-Control 必须设置，否则 caches.default.put 不会缓存
-          'Cache-Control': 'max-age=3600',
-          'X-Cache': 'MISS',
-        },
+      return new Response(JSON.stringify({ success: true, data: allWords }), {
+        headers: { 'Content-Type': 'application/json' }
       });
-      // 异步写入缓存，不阻塞响应
-      ctx.waitUntil(caches.default.put(cacheKey, res.clone()));
-      return res;
     }
 
     if (url.pathname === '/api/stats' && request.method === 'GET') {
