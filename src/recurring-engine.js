@@ -30,8 +30,8 @@ const DAY_MAP = ['', 'SU', 'MO', 'TU', 'WE', 'TH', 'FR', 'SA'];
 /**
  * 将日期字符串转为 ICAL Time
  */
-function dateStrToICALTime(dateStr) {
-  const parts = dateStr.split('-');
+function dateStrToICALTime(date_str) {
+  const parts = date_str.split('-');
   return new ICAL.Time({
     year: parseInt(parts[0]),
     month: parseInt(parts[1]),
@@ -54,12 +54,12 @@ function icalTimeToDateStr(time) {
  * 构建RFC 5545 RRULE字符串
  * @param {string} repeatType - daily/weekly/monthly/yearly
  * @param {string} anchorDate - 起始日期 YYYY-MM-DD
- * @param {string} [repeatEnd] - 结束日期 YYYY-MM-DD
+ * @param {string} [repeat_end] - 结束日期 YYYY-MM-DD
  * @param {string} [repeatCustom] - 自定义RRULE字符串
  * @param {number} [repeatInterval] - 重复间隔
  * @returns {string} RRULE字符串
  */
-function buildRRuleString(repeatType, anchorDate, repeatEnd, repeatCustom, repeatInterval) {
+function buildRRuleString(repeatType, anchorDate, repeat_end, repeatCustom, repeatInterval) {
   if (repeatCustom && repeatCustom.trim()) {
     let rrule = repeatCustom.trim();
     if (!rrule.startsWith('RRULE:')) rrule = 'RRULE:' + rrule;
@@ -74,8 +74,8 @@ function buildRRuleString(repeatType, anchorDate, repeatEnd, repeatCustom, repea
       }
     }
 
-    if (repeatEnd && !rrule.includes('UNTIL')) {
-      const untilStr = repeatEnd.replace(/-/g, '') + 'T235959Z';
+    if (repeat_end && !rrule.includes('UNTIL')) {
+      const untilStr = repeat_end.replace(/-/g, '') + 'T235959Z';
       rrule = rrule + ';UNTIL=' + untilStr;
     }
     return rrule;
@@ -112,8 +112,8 @@ function buildRRuleString(repeatType, anchorDate, repeatEnd, repeatCustom, repea
     parts.push(`BYMONTHDAY=${d.day}`);
   }
 
-  if (repeatEnd) {
-    const untilStr = repeatEnd.replace(/-/g, '') + 'T235959Z';
+  if (repeat_end) {
+    const untilStr = repeat_end.replace(/-/g, '') + 'T235959Z';
     parts.push(`UNTIL=${untilStr}`);
   }
 
@@ -178,14 +178,14 @@ function createICALComponent(template) {
  * 此函数对齐 RFC 5545 标准，确保 anchor_date (DTSTART) 始终被视为发生日期。
  *
  * @param {Object} template - 模板对象
- * @param {string} dateStr - 目标日期 YYYY-MM-DD
+ * @param {string} date_str - 目标日期 YYYY-MM-DD
  * @returns {boolean}
  */
-export function isOccurrenceOnDate(template, dateStr) {
+export function isOccurrenceOnDate(template, date_str) {
   if (!template.repeat_type || template.repeat_type === 'none') return false;
   // 碎时记 (fragment) 无模板，永远不会通过模板扩展生成实例
   if (template.repeat_type === 'fragment') return false;
-  if (!template.anchor_date || template.anchor_date > dateStr) return false;
+  if (!template.anchor_date || template.anchor_date > date_str) return false;
 
   // 检查是否在EXDATE中
   let exdates = [];
@@ -194,13 +194,13 @@ export function isOccurrenceOnDate(template, dateStr) {
       exdates = typeof template.exdates === 'string' ? JSON.parse(template.exdates) : template.exdates;
     } catch (e) { exdates = []; }
   }
-  if (Array.isArray(exdates) && exdates.includes(dateStr)) return false;
+  if (Array.isArray(exdates) && exdates.includes(date_str)) return false;
 
   // 检查repeat_end
-  if (template.repeat_end && dateStr > template.repeat_end) return false;
+  if (template.repeat_end && date_str > template.repeat_end) return false;
 
   // RFC 5545: DTSTART 始终是第一个实例，即使不匹配 RRULE
-  if (dateStr === template.anchor_date) return true;
+  if (date_str === template.anchor_date) return true;
 
   // 使用ICAL.js计算后续实例
   try {
@@ -215,27 +215,27 @@ export function isOccurrenceOnDate(template, dateStr) {
     let count = 0;
     while ((next = iterator.next()) && count < 1000) {
       const nextStr = icalTimeToDateStr(next);
-      if (nextStr === dateStr) return true;
-      if (nextStr > dateStr) return false;
+      if (nextStr === date_str) return true;
+      if (nextStr > date_str) return false;
       count++;
     }
     return false;
   } catch (e) {
     // 降级: 使用简单规则判断
-    return simpleIsOccurrence(template, dateStr);
+    return simpleIsOccurrence(template, date_str);
   }
 }
 
 /**
  * 简单规则判断（降级方案）
  */
-function simpleIsOccurrence(template, dateStr) {
+function simpleIsOccurrence(template, date_str) {
   const anchor = template.anchor_date;
-  if (dateStr < anchor) return false;
-  if (template.repeat_end && dateStr > template.repeat_end) return false;
+  if (date_str < anchor) return false;
+  if (template.repeat_end && date_str > template.repeat_end) return false;
 
   const [ay, am, ad] = anchor.split('-').map(Number);
-  const [dy, dm, dd] = dateStr.split('-').map(Number);
+  const [dy, dm, dd] = date_str.split('-').map(Number);
 
   switch (template.repeat_type) {
     case 'daily':
@@ -325,10 +325,10 @@ export function getOccurrencesBetween(template, startDate, endDate, limit = 365)
  * @returns {Object} 数据库操作语句数组
  */
 export function computeDeleteActions({ task, date, scope }) {
-  const parentId = task.parent_id;
+  const parent_id = task.parent_id;
   // 碎时记 (fragment) 不算重复系列，直接软删除
-  // 优先用 task.is_series（v3.0 标准）；外部传入的 isSeries（v2 兼容）忽略，避免污染判断
-  const isSeries = task.is_series || (task.repeat_type && task.repeat_type !== 'none' && task.repeat_type !== 'fragment');
+  // 后端不信任外部传入的 is_series，统一从 DB repeat_type 推导
+  const is_series = task.is_series || (task.repeat_type && task.repeat_type !== 'none' && task.repeat_type !== 'fragment');
 
   const actions = {
     deleteTodoIds: [],
@@ -338,7 +338,7 @@ export function computeDeleteActions({ task, date, scope }) {
     insertTemplate: null,
   };
 
-  if (!isSeries) {
+  if (!is_series) {
     // 非循环任务: 直接删除
     actions.deleteTodoIds.push(task.id);
     return actions;
@@ -348,21 +348,21 @@ export function computeDeleteActions({ task, date, scope }) {
     case 'this': {
       // 仅删除此实例: 软删除当前实例 + 添加EXDATE到模板
       actions.deleteTodoIds.push(task.id);
-      actions.updateTemplate = { type: 'add_exdate', date: date, parent_id: parentId };
+      actions.updateTemplate = { type: 'add_exdate', date: date, parent_id: parent_id };
       break;
     }
 
     case 'thisAndFuture': {
       // 删除此实例及以后: 软删除当前及以后的实例 + 设置模板repeat_end为当前日期前一天
       actions.deleteTodoIds.push(task.id);
-      actions.updateTemplate = { type: 'set_repeat_end', date: date, parent_id: parentId, alsoDeleteFuture: true };
+      actions.updateTemplate = { type: 'set_repeat_end', date: date, parent_id: parent_id, also_delete_future: true };
       break;
     }
 
     case 'all': {
       // 删除所有实例: 软删除所有实例 + 删除模板
       actions.deleteTemplate = true;
-      actions.updateTemplate = { type: 'delete_all', parent_id: parentId };
+      actions.updateTemplate = { type: 'delete_all', parent_id: parent_id };
       break;
     }
 
@@ -379,23 +379,23 @@ export function computeDeleteActions({ task, date, scope }) {
  * @param {Object} params.task - 当前任务实例（含修改后的字段）
  * @param {string} params.date - 原始日期
  * @param {string} params.scope - 操作范围: "this" | "thisAndFuture" | "all"
- * @param {Object} params.newValues - 新值
+ * @param {Object} params.new_values - 新值
  * @returns {Object} 操作描述
  */
-export function computeUpdateActions({ task, date, scope, newValues, newDate }) {
-  const parentId = task.parent_id;
+export function computeUpdateActions({ task, date, scope, new_values, new_date }) {
+  const parent_id = task.parent_id;
   // 碎时记 (fragment) 不算重复系列
-  // 优先用 task.is_series（v3.0 标准）；外部传入的 isSeries（v2 兼容）忽略，避免污染判断
-  const isSeries = task.is_series || (task.repeat_type && task.repeat_type !== 'none' && task.repeat_type !== 'fragment');
-  const rptType = newValues.repeat_type || task.repeat_type || 'none';
+  // 后端不信任外部传入的 is_series，统一从 DB repeat_type 推导
+  const is_series = task.is_series || (task.repeat_type && task.repeat_type !== 'none' && task.repeat_type !== 'fragment');
+  const rpt_type = new_values.repeat_type || task.repeat_type || 'none';
   // 碎时记不算 recurring（不会创建模板、不会分裂系列）
-  const isRecurring = rptType !== 'none' && rptType !== 'fragment';
+  const is_recurring = rpt_type !== 'none' && rpt_type !== 'fragment';
 
   // 检测重复规则是否变更（频率、间隔）
-  const originalRepeatType = task.repeat_type || 'none';
-  const originalInterval = task.repeat_interval || 1;
-  const newInterval = newValues.repeat_interval || 1;
-  const recurrenceChanged = (originalRepeatType !== rptType) || (originalInterval !== newInterval);
+  const original_repeat_type = task.repeat_type || 'none';
+  const original_interval = task.repeat_interval || 1;
+  const new_interval = new_values.repeat_interval || 1;
+  const recurrence_changed = (original_repeat_type !== rpt_type) || (original_interval !== new_interval);
 
   const actions = {
     currentTodo: null,
@@ -406,9 +406,9 @@ export function computeUpdateActions({ task, date, scope, newValues, newDate }) 
     insertTemplate: null,
   };
 
-  if (!isSeries) {
+  if (!is_series) {
     // 非循环任务: 直接更新
-    actions.currentTodo = { ...newValues, isRecurring: false };
+    actions.currentTodo = { ...new_values, is_recurring: false };
     return actions;
   }
 
@@ -418,15 +418,15 @@ export function computeUpdateActions({ task, date, scope, newValues, newDate }) 
       // 遵循标准规则（Google Calendar / RFC 5545）：
       // "仅此项"忽略所有重复属性变更（间隔、频率、截止），实例脱离系列变为单次
       actions.currentTodo = {
-        ...newValues,
+        ...new_values,
         repeat_type: 'none',
         repeat_custom: '',
         repeat_end: '',
         repeat_interval: 1,
-        isRecurring: false,
-        detachFromSeries: true,
+        is_recurring: false,
+        detach_from_series: true,
       };
-      actions.template = { type: 'add_exdate', date: date, parent_id: parentId };
+      actions.template = { type: 'add_exdate', date: date, parent_id: parent_id };
       break;
     }
 
@@ -435,60 +435,60 @@ export function computeUpdateActions({ task, date, scope, newValues, newDate }) 
       // 系列分裂为两个独立系列：
       //   - 旧系列：截断（设置 repeat_end 到当前日期前一天）
       //   - 新系列：从当前日期开始，使用新的重复属性（频率、间隔、截止等）
-      if (isRecurring) {
+      if (is_recurring) {
         actions.currentTodo = {
-          ...newValues,
-          isRecurring: true,
-          detachFromSeries: true,
-          splitSeries: true,
+          ...new_values,
+          is_recurring: true,
+          detach_from_series: true,
+          split_series: true,
         };
-        actions.pastTodos = { type: 'set_repeat_end', date: date, parent_id: parentId };
+        actions.pastTodos = { type: 'set_repeat_end', date: date, parent_id: parent_id };
         // 旧模板：截断
-        actions.template = { type: 'set_repeat_end', date: date, parent_id: parentId };
+        actions.template = { type: 'set_repeat_end', date: date, parent_id: parent_id };
         // 新模板：api.js 负责生成 newParentId 并创建
         actions.insertTemplate = {
-          text: newValues.text,
-          time: newValues.time,
-          priority: newValues.priority,
-          desc: newValues.desc,
-          url: newValues.url,
-          copy_text: newValues.copy_text !== undefined ? newValues.copy_text : '',
-          subtasks: newValues.subtasks,
-          search_terms: newValues.search_terms,
-          repeat_type: rptType,
+          text: new_values.text,
+          time: new_values.time,
+          priority: new_values.priority,
+          desc: new_values.desc,
+          url: new_values.url,
+          copy_text: new_values.copy_text !== undefined ? new_values.copy_text : '',
+          subtasks: new_values.subtasks,
+          search_terms: new_values.search_terms,
+          repeat_type: rpt_type,
           repeat_custom: '',
-          repeat_end: newValues.repeat_end || '',
-          end_time: newValues.end_time || '',
-          anchor_date: newDate || date,
+          repeat_end: new_values.repeat_end || '',
+          end_time: new_values.end_time || '',
+          anchor_date: new_date || date,
           exdates: '[]',
-          category_id: newValues.category_id || '',
-          repeat_interval: newInterval,
+          category_id: new_values.category_id || '',
+          repeat_interval: new_interval,
         };
       } else {
         // 改为不重复: 当前项脱离系列变单次，未来项删除，模板保留并设repeat_end
-        actions.currentTodo = { ...newValues, repeat_type: 'none', repeat_interval: 1, isRecurring: false, detachFromSeries: true };
-        actions.pastTodos = { type: 'set_repeat_end', date: date, parent_id: parentId };
-        actions.template = { type: 'set_repeat_end', date: date, parent_id: parentId };
+        actions.currentTodo = { ...new_values, repeat_type: 'none', repeat_interval: 1, is_recurring: false, detach_from_series: true };
+        actions.pastTodos = { type: 'set_repeat_end', date: date, parent_id: parent_id };
+        actions.template = { type: 'set_repeat_end', date: date, parent_id: parent_id };
       }
       break;
     }
 
     case 'all': {
       // 修改所有实例: 更新模板
-      if (isRecurring) {
-        actions.currentTodo = { ...newValues, isRecurring: true };
-        // 传递 recurrenceChanged 标志，让 api.js 决定是否需要删除旧实例重新生成
-        actions.template = { type: 'update_all', parent_id: parentId, newValues: newValues, recurrenceChanged: recurrenceChanged };
+      if (is_recurring) {
+        actions.currentTodo = { ...new_values, is_recurring: true };
+        // 传递 recurrence_changed 标志，让 api.js 决定是否需要删除旧实例重新生成
+        actions.template = { type: 'update_all', parent_id: parent_id, new_values: new_values, recurrence_changed: recurrence_changed };
       } else {
         // 改为不重复: 当前项脱离系列变单次，所有其他实例删除，模板删除
-        actions.currentTodo = { ...newValues, repeat_type: 'none', repeat_interval: 1, isRecurring: false, detachFromSeries: true };
-        actions.template = { type: 'delete', parent_id: parentId };
+        actions.currentTodo = { ...new_values, repeat_type: 'none', repeat_interval: 1, is_recurring: false, detach_from_series: true };
+        actions.template = { type: 'delete', parent_id: parent_id };
       }
       break;
     }
 
     default:
-      actions.currentTodo = { ...newValues };
+      actions.currentTodo = { ...new_values };
   }
 
   return actions;
@@ -499,16 +499,16 @@ export function computeUpdateActions({ task, date, scope, newValues, newDate }) 
 /**
  * 向模板添加EXDATE
  * @param {string} currentExdates - 当前EXDATE JSON字符串
- * @param {string} dateStr - 要排除的日期
+ * @param {string} date_str - 要排除的日期
  * @returns {string} 新的EXDATE JSON字符串
  */
-export function addExdate(currentExdates, dateStr) {
+export function addExdate(currentExdates, date_str) {
   let exdates = [];
   try {
     exdates = typeof currentExdates === 'string' ? JSON.parse(currentExdates || '[]') : (Array.isArray(currentExdates) ? currentExdates : []);
   } catch (e) { exdates = []; }
-  if (!exdates.includes(dateStr)) {
-    exdates.push(dateStr);
+  if (!exdates.includes(date_str)) {
+    exdates.push(date_str);
   }
   return JSON.stringify(exdates);
 }
@@ -516,15 +516,15 @@ export function addExdate(currentExdates, dateStr) {
 /**
  * 从模板移除EXDATE
  * @param {string} currentExdates - 当前EXDATE JSON字符串
- * @param {string} dateStr - 要恢复的日期
+ * @param {string} date_str - 要恢复的日期
  * @returns {string} 新的EXDATE JSON字符串
  */
-export function removeExdate(currentExdates, dateStr) {
+export function removeExdate(currentExdates, date_str) {
   let exdates = [];
   try {
     exdates = typeof currentExdates === 'string' ? JSON.parse(currentExdates || '[]') : (Array.isArray(currentExdates) ? currentExdates : []);
   } catch (e) { exdates = []; }
-  exdates = exdates.filter(d => d !== dateStr);
+  exdates = exdates.filter(d => d !== date_str);
   return JSON.stringify(exdates);
 }
 
@@ -533,8 +533,8 @@ export function removeExdate(currentExdates, dateStr) {
 /**
  * 获取某日期的前一天
  */
-export function getPreviousDate(dateStr) {
-  const parts = dateStr.split('-');
+export function getPreviousDate(date_str) {
+  const parts = date_str.split('-');
   const d = new Date(Date.UTC(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2])));
   d.setUTCDate(d.getUTCDate() - 1);
   const y = d.getUTCFullYear();
@@ -546,8 +546,8 @@ export function getPreviousDate(dateStr) {
 /**
  * 获取某日期的后一天
  */
-export function getNextDate(dateStr) {
-  const parts = dateStr.split('-');
+export function getNextDate(date_str) {
+  const parts = date_str.split('-');
   const d = new Date(Date.UTC(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2])));
   d.setUTCDate(d.getUTCDate() + 1);
   const y = d.getUTCFullYear();
@@ -559,8 +559,8 @@ export function getNextDate(dateStr) {
 /**
  * 获取星期几 (0=日, 1=一, ..., 6=六)
  */
-export function getDayOfWeek(dateStr) {
-  const parts = dateStr.split('-');
+export function getDayOfWeek(date_str) {
+  const parts = date_str.split('-');
   const d = new Date(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2]));
   return d.getDay();
 }
@@ -578,8 +578,8 @@ export function formatDateStr(date) {
 /**
  * 日期偏移
  */
-export function offsetDate(dateStr, days) {
-  const parts = dateStr.split('-');
+export function offsetDate(date_str, days) {
+  const parts = date_str.split('-');
   const d = new Date(Date.UTC(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2])));
   d.setUTCDate(d.getUTCDate() + days);
   return formatDateStr(d);
@@ -590,7 +590,7 @@ export function offsetDate(dateStr, days) {
 /**
  * 获取重复类型的中文标签 (对齐Google Calendar)
  */
-export function getRepeatLabel(repeatType, dateStr, repeatEnd, repeatInterval) {
+export function getRepeatLabel(repeatType, date_str, repeat_end, repeatInterval) {
   // 碎时记 (fragment): 一次性浮动事项，固定显示"碎时记"
   if (repeatType === 'fragment') return '碎时记';
   const labels = {
@@ -603,25 +603,25 @@ export function getRepeatLabel(repeatType, dateStr, repeatEnd, repeatInterval) {
 
   const n = repeatInterval && repeatInterval > 1 ? repeatInterval : null;
 
-  if (repeatType === 'weekly' && dateStr) {
+  if (repeatType === 'weekly' && date_str) {
     const days = ['日', '一', '二', '三', '四', '五', '六'];
-    const dayOfWeek = getDayOfWeek(dateStr);
+    const dayOfWeek = getDayOfWeek(date_str);
     let label = n ? `每${n}周${days[dayOfWeek]}` : `每周${days[dayOfWeek]}`;
-    if (repeatEnd) label += `·至${repeatEnd}`;
+    if (repeat_end) label += `·至${repeat_end}`;
     return label;
   }
 
-  if (repeatType === 'monthly' && dateStr) {
-    const day = parseInt(dateStr.split('-')[2], 10);
+  if (repeatType === 'monthly' && date_str) {
+    const day = parseInt(date_str.split('-')[2], 10);
     let label = n ? `每${n}月${day}号` : `每月${day}号`;
-    if (repeatEnd) label += `·至${repeatEnd}`;
+    if (repeat_end) label += `·至${repeat_end}`;
     return label;
   }
 
-  if (repeatType === 'yearly' && dateStr) {
-    const parts = dateStr.split('-');
+  if (repeatType === 'yearly' && date_str) {
+    const parts = date_str.split('-');
     let label = n ? `每${n}年${parseInt(parts[1], 10)}月${parseInt(parts[2], 10)}日` : `每年${parseInt(parts[1], 10)}月${parseInt(parts[2], 10)}日`;
-    if (repeatEnd) label += `·至${repeatEnd}`;
+    if (repeat_end) label += `·至${repeat_end}`;
     return label;
   }
 
@@ -629,8 +629,8 @@ export function getRepeatLabel(repeatType, dateStr, repeatEnd, repeatInterval) {
   if (n && repeatType === 'daily') {
     label = `每${n}天`;
   }
-  if (repeatEnd && repeatType !== 'none') {
-    label += `·至${repeatEnd}`;
+  if (repeat_end && repeatType !== 'none') {
+    label += `·至${repeat_end}`;
   }
   return label;
 }

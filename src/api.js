@@ -853,8 +853,8 @@ self.addEventListener('fetch', (event) => {
       const provider = url.searchParams.get('provider') || 'auto';
       // 注：hot-search 不做服务端缓存，保证实时性（用户主动点「换一批」、创建带热搜的 todo 都需要最新数据）
       // fetchHotSearchData 内部已有 5s 超时 + 失败降级，足够健壮
-      const allWords = await fetchHotSearchData(provider);
-      return new Response(JSON.stringify({ success: true, data: allWords }), {
+      const all_words = await fetchHotSearchData(provider);
+      return new Response(JSON.stringify({ success: true, data: all_words }), {
         headers: { 'Content-Type': 'application/json' }
       });
     }
@@ -1960,10 +1960,10 @@ self.addEventListener('fetch', (event) => {
         if (existing) {
           return apiError('分类名称已存在', 400);
         }
-        const newId = Date.now().toString() + Math.floor(Math.random() * 10000).toString().padStart(4, '0');
-        const catColor = (color && color.trim()) ? color.trim() : DEFAULT_CATEGORY_COLOR;
-        await env.DB.prepare("INSERT INTO categories (id, name, color) VALUES (?, ?, ?)").bind(newId, name.trim(), catColor).run();
-        return new Response(JSON.stringify({ success: true, id: newId, name: name.trim(), color: catColor }), { headers: { 'Content-Type': 'application/json' } });
+        const new_id = Date.now().toString() + Math.floor(Math.random() * 10000).toString().padStart(4, '0');
+        const cat_color = (color && color.trim()) ? color.trim() : DEFAULT_CATEGORY_COLOR;
+        await env.DB.prepare("INSERT INTO categories (id, name, color) VALUES (?, ?, ?)").bind(new_id, name.trim(), cat_color).run();
+        return new Response(JSON.stringify({ success: true, id: new_id, name: name.trim(), color: cat_color }), { headers: { 'Content-Type': 'application/json' } });
       }
       else if (action === 'UPDATE') {
         if (!id) {
@@ -2043,8 +2043,8 @@ self.addEventListener('fetch', (event) => {
             if (tpl && (tpl.repeat_end === '' || tpl.repeat_end == null || tpl.repeat_end >= t.date)) {
               // 模板仍覆盖此日期: 视为"仅此日程"删除的恢复，从EXDATE移除此日期，重新并入系列
               const currentExdates = tpl.exdates || '[]';
-              const newExdates = removeExdate(currentExdates, t.date);
-              await env.DB.prepare('UPDATE todo_templates SET exdates = ? WHERE parent_id = ?').bind(newExdates, t.parent_id).run();
+              const new_exdates = removeExdate(currentExdates, t.date);
+              await env.DB.prepare('UPDATE todo_templates SET exdates = ? WHERE parent_id = ?').bind(new_exdates, t.parent_id).run();
             } else {
               // 模板已删除(旧版 all)或已截断至此日期之前(旧版 thisAndFuture): 无法并入系列，脱钩为单次任务
               await env.DB.prepare(
@@ -2164,9 +2164,9 @@ self.addEventListener('fetch', (event) => {
                 let currentExdates = tpl.exdates || '[]';
                 let changed = false;
                 for (const d of exdateUpdates[pid]) {
-                  const newExdates = removeExdate(currentExdates, d);
-                  if (newExdates !== currentExdates) {
-                    currentExdates = newExdates;
+                  const new_exdates = removeExdate(currentExdates, d);
+                  if (new_exdates !== currentExdates) {
+                    currentExdates = new_exdates;
                     changed = true;
                   }
                 }
@@ -2249,7 +2249,7 @@ self.addEventListener('fetch', (event) => {
           // 使用 recurring-engine 判断此模板是否在目标日期生成实例
           if (!isOccurrenceOnDate(templateForEngine, date)) continue;
     
-          const newId = crypto.randomUUID();
+          const new_id = crypto.randomUUID();
     
           let parsedSubtasks = [];
           if (tpl.subtasks && tpl.subtasks !== '[]' && tpl.subtasks !== '') {
@@ -2282,7 +2282,7 @@ self.addEventListener('fetch', (event) => {
           }
     
         const newRecord = { 
-          ...tpl, id: newId, date: date, parent_id: tpl.parent_id, 
+          ...tpl, id: new_id, date: date, parent_id: tpl.parent_id, 
           done: 0, deleted: 0,
           subtasks: parsedSubtasks,
           search_terms: parsedSearchTerms,
@@ -2297,7 +2297,7 @@ self.addEventListener('fetch', (event) => {
         insertStmts.push(env.DB.prepare(
           'INSERT INTO todos (id, parent_id, date, text, time, priority, desc, url, copy_text, subtasks, search_terms, done, deleted, repeat_type, repeat_custom, repeat_end, end_time, category_id, repeat_interval) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
         ).bind(
-          newId, tpl.parent_id, date, tpl.text, tpl.time || '', tpl.priority || 'low',
+          new_id, tpl.parent_id, date, tpl.text, tpl.time || '', tpl.priority || 'low',
           tpl.desc || '', tpl.url || '', tpl.copy_text || '',
           JSON.stringify(parsedSubtasks), JSON.stringify(parsedSearchTerms),
           0, 0, tpl.repeat_type || 'none', tpl.repeat_custom || '', tpl.repeat_end || '', tpl.end_time || '', tpl.category_id || '', tpl.repeat_interval || 1
@@ -2363,26 +2363,26 @@ self.addEventListener('fetch', (event) => {
     }
 
     if (url.pathname === '/api/time-records' && request.method === 'GET') {
-      const todoId = url.searchParams.get('todo_id');
-      const parentId = url.searchParams.get('parent_id');
+      const todo_id = url.searchParams.get('todo_id');
+      const parent_id = url.searchParams.get('parent_id');
       let records = [];
-      let templateRecords = [];
+      let template_records = [];
 
-      if (todoId) {
+      if (todo_id) {
         // 实例级查询（推荐）：修复同一模板不同实例串台的问题
-        const todoRow = await env.DB.prepare(
+        const todo_row = await env.DB.prepare(
           'SELECT time_records, parent_id FROM todos WHERE id = ?'
-        ).bind(todoId).first();
-        if (todoRow) {
+        ).bind(todo_id).first();
+        if (todo_row) {
           try {
-            const p = typeof todoRow.time_records === 'string'
-              ? JSON.parse(todoRow.time_records || '[]')
-              : todoRow.time_records;
+            const p = typeof todo_row.time_records === 'string'
+              ? JSON.parse(todo_row.time_records || '[]')
+              : todo_row.time_records;
             if (Array.isArray(p)) records = p;
           } catch (e) {}
           // 同时取模板级记录，用于 predictDuration（基于该模板最近 10 次完成时长中位数）
           // 模板级与实例级记录解耦：实例级用于"完成于"显示，模板级用于预估
-          const pidForTpl = todoRow.parent_id;
+          const pidForTpl = todo_row.parent_id;
           if (pidForTpl) {
             const tplRow = await env.DB.prepare(
               'SELECT time_records FROM todo_templates WHERE parent_id = ?'
@@ -2392,16 +2392,16 @@ self.addEventListener('fetch', (event) => {
                 const tp = typeof tplRow.time_records === 'string'
                   ? JSON.parse(tplRow.time_records || '[]')
                   : tplRow.time_records;
-                if (Array.isArray(tp)) templateRecords = tp;
+                if (Array.isArray(tp)) template_records = tp;
               } catch (e) {}
             }
           }
         }
-      } else if (parentId) {
+      } else if (parent_id) {
         // 兼容旧客户端：仅返回模板级记录
         const row = await env.DB.prepare(
           'SELECT time_records FROM todo_templates WHERE parent_id = ?'
-        ).bind(parentId).first();
+        ).bind(parent_id).first();
         if (row && row.time_records) {
           try {
             const parsed = typeof row.time_records === 'string' ? JSON.parse(row.time_records) : row.time_records;
@@ -2411,7 +2411,7 @@ self.addEventListener('fetch', (event) => {
       } else {
         return apiError("todo_id or parent_id required", 400);
       }
-      return new Response(JSON.stringify({ records, templateRecords }), { headers: { 'Content-Type': 'application/json' } });
+      return new Response(JSON.stringify({ records, template_records }), { headers: { 'Content-Type': 'application/json' } });
     }
 
     if (url.pathname === '/api/todo-action' && request.method === 'POST') {
@@ -2422,12 +2422,6 @@ self.addEventListener('fetch', (event) => {
         return apiError('请求体不是有效的 JSON', 400);
       }
       const { action, date, task, scope, ids, done_status, record, parent_id, timer_records, keep_records } = parsedBody;
-      // v3.0 兼容：旧 camelCase 客户端可能仍传 doneStatus/timerRecords/keepRecords/parentId
-      // 在使用点统一通过 snake_case 访问；下面做一次映射以保证健壮性。
-      const doneStatus = done_status !== undefined ? done_status : parsedBody.doneStatus;
-      const timerRecords = timer_records !== undefined ? timer_records : parsedBody.timerRecords;
-      const keepRecords = keep_records !== undefined ? keep_records : parsedBody.keepRecords;
-      const parentId = parent_id !== undefined ? parent_id : parsedBody.parentId;
 
       // 健壮性：校验 action 必填且有效
       if (!action || typeof action !== 'string') {
@@ -2441,33 +2435,33 @@ self.addEventListener('fetch', (event) => {
       // 健壮性：碎时记完成场景校验 date 不能是未来日期
       // 否则恶意/错误客户端可将 fragment 冻结到未来日期，导致它在未来前完全不可见
       // 仅对 TOGGLE_DONE/TIMER_COMPLETE/BATCH_TOGGLE_DONE 的完成分支校验
-      let effectiveDate = date;
+      let effective_date = date;
       if (date && ['TOGGLE_DONE', 'TIMER_COMPLETE', 'BATCH_TOGGLE_DONE'].includes(action)) {
         const todayStr = new Date().toISOString().slice(0, 10);
         if (date > todayStr) {
-          effectiveDate = todayStr; // 纠正为今天，而非拒绝请求（保持幂等）
+          effective_date = todayStr; // 纠正为今天，而非拒绝请求（保持幂等）
         }
       }
 
       if (action === 'TOGGLE_DONE') {
           // 先读取 todo 的 repeat_type，判断是否碎时记（fragment）
           // 碎时记分支：保留 time_records 历史累计，完成时冻结日期，取消勾选时重置开始日期
-          let isFragment = false;
+          let is_fragment = false;
           try {
             const row = await env.DB.prepare('SELECT repeat_type FROM todos WHERE id = ?').bind(task.id).first();
-            if (row && row.repeat_type === 'fragment') isFragment = true;
+            if (row && row.repeat_type === 'fragment') is_fragment = true;
           } catch (e) { /* 读取失败按普通 todo 处理 */ }
 
-          if (isFragment) {
+          if (is_fragment) {
             if (!task.done) {
               // 取消勾选（done 1→0）：
-              // - keepRecords=true（"继续计时"按钮路径）：保留 time_records 历史累计
-              // - keepRecords=false/未传（checkbox 取消勾选）：清空 time_records，与普通重复 todo 一致
+              // - keep_records=true（"继续计时"按钮路径）：保留 time_records 历史累计
+              // - keep_records=false/未传（checkbox 取消勾选）：清空 time_records，与普通重复 todo 一致
               // date 从 fragment_anchor 恢复（用户设置的起始日期），fragment_anchor 始终保留
               // 这样取消完成不会丢失用户设置的起始日期
-              const shouldKeepRecords = !!keepRecords;
+              const should_keep_records = !!keep_records;
               try {
-                if (shouldKeepRecords) {
+                if (should_keep_records) {
                   await env.DB.prepare('UPDATE todos SET done = 0, date = fragment_anchor WHERE id = ?')
                     .bind(task.id).run();
                 } else {
@@ -2489,43 +2483,43 @@ self.addEventListener('fetch', (event) => {
                   const cur = await env.DB.prepare(
                     'SELECT time_records FROM todos WHERE id = ?'
                   ).bind(task.id).first();
-                  let instArr = [];
+                  let inst_arr = [];
                   try {
-                    instArr = typeof cur.time_records === 'string'
+                    inst_arr = typeof cur.time_records === 'string'
                       ? JSON.parse(cur.time_records || '[]')
                       : cur.time_records;
-                  } catch (e2) { instArr = []; }
-                  if (!Array.isArray(instArr)) instArr = [];
-                  instArr.push({ s: record.s, e: record.e, p: 0 });
+                  } catch (e2) { inst_arr = []; }
+                  if (!Array.isArray(inst_arr)) inst_arr = [];
+                  inst_arr.push({ s: record.s, e: record.e, p: 0 });
                   // 碎时记不 FIFO 截断（保留全部历史 session 用于累计统计）
                   await env.DB.prepare(
                     'UPDATE todos SET done = 1, date = ?, time_records = ? WHERE id = ?'
-                  ).bind(effectiveDate || '', JSON.stringify(instArr), task.id).run();
+                  ).bind(effective_date || '', JSON.stringify(inst_arr), task.id).run();
                 } else {
                   await env.DB.prepare(
                     'UPDATE todos SET done = 1, date = ? WHERE id = ?'
-                  ).bind(effectiveDate || '', task.id).run();
+                  ).bind(effective_date || '', task.id).run();
                 }
               } catch (e) {
                 await env.DB.prepare('UPDATE todos SET done = 1 WHERE id = ?').bind(task.id).run();
               }
             }
           }
-          // 普通分支（原逻辑）：取消勾选时按 keepRecords 决定是否清空实例级 time_records
+          // 普通分支（原逻辑）：取消勾选时按 keep_records 决定是否清空实例级 time_records
           else if (!task.done) {
-            let shouldKeepRecords = false;
-            if (keepRecords) {
+            let should_keep_records = false;
+            if (keep_records) {
               try {
                 const cur = await env.DB.prepare('SELECT done FROM todos WHERE id = ?')
                   .bind(task.id).first();
                 // 仅当 DB 中当前 done=1 且请求改为 done=0 时，才允许保留 records
-                shouldKeepRecords = !!(cur && cur.done === 1);
+                should_keep_records = !!(cur && cur.done === 1);
               } catch (e) {
-                // DB 读取失败：保守起见不清除（避免数据丢失），但也不信任 keepRecords
-                shouldKeepRecords = false;
+                // DB 读取失败：保守起见不清除（避免数据丢失），但也不信任 keep_records
+                should_keep_records = false;
               }
             }
-            if (shouldKeepRecords) {
+            if (should_keep_records) {
               try {
                 await env.DB.prepare('UPDATE todos SET done = 0 WHERE id = ?')
                   .bind(task.id).run();
@@ -2543,7 +2537,7 @@ self.addEventListener('fetch', (event) => {
           } else {
             // done 0→1：记录完成时刻（零耗时 record，s===e）。仅写实例级，不写模板级
             // （零耗时记录会污染 predictDuration 中位数）。真实耗时（s<e）走 TIMER_COMPLETE。
-            // 注意：done 0→1 时 keepRecords 无意义，强制清除旧 records 避免污染。
+            // 注意：done 0→1 时 keep_records 无意义，强制清除旧 records 避免污染。
             try {
               if (record && typeof record.s === 'number' && typeof record.e === 'number'
                   && record.s === record.e && record.s > 0) {
@@ -2551,22 +2545,22 @@ self.addEventListener('fetch', (event) => {
                 const cur = await env.DB.prepare(
                   'SELECT time_records FROM todos WHERE id = ?'
                 ).bind(task.id).first();
-                let instArr = [];
+                let inst_arr = [];
                 if (cur && cur.time_records) {
                   try {
-                    instArr = typeof cur.time_records === 'string'
+                    inst_arr = typeof cur.time_records === 'string'
                       ? JSON.parse(cur.time_records || '[]')
                       : cur.time_records;
-                  } catch (e2) { instArr = []; }
+                  } catch (e2) { inst_arr = []; }
                 }
-                if (!Array.isArray(instArr)) instArr = [];
-                instArr.push({ s: record.s, e: record.e, p: 0 });
+                if (!Array.isArray(inst_arr)) inst_arr = [];
+                inst_arr.push({ s: record.s, e: record.e, p: 0 });
                 // 普通重复 todo：FIFO 5 截断（复刻 bd3f88d）
-                // 碎时记分支不走到这里（已在上面的 isFragment 分支处理）
-                if (instArr.length > 5) instArr = instArr.slice(instArr.length - 5);
+                // 碎时记分支不走到这里（已在上面的 is_fragment 分支处理）
+                if (inst_arr.length > 5) inst_arr = inst_arr.slice(inst_arr.length - 5);
                 await env.DB.prepare(
                   'UPDATE todos SET done = 1, time_records = ? WHERE id = ?'
-                ).bind(JSON.stringify(instArr), task.id).run();
+                ).bind(JSON.stringify(inst_arr), task.id).run();
               } else {
                 await env.DB.prepare('UPDATE todos SET done = 1 WHERE id = ?').bind(task.id).run();
               }
@@ -2581,29 +2575,29 @@ self.addEventListener('fetch', (event) => {
           // - 碎时记：实例级不截断 + 冻结 date 到完成日期 + 无模板级
           // - 普通 todo：实例级 FIFO 5 + 模板级 FIFO 10
           // record: { s, e, p }，校验 1s ≤ (e-s) ≤ 7d、p ≥ 0、p < (e-s)
-          const todoId = task && task.id;
-          const pid = parentId || (task && task.parent_id);
-          if (!todoId) return apiError("INVALID_PARAMS", 400);
+          const todo_id = task && task.id;
+          const pid = parent_id || (task && task.parent_id);
+          if (!todo_id) return apiError("INVALID_PARAMS", 400);
 
           // 读取 repeat_type，区分碎时记 / 普通 todo
-          let isFragment = false;
+          let is_fragment = false;
           try {
-            const row = await env.DB.prepare('SELECT repeat_type FROM todos WHERE id = ?').bind(todoId).first();
-            if (row && row.repeat_type === 'fragment') isFragment = true;
+            const row = await env.DB.prepare('SELECT repeat_type FROM todos WHERE id = ?').bind(todo_id).first();
+            if (row && row.repeat_type === 'fragment') is_fragment = true;
           } catch (e) { /* 读取失败按普通 todo 处理 */ }
 
           // 标记完成（始终执行，即便记录写入失败也不阻断）
-          // 碎时记完成时同时冻结 date（effectiveDate 已校验不超过今天）
-          if (isFragment) {
+          // 碎时记完成时同时冻结 date（effective_date 已校验不超过今天）
+          if (is_fragment) {
             try {
               await env.DB.prepare('UPDATE todos SET done = 1, date = ? WHERE id = ?')
-                .bind(effectiveDate || '', todoId).run();
+                .bind(effective_date || '', todo_id).run();
             } catch (e) {
-              await env.DB.prepare('UPDATE todos SET done = 1 WHERE id = ?').bind(todoId).run();
+              await env.DB.prepare('UPDATE todos SET done = 1 WHERE id = ?').bind(todo_id).run();
             }
           } else {
             try {
-              await env.DB.prepare('UPDATE todos SET done = 1 WHERE id = ?').bind(todoId).run();
+              await env.DB.prepare('UPDATE todos SET done = 1 WHERE id = ?').bind(todo_id).run();
             } catch (eDone) {
               console.error("TIMER_COMPLETE mark done failed:", eDone);
             }
@@ -2620,27 +2614,27 @@ self.addEventListener('fetch', (event) => {
               try {
                 const cur = await env.DB.prepare(
                   'SELECT time_records FROM todos WHERE id = ?'
-                ).bind(todoId).first();
-                let instArr = [];
+                ).bind(todo_id).first();
+                let inst_arr = [];
                 if (cur && cur.time_records) {
                   try {
-                    instArr = typeof cur.time_records === 'string'
+                    inst_arr = typeof cur.time_records === 'string'
                       ? JSON.parse(cur.time_records || '[]')
                       : cur.time_records;
-                  } catch (e2) { instArr = []; }
+                  } catch (e2) { inst_arr = []; }
                 }
-                if (!Array.isArray(instArr)) instArr = [];
-                instArr.push({ s, e, p });
-                if (!isFragment && instArr.length > 5) instArr = instArr.slice(instArr.length - 5);
+                if (!Array.isArray(inst_arr)) inst_arr = [];
+                inst_arr.push({ s, e, p });
+                if (!is_fragment && inst_arr.length > 5) inst_arr = inst_arr.slice(inst_arr.length - 5);
                 await env.DB.prepare(
                   'UPDATE todos SET time_records = ? WHERE id = ?'
-                ).bind(JSON.stringify(instArr), todoId).run();
+                ).bind(JSON.stringify(inst_arr), todo_id).run();
               } catch (eInst) {
                 console.error("TIMER_COMPLETE per-instance record write failed:", eInst);
               }
 
               // 模板级：仅普通 todo（FIFO 10）；碎时记无模板，跳过
-              if (!isFragment && pid) {
+              if (!is_fragment && pid) {
                 try {
                   const tpl = await env.DB.prepare(
                     'SELECT time_records FROM todo_templates WHERE parent_id = ?'
@@ -2665,15 +2659,15 @@ self.addEventListener('fetch', (event) => {
         else if (action === 'TIMER_RECORD') {
           // 计时"记录"：保存 session 到实例级 time_records，不标记完成，不写模板级
           // 碎时记独有；普通 todo 收到此 action 直接 no-op（返回 downgraded:true 兼容旧客户端）
-          const todoId = task && task.id;
-          if (!todoId) return apiError("INVALID_PARAMS", 400);
+          const todo_id = task && task.id;
+          if (!todo_id) return apiError("INVALID_PARAMS", 400);
 
-          let isFragment = false;
+          let is_fragment = false;
           try {
-            const row = await env.DB.prepare('SELECT repeat_type FROM todos WHERE id = ?').bind(todoId).first();
-            if (row && row.repeat_type === 'fragment') isFragment = true;
+            const row = await env.DB.prepare('SELECT repeat_type FROM todos WHERE id = ?').bind(todo_id).first();
+            if (row && row.repeat_type === 'fragment') is_fragment = true;
           } catch (e) { /* 读取失败按普通 todo 处理，no-op */ }
-          if (!isFragment) {
+          if (!is_fragment) {
             return new Response(JSON.stringify({ ok: true, downgraded: true }), { headers: { 'Content-Type': 'application/json' } });
           }
 
@@ -2686,20 +2680,20 @@ self.addEventListener('fetch', (event) => {
               try {
                 const cur = await env.DB.prepare(
                   'SELECT time_records FROM todos WHERE id = ?'
-                ).bind(todoId).first();
-                let instArr = [];
+                ).bind(todo_id).first();
+                let inst_arr = [];
                 if (cur && cur.time_records) {
                   try {
-                    instArr = typeof cur.time_records === 'string'
+                    inst_arr = typeof cur.time_records === 'string'
                       ? JSON.parse(cur.time_records || '[]')
                       : cur.time_records;
-                  } catch (e2) { instArr = []; }
+                  } catch (e2) { inst_arr = []; }
                 }
-                if (!Array.isArray(instArr)) instArr = [];
-                instArr.push({ s, e, p });
+                if (!Array.isArray(inst_arr)) inst_arr = [];
+                inst_arr.push({ s, e, p });
                 await env.DB.prepare(
                   'UPDATE todos SET time_records = ? WHERE id = ?'
-                ).bind(JSON.stringify(instArr), todoId).run();
+                ).bind(JSON.stringify(inst_arr), todo_id).run();
               } catch (eInst) {
                 console.error("TIMER_RECORD per-instance record write failed:", eInst);
               }
@@ -2718,7 +2712,7 @@ self.addEventListener('fetch', (event) => {
           if (ids && ids.length > 0) {
             // 自动分片查询 repeat_type，汇总 fragment/plain 分类
             let fragmentIds = [];
-            let fragmentIdSet = new Set();
+            let fragment_id_set = new Set();
             let plainIds = [];
             for (const chunk of chunkArray(ids, BATCH_CHUNK_SIZE)) {
               const ph = sqlPlaceholders(chunk.length);
@@ -2729,7 +2723,7 @@ self.addEventListener('fetch', (event) => {
                 for (const r of (rows.results || [])) {
                   if (r.repeat_type === 'fragment') {
                     fragmentIds.push(r.id);
-                    fragmentIdSet.add(r.id);
+                    fragment_id_set.add(r.id);
                   } else {
                     plainIds.push(r.id);
                   }
@@ -2740,7 +2734,7 @@ self.addEventListener('fetch', (event) => {
             }
 
             // 批量取消勾选
-            if (!doneStatus) {
+            if (!done_status) {
               // 碎时记：清空 time_records，done=0，date 从 fragment_anchor 恢复
               // 健壮性：fragment 与 plain 并发执行（6 连接限内，2 个并发安全）
               const runFragmentUncomplete = async () => {
@@ -2781,7 +2775,7 @@ self.addEventListener('fetch', (event) => {
                   const frPh = sqlPlaceholders(chunk.length);
                   try {
                     await env.DB.prepare(`UPDATE todos SET done = 1, date = ? WHERE id IN (${frPh}) AND done = 0`)
-                      .bind(effectiveDate || '', ...chunk).run();
+                      .bind(effective_date || '', ...chunk).run();
                   } catch (e) {
                     try {
                       await env.DB.prepare(`UPDATE todos SET done = 1 WHERE id IN (${frPh}) AND done = 0`)
@@ -2805,16 +2799,16 @@ self.addEventListener('fetch', (event) => {
             }
 
             // 批量完成时：对带 record 的 todo 写入 time_records
-            // timerRecords (legacy) / timer_records (v3.0): [{ id, parent_id, record: {s, e, p} }]
+            // timer_records: [{ id, parent_id, record: {s, e, p} }]
             // - 真实耗时（s<e）：实例级 + 模板级双写（与 TIMER_COMPLETE 一致；碎时记跳过模板级）
             // - 零耗时（s===e）：仅实例级，不写模板级（与 TOGGLE_DONE 一致，
             //   避免零耗时记录污染 predictDuration 中位数预估）
             // 健壮性：批量预取 + 分片 UPDATE，避免逐条 SELECT/UPDATE 撞 D1 50 queries/invocation 限制
-            if (doneStatus && Array.isArray(timerRecords) && timerRecords.length > 0) {
+            if (done_status && Array.isArray(timer_records) && timer_records.length > 0) {
               const MAX_DURATION_MS = 7 * 24 * 60 * 60 * 1000;
               // 过滤+校验 record
-              const validItems = [];
-              for (const item of timerRecords) {
+              const valid_items = [];
+              for (const item of timer_records) {
                 if (!item || !item.id || !item.record) continue;
                 const rec = item.record;
                 if (typeof rec.s !== 'number' || typeof rec.e !== 'number') continue;
@@ -2822,18 +2816,18 @@ self.addEventListener('fetch', (event) => {
                 const e = Math.floor(rec.e);
                 const p = Math.floor(rec.p || 0);
                 if (!(s > 0 && e >= s && (e - s) <= MAX_DURATION_MS && p >= 0 && p <= (e - s))) continue;
-                validItems.push({
+                valid_items.push({
                   id: item.id,
                   parent_id: item.parent_id,
-                  isFragment: fragmentIdSet.has(item.id),
-                  isZeroDuration: s === e,
+                  is_fragment: fragment_id_set.has(item.id),
+                  is_zero_duration: s === e,
                   s, e, p,
                 });
               }
 
               // 批量预取实例级 time_records
-              const instIds = [...new Set(validItems.map(it => it.id))];
-              const instTimeRecordsMap = new Map();
+              const instIds = [...new Set(valid_items.map(it => it.id))];
+              const inst_time_records_map = new Map();
               for (const chunk of chunkArray(instIds, BATCH_CHUNK_SIZE)) {
                 const ph = sqlPlaceholders(chunk.length);
                 try {
@@ -2844,7 +2838,7 @@ self.addEventListener('fetch', (event) => {
                       arr = typeof r.time_records === 'string' ? JSON.parse(r.time_records || '[]') : r.time_records;
                     } catch (e2) { arr = []; }
                     if (!Array.isArray(arr)) arr = [];
-                    instTimeRecordsMap.set(r.id, arr);
+                    inst_time_records_map.set(r.id, arr);
                   }
                 } catch (e) {
                   // 单片查询失败不阻断整体流程
@@ -2852,13 +2846,13 @@ self.addEventListener('fetch', (event) => {
               }
 
               // 批量预取模板级 time_records
-              const tplParentIds = [...new Set(
-                validItems
-                  .filter(it => !it.isZeroDuration && !it.isFragment && it.parent_id)
+              const tpl_parent_ids = [...new Set(
+                valid_items
+                  .filter(it => !it.is_zero_duration && !it.is_fragment && it.parent_id)
                   .map(it => it.parent_id)
               )];
-              const tplTimeRecordsMap = new Map();
-              for (const chunk of chunkArray(tplParentIds, BATCH_CHUNK_SIZE)) {
+              const tpl_time_records_map = new Map();
+              for (const chunk of chunkArray(tpl_parent_ids, BATCH_CHUNK_SIZE)) {
                 const ph = sqlPlaceholders(chunk.length);
                 try {
                   const rows = await env.DB.prepare(`SELECT parent_id, time_records FROM todo_templates WHERE parent_id IN (${ph})`).bind(...chunk).all();
@@ -2866,7 +2860,7 @@ self.addEventListener('fetch', (event) => {
                     let arr = [];
                     try { arr = Array.isArray(r.time_records) ? r.time_records : JSON.parse(r.time_records || '[]'); } catch (e2) { arr = []; }
                     if (!Array.isArray(arr)) arr = [];
-                    tplTimeRecordsMap.set(r.parent_id, arr);
+                    tpl_time_records_map.set(r.parent_id, arr);
                   }
                 } catch (e) {
                   // 单片查询失败不阻断整体流程
@@ -2874,30 +2868,30 @@ self.addEventListener('fetch', (event) => {
               }
 
               // Worker 内 merge
-              const instUpdates = [];
-              for (const it of validItems) {
-                const arr = instTimeRecordsMap.get(it.id);
+              const inst_updates = [];
+              for (const it of valid_items) {
+                const arr = inst_time_records_map.get(it.id);
                 if (!arr) continue;
                 arr.push({ s: it.s, e: it.e, p: it.p });
-                if (!it.isFragment && arr.length > 5) arr.splice(0, arr.length - 5);
-                instUpdates.push({ id: it.id, time_records: JSON.stringify(arr) });
+                if (!it.is_fragment && arr.length > 5) arr.splice(0, arr.length - 5);
+                inst_updates.push({ id: it.id, time_records: JSON.stringify(arr) });
               }
-              const tplUpdates = new Map();
-              for (const it of validItems) {
-                if (it.isZeroDuration || it.isFragment || !it.parent_id) continue;
-                const arr = tplTimeRecordsMap.get(it.parent_id);
+              const tpl_updates = new Map();
+              for (const it of valid_items) {
+                if (it.is_zero_duration || it.is_fragment || !it.parent_id) continue;
+                const arr = tpl_time_records_map.get(it.parent_id);
                 if (!arr) continue;
-                let target = tplUpdates.get(it.parent_id);
+                let target = tpl_updates.get(it.parent_id);
                 if (!target) {
                   target = arr.slice();
-                  tplUpdates.set(it.parent_id, target);
+                  tpl_updates.set(it.parent_id, target);
                 }
                 target.push({ s: it.s, e: it.e, p: it.p });
                 if (target.length > 10) target.splice(0, target.length - 10);
               }
 
               // 分片 UPDATE 实例级
-              for (const chunk of chunkArray(instUpdates, BATCH_CHUNK_SIZE)) {
+              for (const chunk of chunkArray(inst_updates, BATCH_CHUNK_SIZE)) {
                 try {
                   const stmts = chunk.map(u => env.DB.prepare('UPDATE todos SET time_records = ? WHERE id = ?').bind(u.time_records, u.id));
                   await env.DB.batch(stmts);
@@ -2906,7 +2900,7 @@ self.addEventListener('fetch', (event) => {
                 }
               }
               // 分片 UPDATE 模板级
-              const tplUpdateArr = Array.from(tplUpdates.entries()).map(([pid, arr]) => ({ pid, time_records: JSON.stringify(arr) }));
+              const tplUpdateArr = Array.from(tpl_updates.entries()).map(([pid, arr]) => ({ pid, time_records: JSON.stringify(arr) }));
               for (const chunk of chunkArray(tplUpdateArr, BATCH_CHUNK_SIZE)) {
                 try {
                   const stmts = chunk.map(u => env.DB.prepare('UPDATE todo_templates SET time_records = ? WHERE parent_id = ?').bind(u.time_records, u.pid));
@@ -2966,13 +2960,13 @@ self.addEventListener('fetch', (event) => {
               try {
                 const currentExdates = tplExdatesMap.get(pid);
                 if (currentExdates === undefined) continue;
-                let newExdates = currentExdates;
+                let new_exdates = currentExdates;
                 let changed = false;
                 for (const d of exdateUpdates[pid]) {
-                  const next = addExdate(newExdates, d);
-                  if (next !== newExdates) { newExdates = next; changed = true; }
+                  const next = addExdate(new_exdates, d);
+                  if (next !== new_exdates) { new_exdates = next; changed = true; }
                 }
-                if (changed) await env.DB.prepare('UPDATE todo_templates SET exdates = ? WHERE parent_id = ?').bind(newExdates, pid).run();
+                if (changed) await env.DB.prepare('UPDATE todo_templates SET exdates = ? WHERE parent_id = ?').bind(new_exdates, pid).run();
               } catch (e) {
                 // 单模板 exdate 维护失败不阻断整体流程
               }
@@ -2987,47 +2981,47 @@ self.addEventListener('fetch', (event) => {
           if (!task.text || typeof task.text !== 'string' || !task.text.trim()) {
             return apiError('task.text 为必填字段', 400);
           }
-          const rptType = task.repeat_type || 'none';
+          const rpt_type = task.repeat_type || 'none';
           // 健壮性：校验 repeat_type 合法值
           const VALID_REPEAT_TYPES = ['none', 'daily', 'weekly', 'monthly', 'yearly', 'fragment'];
-          if (rptType !== 'none' && !VALID_REPEAT_TYPES.includes(rptType)) {
-            return apiError(`无效的 repeat_type: ${rptType}`, 400);
+          if (rpt_type !== 'none' && !VALID_REPEAT_TYPES.includes(rpt_type)) {
+            return apiError(`无效的 repeat_type: ${rpt_type}`, 400);
           }
-          const categoryId = task.category_id || '';
+          const category_id = task.category_id || '';
           // 碎时记 (repeat_type='fragment')：强制无开始/结束时间、无重复截止、间隔为1
           // 客户端已在 selectRepeat('fragment') 中清空相关字段，此处兜底防御（API 也能创建碎时记）
           // 碎时记允许 date 为空（表示不限开始日期，任意日期都可见）
-          const isFragment = (rptType === 'fragment');
-          const effectiveEndTime = isFragment ? '' : (task.end_time || '');
-          const effectiveTime = isFragment ? '' : (task.time || '');
-          const effectiveRepeatEnd = isFragment ? '' : (task.repeat_end || '');
-          const effectiveRepeatInterval = isFragment ? 1 : (task.repeat_interval || 1);
+          const is_fragment = (rpt_type === 'fragment');
+          const effectiveEndTime = is_fragment ? '' : (task.end_time || '');
+          const effectiveTime = is_fragment ? '' : (task.time || '');
+          const effectiveRepeatEnd = is_fragment ? '' : (task.repeat_end || '');
+          const effectiveRepeatInterval = is_fragment ? 1 : (task.repeat_interval || 1);
           // 健壮性修复：date 顶层字段缺失时回退到 task.date（与 V1 行为对齐）
           // API_Wiki §3.2 文档要求 date 在 body 顶层，但外部调用方常按 V1 风格放在 task.date
           // 原 bug：非碎时记 + date 缺失 → D1_TYPE_ERROR 500（无指引性）
           const fallbackDate = date || (task && task.date) || '';
           // 非碎时记必须有有效日期；碎时记允许空（浮动）
-          if (!isFragment && !fallbackDate) {
+          if (!is_fragment && !fallbackDate) {
             return apiError('date 为必填项（碎时记允许为空），请传顶层 date 或 task.date', 400);
           }
-          const effectiveDate = fallbackDate;
+          const effective_date = fallbackDate;
           // 碎时记：fragment_anchor 同步存起始日期（与 date 一致），作为取消完成时恢复的权威副本
-          const effectiveFragmentAnchor = isFragment ? effectiveDate : '';
+          const effective_fragment_anchor = is_fragment ? effective_date : '';
           await env.DB.prepare(
             'INSERT INTO todos (id, parent_id, date, text, time, priority, desc, url, copy_text, subtasks, search_terms, done, deleted, repeat_type, repeat_custom, repeat_end, end_time, category_id, repeat_interval, fragment_anchor) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
           ).bind(
-            task.id, task.id, effectiveDate, task.text, effectiveTime, task.priority || 'low',
+            task.id, task.id, effective_date, task.text, effectiveTime, task.priority || 'low',
             task.desc || '', task.url || '', readCopyText(task), JSON.stringify(task.subtasks||[]), JSON.stringify(task.search_terms||[]),
-            0, 0, rptType, '', effectiveRepeatEnd, effectiveEndTime, categoryId, effectiveRepeatInterval, effectiveFragmentAnchor
+            0, 0, rpt_type, '', effectiveRepeatEnd, effectiveEndTime, category_id, effectiveRepeatInterval, effective_fragment_anchor
           ).run();
 
           // 仅 daily/weekly/monthly/yearly 才创建模板；碎时记 (fragment) 和 none 不创建
-          if (rptType !== 'none' && rptType !== 'fragment') {
+          if (rpt_type !== 'none' && rpt_type !== 'fragment') {
               await env.DB.prepare(
                 'INSERT INTO todo_templates (parent_id, text, time, priority, desc, url, copy_text, subtasks, search_terms, repeat_type, repeat_custom, repeat_end, end_time, anchor_date, exdates, category_id, repeat_interval) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
               ).bind(
                 task.id, task.text, effectiveTime, task.priority || 'low', task.desc || '', task.url || '', readCopyText(task),
-                JSON.stringify(task.subtasks||[]), JSON.stringify(task.search_terms||[]), rptType, '', effectiveRepeatEnd, effectiveEndTime, effectiveDate, '[]', categoryId, task.repeat_interval || 1
+                JSON.stringify(task.subtasks||[]), JSON.stringify(task.search_terms||[]), rpt_type, '', effectiveRepeatEnd, effectiveEndTime, effective_date, '[]', category_id, task.repeat_interval || 1
               ).run();
           }
         }
@@ -3036,194 +3030,194 @@ self.addEventListener('fetch', (event) => {
           if (!task || !task.id || typeof task.id !== 'string' || !task.id.trim()) {
             return apiError('task.id 为必填字段', 400);
           }
-          const rptType = task.repeat_type || 'none';
+          const rpt_type = task.repeat_type || 'none';
           // 健壮性：校验 repeat_type 合法值
           const VALID_REPEAT_TYPES_UPD = ['none', 'daily', 'weekly', 'monthly', 'yearly', 'fragment'];
           if (task.repeat_type && !VALID_REPEAT_TYPES_UPD.includes(task.repeat_type)) {
             return apiError(`无效的 repeat_type: ${task.repeat_type}`, 400);
           }
-          const subtasksStr = JSON.stringify(task.subtasks ||[]);
-          const searchTermsStr = JSON.stringify(task.search_terms ||[]);
-          const categoryId = task.category_id || '';
-          const repeatEnd = task.repeat_end || '';
-          const endTime = task.end_time || '';
-          let newDate = (task.date !== undefined && task.date !== null) ? task.date : date;
+          const subtasks_str = JSON.stringify(task.subtasks ||[]);
+          const search_terms_str = JSON.stringify(task.search_terms ||[]);
+          const category_id = task.category_id || '';
+          const repeat_end = task.repeat_end || '';
+          const end_time = task.end_time || '';
+          let new_date = (task.date !== undefined && task.date !== null) ? task.date : date;
           // 健壮性兜底：非 fragment 类型必须有有效具体日期
           // fragment 允许 date 为空（不限起始），但 none/daily/weekly/monthly/yearly 不允许
           // 前端已兜底，这里防御 API 直接调用或异常情况
-          const rptTypeForCheck = task.repeat_type || 'none';
-          if (rptTypeForCheck !== 'fragment' && !newDate) {
-            newDate = date;
+          const rpt_type_for_check = task.repeat_type || 'none';
+          if (rpt_type_for_check !== 'fragment' && !new_date) {
+            new_date = date;
           }
-          const dateChanged = newDate !== date;
-          // 健壮性修复：parentId 缺失时从 DB 派生
+          const date_changed = new_date !== date;
+          // 健壮性修复：parent_id 缺失时从 DB 派生
           // 原 bug：UPDATE scope=all 不传 task.parent_id → DELETE FROM todos WHERE parent_id=undefined → 500
           // V0 调用方（含外部 API）可能省略 parent_id（V1 风格），需要服务端补全
-          let parentId = task.parent_id;
-          if (!parentId) {
+          let parent_id = task.parent_id;
+          if (!parent_id) {
             try {
-              const pidRow = await env.DB.prepare('SELECT parent_id FROM todos WHERE id = ?').bind(task.id).first();
-              if (pidRow) parentId = pidRow.parent_id;
+              const pid_row = await env.DB.prepare('SELECT parent_id FROM todos WHERE id = ?').bind(task.id).first();
+              if (pid_row) parent_id = pid_row.parent_id;
             } catch (e) {}
           }
-          if (!parentId) {
+          if (!parent_id) {
             return apiError('无法确定 parent_id（任务不存在或未传 parent_id）', 400);
           }
 
-          // 获取原始任务数据，用于检测重复规则变更和正确判断 isSeries
+          // 获取原始任务数据，用于检测重复规则变更和正确判断 is_series
           // 健壮性修复：同时取 text/time/priority/desc/url/copy_text 等字段，
           // 调用方按 V1 风格只传需要修改的字段时，缺失字段从 DB 回退，避免 500
-          let originalTask = task;
+          let original_task = task;
           try {
             const orig = await env.DB.prepare('SELECT text, time, priority, desc, url, copy_text, repeat_type, repeat_interval, done, date, parent_id FROM todos WHERE id = ?').bind(task.id).first();
             if (orig) {
-              originalTask = { ...task, repeat_type: orig.repeat_type, repeat_interval: orig.repeat_interval, _origDone: orig.done, _origDate: orig.date, _origParentId: orig.parent_id, _origRepeatType: orig.repeat_type };
+              original_task = { ...task, repeat_type: orig.repeat_type, repeat_interval: orig.repeat_interval, _orig_done: orig.done, _orig_date: orig.date, _orig_parent_id: orig.parent_id, _orig_repeat_type: orig.repeat_type };
               // 缺失字段从 DB 回退（V1 PATCH 风格：仅传需修改字段）
-              if (task.text === undefined) originalTask.text = orig.text;
-              if (task.time === undefined) originalTask.time = orig.time;
-              if (task.priority === undefined) originalTask.priority = orig.priority;
-              if (task.desc === undefined) originalTask.desc = orig.desc;
-              if (task.url === undefined) originalTask.url = orig.url;
-              if (task.copy_text === undefined) originalTask.copy_text = orig.copy_text || '';
+              if (task.text === undefined) original_task.text = orig.text;
+              if (task.time === undefined) original_task.time = orig.time;
+              if (task.priority === undefined) original_task.priority = orig.priority;
+              if (task.desc === undefined) original_task.desc = orig.desc;
+              if (task.url === undefined) original_task.url = orig.url;
+              if (task.copy_text === undefined) original_task.copy_text = orig.copy_text || '';
             }
           } catch(e) {}
 
-          // isSeries 基于数据库原始数据判断，而非前端提交的新值
+          // is_series 基于数据库原始数据判断，而非前端提交的新值
           // 前端可能已将 repeat_type 改为 'none'，但原始任务仍是循环的
           // 碎时记 (fragment) 不算重复系列
           // 若新值是 fragment，强制按"非系列"处理：脱离旧系列 + 删除旧模板 + 不创建新模板
-          const isSeries = originalTask.repeat_type && originalTask.repeat_type !== 'none' && originalTask.repeat_type !== 'fragment' && rptType !== 'fragment';
+          const is_series = original_task.repeat_type && original_task.repeat_type !== 'none' && original_task.repeat_type !== 'fragment' && rpt_type !== 'fragment';
           // 健壮性：校验 scope 合法值
           if (scope && scope !== 'none' && !['this', 'thisAndFuture', 'all'].includes(scope)) {
             return apiError(`无效的 scope: ${scope}，有效值: this, thisAndFuture, all`, 400);
           }
           // 循环任务未指定 scope 时，默认 scope=this（仅更新此实例）
-          const effectiveScope = isSeries && (!scope || scope === 'none') ? 'this' : (scope || 'none');
+          const effective_scope = is_series && (!scope || scope === 'none') ? 'this' : (scope || 'none');
 
-          const newValues = {
-            text: originalTask.text,
-            time: originalTask.time || '',
-            priority: originalTask.priority || 'low',
-            desc: originalTask.desc || '',
-            url: originalTask.url || '',
-            copy_text: readCopyText(originalTask),
-            subtasks: subtasksStr,
-            search_terms: searchTermsStr,
-            repeat_type: rptType,
+          const new_values = {
+            text: original_task.text,
+            time: original_task.time || '',
+            priority: original_task.priority || 'low',
+            desc: original_task.desc || '',
+            url: original_task.url || '',
+            copy_text: readCopyText(original_task),
+            subtasks: subtasks_str,
+            search_terms: search_terms_str,
+            repeat_type: rpt_type,
             repeat_custom: '',
-            repeat_end: repeatEnd,
-            end_time: endTime,
-            category_id: categoryId,
-            date: newDate,
+            repeat_end: repeat_end,
+            end_time: end_time,
+            category_id: category_id,
+            date: new_date,
             repeat_interval: task.repeat_interval || 1,
           };
 
           // 碎时记强制约束：若新值是 fragment，强制清空 time/end_time/repeat_end/repeat_interval
           // 防止 API 调用者绕过前端约束，向碎时记写入无意义字段
-          if (rptType === 'fragment') {
-            newValues.time = '';
-            newValues.end_time = '';
-            newValues.repeat_end = '';
-            newValues.repeat_interval = 1;
+          if (rpt_type === 'fragment') {
+            new_values.time = '';
+            new_values.end_time = '';
+            new_values.repeat_end = '';
+            new_values.repeat_interval = 1;
           }
 
-          if (!isSeries) {
+          if (!is_series) {
             // 原始任务不是循环的（none 或 fragment），或新值是 fragment（强制脱离旧系列）
-            if (rptType !== 'none' && rptType !== 'fragment') {
+            if (rpt_type !== 'none' && rpt_type !== 'fragment') {
               // 单次任务 → 重复：更新 todo 并创建模板
               await env.DB.prepare(
                 'UPDATE todos SET date=?, text=?, time=?, priority=?, desc=?, url=?, copy_text=?, subtasks=?, search_terms=?, repeat_type=?, repeat_custom=?, repeat_end=?, end_time=?, category_id=?, repeat_interval=? WHERE id=?'
-              ).bind(newDate, originalTask.text, originalTask.time || '', originalTask.priority || 'low', originalTask.desc || '', originalTask.url || '', readCopyText(task), subtasksStr, searchTermsStr, rptType, '', repeatEnd, endTime, categoryId, task.repeat_interval || 1, task.id).run();
+              ).bind(new_date, original_task.text, original_task.time || '', original_task.priority || 'low', original_task.desc || '', original_task.url || '', readCopyText(task), subtasks_str, search_terms_str, rpt_type, '', repeat_end, end_time, category_id, task.repeat_interval || 1, task.id).run();
               await env.DB.prepare(
                 'INSERT OR REPLACE INTO todo_templates (parent_id, text, time, priority, desc, url, copy_text, subtasks, search_terms, repeat_type, repeat_custom, repeat_end, end_time, anchor_date, exdates, category_id, repeat_interval) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
               ).bind(
-                task.id, originalTask.text, originalTask.time || '', originalTask.priority || 'low', originalTask.desc || '', originalTask.url || '', readCopyText(task),
-                subtasksStr, searchTermsStr, rptType, '', repeatEnd, endTime, newDate, '[]', categoryId, task.repeat_interval || 1
+                task.id, original_task.text, original_task.time || '', original_task.priority || 'low', original_task.desc || '', original_task.url || '', readCopyText(task),
+                subtasks_str, search_terms_str, rpt_type, '', repeat_end, end_time, new_date, '[]', category_id, task.repeat_interval || 1
               ).run();
-            } else if (rptType === 'fragment' && parentId && parentId !== task.id) {
+            } else if (rpt_type === 'fragment' && parent_id && parent_id !== task.id) {
               // 重复 → 碎时记：脱离旧系列，删除旧模板（如果只剩这一个实例）
               // 碎时记 (fragment): date 列即起始日期（未完成时）或完成日期（已完成时）
-              //   - 未完成：接受前端传入的 newDate（用户可能在编辑表单改了起始日期）
+              //   - 未完成：接受前端传入的 new_date（用户可能在编辑表单改了起始日期）
               //   - 已完成：date 是冻结的完成日期，不应被 UPDATE 改动，用 DB 原始值
-              // fragment_anchor：未完成时同步为 newDate（新起始日期），已完成时保留原值
-              let effectiveUpdateDate = newDate;
-              let effectiveFragmentAnchor = newDate;
-              if (originalTask._origDone === 1) {
-                effectiveUpdateDate = originalTask._origDate || '';
+              // fragment_anchor：未完成时同步为 new_date（新起始日期），已完成时保留原值
+              let effective_update_date = new_date;
+              let effective_fragment_anchor = new_date;
+              if (original_task._orig_done === 1) {
+                effective_update_date = original_task._orig_date || '';
                 // 已完成时 fragment_anchor 保留原值（不从 task 读取，避免被前端污染）
                 try {
-                  const faRow = await env.DB.prepare('SELECT fragment_anchor FROM todos WHERE id = ?').bind(task.id).first();
-                  effectiveFragmentAnchor = (faRow && faRow.fragment_anchor) ? faRow.fragment_anchor : '';
-                } catch (e) { effectiveFragmentAnchor = ''; }
+                  const fa_row = await env.DB.prepare('SELECT fragment_anchor FROM todos WHERE id = ?').bind(task.id).first();
+                  effective_fragment_anchor = (fa_row && fa_row.fragment_anchor) ? fa_row.fragment_anchor : '';
+                } catch (e) { effective_fragment_anchor = ''; }
               }
               await env.DB.prepare(
                 'UPDATE todos SET parent_id=?, date=?, text=?, time=?, priority=?, desc=?, url=?, copy_text=?, subtasks=?, search_terms=?, repeat_type=?, repeat_custom=?, repeat_end=?, end_time=?, category_id=?, repeat_interval=?, fragment_anchor=? WHERE id=?'
-              ).bind(task.id, effectiveUpdateDate, originalTask.text, newValues.time, originalTask.priority || 'low', originalTask.desc || '', originalTask.url || '', readCopyText(task), subtasksStr, searchTermsStr, rptType, '', newValues.repeat_end, newValues.end_time, categoryId, newValues.repeat_interval, effectiveFragmentAnchor, task.id).run();
+              ).bind(task.id, effective_update_date, original_task.text, new_values.time, original_task.priority || 'low', original_task.desc || '', original_task.url || '', readCopyText(task), subtasks_str, search_terms_str, rpt_type, '', new_values.repeat_end, new_values.end_time, category_id, new_values.repeat_interval, effective_fragment_anchor, task.id).run();
               // 给旧模板加 exdate 防止该日期重新生成实例
-              const tpl = await env.DB.prepare('SELECT exdates FROM todo_templates WHERE parent_id = ?').bind(parentId).first();
+              const tpl = await env.DB.prepare('SELECT exdates FROM todo_templates WHERE parent_id = ?').bind(parent_id).first();
               if (tpl) {
-                const newExdates = addExdate(tpl.exdates || '[]', date);
-                await env.DB.prepare('UPDATE todo_templates SET exdates = ? WHERE parent_id = ?').bind(newExdates, parentId).run();
+                const new_exdates = addExdate(tpl.exdates || '[]', date);
+                await env.DB.prepare('UPDATE todo_templates SET exdates = ? WHERE parent_id = ?').bind(new_exdates, parent_id).run();
               }
-            } else if (parentId && parentId !== task.id && rptType !== 'fragment') {
+            } else if (parent_id && parent_id !== task.id && rpt_type !== 'fragment') {
               // 重复 → 单次：脱离系列
               await env.DB.prepare(
                 'UPDATE todos SET parent_id=?, date=?, text=?, time=?, priority=?, desc=?, url=?, copy_text=?, subtasks=?, search_terms=?, repeat_type=\'none\', repeat_custom=\'\', repeat_end=\'\', end_time=?, category_id=?, repeat_interval=1, fragment_anchor=? WHERE id=?'
-              ).bind(task.id, newDate, originalTask.text, originalTask.time || '', originalTask.priority || 'low', originalTask.desc || '', originalTask.url || '', readCopyText(task), subtasksStr, searchTermsStr, endTime, categoryId, '', task.id).run();
-              const tpl = await env.DB.prepare('SELECT exdates FROM todo_templates WHERE parent_id = ?').bind(parentId).first();
+              ).bind(task.id, new_date, original_task.text, original_task.time || '', original_task.priority || 'low', original_task.desc || '', original_task.url || '', readCopyText(task), subtasks_str, search_terms_str, end_time, category_id, '', task.id).run();
+              const tpl = await env.DB.prepare('SELECT exdates FROM todo_templates WHERE parent_id = ?').bind(parent_id).first();
               if (tpl) {
-                const newExdates = addExdate(tpl.exdates || '[]', date);
-                await env.DB.prepare('UPDATE todo_templates SET exdates = ? WHERE parent_id = ?').bind(newExdates, parentId).run();
+                const new_exdates = addExdate(tpl.exdates || '[]', date);
+                await env.DB.prepare('UPDATE todo_templates SET exdates = ? WHERE parent_id = ?').bind(new_exdates, parent_id).run();
               }
             } else {
               // 普通更新（none 或 fragment→fragment 或 fragment→none）
               // 碎时记 (fragment): date 列即起始日期（未完成时）或完成日期（已完成时）
-              //   - 未完成：接受前端传入的 newDate（用户可能在编辑表单改了起始日期）
+              //   - 未完成：接受前端传入的 new_date（用户可能在编辑表单改了起始日期）
               //   - 已完成：date 是冻结的完成日期，不应被 UPDATE 改动，用 DB 原始值
-              // fragment_anchor：未完成时同步为 newDate，已完成时保留原值
-              let effectiveUpdateDate = newDate;
-              let effectiveFragmentAnchor = (rptType === 'fragment') ? newDate : '';
-              if (rptType === 'fragment' && originalTask._origDone === 1) {
+              // fragment_anchor：未完成时同步为 new_date，已完成时保留原值
+              let effective_update_date = new_date;
+              let effective_fragment_anchor = (rpt_type === 'fragment') ? new_date : '';
+              if (rpt_type === 'fragment' && original_task._orig_done === 1) {
                 // 已完成：保留冻结的完成日期
-                effectiveUpdateDate = originalTask._origDate || '';
+                effective_update_date = original_task._orig_date || '';
                 // fragment_anchor 保留原值
                 try {
-                  const faRow = await env.DB.prepare('SELECT fragment_anchor FROM todos WHERE id = ?').bind(task.id).first();
-                  effectiveFragmentAnchor = (faRow && faRow.fragment_anchor) ? faRow.fragment_anchor : '';
-                } catch (e) { effectiveFragmentAnchor = ''; }
+                  const fa_row = await env.DB.prepare('SELECT fragment_anchor FROM todos WHERE id = ?').bind(task.id).first();
+                  effective_fragment_anchor = (fa_row && fa_row.fragment_anchor) ? fa_row.fragment_anchor : '';
+                } catch (e) { effective_fragment_anchor = ''; }
               }
               await env.DB.prepare(
                 'UPDATE todos SET date=?, text=?, time=?, priority=?, desc=?, url=?, copy_text=?, subtasks=?, search_terms=?, repeat_type=?, repeat_custom=?, repeat_end=?, end_time=?, category_id=?, repeat_interval=?, fragment_anchor=? WHERE id=?'
-              ).bind(effectiveUpdateDate, originalTask.text, newValues.time, originalTask.priority || 'low', originalTask.desc || '', originalTask.url || '', readCopyText(task), subtasksStr, searchTermsStr, rptType, '', newValues.repeat_end, newValues.end_time, categoryId, newValues.repeat_interval, effectiveFragmentAnchor, task.id).run();
+              ).bind(effective_update_date, original_task.text, new_values.time, original_task.priority || 'low', original_task.desc || '', original_task.url || '', readCopyText(task), subtasks_str, search_terms_str, rpt_type, '', new_values.repeat_end, new_values.end_time, category_id, new_values.repeat_interval, effective_fragment_anchor, task.id).run();
               // BUG 修复：原任务是系列主实例（id === parent_id）且新类型为 fragment 时，
               // 必须删除旧模板，否则旧模板会持续按原 daily/weekly 规则生成新实例（幽灵重复事项）
-              if (rptType === 'fragment' && originalTask._origRepeatType
-                  && originalTask._origRepeatType !== 'none'
-                  && originalTask._origRepeatType !== 'fragment'
-                  && originalTask._origParentId === task.id) {
+              if (rpt_type === 'fragment' && original_task._orig_repeat_type
+                  && original_task._orig_repeat_type !== 'none'
+                  && original_task._orig_repeat_type !== 'fragment'
+                  && original_task._orig_parent_id === task.id) {
                 try {
                   await env.DB.prepare('DELETE FROM todo_templates WHERE parent_id = ?').bind(task.id).run();
                 } catch (e) {}
               }
             }
           } else {
-            const actions = computeUpdateActions({ task: originalTask, date, scope: effectiveScope, newValues, newDate });
+            const actions = computeUpdateActions({ task: original_task, date, scope: effective_scope, new_values, new_date });
 
             // Split 系列时生成新 parent_id
-            let splitNewPid = null;
-            if (actions.currentTodo && actions.currentTodo.splitSeries) {
-              splitNewPid = Date.now().toString() + Math.floor(Math.random() * 10000).toString().padStart(4, '0');
+            let split_new_pid = null;
+            if (actions.currentTodo && actions.currentTodo.split_series) {
+              split_new_pid = Date.now().toString() + Math.floor(Math.random() * 10000).toString().padStart(4, '0');
             }
 
             // Execute currentTodo action
             if (actions.currentTodo) {
               const cv = actions.currentTodo;
-              if (cv.splitSeries) {
-                // Split: 脱离旧系列，加入新系列（thisAndFuture + isRecurring）
+              if (cv.split_series) {
+                // Split: 脱离旧系列，加入新系列（thisAndFuture + is_recurring）
                 await env.DB.prepare(
                   'UPDATE todos SET parent_id=?, date=?, text=?, time=?, priority=?, desc=?, url=?, copy_text=?, subtasks=?, search_terms=?, repeat_type=?, repeat_custom=?, repeat_end=?, end_time=?, category_id=?, repeat_interval=? WHERE id=?'
-                ).bind(splitNewPid, newDate, originalTask.text, originalTask.time || '', originalTask.priority || 'low', originalTask.desc || '', originalTask.url || '', readCopyText(task), subtasksStr, searchTermsStr, rptType, '', repeatEnd, endTime, categoryId, task.repeat_interval || 1, task.id).run();
-              } else if (cv.detachFromSeries) {
+                ).bind(split_new_pid, new_date, original_task.text, original_task.time || '', original_task.priority || 'low', original_task.desc || '', original_task.url || '', readCopyText(task), subtasks_str, search_terms_str, rpt_type, '', repeat_end, end_time, category_id, task.repeat_interval || 1, task.id).run();
+              } else if (cv.detach_from_series) {
                 // 脱离系列，变为单次任务（"仅此项"或 thisAndFuture 改为不重复）
                 // 保留实例级 time_records：非重复 todo 详情面板也渲染只读计时区块
                 // （显示"完成于 X"），清空会让历史完成记录消失。
@@ -3231,15 +3225,15 @@ self.addEventListener('fetch', (event) => {
                 // 不会复活成"进行中"。
                 await env.DB.prepare(
                   'UPDATE todos SET parent_id=?, date=?, text=?, time=?, priority=?, desc=?, url=?, copy_text=?, subtasks=?, search_terms=?, repeat_type=\'none\', repeat_custom=\'\', repeat_end=\'\', end_time=?, category_id=?, repeat_interval=1 WHERE id=?'
-                ).bind(task.id, newDate, originalTask.text, originalTask.time || '', originalTask.priority || 'low', originalTask.desc || '', originalTask.url || '', readCopyText(task), subtasksStr, searchTermsStr, endTime, categoryId, task.id).run();
-              } else if (cv.isRecurring) {
+                ).bind(task.id, new_date, original_task.text, original_task.time || '', original_task.priority || 'low', original_task.desc || '', original_task.url || '', readCopyText(task), subtasks_str, search_terms_str, end_time, category_id, task.id).run();
+              } else if (cv.is_recurring) {
                 await env.DB.prepare(
                   'UPDATE todos SET date=?, text=?, time=?, priority=?, desc=?, url=?, copy_text=?, subtasks=?, search_terms=?, repeat_type=?, repeat_custom=?, repeat_end=?, end_time=?, category_id=?, repeat_interval=? WHERE id=?'
-                ).bind(newDate, originalTask.text, originalTask.time || '', originalTask.priority || 'low', originalTask.desc || '', originalTask.url || '', readCopyText(task), subtasksStr, searchTermsStr, rptType, '', repeatEnd, endTime, categoryId, task.repeat_interval || 1, task.id).run();
+                ).bind(new_date, original_task.text, original_task.time || '', original_task.priority || 'low', original_task.desc || '', original_task.url || '', readCopyText(task), subtasks_str, search_terms_str, rpt_type, '', repeat_end, end_time, category_id, task.repeat_interval || 1, task.id).run();
               } else {
                 await env.DB.prepare(
                   'UPDATE todos SET date=?, text=?, time=?, priority=?, desc=?, url=?, copy_text=?, subtasks=?, search_terms=?, repeat_type=\'none\', repeat_custom=\'\', repeat_end=\'\', category_id=?, repeat_interval=1 WHERE id=?'
-                ).bind(newDate, originalTask.text, originalTask.time || '', originalTask.priority || 'low', originalTask.desc || '', originalTask.url || '', readCopyText(task), subtasksStr, searchTermsStr, categoryId, task.id).run();
+                ).bind(new_date, original_task.text, original_task.time || '', original_task.priority || 'low', original_task.desc || '', original_task.url || '', readCopyText(task), subtasks_str, search_terms_str, category_id, task.id).run();
               }
             }
 
@@ -3247,45 +3241,45 @@ self.addEventListener('fetch', (event) => {
             if (actions.pastTodos) {
               const pt = actions.pastTodos;
               if (pt.type === 'set_repeat_end') {
-                const prevDate = getPreviousDate(date);
+                const prev_date = getPreviousDate(date);
                 await env.DB.prepare(
                   'UPDATE todos SET repeat_end=? WHERE parent_id=? AND date < ? AND repeat_type != \'none\' AND (repeat_end = \'\' OR repeat_end IS NULL) AND deleted = 0'
-                ).bind(prevDate, parentId, date).run();
+                ).bind(prev_date, parent_id, date).run();
               }
             }
 
             // Handle future instances for thisAndFuture/all
-            if (effectiveScope === 'thisAndFuture') {
-              if (rptType !== 'none') {
+            if (effective_scope === 'thisAndFuture') {
+              if (rpt_type !== 'none') {
                 // Split: 删除旧系列中当前及之后的实例（新模板会重新生成）
                 await env.DB.prepare(
                   'DELETE FROM todos WHERE parent_id=? AND id != ? AND date >= ? AND deleted = 0'
-                ).bind(parentId, task.id, date).run();
+                ).bind(parent_id, task.id, date).run();
               } else {
                 // 改为不重复：未来非回收站项真删除
                 await env.DB.prepare(
                   'DELETE FROM todos WHERE parent_id=? AND id != ? AND date > ? AND deleted = 0'
-                ).bind(parentId, task.id, date).run();
+                ).bind(parent_id, task.id, date).run();
               }
-            } else if (effectiveScope === 'all') {
-              if (rptType !== 'none') {
+            } else if (effective_scope === 'all') {
+              if (rpt_type !== 'none') {
                 const tmpl = actions.template;
                 // 重复规则变更或日期变更时：删除其他实例，由模板重新生成
                 // 仅非重复属性变更时：原地更新其他实例
-                if (dateChanged || (tmpl && tmpl.recurrenceChanged)) {
+                if (date_changed || (tmpl && tmpl.recurrence_changed)) {
                   await env.DB.prepare(
                     'DELETE FROM todos WHERE parent_id=? AND id != ? AND deleted = 0'
-                  ).bind(parentId, task.id).run();
+                  ).bind(parent_id, task.id).run();
                 } else {
                   await env.DB.prepare(
                     'UPDATE todos SET text=?, time=?, priority=?, desc=?, url=?, copy_text=?, subtasks=?, search_terms=?, repeat_type=?, repeat_custom=?, repeat_end=?, end_time=?, category_id=?, repeat_interval=? WHERE parent_id=? AND id != ? AND deleted = 0'
-                  ).bind(originalTask.text, originalTask.time || '', originalTask.priority || 'low', originalTask.desc || '', originalTask.url || '', readCopyText(task), subtasksStr, searchTermsStr, rptType, '', repeatEnd, endTime, categoryId, task.repeat_interval || 1, parentId, task.id).run();
+                  ).bind(original_task.text, original_task.time || '', original_task.priority || 'low', original_task.desc || '', original_task.url || '', readCopyText(task), subtasks_str, search_terms_str, rpt_type, '', repeat_end, end_time, category_id, task.repeat_interval || 1, parent_id, task.id).run();
                 }
               } else {
                 // 改为不重复：其他非回收站项删除
                 await env.DB.prepare(
                   'DELETE FROM todos WHERE parent_id=? AND id != ? AND deleted = 0'
-                ).bind(parentId, task.id).run();
+                ).bind(parent_id, task.id).run();
               }
             }
 
@@ -3294,53 +3288,53 @@ self.addEventListener('fetch', (event) => {
               const tmpl = actions.template;
               if (tmpl.type === 'add_exdate') {
                 // "this" scope: add EXDATE to template
-                const tpl = await env.DB.prepare('SELECT exdates FROM todo_templates WHERE parent_id = ?').bind(parentId).first();
+                const tpl = await env.DB.prepare('SELECT exdates FROM todo_templates WHERE parent_id = ?').bind(parent_id).first();
                 if (tpl) {
                   const currentExdates = tpl.exdates || '[]';
-                  const newExdates = addExdate(currentExdates, date);
-                  await env.DB.prepare('UPDATE todo_templates SET exdates = ? WHERE parent_id = ?').bind(newExdates, parentId).run();
+                  const new_exdates = addExdate(currentExdates, date);
+                  await env.DB.prepare('UPDATE todo_templates SET exdates = ? WHERE parent_id = ?').bind(new_exdates, parent_id).run();
                 }
               } else if (tmpl.type === 'set_repeat_end') {
                 // 旧模板截断：设置 repeat_end
-                const prevDate = getPreviousDate(date);
-                await env.DB.prepare('UPDATE todo_templates SET repeat_end=? WHERE parent_id=?').bind(prevDate, parentId).run();
+                const prev_date = getPreviousDate(date);
+                await env.DB.prepare('UPDATE todo_templates SET repeat_end=? WHERE parent_id=?').bind(prev_date, parent_id).run();
               } else if (tmpl.type === 'update_all') {
                 // all scope: 更新模板
-                if (rptType !== 'none') {
+                if (rpt_type !== 'none') {
                   // 保留现有 exdates 和 time_records，避免 INSERT OR REPLACE 误清。
                   // time_records 是模板级跨实例预估数据 (predictDuration)，即使在调整重复规则
                   // (如频率/间隔/截止) 时也应保留——只有「改为不重复」才应丢弃 (走 tmpl.type='delete')。
-                  let existingExdates = '[]';
-                  let existingTimeRecords = '[]';
+                  let existing_exdates = '[]';
+                  let existing_time_records = '[]';
                   try {
-                    const existingTpl = await env.DB.prepare(
+                    const existing_tpl = await env.DB.prepare(
                       'SELECT exdates, time_records FROM todo_templates WHERE parent_id = ?'
-                    ).bind(parentId).first();
-                    if (existingTpl) {
-                      existingExdates = existingTpl.exdates || '[]';
-                      existingTimeRecords = existingTpl.time_records || '[]';
+                    ).bind(parent_id).first();
+                    if (existing_tpl) {
+                      existing_exdates = existing_tpl.exdates || '[]';
+                      existing_time_records = existing_tpl.time_records || '[]';
                     }
                   } catch(e) {}
 
                   await env.DB.prepare(
                     'INSERT OR REPLACE INTO todo_templates (parent_id, text, time, priority, desc, url, copy_text, subtasks, search_terms, repeat_type, repeat_custom, repeat_end, end_time, anchor_date, exdates, category_id, repeat_interval, time_records) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
                   ).bind(
-                    parentId, originalTask.text, originalTask.time || '', originalTask.priority || 'low', originalTask.desc || '', originalTask.url || '', readCopyText(task),
-                    subtasksStr, searchTermsStr, rptType, '', repeatEnd, endTime, newDate, existingExdates, categoryId, task.repeat_interval || 1, existingTimeRecords
+                    parent_id, original_task.text, original_task.time || '', original_task.priority || 'low', original_task.desc || '', original_task.url || '', readCopyText(task),
+                    subtasks_str, search_terms_str, rpt_type, '', repeat_end, end_time, new_date, existing_exdates, category_id, task.repeat_interval || 1, existing_time_records
                   ).run();
                 }
               } else if (tmpl.type === 'delete') {
-                await env.DB.prepare('DELETE FROM todo_templates WHERE parent_id=?').bind(parentId).run();
+                await env.DB.prepare('DELETE FROM todo_templates WHERE parent_id=?').bind(parent_id).run();
               }
             }
 
             // Execute insertTemplate action (Split: 创建新系列模板)
-            if (actions.insertTemplate && splitNewPid) {
+            if (actions.insertTemplate && split_new_pid) {
               const it = actions.insertTemplate;
               await env.DB.prepare(
                 'INSERT OR REPLACE INTO todo_templates (parent_id, text, time, priority, desc, url, copy_text, subtasks, search_terms, repeat_type, repeat_custom, repeat_end, end_time, anchor_date, exdates, category_id, repeat_interval) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
               ).bind(
-                splitNewPid, it.text, it.time, it.priority, it.desc, it.url, it.copy_text,
+                split_new_pid, it.text, it.time, it.priority, it.desc, it.url, it.copy_text,
                 it.subtasks, it.search_terms, it.repeat_type, it.repeat_custom, it.repeat_end,
                 it.end_time, it.anchor_date, it.exdates, it.category_id, it.repeat_interval
               ).run();
@@ -3348,24 +3342,24 @@ self.addEventListener('fetch', (event) => {
           }
         }
         else if (action === 'DELETE') {
-          const rptType = task.repeat_type || 'none';
-          // 健壮性修复：与 UPDATE 路径一致，parentId 缺失时从 DB 派生
-          let parentId = task.parent_id;
-          if (!parentId) {
+          const rpt_type = task.repeat_type || 'none';
+          // 健壮性修复：与 UPDATE 路径一致，parent_id 缺失时从 DB 派生
+          let parent_id = task.parent_id;
+          if (!parent_id) {
             try {
-              const pidRow = await env.DB.prepare('SELECT parent_id FROM todos WHERE id = ?').bind(task.id).first();
-              if (pidRow) parentId = pidRow.parent_id;
+              const pid_row = await env.DB.prepare('SELECT parent_id FROM todos WHERE id = ?').bind(task.id).first();
+              if (pid_row) parent_id = pid_row.parent_id;
             } catch (e) {}
           }
-          // DELETE 兜底：若仍无 parentId（任务不存在），后续 is_series 分支会跳过模板操作，无需 400
+          // DELETE 兜底：若仍无 parent_id（任务不存在），后续 is_series 分支会跳过模板操作，无需 400
           // 从数据库获取原始 repeat_type，确保 is_series 判断正确
           // 碎时记 (fragment) 不算重复系列，直接软删除
-          // v3.0：忽略前端传入的 isSeries（v2 历史字段），统一用 task.is_series 或 repeat_type 推导
-          let deleteIsSeries = task.is_series || (rptType && rptType !== 'none' && rptType !== 'fragment');
+          // 后端不信任前端传入的 is_series，统一从 DB repeat_type 推导，避免客户端篡改
+          let delete_is_series = task.is_series || (rpt_type && rpt_type !== 'none' && rpt_type !== 'fragment');
           try {
             const orig = await env.DB.prepare('SELECT repeat_type FROM todos WHERE id = ?').bind(task.id).first();
             if (orig) {
-              deleteIsSeries = orig.repeat_type && orig.repeat_type !== 'none' && orig.repeat_type !== 'fragment';
+              delete_is_series = orig.repeat_type && orig.repeat_type !== 'none' && orig.repeat_type !== 'fragment';
             }
           } catch(e) {}
 
@@ -3373,7 +3367,7 @@ self.addEventListener('fetch', (event) => {
           if (scope && !['this', 'thisAndFuture', 'all'].includes(scope)) {
             return apiError(`无效的 scope: ${scope}，有效值: this, thisAndFuture, all`, 400);
           }
-          if (!deleteIsSeries || !scope) {
+          if (!delete_is_series || !scope) {
             // 非循环任务（含碎时记）: 直接软删除
             await env.DB.prepare('UPDATE todos SET deleted = 1 WHERE id = ?').bind(task.id).run();
           } else {
@@ -3381,8 +3375,8 @@ self.addEventListener('fetch', (event) => {
 
             // Soft delete specified todo IDs
             if (actions.deleteTodoIds && actions.deleteTodoIds.length > 0) {
-              for (const todoId of actions.deleteTodoIds) {
-                await env.DB.prepare('UPDATE todos SET deleted = 1 WHERE id = ?').bind(todoId).run();
+              for (const todo_id of actions.deleteTodoIds) {
+                await env.DB.prepare('UPDATE todos SET deleted = 1 WHERE id = ?').bind(todo_id).run();
               }
             }
 
@@ -3391,11 +3385,11 @@ self.addEventListener('fetch', (event) => {
               const tmpl = actions.updateTemplate;
               if (tmpl.type === 'add_exdate') {
                 // "this" scope: add EXDATE to template
-                const tpl = await env.DB.prepare('SELECT exdates FROM todo_templates WHERE parent_id = ?').bind(parentId).first();
+                const tpl = await env.DB.prepare('SELECT exdates FROM todo_templates WHERE parent_id = ?').bind(parent_id).first();
                 if (tpl) {
                   const currentExdates = tpl.exdates || '[]';
-                  const newExdates = addExdate(currentExdates, date);
-                  await env.DB.prepare('UPDATE todo_templates SET exdates = ? WHERE parent_id = ?').bind(newExdates, parentId).run();
+                  const new_exdates = addExdate(currentExdates, date);
+                  await env.DB.prepare('UPDATE todo_templates SET exdates = ? WHERE parent_id = ?').bind(new_exdates, parent_id).run();
                 }
               } else if (tmpl.type === 'set_repeat_end') {
                 // "thisAndFuture" scope: 截断模板 repeat_end，软删除当前及以后实例
@@ -3403,16 +3397,16 @@ self.addEventListener('fetch', (event) => {
                 // 这样恢复时不会重新激活循环，对齐 Google Tasks "停止重复后不可再循环" 的标准语义
                 // (RFC 5545 RANGE=THISANDFUTURE 等价: 模板 UNTIL 截断，被删实例视为脱离系列的冻结快照)
                 // 同步清空实例级 time_records：脱钩后非重复，UI 不再渲染计时区块，旧记录为死数据。
-                const prevDate = getPreviousDate(date);
-                if (tmpl.alsoDeleteFuture) {
+                const prev_date = getPreviousDate(date);
+                if (tmpl.also_delete_future) {
                   await env.DB.prepare(
                     'UPDATE todos SET deleted = 1, repeat_type=\'none\', repeat_custom=\'\', repeat_end=\'\', repeat_interval=1, parent_id=id, time_records=\'[]\' WHERE parent_id=? AND date >= ?'
-                  ).bind(parentId, date).run();
+                  ).bind(parent_id, date).run();
                 }
                 // 过去实例保持活跃，设置 repeat_end 用于显示"每天·至日期"
-                await env.DB.prepare('UPDATE todos SET repeat_end=? WHERE parent_id=? AND date < ? AND repeat_type != \'none\'').bind(prevDate, parentId, date).run();
+                await env.DB.prepare('UPDATE todos SET repeat_end=? WHERE parent_id=? AND date < ? AND repeat_type != \'none\'').bind(prev_date, parent_id, date).run();
                 // 截断模板
-                await env.DB.prepare('UPDATE todo_templates SET repeat_end=? WHERE parent_id=?').bind(prevDate, parentId).run();
+                await env.DB.prepare('UPDATE todo_templates SET repeat_end=? WHERE parent_id=?').bind(prev_date, parent_id).run();
               } else if (tmpl.type === 'delete_all') {
                 // "all" scope: 软删除所有实例并删除模板
                 // 关键修复: 所有实例 (含回收站中已有的同系列项) 脱钩为单次任务快照，避免恢复时重建整个循环系列
@@ -3420,13 +3414,13 @@ self.addEventListener('fetch', (event) => {
                 // 模板被 DELETE，模板级 time_records 随之销毁——这是「整个系列停止」的预期语义。
                 await env.DB.prepare(
                   'UPDATE todos SET deleted = 1, repeat_type=\'none\', repeat_custom=\'\', repeat_end=\'\', repeat_interval=1, parent_id=id, time_records=\'[]\' WHERE parent_id=?'
-                ).bind(parentId).run();
-                await env.DB.prepare('DELETE FROM todo_templates WHERE parent_id=?').bind(parentId).run();
+                ).bind(parent_id).run();
+                await env.DB.prepare('DELETE FROM todo_templates WHERE parent_id=?').bind(parent_id).run();
               }
             }
 
             if (actions.deleteTemplate) {
-              await env.DB.prepare('DELETE FROM todo_templates WHERE parent_id=?').bind(parentId).run();
+              await env.DB.prepare('DELETE FROM todo_templates WHERE parent_id=?').bind(parent_id).run();
             }
           }
         }
