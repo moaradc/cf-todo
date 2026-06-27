@@ -1367,4 +1367,3 @@ data = response.json()
 7. `priority` 接受 `low`、`med`、`high`，`medium` 会自动转为 `med`
 8. **v2.7.8.2 起**：批量接口（`BATCH_TOGGLE_DONE` / `BATCH_DELETE` / `BATCH_RESTORE` / `BATCH_DELETE_PERMANENT` / category `BATCH_DELETE`）解除 100 条限制，后端按 99 一组自动分片。响应含 `chunked`（是否分片）和 `chunkCount`（分片数）字段。`affected`/`restored`/`deleted` 为实际改动行数（非 `ids.length`）
 9. **v2.7.8.2 起**：`GET /api/v1/todos?date=X` 支持 `expand=false` 参数，跳过服务端重复任务展开，响应附带 `templates` 数组供调用方自算（适合程序化调用方降低 Worker CPU 占用）
-10. **v2.7.8.2 起**：后端启用 D1 读副本，所有 GET 请求通过 D1 Sessions API（`first-primary` 策略）路由到就近副本，全球访问延迟降低。写请求仍走 primary 保证强一致。调用方无需感知，但读请求可能短暂延迟（副本异步复制，通常 < 1 秒）
