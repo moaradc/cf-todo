@@ -320,7 +320,7 @@ Response:
 - On `done: true → false`, fragment `date` is restored from `fragment_anchor`
 - Non-fragment types (`none` / `daily` / `weekly` / `monthly` / `yearly`): always `""`
 
-**`expand=false` option** — Add `&expand=false` to skip both server-side RRULE expansion AND the auto-instance `INSERT` into `todos`. The response includes a `templates` array (active recurring templates covering that date, each carrying `repeat_type` / `repeat_interval` / `anchor_date` / `repeat_end` / `exdates` / `repeat_custom`) for the caller to compute occurrences locally via ical.js / rrule.js / any RRULE library. This reduces Worker CPU usage (Cloudflare Free plan 10ms CPU limit) and avoids side-effect writes (no D1 INSERT). Use cases: programmatic callers that already have RRULE computation capability, or read-only snapshots where you don't want to mutate the database. Note: `expand=false` is only valid on `date` queries (range queries never expand server-side anyway). Response format:
+**`expand=false` option** — Add `&expand=false` to skip both server-side RRULE expansion AND the auto-instance `INSERT` into `todos`. The response includes a `templates` array (active recurring templates covering that date) for the caller to compute occurrences locally via ical.js / rrule.js / any RRULE library. This reduces Worker CPU usage (Cloudflare Free plan 10ms CPU limit) and avoids side-effect writes (no D1 INSERT). Use cases: programmatic callers that already have RRULE computation capability, or read-only snapshots where you don't want to mutate the database. Note: `expand=false` is only valid on `date` queries (range queries never expand server-side anyway). Response format:
 
 ```json
 {
@@ -328,11 +328,41 @@ Response:
   "data": [ /* existing todos for that date */ ],
   "pagination": { "total": 5, "limit": 100, "offset": 0 },
   "templates": [
-    { "parent_id": "uuid", "text": "Daily task", "repeat_type": "daily", "repeat_interval": 1, "anchor_date": "2026-01-01", "repeat_end": "", "exdates": "[]", "repeat_custom": "", /* ... */ }
+    {
+      "parent_id": "uuid",
+      "text": "Daily task",
+      "time": "",
+      "priority": "low",
+      "desc": "",
+      "url": "",
+      "copy_text": "",
+      "subtasks": [],
+      "search_terms": "[]",
+      "repeat_type": "daily",
+      "repeat_custom": "",
+      "repeat_end": "",
+      "end_time": "",
+      "anchor_date": "2026-01-01",
+      "exdates": "[]",
+      "category_id": "",
+      "repeat_interval": 1,
+      "time_records": "[]"
+    }
   ],
   "expand": false
 }
 ```
+
+**Template row fields (V1 `expand=false`)** — Each entry in `templates` is the raw `todo_templates` row with two normalizations:
+- `exdates` — string (JSON-encoded array), guaranteed non-empty (defaults to `"[]"`)
+- `subtasks` — parsed array (e.g. `[]` or `[{text, done}]`)
+
+All other fields are raw DB values:
+- **RRULE-driving**: `repeat_type` / `repeat_interval` / `anchor_date` / `repeat_end` / `exdates` / `repeat_custom` (see precedence rules below)
+- **Display**: `text` / `time` / `priority` / `desc` / `url` / `copy_text` / `category_id` / `end_time`
+- **Other**: `parent_id` (template PK, also the series identifier), `search_terms` (string `"[]"` — **not** parsed by V1, caller must `JSON.parse` if needed), `time_records` (string `"[]"` — template-level historical records for `predictDuration`, **not** parsed by V1)
+
+**Note on `_type: "template"`** — V1 `expand=false` does **NOT** add a `_type` field. If you see `_type: "template"` on a row, it's from the V0 export/import stream (NDJSON), not from V1 `expand=false`. Don't rely on `_type` to distinguish templates in V1 responses — use the presence of the top-level `templates` array + `expand: false` flag instead.
 
 **RRULE computation precedence** — When computing occurrences from a `templates` entry locally, follow the same precedence the server uses (`src/recurring-engine.js buildRRuleString()`):
 1. If `repeat_custom` is non-empty → use it verbatim as the RRULE string (it overrides `repeat_type` / `repeat_interval` / `anchor_date` / `repeat_end` for frequency & by-day rules; `exdates` still apply).
@@ -391,6 +421,8 @@ Response:
 **Timer fields** (instance-level completion records, per-todo):
 
 V1 API returns both the **raw records array** and **computed fields**. Clients can use the computed fields directly without parsing epoch ms or calculating durations.
+
+**Type note**: In V1 todo responses (List / Get / Create / Update), `time_records`, `subtasks`, and `search_terms` are always **parsed arrays** (e.g. `[]` or `[{s,e,p}]`). The raw DB stores them as JSON-encoded strings, but `formatTodo()` parses them before returning. This differs from `templates` rows in `expand=false` responses, where `search_terms` and `time_records` stay as raw strings (see `expand=false` section below).
 
 #### Raw field `time_records`
 
