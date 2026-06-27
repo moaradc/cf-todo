@@ -1453,16 +1453,10 @@ self.addEventListener('fetch', (event) => {
           let todoBatch = [];
           let tplBatch = [];
 
-          while (true) {
-            const { done, value } = await reader.read();
-            if (done) break;
-            // 健壮性：value 可能为 undefined（CF Workers 边界场景），显式检查
-            if (value) {
-              buffer += decoder.decode(value, { stream: true });
-            }
+          // 健壮性：处理 buffer 内所有完整行，返回未完成的尾部
+          const processBuffer = async () => {
             const lines = buffer.split('\n');
-            buffer = lines.pop() || '';
-
+            buffer = lines.pop() || '';  // 最后一段（可能不完整）留到下次
             for (const line of lines) {
               const trimmed = line.trim();
               if (!trimmed) continue;
@@ -1479,10 +1473,25 @@ self.addEventListener('fetch', (event) => {
                 if (todoBatch.length >= BATCH_ROWS) { await execBatch(buildTodoStmts(todoBatch)); todoBatch = []; }
               }
             }
-          }
+          };
 
-          // 健壮性：flush TextDecoder 内部缓冲（stream:true 模式下可能残留字节）
-          buffer += decoder.decode();
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) {
+              // 健壮性：done=true 时 value 仍可能含数据（CF Workers 边界场景）
+              if (value) {
+                buffer += decoder.decode(value, { stream: true });
+              }
+              // flush TextDecoder 内部缓冲（stream:true 模式下可能残留字节）
+              buffer += decoder.decode();
+              await processBuffer();
+              break;
+            }
+            if (value) {
+              buffer += decoder.decode(value, { stream: true });
+            }
+            await processBuffer();
+          }
 
           if (buffer.trim()) {
             const obj = JSON.parse(buffer.trim());
