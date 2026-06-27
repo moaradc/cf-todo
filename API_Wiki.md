@@ -1461,6 +1461,20 @@ V0 Web API 还支持 `keep_records: true`（来自「继续计时」路径，仅
 | `last_completed_at` / `last_duration_ms` / `is_zero_duration` | 计算字段，取 `time_records` 末尾一条计算；无记录时分别为 `null` / `null` / `false` |
 | `time_records` 原始字段 | V1 已解析为数组；V0 `/api/todos` 与 `/api/trash` 均为未解析 JSON 字符串 |
 
+**下列字段三种类型行为不一致，详见 [5.1 三种类型概览](#51-三种类型概览) / [5.2 普通 todo](#52-普通-todorepeat_type-none) / [5.3 重复 todo](#53-重复-todorepeat_type-dailyweeklymonthlyyearly) / [5.4 碎时记](#54-碎时记repeat_type-fragment)**：
+
+| 字段 | 不一致要点 |
+|------|-----------|
+| `repeat_type` | 三种类型的判定依据：`none` / `daily`/`weekly`/`monthly`/`yearly` / `fragment` |
+| `date` | 普通/重复 todo 必填 `YYYY-MM-DD`；碎时记可空（未完成=起始或空，完成=冻结为完成日期） |
+| `time` / `end_time` | 普通/重复 todo 可设置；碎时记强制空 |
+| `repeat_end` | 普通 todo 与碎时记强制空；重复 todo 可设置（YYYY-MM-DD，空表示无限） |
+| `repeat_interval` | 普通 todo 与碎时记始终 `1`；重复 todo 用户指定（正整数） |
+| `is_series` | 后端派生：`repeat_type !== 'none' && !== 'fragment'`；普通/碎时记 `false`，重复 todo `true` |
+| `parent_id` | 普通 todo 与碎时记 = 自身 `id`；重复 todo = 系列 anchor `id`（CREATE 时与自身一致，后续实例沿用，UPDATE/DELETE 时若缺省则从 DB 派生） |
+| `fragment_anchor` | 普通 todo 与重复 todo 始终空；碎时记 = `YYYY-MM-DD` 或空（起始日期权威副本，不受完成/取消完成影响） |
+| `time_records` 截断规则 | 普通/重复 todo 实例级 FIFO 5；碎时记**不截断**（保留全部 session 用于累计）。模板级仅重复 todo 写（真实耗时，FIFO 10） |
+
 **字段回退**（PUT /api/v1/todos/:id 或 V0 UPDATE）：三种类型均适用——未传的字段（`text` / `time` / `priority` / `desc` / `url` / `copy_text` 等）会从 DB 当前值回退，不会被静默清空。
 
 ---
