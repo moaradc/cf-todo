@@ -201,6 +201,49 @@ function normalizePriority(val) {
   return 'low';
 }
 
+/**
+ * 校验 stats 日期范围参数（V0 /api/stats 和 V1 /api/v1/stats 共用）
+ *
+ * Free 计划依据：D1 单线程 + CPU 10ms 限制，大范围 GROUP BY 会扫描大量索引行
+ * 建临时 B-tree 排序。实测 50k 行 × 5 年范围 = 304ms（远超 10ms）。
+ * 前端最大调用范围是年度报告（365 天），366 天上限覆盖该场景并留 1 天余量。
+ *
+ * 校验规则：
+ *   1. start / end 必填，格式 YYYY-MM-DD
+ *   2. start <= end
+ *   3. 范围 <= 366 天
+ *
+ * @param {string} start - 起始日期 YYYY-MM-DD
+ * @param {string} end - 结束日期 YYYY-MM-DD
+ * @returns {{ok: boolean, error?: string}}
+ */
+function validateStatsDateRange(start, end) {
+  if (!start || !end) {
+    return { ok: false, error: 'start 和 end 为必填参数 (YYYY-MM-DD)' };
+  }
+  const dateRe = /^\d{4}-\d{2}-\d{2}$/;
+  if (!dateRe.test(start) || !dateRe.test(end)) {
+    return { ok: false, error: 'start 和 end 格式应为 YYYY-MM-DD' };
+  }
+  // 解析为 UTC 日期避免时区偏差
+  const sParts = start.split('-').map(Number);
+  const eParts = end.split('-').map(Number);
+  const sDate = Date.UTC(sParts[0], sParts[1] - 1, sParts[2]);
+  const eDate = Date.UTC(eParts[0], eParts[1] - 1, eParts[2]);
+  if (isNaN(sDate) || isNaN(eDate)) {
+    return { ok: false, error: 'start 或 end 不是有效日期' };
+  }
+  if (sDate > eDate) {
+    return { ok: false, error: 'start 不能晚于 end' };
+  }
+  const MAX_STATS_RANGE_DAYS = 366;
+  const diffDays = (eDate - sDate) / 86400000 + 1; // 含首尾
+  if (diffDays > MAX_STATS_RANGE_DAYS) {
+    return { ok: false, error: `日期范围不能超过 ${MAX_STATS_RANGE_DAYS} 天（当前 ${diffDays} 天）` };
+  }
+  return { ok: true };
+}
+
 export {
   APP_VERSION,
   DB_SCHEMA,
@@ -218,5 +261,6 @@ export {
   fetchHotSearchData,
   apiError,
   normalizePriority,
-  parseJsonField
+  parseJsonField,
+  validateStatsDateRange
 };
