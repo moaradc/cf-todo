@@ -280,10 +280,11 @@ export const detail = `
             html += '<div style="color:var(--fg); opacity:0.6;">无完成耗时记录</div>';
           }
         }
-        // 碎时记独有：[继续计时]
+        // 碎时记独有：[开始计时]
+        // 完成后重新开始 = 全新 session（之前的累计已被完成动作封存），故标签为"开始计时"
         if (isFragment) {
           html += '<div class="timer-row" style="margin-top:8px;">';
-          html += '<button class="btn-ghost" onclick="continueAfterDoneDetail()">继续计时</button>';
+          html += '<button class="btn-ghost" onclick="continueAfterDoneDetail()">开始计时</button>';
           html += '</div>';
         }
         html += '</div>';
@@ -312,13 +313,15 @@ export const detail = `
         if (predictText) html += '<div style="font-size:0.85em; opacity:0.7; margin-top:6px;">' + predictText + '</div>';
         html += '</div>';
       } else {
-        // 空闲：累计（仅>0 时）+ [开始计时]
+        // 空闲：累计（仅>0 时）+ [开始计时] / [继续计时]
+        // - 无累计（cumMs===0）：[开始计时] —— 全新 session
+        // - 有累计（cumMs>0，典型场景：刚点过"记录"回到空闲态）：[继续计时] —— 在已累计基础上继续
         html += '<div class="detail-value" style="display:block;">';
         if (cumMs > 0) {
           html += '<div>累计 ' + formatMs(cumMs) + '</div>';
         }
         html += '<div class="timer-row" style="margin-top:' + (cumMs > 0 ? '8px' : '0') + ';">';
-        html += '<button class="btn-ghost" onclick="startTimerDetail()">开始计时</button>';
+        html += '<button class="btn-ghost" onclick="startTimerDetail()">' + (cumMs > 0 ? '继续计时' : '开始计时') + '</button>';
         if (predictText) html += '<span style="font-size:0.85em; opacity:0.7; margin-left:10px;">' + predictText + '</span>';
         html += '</div>';
         html += '</div>';
