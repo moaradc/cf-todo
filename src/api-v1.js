@@ -607,17 +607,24 @@ async function handleV1Todos(request, env, url) {
 
     // 健壮性：校验 repeat_type 合法值
     const VALID_REPEAT_TYPES_V1 = ['none', 'daily', 'weekly', 'monthly', 'yearly', 'fragment'];
-    const rpt_type = repeat_type || 'none';
+    let rpt_type = repeat_type || 'none';
     if (rpt_type !== 'none' && !VALID_REPEAT_TYPES_V1.includes(rpt_type)) {
       return apiError(`无效的 repeat_type: ${rpt_type}，有效值: ${VALID_REPEAT_TYPES_V1.join(', ')}`, 400);
     }
 
     // 健壮性：校验 repeat_custom（自定义 RRULE）
-    // - repeat_type ∈ {none, fragment} → 静默清空（无意义）
-    // - 非 empty + 非 none/fragment → 严格校验，失败返回 400
-    const customResult = processRepeatCustom(repeat_custom, rpt_type);
+    // CREATE 场景：allowDerive=true，repeat_type=none/fragment + custom 非空时不清空，让 deriveRepeatTypeFromCustom 反推
+    // 这样用户可以只传 repeat_custom 不传 repeat_type，服务端自动推导
+    const customResult = processRepeatCustom(repeat_custom, rpt_type, { allowDerive: true });
     if (customResult.error) return apiError(customResult.error, 400);
     const effective_repeat_custom = customResult.value;
+
+    // 联动推导：repeat_custom 非空 + rpt_type ∈ {none, fragment} → 从 custom 的 FREQ 反推 rpt_type
+    // 保证 DB 中 repeat_type 与实际展开规则一致
+    if (effective_repeat_custom && (rpt_type === 'none' || rpt_type === 'fragment')) {
+      const derived = deriveRepeatTypeFromCustom(effective_repeat_custom);
+      if (derived) rpt_type = derived;
+    }
 
     // 健壮性：校验 repeat_interval 正整数
     const rawInterval = repeat_interval || 1;
@@ -626,7 +633,7 @@ async function handleV1Todos(request, env, url) {
     }
 
     // 碎时记 (repeat_type='fragment') 允许 date 为空（表示不限开始日期）
-    const is_fragment = (repeat_type === 'fragment');
+    const is_fragment = (rpt_type === 'fragment');
     if ((!date && !is_fragment) || !text) {
       return apiError('date 和 text 为必填项（碎时记允许 date 为空）', 400);
     }
@@ -637,14 +644,26 @@ async function handleV1Todos(request, env, url) {
     const id = Date.now().toString() + Math.floor(Math.random() * 10000).toString().padStart(4, '0');
     const catId = category_id || '';
     // 碎时记强制约束：无开始/结束时间、无重复截止、间隔为1、date 可空、无 custom RRULE
+    // 这是服务端联动推导——调用方无需传这些字段，服务端保证 fragment 类型不会有无效数据
     const rEnd = is_fragment ? '' : (repeat_end || '');
     const eTime = is_fragment ? '' : (end_time || '');
-    const rInterval = is_fragment ? 1 : (repeat_interval || 1);
+    const rInterval = is_fragment ? 1 : rawInterval;
     const effectiveTime = is_fragment ? '' : (time || '');
     const effective_date = is_fragment ? (date || '') : date;
-    // fragment/none 已被 processRepeatCustom 强制清空，这里二次防御
+    // none 类型也强制清空 repeat_custom（防御：processRepeatCustom + derive 已处理，但二次兜底）
     const final_repeat_custom = (rpt_type === 'none' || rpt_type === 'fragment') ? '' : effective_repeat_custom;
     const normPriority = normalizePriority(priority || 'low');
+
+    // 原子组校验（联动字段一致性，冲突返回 400 并告知原因）
+    // 1. repeat_end 与 repeat_type 兼容性
+    const repeatEndErr = validateRepeatEndCompat(rEnd, rpt_type);
+    if (repeatEndErr) return apiError(repeatEndErr, 400);
+    // 2. repeat_interval 与 repeat_type 兼容性
+    const intervalErr = validateRepeatIntervalCompat(rInterval, rpt_type);
+    if (intervalErr) return apiError(intervalErr, 400);
+    // 3. time 与 end_time 时序一致性
+    const timeErr = validateTimeRange(effectiveTime, eTime);
+    if (timeErr) return apiError(timeErr, 400);
     // 规范化 subtasks：字符串→{text, done:false} 对象
     const normalizedSubtasks = (subtasks || []).map(s => {
       if (typeof s === 'string') return { text: s, done: false };

@@ -2988,29 +2988,46 @@ self.addEventListener('fetch', (event) => {
           if (!task.text || typeof task.text !== 'string' || !task.text.trim()) {
             return apiError('task.text 为必填字段', 400);
           }
-          const rpt_type = task.repeat_type || 'none';
+          let rpt_type = task.repeat_type || 'none';
           // 健壮性：校验 repeat_type 合法值
           const VALID_REPEAT_TYPES = ['none', 'daily', 'weekly', 'monthly', 'yearly', 'fragment'];
           if (rpt_type !== 'none' && !VALID_REPEAT_TYPES.includes(rpt_type)) {
             return apiError(`无效的 repeat_type: ${rpt_type}`, 400);
           }
           // 健壮性：校验 repeat_custom（自定义 RRULE）
-          // - repeat_type ∈ {none, fragment} → 静默清空
-          // - 非 empty + 非 none/fragment → 严格校验，失败返回 400
-          const customResult = processRepeatCustom(task.repeat_custom, rpt_type);
+          // CREATE 场景：allowDerive=true，repeat_type=none/fragment + custom 非空时不清空，让 deriveRepeatTypeFromCustom 反推
+          // 这样用户可以只传 repeat_custom 不传 repeat_type，服务端自动推导
+          const customResult = processRepeatCustom(task.repeat_custom, rpt_type, { allowDerive: true });
           if (customResult.error) return apiError(customResult.error, 400);
-          // fragment/none 已被 processRepeatCustom 强制清空，这里二次防御
-          const final_repeat_custom = (rpt_type === 'none' || rpt_type === 'fragment') ? '' : customResult.value;
+          const effective_repeat_custom = customResult.value;
+
+          // 联动推导：repeat_custom 非空 + rpt_type ∈ {none, fragment} → 从 custom 的 FREQ 反推 rpt_type
+          // 保证 DB 中 repeat_type 与实际展开规则一致
+          if (effective_repeat_custom && (rpt_type === 'none' || rpt_type === 'fragment')) {
+            const derived = deriveRepeatTypeFromCustom(effective_repeat_custom);
+            if (derived) rpt_type = derived;
+          }
 
           const category_id = task.category_id || '';
           // 碎时记 (repeat_type='fragment')：强制无开始/结束时间、无重复截止、间隔为1、无 custom RRULE
-          // 客户端已在 selectRepeat('fragment') 中清空相关字段，此处兜底防御（API 也能创建碎时记）
+          // 这是服务端联动推导——调用方无需传这些字段，服务端保证 fragment 类型不会有无效数据
           // 碎时记允许 date 为空（表示不限开始日期，任意日期都可见）
           const is_fragment = (rpt_type === 'fragment');
           const effectiveEndTime = is_fragment ? '' : (task.end_time || '');
           const effectiveTime = is_fragment ? '' : (task.time || '');
           const effectiveRepeatEnd = is_fragment ? '' : (task.repeat_end || '');
           const effectiveRepeatInterval = is_fragment ? 1 : (task.repeat_interval || 1);
+          // none 类型也强制清空 repeat_custom（防御：processRepeatCustom + derive 已处理，但二次兜底）
+          const final_repeat_custom = (rpt_type === 'none' || rpt_type === 'fragment') ? '' : effective_repeat_custom;
+
+          // 原子组校验（联动字段一致性，冲突返回 400 并告知原因）
+          const repeatEndErr = validateRepeatEndCompat(effectiveRepeatEnd, rpt_type);
+          if (repeatEndErr) return apiError(repeatEndErr, 400);
+          const intervalErr = validateRepeatIntervalCompat(effectiveRepeatInterval, rpt_type);
+          if (intervalErr) return apiError(intervalErr, 400);
+          const timeErr = validateTimeRange(effectiveTime, effectiveEndTime);
+          if (timeErr) return apiError(timeErr, 400);
+
           // 健壮性修复：date 顶层字段缺失时回退到 task.date（与 V1 行为对齐）
           // API_Wiki §3.2 文档要求 date 在 body 顶层，但外部调用方常按 V1 风格放在 task.date
           // 原 bug：非碎时记 + date 缺失 → D1_TYPE_ERROR 500（无指引性）
