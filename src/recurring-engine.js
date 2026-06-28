@@ -24,6 +24,253 @@ const FREQ_MAP = {
   yearly: 'YEARLY',
 };
 
+// repeat_custom 安全约束
+// - 仅允许 DAILY/WEEKLY/MONTHLY/YEARLY（SECONDLY/MINUTELY/HOURLY 会在引擎迭代器里
+//   产生天文级实例数，可能撑爆 Worker CPU / D1 写入；BYSETPOS 等不受限）
+// - 最大长度 500 字符（足够覆盖 FREQ + INTERVAL + COUNT/UNTIL + BYxxx 组合）
+// - 拒绝任何控制字符（CR/LF/TAB/NULL 等），避免 CRLF 注入到 iCalendar 文本
+const ALLOWED_FREQ_IN_CUSTOM = new Set(['DAILY', 'WEEKLY', 'MONTHLY', 'YEARLY']);
+const REPEAT_CUSTOM_MAX_LEN = 500;
+// eslint-disable-next-line no-control-regex
+const CONTROL_CHAR_RE = /[\x00-\x1f\x7f]/;
+
+/**
+ * 规范化并校验 repeat_custom（用户提供的自定义 RRULE 字符串）
+ *
+ * 接受值：
+ *   - "" / null / undefined  → 返回 ""（视为未设置）
+ *   - "FREQ=WEEKLY;BYDAY=MO,WE,FR"
+ *   - "RRULE:FREQ=DAILY;INTERVAL=2"
+ *   - "freq=weekly;byday=mo"  （大小写不敏感，整体规范化为大写）
+ *
+ * 拒绝值（返回 ""）：
+ *   - 长度超 500
+ *   - 含控制字符（CR/LF/TAB 等）
+ *   - 缺少 FREQ= token
+ *   - FREQ 值非 DAILY/WEEKLY/MONTHLY/YEARLY
+ *   - ical.js 解析失败
+ *   - 含第二个 RRULE: 前缀（防多 RRULE 注入）
+ *
+ * @param {*} raw - 用户输入
+ * @returns {string} 规范化后的 RRULE 字符串（不含 RRULE: 前缀，全大写），无效时返回 ""
+ */
+export function sanitizeRepeatCustom(raw) {
+  if (raw == null) return '';
+  if (typeof raw !== 'string') return '';
+  let s = raw.trim();
+  if (!s) return '';
+  if (s.length > REPEAT_CUSTOM_MAX_LEN) return '';
+  if (CONTROL_CHAR_RE.test(s)) return '';
+
+  // 剥离可选的 RRULE: 前缀（buildRRuleString 会重新加）
+  if (s.startsWith('RRULE:')) s = s.slice(6).trim();
+  if (!s) return '';
+  // 防御：剥离前缀后不应再有 RRULE: 子串（多 RRULE 注入）
+  if (s.includes('RRULE:')) return '';
+
+  // 拆分 token，必须以 FREQ= 开头（RFC 5545 要求 FREQ 是 RRULE 的第一个 token）
+  const parts = s.split(';').filter(p => p.length > 0);
+  if (parts.length === 0) return '';
+  const freqIdx = parts.findIndex(p => p.toUpperCase().startsWith('FREQ='));
+  if (freqIdx !== 0) return ''; // FREQ 必须是第一个 token
+  const freqVal = parts[0].split('=')[1]?.toUpperCase();
+  if (!freqVal || !ALLOWED_FREQ_IN_CUSTOM.has(freqVal)) return '';
+
+  // 全量大写规范化（RFC 5545 所有 token 名与值都大小写不敏感，
+  // RRULE 内不存在必须小写的元素，全大写最安全，避免 ical.js 对 lowercase BYDAY 等的严格拒绝）
+  const canonical = 'FREQ=' + freqVal + (parts.length > 1 ? ';' + parts.slice(1).join(';') : '').toUpperCase();
+
+  // 终极校验：ical.js 能否解析
+  try {
+    ICAL.Recur.fromString(canonical);
+  } catch (e) {
+    return '';
+  }
+  return canonical;
+}
+
+/**
+ * 处理 repeat_custom 输入：组合 sanitize + 与 repeat_type 的兼容性约束
+ *
+ * 与 repeat_type 的兼容性矩阵：
+ *   - repeat_type ∈ {none, fragment} + raw 为空 → 返回 ""（静默清空）
+ *   - repeat_type ∈ {none, fragment} + raw 非空：
+ *       - allowDerive=true（UPDATE 场景）：仅 sanitize，不清空，让调用方尝试 deriveRepeatTypeFromCustom 反推
+ *       - allowDerive=false（CREATE 场景）：静默清空为 ""（兼容旧行为）
+ *   - repeat_type ∈ {daily, weekly, monthly, yearly} → 允许非空 repeat_custom，严格校验
+ *
+ * @param {*} raw - 用户传入的 repeat_custom
+ * @param {string} repeatType - 有效的 repeat_type 值
+ * @param {object} [opts] - 选项
+ * @param {boolean} [opts.allowDerive=false] - UPDATE 场景下允许反推，不清空 none/fragment 的 custom
+ * @returns {{value: string, error: string|null}}
+ *   - value: 规范化后的 repeat_custom（永远为 string）
+ *   - error: 非 null 时表示用户传入非空但校验失败，调用方应返回 400
+ */
+export function processRepeatCustom(raw, repeatType, opts = {}) {
+  const { allowDerive = false } = opts;
+  // null/undefined/'' → 视为未设置
+  if (raw == null || (typeof raw === 'string' && raw.trim() === '')) {
+    return { value: '', error: null };
+  }
+  // 类型校验：必须是字符串
+  if (typeof raw !== 'string') {
+    return { value: '', error: 'repeat_custom 必须为字符串' };
+  }
+  // repeat_type 兼容性：fragment/none 处理
+  if (repeatType === 'none' || repeatType === 'fragment') {
+    if (allowDerive) {
+      // UPDATE 场景：sanitize 后返回，让调用方尝试 deriveRepeatTypeFromCustom 反推 repeat_type
+      const sanitized = sanitizeRepeatCustom(raw);
+      if (!sanitized) {
+        return {
+          value: '',
+          error: 'repeat_custom 格式无效：必须为合法 RRULE 字符串，以 FREQ=DAILY/WEEKLY/MONTHLY/YEARLY 开头，长度 ≤ 500，不含换行/控制字符',
+        };
+      }
+      return { value: sanitized, error: null };
+    }
+    // CREATE 场景：静默清空（匹配既有 fragment-clear 模式）
+    return { value: '', error: null };
+  }
+  // 非空 + 非 fragment/none → 严格校验
+  const sanitized = sanitizeRepeatCustom(raw);
+  if (!sanitized) {
+    return {
+      value: '',
+      error: 'repeat_custom 格式无效：必须为合法 RRULE 字符串，以 FREQ=DAILY/WEEKLY/MONTHLY/YEARLY 开头，长度 ≤ 500，不含换行/控制字符',
+    };
+  }
+  return { value: sanitized, error: null };
+}
+
+// ==================== 联动推导与原子组校验 ====================
+
+/**
+ * 从 repeat_custom 反推 repeat_type
+ *
+ * 当调用方传了 repeat_custom（非空），但未传 repeat_type 或 repeat_type 与 custom 的 FREQ 不一致时，
+ * 服务端用 custom 的 FREQ 反推 repeat_type，保证 DB 中 repeat_type 与实际展开规则一致。
+ *
+ * 反推规则：
+ *   FREQ=DAILY   → daily
+ *   FREQ=WEEKLY  → weekly
+ *   FREQ=MONTHLY → monthly
+ *   FREQ=YEARLY  → yearly
+ *
+ * @param {string} repeatCustom - 已 sanitize 的 repeat_custom 字符串
+ * @returns {string|null} 反推出的 repeat_type，或 null（custom 为空或无法解析）
+ */
+export function deriveRepeatTypeFromCustom(repeatCustom) {
+  if (!repeatCustom || !repeatCustom.trim()) return null;
+  const m = repeatCustom.match(/^FREQ=([A-Z]+)/);
+  if (!m) return null;
+  const freq = m[1];
+  const reverseMap = { DAILY: 'daily', WEEKLY: 'weekly', MONTHLY: 'monthly', YEARLY: 'yearly' };
+  return reverseMap[freq] || null;
+}
+
+/**
+ * 校验 time 与 end_time 的时序一致性
+ *
+ * 规则：若 time 和 end_time 都非空且在同一天，time 不能晚于 end_time。
+ * 允许 end_time 为空（表示无结束时间）。
+ * 允许 time == end_time（零耗时，勾选完成场景）。
+ *
+ * @param {string} time - HH:MM 格式
+ * @param {string} endTime - HH:MM 格式
+ * @returns {string|null} 错误消息，null 表示通过
+ */
+export function validateTimeRange(time, endTime) {
+  if (!time || !endTime) return null;
+  const timeRe = /^\d{2}:\d{2}$/;
+  if (!timeRe.test(time) || !timeRe.test(endTime)) return null; // 格式不符交给其他校验
+  if (time > endTime) {
+    return `time (${time}) 不能晚于 end_time (${endTime})`;
+  }
+  return null;
+}
+
+/**
+ * 校验 repeat_end 与 repeat_type 的兼容性（原子组）
+ *
+ * 规则：repeat_end 非空时，repeat_type 必须是 daily/weekly/monthly/yearly。
+ * none/fragment 类型无 RRULE，repeat_end 无意义，应拒绝。
+ * 同时校验 repeat_end 格式为 YYYY-MM-DD。
+ *
+ * @param {string} repeatEnd - YYYY-MM-DD 或空
+ * @param {string} repeatType - none/daily/weekly/monthly/yearly/fragment
+ * @returns {string|null} 错误消息，null 表示通过
+ */
+export function validateRepeatEndCompat(repeatEnd, repeatType) {
+  if (!repeatEnd) return null;
+  if (repeatType === 'none' || repeatType === 'fragment') {
+    return `repeat_end 仅在 repeat_type 为 daily/weekly/monthly/yearly 时有效，当前 repeat_type=${repeatType}`;
+  }
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(repeatEnd)) {
+    return `repeat_end 格式应为 YYYY-MM-DD，当前值: ${repeatEnd}`;
+  }
+  return null;
+}
+
+/**
+ * 校验 repeat_interval 与 repeat_type 的兼容性
+ *
+ * 规则：repeat_interval > 1 时，repeat_type 必须是 daily/weekly/monthly/yearly。
+ * none/fragment 类型 repeat_interval 强制为 1，传 > 1 应拒绝（防止数据不一致）。
+ * 同时校验 repeat_interval 为正整数。
+ *
+ * @param {number} repeatInterval
+ * @param {string} repeatType
+ * @returns {string|null} 错误消息，null 表示通过
+ */
+export function validateRepeatIntervalCompat(repeatInterval, repeatType) {
+  if (repeatInterval == null) return null;
+  if (typeof repeatInterval !== 'number' || !Number.isInteger(repeatInterval) || repeatInterval < 1) {
+    return 'repeat_interval 必须为正整数';
+  }
+  if (repeatInterval > 1 && (repeatType === 'none' || repeatType === 'fragment')) {
+    return `repeat_interval > 1 仅在 repeat_type 为 daily/weekly/monthly/yearly 时有效，当前 repeat_type=${repeatType}`;
+  }
+  return null;
+}
+
+/**
+ * 校验日期格式 YYYY-MM-DD
+ * @param {string} dateStr
+ * @returns {string|null} 错误消息，null 表示通过
+ */
+export function validateDateFormat(dateStr) {
+  if (!dateStr) return null; // 空值由其他校验处理（如 fragment 允许空）
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
+    return `日期格式应为 YYYY-MM-DD，当前值: ${dateStr}`;
+  }
+  // 校验真实日期（防 2026-13-45）
+  const [y, m, d] = dateStr.split('-').map(Number);
+  const dt = new Date(Date.UTC(y, m - 1, d));
+  if (dt.getUTCFullYear() !== y || dt.getUTCMonth() !== m - 1 || dt.getUTCDate() !== d) {
+    return `日期无效: ${dateStr}`;
+  }
+  return null;
+}
+
+/**
+ * 校验时间格式 HH:MM（00:00 - 23:59）
+ * @param {string} timeStr
+ * @returns {string|null} 错误消息，null 表示通过
+ */
+export function validateTimeFormat(timeStr) {
+  if (!timeStr) return null;
+  if (!/^\d{2}:\d{2}$/.test(timeStr)) {
+    return `时间格式应为 HH:MM，当前值: ${timeStr}`;
+  }
+  const [h, m] = timeStr.split(':').map(Number);
+  if (h < 0 || h > 23 || m < 0 || m > 59) {
+    return `时间范围无效（HH: 00-23, MM: 00-59），当前值: ${timeStr}`;
+  }
+  return null;
+}
+
 const DAY_MAP = ['', 'SU', 'MO', 'TU', 'WE', 'TH', 'FR', 'SA'];
 // ical.js dayOfWeek() 返回 1(周日)-7(周六)，DAY_MAP[1]='SU', DAY_MAP[2]='MO', ...
 
@@ -391,11 +638,17 @@ export function computeUpdateActions({ task, date, scope, new_values, new_date }
   // 碎时记不算 recurring（不会创建模板、不会分裂系列）
   const is_recurring = rpt_type !== 'none' && rpt_type !== 'fragment';
 
-  // 检测重复规则是否变更（频率、间隔）
+  // 检测重复规则是否变更（频率、间隔、自定义 RRULE）
+  // - repeat_custom 变更纳入检测：custom 非空时实际展开规则完全由它决定，
+  //   若用户改了 custom 但 type/interval 未变，旧实例仍需删除并由模板重新生成
   const original_repeat_type = task.repeat_type || 'none';
   const original_interval = task.repeat_interval || 1;
+  const original_repeat_custom = task.repeat_custom || '';
   const new_interval = new_values.repeat_interval || 1;
-  const recurrence_changed = (original_repeat_type !== rpt_type) || (original_interval !== new_interval);
+  const new_repeat_custom = new_values.repeat_custom || '';
+  const recurrence_changed = (original_repeat_type !== rpt_type)
+    || (original_interval !== new_interval)
+    || (original_repeat_custom !== new_repeat_custom);
 
   const actions = {
     currentTodo: null,
@@ -456,7 +709,7 @@ export function computeUpdateActions({ task, date, scope, new_values, new_date }
           subtasks: new_values.subtasks,
           search_terms: new_values.search_terms,
           repeat_type: rpt_type,
-          repeat_custom: '',
+          repeat_custom: new_values.repeat_custom || '',
           repeat_end: new_values.repeat_end || '',
           end_time: new_values.end_time || '',
           anchor_date: new_date || date,
@@ -466,7 +719,7 @@ export function computeUpdateActions({ task, date, scope, new_values, new_date }
         };
       } else {
         // 改为不重复: 当前项脱离系列变单次，未来项删除，模板保留并设repeat_end
-        actions.currentTodo = { ...new_values, repeat_type: 'none', repeat_interval: 1, is_recurring: false, detach_from_series: true };
+        actions.currentTodo = { ...new_values, repeat_type: 'none', repeat_custom: '', repeat_end: '', repeat_interval: 1, is_recurring: false, detach_from_series: true };
         actions.pastTodos = { type: 'set_repeat_end', date: date, parent_id: parent_id };
         actions.template = { type: 'set_repeat_end', date: date, parent_id: parent_id };
       }
@@ -481,7 +734,7 @@ export function computeUpdateActions({ task, date, scope, new_values, new_date }
         actions.template = { type: 'update_all', parent_id: parent_id, new_values: new_values, recurrence_changed: recurrence_changed };
       } else {
         // 改为不重复: 当前项脱离系列变单次，所有其他实例删除，模板删除
-        actions.currentTodo = { ...new_values, repeat_type: 'none', repeat_interval: 1, is_recurring: false, detach_from_series: true };
+        actions.currentTodo = { ...new_values, repeat_type: 'none', repeat_custom: '', repeat_end: '', repeat_interval: 1, is_recurring: false, detach_from_series: true };
         actions.template = { type: 'delete', parent_id: parent_id };
       }
       break;
