@@ -46,6 +46,8 @@ import {
   addExdate,
   removeExdate,
   getPreviousDate,
+  sanitizeRepeatCustom,
+  processRepeatCustom,
 } from './recurring-engine.js';
 
 // ==================== API Key 管理 ====================
@@ -597,7 +599,7 @@ async function handleV1Todos(request, env, url) {
     } catch(e) {
       return apiError('请求体不是有效的 JSON', 400);
     }
-    const { date, text, time, priority, desc, url, copy_text, subtasks, search_terms, repeat_type, repeat_end, end_time, category_id, repeat_interval } = body;
+    const { date, text, time, priority, desc, url, copy_text, subtasks, search_terms, repeat_type, repeat_end, end_time, category_id, repeat_interval, repeat_custom } = body;
 
     // 健壮性：校验 repeat_type 合法值
     const VALID_REPEAT_TYPES_V1 = ['none', 'daily', 'weekly', 'monthly', 'yearly', 'fragment'];
@@ -605,6 +607,13 @@ async function handleV1Todos(request, env, url) {
     if (rpt_type !== 'none' && !VALID_REPEAT_TYPES_V1.includes(rpt_type)) {
       return apiError(`无效的 repeat_type: ${rpt_type}，有效值: ${VALID_REPEAT_TYPES_V1.join(', ')}`, 400);
     }
+
+    // 健壮性：校验 repeat_custom（自定义 RRULE）
+    // - repeat_type ∈ {none, fragment} → 静默清空（无意义）
+    // - 非 empty + 非 none/fragment → 严格校验，失败返回 400
+    const customResult = processRepeatCustom(repeat_custom, rpt_type);
+    if (customResult.error) return apiError(customResult.error, 400);
+    const effective_repeat_custom = customResult.value;
 
     // 健壮性：校验 repeat_interval 正整数
     const rawInterval = repeat_interval || 1;
@@ -623,12 +632,14 @@ async function handleV1Todos(request, env, url) {
 
     const id = Date.now().toString() + Math.floor(Math.random() * 10000).toString().padStart(4, '0');
     const catId = category_id || '';
-    // 碎时记强制约束：无开始/结束时间、无重复截止、间隔为1、date 可空
+    // 碎时记强制约束：无开始/结束时间、无重复截止、间隔为1、date 可空、无 custom RRULE
     const rEnd = is_fragment ? '' : (repeat_end || '');
     const eTime = is_fragment ? '' : (end_time || '');
     const rInterval = is_fragment ? 1 : (repeat_interval || 1);
     const effectiveTime = is_fragment ? '' : (time || '');
     const effective_date = is_fragment ? (date || '') : date;
+    // fragment/none 已被 processRepeatCustom 强制清空，这里二次防御
+    const final_repeat_custom = (rpt_type === 'none' || rpt_type === 'fragment') ? '' : effective_repeat_custom;
     const normPriority = normalizePriority(priority || 'low');
     // 规范化 subtasks：字符串→{text, done:false} 对象
     const normalizedSubtasks = (subtasks || []).map(s => {
@@ -651,7 +662,7 @@ async function handleV1Todos(request, env, url) {
     ).bind(
       id, id, effective_date, text, effectiveTime, normPriority,
       desc || '', url || '', copy_text || '', subtasks_str, search_terms_str,
-      0, 0, rpt_type, '', rEnd, eTime, catId, rInterval, effective_fragment_anchor
+      0, 0, rpt_type, final_repeat_custom, rEnd, eTime, catId, rInterval, effective_fragment_anchor
     ).run();
 
     // 仅 daily/weekly/monthly/yearly 才创建模板；碎时记 (fragment) 和 none 不创建
@@ -660,14 +671,14 @@ async function handleV1Todos(request, env, url) {
         'INSERT INTO todo_templates (parent_id, text, time, priority, desc, url, copy_text, subtasks, search_terms, repeat_type, repeat_custom, repeat_end, end_time, anchor_date, exdates, category_id, repeat_interval) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
       ).bind(
         id, text, effectiveTime, normPriority, desc || '', url || '', copy_text || '',
-        subtasks_str, search_terms_str, rpt_type, '', rEnd, eTime, effective_date, '[]', catId, rInterval
+        subtasks_str, search_terms_str, rpt_type, final_repeat_custom, rEnd, eTime, effective_date, '[]', catId, rInterval
       ).run();
     }
 
     // 健壮性：创建响应增加关键字段，减少客户端额外 GET
     return jsonResponse({
       success: true,
-      data: { id, parent_id: id, date: effective_date, text, time: effectiveTime, priority: normPriority, repeat_type: rpt_type, category_id: catId, repeat_interval: rInterval, fragment_anchor: effective_fragment_anchor }
+      data: { id, parent_id: id, date: effective_date, text, time: effectiveTime, priority: normPriority, repeat_type: rpt_type, repeat_custom: final_repeat_custom, category_id: catId, repeat_interval: rInterval, fragment_anchor: effective_fragment_anchor }
     }, 201);
   }
 
@@ -721,6 +732,26 @@ async function handleV1TodoPut(request, DB, todo_id) {
   // 重复 todo 未指定 scope 时，默认 scope=this（仅更新此实例）
   const scope = is_series && (!body.scope || body.scope === 'none') ? 'this' : (body.scope || 'none');
 
+  // 健壮性：处理 repeat_custom（PATCH 语义）
+  // - body.repeat_custom === undefined：保留 existing（但 fragment/none 强制清空）
+  // - body.repeat_custom === null / ''：显式清空
+  // - body.repeat_custom 非空字符串：严格校验，失败返回 400
+  // - fragment/none 类型：始终强制清空（无论 body 是否提供）
+  let effective_repeat_custom;
+  if (body.repeat_custom !== undefined) {
+    const customResult = processRepeatCustom(body.repeat_custom, rptTypeFromBody);
+    if (customResult.error) return apiError(customResult.error, 400);
+    effective_repeat_custom = customResult.value;
+  } else {
+    // 未提供：按 existing 推导
+    if (rptTypeFromBody === 'none' || rptTypeFromBody === 'fragment') {
+      effective_repeat_custom = '';
+    } else {
+      // 保留 existing.repeat_custom，但二次 sanitize 防御 DB 脏数据
+      effective_repeat_custom = sanitizeRepeatCustom(existing.repeat_custom);
+    }
+  }
+
   const new_values = {
     text: body.text !== undefined ? body.text : existing.text,
     time: body.time !== undefined ? body.time : (existing.time || ''),
@@ -731,7 +762,7 @@ async function handleV1TodoPut(request, DB, todo_id) {
     subtasks: JSON.stringify(body.subtasks !== undefined ? body.subtasks : parseJsonField(existing.subtasks)),
     search_terms: JSON.stringify(body.search_terms !== undefined ? body.search_terms : parseJsonField(existing.search_terms)),
     repeat_type: body.repeat_type !== undefined ? body.repeat_type : (existing.repeat_type || 'none'),
-    repeat_custom: '',
+    repeat_custom: effective_repeat_custom,
     repeat_end: body.repeat_end !== undefined ? body.repeat_end : (existing.repeat_end || ''),
     end_time: body.end_time !== undefined ? body.end_time : (existing.end_time || ''),
     category_id: body.category_id !== undefined ? body.category_id : (existing.category_id || ''),
@@ -739,13 +770,18 @@ async function handleV1TodoPut(request, DB, todo_id) {
     repeat_interval: body.repeat_interval !== undefined ? body.repeat_interval : (existing.repeat_interval || 1),
   };
 
-  // 碎时记强制约束：若新值是 fragment，强制清空 time/end_time/repeat_end/repeat_interval
+  // 碎时记强制约束：若新值是 fragment，强制清空 time/end_time/repeat_end/repeat_interval/repeat_custom
   // 防止 API 调用者绕过前端约束，向碎时记写入无意义字段
   if (new_values.repeat_type === 'fragment') {
     new_values.time = '';
     new_values.end_time = '';
     new_values.repeat_end = '';
     new_values.repeat_interval = 1;
+    new_values.repeat_custom = '';
+  }
+  // none 类型也强制清空 repeat_custom（防御：processRepeatCustom 已处理，但二次兜底）
+  if (new_values.repeat_type === 'none') {
+    new_values.repeat_custom = '';
   }
 
   const date = existing.date;
@@ -765,10 +801,10 @@ async function handleV1TodoPut(request, DB, todo_id) {
       // 单次 → 重复
       await DB.prepare(
         'UPDATE todos SET date=?, text=?, time=?, priority=?, desc=?, url=?, copy_text=?, subtasks=?, search_terms=?, repeat_type=?, repeat_custom=?, repeat_end=?, end_time=?, category_id=?, repeat_interval=? WHERE id=?'
-      ).bind(new_date, new_values.text, new_values.time, new_values.priority, new_values.desc, new_values.url, new_values.copy_text, subtasks_str, search_terms_str, rpt_type, '', new_values.repeat_end, new_values.end_time, new_values.category_id, new_values.repeat_interval, todo_id).run();
+      ).bind(new_date, new_values.text, new_values.time, new_values.priority, new_values.desc, new_values.url, new_values.copy_text, subtasks_str, search_terms_str, rpt_type, new_values.repeat_custom, new_values.repeat_end, new_values.end_time, new_values.category_id, new_values.repeat_interval, todo_id).run();
       await DB.prepare(
         'INSERT OR REPLACE INTO todo_templates (parent_id, text, time, priority, desc, url, copy_text, subtasks, search_terms, repeat_type, repeat_custom, repeat_end, end_time, anchor_date, exdates, category_id, repeat_interval) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
-      ).bind(todo_id, new_values.text, new_values.time, new_values.priority, new_values.desc, new_values.url, new_values.copy_text, subtasks_str, search_terms_str, rpt_type, '', new_values.repeat_end, new_values.end_time, new_date, '[]', new_values.category_id, new_values.repeat_interval).run();
+      ).bind(todo_id, new_values.text, new_values.time, new_values.priority, new_values.desc, new_values.url, new_values.copy_text, subtasks_str, search_terms_str, rpt_type, new_values.repeat_custom, new_values.repeat_end, new_values.end_time, new_date, '[]', new_values.category_id, new_values.repeat_interval).run();
     } else if (rpt_type === 'fragment' && parent_id && parent_id !== todo_id) {
       // 重复 → 碎时记：脱离旧系列，给旧模板加 exdate
       // 碎时记 (fragment): date 列即起始日期（未完成时）或完成日期（已完成时）
@@ -783,7 +819,7 @@ async function handleV1TodoPut(request, DB, todo_id) {
       }
       await DB.prepare(
         'UPDATE todos SET parent_id=?, date=?, text=?, time=?, priority=?, desc=?, url=?, copy_text=?, subtasks=?, search_terms=?, repeat_type=?, repeat_custom=?, repeat_end=?, end_time=?, category_id=?, repeat_interval=?, fragment_anchor=? WHERE id=?'
-      ).bind(todo_id, effective_update_date, new_values.text, new_values.time, new_values.priority, new_values.desc, new_values.url, new_values.copy_text, subtasks_str, search_terms_str, rpt_type, '', new_values.repeat_end, new_values.end_time, new_values.category_id, new_values.repeat_interval, effective_fragment_anchor, todo_id).run();
+      ).bind(todo_id, effective_update_date, new_values.text, new_values.time, new_values.priority, new_values.desc, new_values.url, new_values.copy_text, subtasks_str, search_terms_str, rpt_type, new_values.repeat_custom, new_values.repeat_end, new_values.end_time, new_values.category_id, new_values.repeat_interval, effective_fragment_anchor, todo_id).run();
       const tpl = await DB.prepare('SELECT exdates FROM todo_templates WHERE parent_id = ?').bind(parent_id).first();
       if (tpl) {
         const new_exdates = addExdate(tpl.exdates || '[]', date);
@@ -813,7 +849,7 @@ async function handleV1TodoPut(request, DB, todo_id) {
       }
       await DB.prepare(
         'UPDATE todos SET date=?, text=?, time=?, priority=?, desc=?, url=?, copy_text=?, subtasks=?, search_terms=?, repeat_type=?, repeat_custom=?, repeat_end=?, end_time=?, category_id=?, repeat_interval=?, fragment_anchor=? WHERE id=?'
-      ).bind(effective_update_date, new_values.text, new_values.time, new_values.priority, new_values.desc, new_values.url, new_values.copy_text, subtasks_str, search_terms_str, rpt_type, '', new_values.repeat_end, new_values.end_time, new_values.category_id, new_values.repeat_interval, effective_fragment_anchor, todo_id).run();
+      ).bind(effective_update_date, new_values.text, new_values.time, new_values.priority, new_values.desc, new_values.url, new_values.copy_text, subtasks_str, search_terms_str, rpt_type, new_values.repeat_custom, new_values.repeat_end, new_values.end_time, new_values.category_id, new_values.repeat_interval, effective_fragment_anchor, todo_id).run();
       // BUG 修复：原任务是系列主实例（id === parent_id）且新类型为 fragment 时，
       // 必须删除旧模板，否则旧模板会持续按原 daily/weekly 规则生成新实例（幽灵重复事项）
       if (rpt_type === 'fragment' && existing.repeat_type
@@ -840,7 +876,7 @@ async function handleV1TodoPut(request, DB, todo_id) {
         // Split: 脱离旧系列，加入新系列（thisAndFuture + is_recurring）
         await DB.prepare(
           'UPDATE todos SET parent_id=?, date=?, text=?, time=?, priority=?, desc=?, url=?, copy_text=?, subtasks=?, search_terms=?, repeat_type=?, repeat_custom=?, repeat_end=?, end_time=?, category_id=?, repeat_interval=? WHERE id=?'
-        ).bind(split_new_pid, new_date, new_values.text, new_values.time, new_values.priority, new_values.desc, new_values.url, new_values.copy_text, subtasks_str, search_terms_str, rpt_type, '', new_values.repeat_end, new_values.end_time, new_values.category_id, new_values.repeat_interval, todo_id).run();
+        ).bind(split_new_pid, new_date, new_values.text, new_values.time, new_values.priority, new_values.desc, new_values.url, new_values.copy_text, subtasks_str, search_terms_str, rpt_type, new_values.repeat_custom, new_values.repeat_end, new_values.end_time, new_values.category_id, new_values.repeat_interval, todo_id).run();
       } else if (cv.detach_from_series) {
         // 脱离系列，变为单次任务（"仅此项"或 thisAndFuture 改为不重复）
         await DB.prepare(
@@ -849,7 +885,7 @@ async function handleV1TodoPut(request, DB, todo_id) {
       } else if (cv.is_recurring) {
         await DB.prepare(
           'UPDATE todos SET date=?, text=?, time=?, priority=?, desc=?, url=?, copy_text=?, subtasks=?, search_terms=?, repeat_type=?, repeat_custom=?, repeat_end=?, end_time=?, category_id=?, repeat_interval=? WHERE id=?'
-        ).bind(new_date, new_values.text, new_values.time, new_values.priority, new_values.desc, new_values.url, new_values.copy_text, subtasks_str, search_terms_str, rpt_type, '', new_values.repeat_end, new_values.end_time, new_values.category_id, new_values.repeat_interval, todo_id).run();
+        ).bind(new_date, new_values.text, new_values.time, new_values.priority, new_values.desc, new_values.url, new_values.copy_text, subtasks_str, search_terms_str, rpt_type, new_values.repeat_custom, new_values.repeat_end, new_values.end_time, new_values.category_id, new_values.repeat_interval, todo_id).run();
       } else {
         await DB.prepare(
           'UPDATE todos SET date=?, text=?, time=?, priority=?, desc=?, url=?, copy_text=?, subtasks=?, search_terms=?, repeat_type=\'none\', repeat_custom=\'\', repeat_end=\'\', category_id=?, repeat_interval=1 WHERE id=?'
@@ -884,7 +920,7 @@ async function handleV1TodoPut(request, DB, todo_id) {
         } else {
           await DB.prepare(
             'UPDATE todos SET text=?, time=?, priority=?, desc=?, url=?, copy_text=?, subtasks=?, search_terms=?, repeat_type=?, repeat_custom=?, repeat_end=?, end_time=?, category_id=?, repeat_interval=? WHERE parent_id=? AND id != ? AND deleted = 0'
-          ).bind(new_values.text, new_values.time, new_values.priority, new_values.desc, new_values.url, new_values.copy_text, subtasks_str, search_terms_str, rpt_type, '', new_values.repeat_end, new_values.end_time, new_values.category_id, new_values.repeat_interval, parent_id, todo_id).run();
+          ).bind(new_values.text, new_values.time, new_values.priority, new_values.desc, new_values.url, new_values.copy_text, subtasks_str, search_terms_str, rpt_type, new_values.repeat_custom, new_values.repeat_end, new_values.end_time, new_values.category_id, new_values.repeat_interval, parent_id, todo_id).run();
         }
       } else {
         await DB.prepare('DELETE FROM todos WHERE parent_id=? AND id != ? AND deleted = 0').bind(parent_id, todo_id).run();
@@ -911,7 +947,7 @@ async function handleV1TodoPut(request, DB, todo_id) {
           } catch (e) {}
           await DB.prepare(
             'INSERT OR REPLACE INTO todo_templates (parent_id, text, time, priority, desc, url, copy_text, subtasks, search_terms, repeat_type, repeat_custom, repeat_end, end_time, anchor_date, exdates, category_id, repeat_interval) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
-          ).bind(parent_id, new_values.text, new_values.time, new_values.priority, new_values.desc, new_values.url, new_values.copy_text, subtasks_str, search_terms_str, rpt_type, '', new_values.repeat_end, new_values.end_time, new_date, existing_exdates, new_values.category_id, new_values.repeat_interval).run();
+          ).bind(parent_id, new_values.text, new_values.time, new_values.priority, new_values.desc, new_values.url, new_values.copy_text, subtasks_str, search_terms_str, rpt_type, new_values.repeat_custom, new_values.repeat_end, new_values.end_time, new_date, existing_exdates, new_values.category_id, new_values.repeat_interval).run();
         }
       } else if (tmpl.type === 'delete') {
         await DB.prepare('DELETE FROM todo_templates WHERE parent_id=?').bind(parent_id).run();

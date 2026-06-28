@@ -1329,6 +1329,7 @@ V0 和 V1 的 Category 对象格式一致：
 | `time` / `end_time` | 可设置 | HH:MM 字符串 |
 | `repeat_end` | 强制空 | POST/PUT 时即便传入也会被忽略 |
 | `repeat_interval` | 始终 `1` | 无意义，PUT 时若不传则回退为 1 |
+| `repeat_custom` | 强制空 | `repeat_type=none` 时即使传入也会被静默清空 |
 | `fragment_anchor` | 始终空 | DB 列存在但永远写空串 |
 | `is_series` | `false` | 后端派生 |
 | `parent_id` | 自身 `id` | CREATE 时由后端写入 |
@@ -1359,7 +1360,7 @@ V0 和 V1 的 Category 对象格式一致：
 | `time` / `end_time` | 可设置 | — |
 | `repeat_end` | 可设置 | YYYY-MM-DD，重复截止日期；空表示无限 |
 | `repeat_interval` | 用户指定，正整数 | 如 `weekly` + `repeat_interval=2` 表示每两周 |
-| `repeat_custom` | 强制空 | 预留字段。V0/V1 API CREATE/UPDATE 入口不读取请求体中的 `repeat_custom`，DB 始终写空；`recurring-engine.js` 引擎函数本身支持非空值作为自定义 RRULE，但 API 入口未开放 |
+| `repeat_custom` | 可设置（自定义 RRULE） | 自定义 RRULE 字符串（不含 `RRULE:` 前缀），如 `FREQ=WEEKLY;BYDAY=MO,WE,FR`。非空时优先于 `repeat_type`/`repeat_interval` 生效（引擎仍会用 `repeat_interval` 覆盖 custom 中的 INTERVAL，`repeat_end` 在 custom 未含 UNTIL 时追加），`exdates` 与 `repeat_end` 始终叠加生效。校验：必须以 `FREQ=DAILY/WEEKLY/MONTHLY/YEARLY` 开头（拒绝 SECONDLY/MINUTELY/HOURLY），最大长度 500，不含换行/控制字符，全大写规范化，须通过 ical.js 解析；校验失败返回 400。`repeat_type` ∈ {none, fragment} 时强制清空（静默，不报错） |
 | `fragment_anchor` | 始终空 | — |
 | `is_series` | `true` | 后端派生 |
 | `parent_id` | CREATE 时 = 自身 `id`；UPDATE/DELETE 时若缺省则从 DB 派生 | 系列 anchor |
@@ -1402,6 +1403,7 @@ V0 和 V1 的 Category 对象格式一致：
 | `end_time` | `""` | 强制清空 |
 | `repeat_end` | `""` | 强制清空 |
 | `repeat_interval` | `1` | 强制为 1 |
+| `repeat_custom` | `""` | 强制清空（碎时记无 RRULE） |
 | `fragment_anchor` | `YYYY-MM-DD` 或 `""` | **起始日期权威副本**，不受完成/取消完成影响 |
 | `is_series` | `false` | 碎时记不算重复系列 |
 | `parent_id` | 自身 `id` | 不挂载到任何模板 |
@@ -1456,7 +1458,7 @@ V0 Web API 还支持 `keep_records: true`（来自「继续计时」路径，仅
 | `category_id` | 可选，关联 [4.3 节](#43-category-对象)的 Category id；空表示未分类 |
 | `recurrence_id` | RFC 5545 RECURRENCE-ID，重复 todo 例外实例使用，其余类型为空 |
 | `is_exception` | 是否为例外实例（重复 todo 脱离系列后为 `true`，其余为 `false`） |
-| `repeat_custom` | 预留字段。V0/V1 API CREATE/UPDATE 入口**不读取请求体中的 `repeat_custom`**，DB 中该列始终为空字符串；但 `recurring-engine.js buildRRuleString()` 函数本身支持非空 `repeat_custom` 作为自定义 RRULE（优先级高于 `repeat_type`/`repeat_interval`），为未来扩展预留。当前 `expand=false` 返回的 `templates` 里 `repeat_custom` 永远是 `""` |
+| `repeat_custom` | 自定义 RRULE 字符串（不含 `RRULE:` 前缀，全大写规范化）。V0 (CREATE/UPDATE) 与 V1 (POST/PUT) 入口均接受请求体中的 `repeat_custom` 字段并写入 DB 与 `todo_templates` 模板。`recurring-engine.js buildRRuleString()` 在 `repeat_custom` 非空时优先使用，覆盖 `repeat_type`/`repeat_interval` 的 RRULE 构建逻辑（`repeat_interval` 参数仍会覆盖 custom 中的 INTERVAL，`repeat_end` 在 custom 未含 UNTIL 时追加），`exdates` 与 `repeat_end` 始终生效。校验规则：必须以 `FREQ=DAILY/WEEKLY/MONTHLY/YEARLY` 开头，最大长度 500，不含换行/控制字符，须通过 ical.js 解析；校验失败返回 400。`repeat_type` ∈ {none, fragment} 时强制清空（静默）。`expand=false` 返回的 `templates` 中 `repeat_custom` 现可能为非空字符串，调用方需自行解析并按优先级应用 |
 | `done` / `deleted` | V1 均为布尔；V0 `/api/todos` 中 `done` 为布尔、`deleted` 为整数 0/1；V0 `/api/trash` 均为整数 0/1 |
 | `last_completed_at` / `last_duration_ms` / `is_zero_duration` | 计算字段，取 `time_records` 末尾一条计算；无记录时分别为 `null` / `null` / `false` |
 | `time_records` 原始字段 | V1 已解析为数组；V0 `/api/todos` 与 `/api/trash` 均为未解析 JSON 字符串 |
@@ -1470,6 +1472,7 @@ V0 Web API 还支持 `keep_records: true`（来自「继续计时」路径，仅
 | `time` / `end_time` | 普通/重复 todo 可设置；碎时记强制空 |
 | `repeat_end` | 普通 todo 与碎时记强制空；重复 todo 可设置（YYYY-MM-DD，空表示无限） |
 | `repeat_interval` | 普通 todo 与碎时记始终 `1`；重复 todo 用户指定（正整数） |
+| `repeat_custom` | 普通 todo 与碎时记强制空；重复 todo 可设置（自定义 RRULE，校验规则见 [5.3 节](#53-重复-todorepeat_type-dailyweeklymonthlyyearly)） |
 | `is_series` | 后端派生：`repeat_type !== 'none' && !== 'fragment'`；普通/碎时记 `false`，重复 todo `true` |
 | `parent_id` | 普通 todo 与碎时记 = 自身 `id`；重复 todo = 系列 anchor `id`（CREATE 时与自身一致，后续实例沿用，UPDATE/DELETE 时若缺省则从 DB 派生） |
 | `fragment_anchor` | 普通 todo 与重复 todo 始终空；碎时记 = `YYYY-MM-DD` 或空（起始日期权威副本，不受完成/取消完成影响） |

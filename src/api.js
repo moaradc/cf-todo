@@ -28,6 +28,8 @@ import {
   removeExdate,
   getPreviousDate,
   getNextDate,
+  sanitizeRepeatCustom,
+  processRepeatCustom,
 } from './recurring-engine.js';
 import { handleV1Request, verifyApiKey, extractApiKey, getApiKeyScope } from './api-v1.js';
 
@@ -2988,8 +2990,16 @@ self.addEventListener('fetch', (event) => {
           if (rpt_type !== 'none' && !VALID_REPEAT_TYPES.includes(rpt_type)) {
             return apiError(`无效的 repeat_type: ${rpt_type}`, 400);
           }
+          // 健壮性：校验 repeat_custom（自定义 RRULE）
+          // - repeat_type ∈ {none, fragment} → 静默清空
+          // - 非 empty + 非 none/fragment → 严格校验，失败返回 400
+          const customResult = processRepeatCustom(task.repeat_custom, rpt_type);
+          if (customResult.error) return apiError(customResult.error, 400);
+          // fragment/none 已被 processRepeatCustom 强制清空，这里二次防御
+          const final_repeat_custom = (rpt_type === 'none' || rpt_type === 'fragment') ? '' : customResult.value;
+
           const category_id = task.category_id || '';
-          // 碎时记 (repeat_type='fragment')：强制无开始/结束时间、无重复截止、间隔为1
+          // 碎时记 (repeat_type='fragment')：强制无开始/结束时间、无重复截止、间隔为1、无 custom RRULE
           // 客户端已在 selectRepeat('fragment') 中清空相关字段，此处兜底防御（API 也能创建碎时记）
           // 碎时记允许 date 为空（表示不限开始日期，任意日期都可见）
           const is_fragment = (rpt_type === 'fragment');
@@ -3013,7 +3023,7 @@ self.addEventListener('fetch', (event) => {
           ).bind(
             task.id, task.id, effective_date, task.text, effectiveTime, normalizePriority(task.priority),
             task.desc || '', task.url || '', readCopyText(task), JSON.stringify(task.subtasks||[]), JSON.stringify(task.search_terms||[]),
-            0, 0, rpt_type, '', effectiveRepeatEnd, effectiveEndTime, category_id, effectiveRepeatInterval, effective_fragment_anchor
+            0, 0, rpt_type, final_repeat_custom, effectiveRepeatEnd, effectiveEndTime, category_id, effectiveRepeatInterval, effective_fragment_anchor
           ).run();
 
           // 仅 daily/weekly/monthly/yearly 才创建模板；碎时记 (fragment) 和 none 不创建
@@ -3022,7 +3032,7 @@ self.addEventListener('fetch', (event) => {
                 'INSERT INTO todo_templates (parent_id, text, time, priority, desc, url, copy_text, subtasks, search_terms, repeat_type, repeat_custom, repeat_end, end_time, anchor_date, exdates, category_id, repeat_interval) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
               ).bind(
                 task.id, task.text, effectiveTime, normalizePriority(task.priority), task.desc || '', task.url || '', readCopyText(task),
-                JSON.stringify(task.subtasks||[]), JSON.stringify(task.search_terms||[]), rpt_type, '', effectiveRepeatEnd, effectiveEndTime, effective_date, '[]', category_id, task.repeat_interval || 1
+                JSON.stringify(task.subtasks||[]), JSON.stringify(task.search_terms||[]), rpt_type, final_repeat_custom, effectiveRepeatEnd, effectiveEndTime, effective_date, '[]', category_id, task.repeat_interval || 1
               ).run();
           }
         }
@@ -3037,6 +3047,14 @@ self.addEventListener('fetch', (event) => {
           if (task.repeat_type && !VALID_REPEAT_TYPES_UPD.includes(task.repeat_type)) {
             return apiError(`无效的 repeat_type: ${task.repeat_type}`, 400);
           }
+          // 健壮性：校验 repeat_custom（V0 全量替换语义——task.repeat_custom 未传时按 '' 处理）
+          // - repeat_type ∈ {none, fragment} → 静默清空
+          // - 非 empty + 非 none/fragment → 严格校验，失败返回 400
+          const customResult = processRepeatCustom(task.repeat_custom, rpt_type);
+          if (customResult.error) return apiError(customResult.error, 400);
+          // fragment/none 已被 processRepeatCustom 强制清空，这里二次防御
+          const final_repeat_custom = (rpt_type === 'none' || rpt_type === 'fragment') ? '' : customResult.value;
+
           const subtasks_str = JSON.stringify(task.subtasks ||[]);
           const search_terms_str = JSON.stringify(task.search_terms ||[]);
           const category_id = task.category_id || '';
@@ -3068,11 +3086,12 @@ self.addEventListener('fetch', (event) => {
           // 获取原始任务数据，用于检测重复规则变更和正确判断 is_series
           // 健壮性修复：同时取 text/time/priority/desc/url/copy_text 等字段，
           // 调用方按 V1 风格只传需要修改的字段时，缺失字段从 DB 回退，避免 500
+          // 包含 repeat_custom：用于引擎 recurrence_changed 检测（旧值 vs 新值）
           let original_task = task;
           try {
-            const orig = await env.DB.prepare('SELECT text, time, priority, desc, url, copy_text, repeat_type, repeat_interval, done, date, parent_id FROM todos WHERE id = ?').bind(task.id).first();
+            const orig = await env.DB.prepare('SELECT text, time, priority, desc, url, copy_text, repeat_type, repeat_interval, repeat_custom, done, date, parent_id FROM todos WHERE id = ?').bind(task.id).first();
             if (orig) {
-              original_task = { ...task, repeat_type: orig.repeat_type, repeat_interval: orig.repeat_interval, _orig_done: orig.done, _orig_date: orig.date, _orig_parent_id: orig.parent_id, _orig_repeat_type: orig.repeat_type };
+              original_task = { ...task, repeat_type: orig.repeat_type, repeat_interval: orig.repeat_interval, repeat_custom: orig.repeat_custom, _orig_done: orig.done, _orig_date: orig.date, _orig_parent_id: orig.parent_id, _orig_repeat_type: orig.repeat_type, _orig_repeat_custom: orig.repeat_custom };
               // 缺失字段从 DB 回退（V1 PATCH 风格：仅传需修改字段）
               if (task.text === undefined) original_task.text = orig.text;
               if (task.time === undefined) original_task.time = orig.time;
@@ -3106,7 +3125,7 @@ self.addEventListener('fetch', (event) => {
             subtasks: subtasks_str,
             search_terms: search_terms_str,
             repeat_type: rpt_type,
-            repeat_custom: '',
+            repeat_custom: final_repeat_custom,
             repeat_end: repeat_end,
             end_time: end_time,
             category_id: category_id,
@@ -3114,13 +3133,18 @@ self.addEventListener('fetch', (event) => {
             repeat_interval: task.repeat_interval || 1,
           };
 
-          // 碎时记强制约束：若新值是 fragment，强制清空 time/end_time/repeat_end/repeat_interval
+          // 碎时记强制约束：若新值是 fragment，强制清空 time/end_time/repeat_end/repeat_interval/repeat_custom
           // 防止 API 调用者绕过前端约束，向碎时记写入无意义字段
           if (rpt_type === 'fragment') {
             new_values.time = '';
             new_values.end_time = '';
             new_values.repeat_end = '';
             new_values.repeat_interval = 1;
+            new_values.repeat_custom = '';
+          }
+          // none 类型也强制清空 repeat_custom（防御：processRepeatCustom 已处理，但二次兜底）
+          if (rpt_type === 'none') {
+            new_values.repeat_custom = '';
           }
 
           if (!is_series) {
@@ -3129,12 +3153,12 @@ self.addEventListener('fetch', (event) => {
               // 单次任务 → 重复：更新 todo 并创建模板
               await env.DB.prepare(
                 'UPDATE todos SET date=?, text=?, time=?, priority=?, desc=?, url=?, copy_text=?, subtasks=?, search_terms=?, repeat_type=?, repeat_custom=?, repeat_end=?, end_time=?, category_id=?, repeat_interval=? WHERE id=?'
-              ).bind(new_date, original_task.text, original_task.time || '', new_values.priority, original_task.desc || '', original_task.url || '', readCopyText(original_task), subtasks_str, search_terms_str, rpt_type, '', repeat_end, end_time, category_id, task.repeat_interval || 1, task.id).run();
+              ).bind(new_date, original_task.text, original_task.time || '', new_values.priority, original_task.desc || '', original_task.url || '', readCopyText(original_task), subtasks_str, search_terms_str, rpt_type, new_values.repeat_custom, repeat_end, end_time, category_id, task.repeat_interval || 1, task.id).run();
               await env.DB.prepare(
                 'INSERT OR REPLACE INTO todo_templates (parent_id, text, time, priority, desc, url, copy_text, subtasks, search_terms, repeat_type, repeat_custom, repeat_end, end_time, anchor_date, exdates, category_id, repeat_interval) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
               ).bind(
                 task.id, original_task.text, original_task.time || '', new_values.priority, original_task.desc || '', original_task.url || '', readCopyText(original_task),
-                subtasks_str, search_terms_str, rpt_type, '', repeat_end, end_time, new_date, '[]', category_id, task.repeat_interval || 1
+                subtasks_str, search_terms_str, rpt_type, new_values.repeat_custom, repeat_end, end_time, new_date, '[]', category_id, task.repeat_interval || 1
               ).run();
             } else if (rpt_type === 'fragment' && parent_id && parent_id !== task.id) {
               // 重复 → 碎时记：脱离旧系列，删除旧模板（如果只剩这一个实例）
@@ -3154,7 +3178,7 @@ self.addEventListener('fetch', (event) => {
               }
               await env.DB.prepare(
                 'UPDATE todos SET parent_id=?, date=?, text=?, time=?, priority=?, desc=?, url=?, copy_text=?, subtasks=?, search_terms=?, repeat_type=?, repeat_custom=?, repeat_end=?, end_time=?, category_id=?, repeat_interval=?, fragment_anchor=? WHERE id=?'
-              ).bind(task.id, effective_update_date, original_task.text, new_values.time, new_values.priority, original_task.desc || '', original_task.url || '', readCopyText(original_task), subtasks_str, search_terms_str, rpt_type, '', new_values.repeat_end, new_values.end_time, category_id, new_values.repeat_interval, effective_fragment_anchor, task.id).run();
+              ).bind(task.id, effective_update_date, original_task.text, new_values.time, new_values.priority, original_task.desc || '', original_task.url || '', readCopyText(original_task), subtasks_str, search_terms_str, rpt_type, new_values.repeat_custom, new_values.repeat_end, new_values.end_time, category_id, new_values.repeat_interval, effective_fragment_anchor, task.id).run();
               // 给旧模板加 exdate 防止该日期重新生成实例
               const tpl = await env.DB.prepare('SELECT exdates FROM todo_templates WHERE parent_id = ?').bind(parent_id).first();
               if (tpl) {
@@ -3190,7 +3214,7 @@ self.addEventListener('fetch', (event) => {
               }
               await env.DB.prepare(
                 'UPDATE todos SET date=?, text=?, time=?, priority=?, desc=?, url=?, copy_text=?, subtasks=?, search_terms=?, repeat_type=?, repeat_custom=?, repeat_end=?, end_time=?, category_id=?, repeat_interval=?, fragment_anchor=? WHERE id=?'
-              ).bind(effective_update_date, original_task.text, new_values.time, new_values.priority, original_task.desc || '', original_task.url || '', readCopyText(original_task), subtasks_str, search_terms_str, rpt_type, '', new_values.repeat_end, new_values.end_time, category_id, new_values.repeat_interval, effective_fragment_anchor, task.id).run();
+              ).bind(effective_update_date, original_task.text, new_values.time, new_values.priority, original_task.desc || '', original_task.url || '', readCopyText(original_task), subtasks_str, search_terms_str, rpt_type, new_values.repeat_custom, new_values.repeat_end, new_values.end_time, category_id, new_values.repeat_interval, effective_fragment_anchor, task.id).run();
               // BUG 修复：原任务是系列主实例（id === parent_id）且新类型为 fragment 时，
               // 必须删除旧模板，否则旧模板会持续按原 daily/weekly 规则生成新实例（幽灵重复事项）
               if (rpt_type === 'fragment' && original_task._orig_repeat_type
@@ -3218,7 +3242,7 @@ self.addEventListener('fetch', (event) => {
                 // Split: 脱离旧系列，加入新系列（thisAndFuture + is_recurring）
                 await env.DB.prepare(
                   'UPDATE todos SET parent_id=?, date=?, text=?, time=?, priority=?, desc=?, url=?, copy_text=?, subtasks=?, search_terms=?, repeat_type=?, repeat_custom=?, repeat_end=?, end_time=?, category_id=?, repeat_interval=? WHERE id=?'
-                ).bind(split_new_pid, new_date, original_task.text, original_task.time || '', new_values.priority, original_task.desc || '', original_task.url || '', readCopyText(original_task), subtasks_str, search_terms_str, rpt_type, '', repeat_end, end_time, category_id, task.repeat_interval || 1, task.id).run();
+                ).bind(split_new_pid, new_date, original_task.text, original_task.time || '', new_values.priority, original_task.desc || '', original_task.url || '', readCopyText(original_task), subtasks_str, search_terms_str, rpt_type, new_values.repeat_custom, repeat_end, end_time, category_id, task.repeat_interval || 1, task.id).run();
               } else if (cv.detach_from_series) {
                 // 脱离系列，变为单次任务（"仅此项"或 thisAndFuture 改为不重复）
                 // 保留实例级 time_records：非重复 todo 详情面板也渲染只读计时区块
@@ -3231,7 +3255,7 @@ self.addEventListener('fetch', (event) => {
               } else if (cv.is_recurring) {
                 await env.DB.prepare(
                   'UPDATE todos SET date=?, text=?, time=?, priority=?, desc=?, url=?, copy_text=?, subtasks=?, search_terms=?, repeat_type=?, repeat_custom=?, repeat_end=?, end_time=?, category_id=?, repeat_interval=? WHERE id=?'
-                ).bind(new_date, original_task.text, original_task.time || '', new_values.priority, original_task.desc || '', original_task.url || '', readCopyText(original_task), subtasks_str, search_terms_str, rpt_type, '', repeat_end, end_time, category_id, task.repeat_interval || 1, task.id).run();
+                ).bind(new_date, original_task.text, original_task.time || '', new_values.priority, original_task.desc || '', original_task.url || '', readCopyText(original_task), subtasks_str, search_terms_str, rpt_type, new_values.repeat_custom, repeat_end, end_time, category_id, task.repeat_interval || 1, task.id).run();
               } else {
                 await env.DB.prepare(
                   'UPDATE todos SET date=?, text=?, time=?, priority=?, desc=?, url=?, copy_text=?, subtasks=?, search_terms=?, repeat_type=\'none\', repeat_custom=\'\', repeat_end=\'\', category_id=?, repeat_interval=1 WHERE id=?'
@@ -3275,7 +3299,7 @@ self.addEventListener('fetch', (event) => {
                 } else {
                   await env.DB.prepare(
                     'UPDATE todos SET text=?, time=?, priority=?, desc=?, url=?, copy_text=?, subtasks=?, search_terms=?, repeat_type=?, repeat_custom=?, repeat_end=?, end_time=?, category_id=?, repeat_interval=? WHERE parent_id=? AND id != ? AND deleted = 0'
-                  ).bind(original_task.text, original_task.time || '', new_values.priority, original_task.desc || '', original_task.url || '', readCopyText(original_task), subtasks_str, search_terms_str, rpt_type, '', repeat_end, end_time, category_id, task.repeat_interval || 1, parent_id, task.id).run();
+                  ).bind(original_task.text, original_task.time || '', new_values.priority, original_task.desc || '', original_task.url || '', readCopyText(original_task), subtasks_str, search_terms_str, rpt_type, new_values.repeat_custom, repeat_end, end_time, category_id, task.repeat_interval || 1, parent_id, task.id).run();
                 }
               } else {
                 // 改为不重复：其他非回收站项删除
@@ -3322,7 +3346,7 @@ self.addEventListener('fetch', (event) => {
                     'INSERT OR REPLACE INTO todo_templates (parent_id, text, time, priority, desc, url, copy_text, subtasks, search_terms, repeat_type, repeat_custom, repeat_end, end_time, anchor_date, exdates, category_id, repeat_interval, time_records) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
                   ).bind(
                     parent_id, original_task.text, original_task.time || '', new_values.priority, original_task.desc || '', original_task.url || '', readCopyText(original_task),
-                    subtasks_str, search_terms_str, rpt_type, '', repeat_end, end_time, new_date, existing_exdates, category_id, task.repeat_interval || 1, existing_time_records
+                    subtasks_str, search_terms_str, rpt_type, new_values.repeat_custom, repeat_end, end_time, new_date, existing_exdates, category_id, task.repeat_interval || 1, existing_time_records
                   ).run();
                 }
               } else if (tmpl.type === 'delete') {
