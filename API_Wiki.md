@@ -28,6 +28,7 @@
   - [5.3 重复 todo（`repeat_type: "daily/weekly/monthly/yearly"`）](#53-重复-todorepeat_type-dailyweeklymonthlyyearly)
   - [5.4 碎时记（`repeat_type: "fragment"`）](#54-碎时记repeat_type-fragment)
   - [5.5 字段一致性参考](#55-字段一致性参考)
+  - [5.6 `repeat_custom` 自定义 RRULE 使用指南](#56-repeat_custom-自定义-rrule-使用指南)
 - [6. 示例代码](#6-示例代码)
 - [7. 注意事项](#7-注意事项)
 
@@ -1479,6 +1480,327 @@ V0 Web API 还支持 `keep_records: true`（来自「继续计时」路径，仅
 | `time_records` 截断规则 | 普通/重复 todo 实例级 FIFO 5；碎时记**不截断**（保留全部 session 用于累计）。模板级仅重复 todo 写（真实耗时，FIFO 10） |
 
 **字段回退**（PUT /api/v1/todos/:id 或 V0 UPDATE）：三种类型均适用——未传的字段（`text` / `time` / `priority` / `desc` / `url` / `copy_text` 等）会从 DB 当前值回退，不会被静默清空。
+
+---
+
+### 5.6 `repeat_custom` 自定义 RRULE 使用指南
+
+`repeat_custom` 允许调用方绕过 `repeat_type` + `repeat_interval` 的预设组合，直接传入任意 RFC 5545 RRULE 字符串。引擎在 `repeat_custom` 非空时优先使用它生成实例，`repeat_type` 退化为分类标签（仍影响 SQL 过滤与 UI 显示）。
+
+#### 适用场景
+
+| 场景 | 用 `repeat_type`+`repeat_interval` 能否表达 | 用 `repeat_custom` |
+|------|-------------------------------------------|---------------------|
+| 每天 | `repeat_type=daily` | 不需要 |
+| 每周一/三/五 | ❌（只能 `weekly` 单日） | `FREQ=WEEKLY;BYDAY=MO,WE,FR` |
+| 每月最后一个工作日 | ❌ | `FREQ=MONTHLY;BYDAY=MO,TU,WE,TH,FR;BYSETPOS=-1` |
+| 每季度首日 | ❌ | `FREQ=MONTHLY;INTERVAL=3;BYMONTHDAY=1` |
+| 工作日（周一至周五） | ❌ | `FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR` |
+| 每年 2 月 29 日 | ❌ | `FREQ=YEARLY;BYMONTH=2;BYMONTHDAY=29` |
+| 每 2 周一三五共 10 次 | ❌ | `FREQ=WEEKLY;INTERVAL=2;BYDAY=MO,WE,FR;COUNT=10` |
+| 每月 1 日和 15 日 | ❌ | `FREQ=MONTHLY;BYMONTHDAY=1,15` |
+
+简单周期任务建议继续用 `repeat_type` + `repeat_interval`（前端 UI 有原生支持）；只有无法用预设组合表达的复杂规则才用 `repeat_custom`。
+
+#### 校验规则
+
+服务端在写入前会做严格校验，校验失败返回 `400 Bad Request`：
+
+| 规则 | 接受示例 | 拒绝示例 | 拒绝原因 |
+|------|---------|---------|---------|
+| 必须以 `FREQ=` 开头 | `FREQ=DAILY` | `BYDAY=MO` | FREQ 必须是第一个 token |
+| FREQ 值限定 | `FREQ=DAILY`/`WEEKLY`/`MONTHLY`/`YEARLY` | `FREQ=SECONDLY` | 防 DoS（高频 FREQ 会撑爆 Worker CPU） |
+| 最大长度 500 字符 | — | 501+ 字符串 | 防资源耗尽 |
+| 不含控制字符 | `FREQ=DAILY` | `FREQ=DAILY\nX:evil` | 防 CRLF 注入 |
+| ical.js 可解析 | `FREQ=WEEKLY;BYDAY=MO` | `FREQ=DAILY;BOGUS=1` | 语法校验 |
+| 无多 RRULE 注入 | `RRULE:FREQ=DAILY` | `RRULE:FREQ=DAILY;RRULE:FREQ=WEEKLY` | 防注入 |
+
+**规范化**：服务端自动剥离 `RRULE:` 前缀，全大写规范化。即调用方传 `freq=weekly;byday=mo` 会被规范化为 `FREQ=WEEKLY;BYDAY=MO` 后存入 DB。
+
+**与 `repeat_type` 的兼容性**：
+
+| `repeat_type` | `repeat_custom` 非空时行为 |
+|---------------|---------------------------|
+| `none` | 静默清空（普通 todo 无 RRULE） |
+| `fragment` | 静默清空（碎时记无 RRULE） |
+| `daily`/`weekly`/`monthly`/`yearly` | 接受并优先于 `repeat_type` 生效 |
+
+#### 引擎优先级（重要）
+
+当 `repeat_custom` 非空时，`buildRRuleString` 的实际行为：
+
+```
+最终 RRULE = repeat_custom（覆盖 FREQ / BYDAY / BYMONTH 等所有 token）
+           + repeat_interval（若 > 1，覆盖 custom 中的 INTERVAL）
+           + repeat_end（若 custom 未含 UNTIL，追加 UNTIL=repeat_endT235959Z）
+           + exdates（始终叠加，无论 custom 来源）
+```
+
+**结论**：
+- 想完全控制 INTERVAL：把 `INTERVAL=N` 写进 `repeat_custom`，并把 `repeat_interval` 设为 `1`（或不传）
+- 想完全控制 UNTIL：把 `UNTIL=YYYYMMDDTHHMMSSZ` 写进 `repeat_custom`，或不传 `repeat_end`
+- `exdates` 始终生效，调用方无需也无法在 `repeat_custom` 内嵌 EXDATE
+
+#### V1 API 使用示例
+
+##### 1. 创建「周一/三/五」重复任务
+
+```bash
+curl -X POST \
+  -H "X-API-Key: cfk_your_key" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "date": "2026-06-29",
+    "text": "晨会",
+    "repeat_type": "weekly",
+    "repeat_custom": "FREQ=WEEKLY;BYDAY=MO,WE,FR",
+    "repeat_interval": 1
+  }' \
+  "https://your-app.workers.dev/api/v1/todos"
+```
+
+响应：
+
+```json
+{
+  "success": true,
+  "data": {
+    "id": "17826341657711955",
+    "parent_id": "17826341657711955",
+    "date": "2026-06-29",
+    "text": "晨会",
+    "repeat_type": "weekly",
+    "repeat_custom": "FREQ=WEEKLY;BYDAY=MO,WE,FR",
+    "repeat_interval": 1,
+    "is_series": true,
+    "..."
+  }
+}
+```
+
+##### 2. 创建「工作日」重复任务 + 截止 2026 年底
+
+```bash
+curl -X POST \
+  -H "X-API-Key: cfk_your_key" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "date": "2026-06-29",
+    "text": "打卡",
+    "repeat_type": "weekly",
+    "repeat_custom": "FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR",
+    "repeat_end": "2026-12-31"
+  }' \
+  "https://your-app.workers.dev/api/v1/todos"
+```
+
+引擎实际展开的 RRULE：`FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR;UNTIL=20261231T235959Z`
+
+##### 3. 创建「每月最后一个工作日」任务
+
+```bash
+curl -X POST \
+  -H "X-API-Key: cfk_your_key" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "date": "2026-06-30",
+    "text": "月度复盘",
+    "repeat_type": "monthly",
+    "repeat_custom": "FREQ=MONTHLY;BYDAY=MO,TU,WE,TH,FR;BYSETPOS=-1"
+  }' \
+  "https://your-app.workers.dev/api/v1/todos"
+```
+
+##### 4. `expand=false` 拿 templates 自算（推荐第三方客户端）
+
+```bash
+curl -H "X-API-Key: cfk_your_key" \
+  "https://your-app.workers.dev/api/v1/todos?date=2026-06-29&expand=false"
+```
+
+响应中 `templates` 数组会包含原始的 `repeat_custom` 字段：
+
+```json
+{
+  "success": true,
+  "data": [ /* 当天已存在的实例 */ ],
+  "templates": [
+    {
+      "parent_id": "17826341657711955",
+      "repeat_type": "weekly",
+      "repeat_custom": "FREQ=WEEKLY;BYDAY=MO,WE,FR",
+      "anchor_date": "2026-06-29",
+      "exdates": "[]",
+      "repeat_end": "",
+      "..."
+    }
+  ],
+  "expand": false
+}
+```
+
+调用方用 ical.js / rrule.js 自行计算：
+
+```javascript
+import ICAL from 'ical.js';
+
+function isOccurrenceOnDate(template, dateStr) {
+  // 优先用 repeat_custom；否则用 repeat_type + repeat_interval 构建
+  const rruleStr = template.repeat_custom
+    || buildFromType(template.repeat_type, template.repeat_interval, template.anchor_date);
+  const vevent = new ICAL.Component('vevent');
+  vevent.addPropertyWithValue('dtstart', /* ... */);
+  const rruleProp = new ICAL.Property('rrule', vevent);
+  rruleProp.setValue(ICAL.Recur.fromString(rruleStr));
+  vevent.addProperty(rruleProp);
+  // 应用 exdates
+  JSON.parse(template.exdates || '[]').forEach(d => {
+    /* 添加 EXDATE 属性 */
+  });
+  // 迭代判断 dateStr 是否命中
+  // ...
+}
+
+// templates 优先级：repeat_custom > repeat_type/repeat_interval
+// exdates 与 repeat_end 始终生效
+```
+
+##### 5. PUT 修改 `repeat_custom`（PATCH 语义）
+
+V1 PUT 为 PATCH 语义——**不传 `repeat_custom` 字段时保留 DB 原值**：
+
+```bash
+# 仅修改 text，repeat_custom 不动
+curl -X PUT \
+  -H "X-API-Key: cfk_your_key" \
+  -H "Content-Type: application/json" \
+  -d '{"scope":"all","text":"晨会（改名）"}' \
+  "https://your-app.workers.dev/api/v1/todos/17826341657711955"
+```
+
+显式修改 `repeat_custom`：
+
+```bash
+# 改为周二/周四
+curl -X PUT \
+  -H "X-API-Key: cfk_your_key" \
+  -H "Content-Type: application/json" \
+  -d '{"scope":"all","repeat_custom":"FREQ=WEEKLY;BYDAY=TU,TH"}' \
+  "https://your-app.workers.dev/api/v1/todos/17826341657711955"
+```
+
+> `scope=all` + `repeat_custom` 变更会触发引擎 `recurrence_changed=true`，旧实例被删除并由模板按新 custom 重新生成。
+
+显式清空 `repeat_custom`（回退到 `repeat_type` + `repeat_interval`）：
+
+```bash
+curl -X PUT \
+  -H "X-API-Key: cfk_your_key" \
+  -H "Content-Type: application/json" \
+  -d '{"scope":"all","repeat_custom":""}' \
+  "https://your-app.workers.dev/api/v1/todos/17826341657711955"
+```
+
+##### 6. 转 fragment / none 时强制清空
+
+```bash
+# 重复 todo 转 fragment（碎时记）：repeat_custom 会被静默清空
+curl -X PUT \
+  -H "X-API-Key: cfk_your_key" \
+  -H "Content-Type: application/json" \
+  -d '{"scope":"all","repeat_type":"fragment","repeat_custom":"FREQ=DAILY"}' \
+  "https://your-app.workers.dev/api/v1/todos/17826341657711955"
+# 响应中 repeat_custom 必为 ""
+```
+
+#### V0 API 使用示例（Web 端）
+
+V0 通过 `/api/todo-action` POST + `action` 字段操作。**V0 UPDATE 为全量替换语义**——`task.repeat_custom` 未传时按 `""` 处理（与前端现有契约一致），因此若想保留 custom 必须显式传回原值。
+
+##### 1. V0 CREATE
+
+```bash
+# 先登录拿 cookie
+curl -c cookies.txt -X POST \
+  -H "Content-Type: application/json" \
+  -d '{"password":"your_password"}' \
+  "https://your-app.workers.dev/api/login"
+
+# CREATE（task.id 必填，前端用 Date.now() 生成）
+curl -b cookies.txt -X POST \
+  -H "Content-Type: application/json" \
+  -d '{
+    "action": "CREATE",
+    "date": "2026-06-29",
+    "task": {
+      "id": "17826341657711955",
+      "text": "晨会",
+      "repeat_type": "weekly",
+      "repeat_custom": "FREQ=WEEKLY;BYDAY=MO,WE,FR",
+      "repeat_interval": 1
+    }
+  }' \
+  "https://your-app.workers.dev/api/todo-action"
+```
+
+##### 2. V0 UPDATE（全量替换——必须显式传回 repeat_custom）
+
+```bash
+curl -b cookies.txt -X POST \
+  -H "Content-Type: application/json" \
+  -d '{
+    "action": "UPDATE",
+    "date": "2026-06-29",
+    "scope": "all",
+    "task": {
+      "id": "17826341657711955",
+      "text": "晨会（改名）",
+      "repeat_type": "weekly",
+      "repeat_custom": "FREQ=WEEKLY;BYDAY=TU,TH",
+      "repeat_interval": 1
+    }
+  }' \
+  "https://your-app.workers.dev/api/todo-action"
+```
+
+> 注意：V0 UPDATE 即使只想改 `text`，也必须把 `repeat_custom` 显式传回（若 DB 已有值）；否则会被清空。前端 `detail.js` 在每次保存时都会重建 `task` 对象包含所有字段，所以前端用户无感知。**外部脚本调用 V0 时需注意此差异**。
+
+#### 常见错误响应
+
+```json
+// 400 — FREQ 非法
+{ "error": "repeat_custom 格式无效：必须为合法 RRULE 字符串，以 FREQ=DAILY/WEEKLY/MONTHLY/YEARLY 开头，长度 ≤ 500，不含换行/控制字符" }
+
+// 400 — repeat_interval 非正整数
+{ "error": "repeat_interval 必须为正整数" }
+
+// 400 — repeat_type 非法
+{ "error": "无效的 repeat_type: hourly，有效值: none, daily, weekly, monthly, yearly, fragment" }
+```
+
+#### 调试技巧
+
+1. **验证 RRULE 是否合法**：用 ical.js 在本地试解析
+   ```javascript
+   import ICAL from 'ical.js';
+   try { ICAL.Recur.fromString('FREQ=WEEKLY;BYDAY=MO,WE,FR'); console.log('OK'); }
+   catch(e) { console.log('INVALID:', e.message); }
+   ```
+
+2. **查看 DB 实际值**：用 V1 GET 单个 todo
+   ```bash
+   curl -H "X-API-Key: cfk_your_key" \
+     "https://your-app.workers.dev/api/v1/todos/{id}"
+   # 响应 data.repeat_custom 即 DB 存储值（已规范化为全大写、无 RRULE: 前缀）
+   ```
+
+3. **验证展开行为**：用 `expand=true` GET 检查服务端是否按 custom 生成实例
+   ```bash
+   # 假设 custom = FREQ=WEEKLY;BYDAY=MO,WE,FR，anchor = 2026-06-29（周一）
+   curl -H "X-API-Key: cfk_your_key" \
+     "https://your-app.workers.dev/api/v1/todos?date=2026-07-01&expand=true"
+   # 周三（07-01）应出现该 todo 实例
+   ```
 
 ---
 
