@@ -1,7 +1,7 @@
 ---
 name: cf-todo
 description: Manage todos and categories on a self-hosted Cloudflare Worker + D1 Todo App. Use when users ask to add, create, view, complete, update, or delete todos, manage recurring/repeating tasks, organize categories, or check their to-do list.
-version: 1.2.0
+version: 1.4.0
 metadata: {"openclaw":{"emoji":"📝","requires":{"env":["CF_TODO_API_URL","CF_TODO_API_KEY"],"bins":["curl"]},"primaryEnv":"CF_TODO_API_KEY","envVars":[{"name":"CF_TODO_API_URL","required":true,"description":"Base URL of your cf-todo deployment (e.g. https://todo.example.com, no trailing slash)"},{"name":"CF_TODO_API_KEY","required":true,"description":"API Key (cfk_...) generated from the cf-todo web UI Settings page"}]}}
 ---
 
@@ -78,13 +78,13 @@ Endpoints under `/api/v1/keys` require **Cookie auth only** (web UI session), no
 | Method | Endpoint | Description | Notes |
 |--------|----------|-------------|-------|
 | **Todo** | | | |
-| GET | `/api/v1/todos?date=` | 查询 Todo 列表 | 必填 `date`；可选 `start_date`+`end_date`, `category_id`, `done`, `limit`, `offset` |
+| GET | `/api/v1/todos?date=` | 查询 Todo 列表 | 必填 `date`；可选 `start_date`+`end_date`, `category_id`, `done`, `limit`, `offset`, `expand`（`false` 跳过服务端展开，返回 `templates`） |
 | GET | `/api/v1/todos/:id` | 获取单个 Todo | — |
 | POST | `/api/v1/todos` | 创建 Todo | 必填 `date`, `text`；返回 201；`date` 为首次出现日期 |
 | PUT | `/api/v1/todos/:id` | 更新 Todo | 仅传需改字段；可改 `date`；重复任务需设 `scope` |
 | PATCH | `/api/v1/todos/:id/toggle` | 切换完成状态 | 重复任务仅影响当天实例；`done: false→true` 时可附带 `record` 记录完成时刻/耗时 |
 | DELETE | `/api/v1/todos/:id` | 删除 Todo（软删除） | 重复任务默认 `scope=this`；可选 `thisAndFuture`, `all` |
-| POST | `/api/v1/todos/batch` | 批量操作 | `BATCH_TOGGLE_DONE`（需 `ids`+`doneStatus`，可选 `timerRecords`）或 `BATCH_DELETE`（需 `ids`）；最多100条 |
+| POST | `/api/v1/todos/batch` | 批量操作 | `BATCH_TOGGLE_DONE`（需 `ids`+`done_status`，可选 `timer_records`）或 `BATCH_DELETE`（需 `ids`）；自动分片 |
 | PATCH | `/api/v1/todos/:id/subtasks` | 独立更新子任务 | 需 `subtasks` 数组 |
 | PATCH | `/api/v1/todos/:id/search-terms` | 独立更新搜索词 | 需 `search_terms` 数组 |
 | **Category** | | | |
@@ -207,7 +207,7 @@ Weekday numbers: Sunday=0, Monday=1, ..., Saturday=6
 
 ## Recurring Todo Scope
 
-Recurring todos have `repeat_type` != `"none"` and `isSeries` = `true`. They belong to a series sharing the same `parent_id`.
+Recurring todos have `repeat_type` != `"none"` and `is_series` = `true`. They belong to a series sharing the same `parent_id`.
 
 When updating/deleting a recurring todo, choose the correct `scope`:
 
@@ -298,9 +298,10 @@ Response:
       "category_id": "",
       "recurrence_id": "",
       "is_exception": false,
-      "isSeries": false,
+      "is_series": false,
       "repeat_interval": 1,
-      "time_records": []
+      "time_records": [],
+      "fragment_anchor": ""
     }
   ],
   "pagination": {
@@ -312,6 +313,65 @@ Response:
 ```
 
 **Note:** When querying by `date`, recurring todo templates are auto-expanded: if a recurring todo should appear on that date but no instance exists yet, one is created automatically and included in the results.
+
+**`fragment_anchor` field** — Authoritative copy of the start date for `repeat_type: "fragment"` todos (碎时记). Always present in todo responses; empty string `""` for non-fragment types.
+- Uncompleted fragment: `fragment_anchor` equals `date`
+- Completed fragment: `date` is frozen to the completion date, `fragment_anchor` still holds the original start date
+- On `done: true → false`, fragment `date` is restored from `fragment_anchor`
+- Non-fragment types (`none` / `daily` / `weekly` / `monthly` / `yearly`): always `""`
+
+**`expand=false` option** — Add `&expand=false` to skip both server-side RRULE expansion AND the auto-instance `INSERT` into `todos`. The response includes a `templates` array (active recurring templates covering that date) for the caller to compute occurrences locally via ical.js / rrule.js / any RRULE library. This reduces Worker CPU usage (Cloudflare Free plan 10ms CPU limit) and avoids side-effect writes (no D1 INSERT). Use cases: programmatic callers that already have RRULE computation capability, or read-only snapshots where you don't want to mutate the database. Note: `expand=false` is only valid on `date` queries (range queries never expand server-side anyway). Response format:
+
+```json
+{
+  "success": true,
+  "data": [ /* existing todos for that date */ ],
+  "pagination": { "total": 5, "limit": 100, "offset": 0 },
+  "templates": [
+    {
+      "parent_id": "uuid",
+      "text": "Daily task",
+      "time": "",
+      "priority": "low",
+      "desc": "",
+      "url": "",
+      "copy_text": "",
+      "subtasks": [],
+      "search_terms": "[]",
+      "repeat_type": "daily",
+      "repeat_custom": "",
+      "repeat_end": "",
+      "end_time": "",
+      "anchor_date": "2026-01-01",
+      "exdates": "[]",
+      "category_id": "",
+      "repeat_interval": 1,
+      "time_records": "[]"
+    }
+  ],
+  "expand": false
+}
+```
+
+**Template row fields (V1 `expand=false`)** — Each entry in `templates` is the raw `todo_templates` row with two normalizations:
+- `exdates` — string (JSON-encoded array), guaranteed non-empty (defaults to `"[]"`)
+- `subtasks` — parsed array (e.g. `[]` or `[{text, done}]`)
+
+All other fields are raw DB values:
+- **RRULE-driving**: `repeat_type` / `repeat_interval` / `anchor_date` / `repeat_end` / `exdates` / `repeat_custom` (see precedence rules below)
+- **Display**: `text` / `time` / `priority` / `desc` / `url` / `copy_text` / `category_id` / `end_time`
+- **Other**: `parent_id` (template PK, also the series identifier), `search_terms` (string `"[]"` — **not** parsed by V1, caller must `JSON.parse` if needed), `time_records` (string `"[]"` — template-level historical records for `predictDuration`, **not** parsed by V1)
+
+**Note on `_type: "template"`** — V1 `expand=false` does **NOT** add a `_type` field. If you see `_type: "template"` on a row, it's from the V0 export/import stream (NDJSON), not from V1 `expand=false`. Don't rely on `_type` to distinguish templates in V1 responses — use the presence of the top-level `templates` array + `expand: false` flag instead.
+
+**RRULE computation precedence** — When computing occurrences from a `templates` entry locally, follow the same precedence the server uses (`src/recurring-engine.js buildRRuleString()`):
+1. If `repeat_custom` is non-empty → use it verbatim as the RRULE string (it overrides `repeat_type` / `repeat_interval` / `anchor_date` / `repeat_end` for frequency & by-day rules; `exdates` still apply).
+2. Else → build the RRULE from `repeat_type` + `repeat_interval` + `anchor_date` (DTSTART) + `repeat_end` (UNTIL).
+3. Always apply `exdates` (cancel specific dates) and respect `repeat_end` (hard UNTIL bound) regardless of branch 1 or 2.
+
+**Caveat:** `expand=false` does NOT auto-create recurring instances (no D1 writes). The caller is fully responsible for filtering `templates` against the queried date (applying `exdates`, checking `repeat_end`, honoring `repeat_custom` precedence). Use default `expand=true` if you need persisted instances or don't want to re-implement RRULE evaluation.
+
+**Note on `fragment` type:** `templates` only contains rows where `repeat_type IN ('daily','weekly','monthly','yearly')`. Fragment (碎时记) todos have no template — they appear directly in `data` (filtered by the fragment visibility rule: uncompleted fragments with `date = '' OR date <= queried_date`, completed fragments with `date = queried_date`). `fragment_anchor` is a column on `todos` only, not `todo_templates`, so it never appears in `templates` entries.
 
 ### Get a single todo
 
@@ -345,14 +405,15 @@ Response:
     "category_id": "",
     "recurrence_id": "",
     "is_exception": false,
-    "isSeries": false,
+    "is_series": false,
     "repeat_interval": 1,
     "time_records": [
       { "s": 1719000000000, "e": 1719000120000, "p": 0 }
     ],
     "last_completed_at": 1719000120000,
     "last_duration_ms": 120000,
-    "is_zero_duration": false
+    "is_zero_duration": false,
+    "fragment_anchor": ""
   }
 }
 ```
@@ -360,6 +421,8 @@ Response:
 **Timer fields** (instance-level completion records, per-todo):
 
 V1 API returns both the **raw records array** and **computed fields**. Clients can use the computed fields directly without parsing epoch ms or calculating durations.
+
+**Type note**: In V1 todo responses (List / Get / Create / Update), `time_records`, `subtasks`, and `search_terms` are always **parsed arrays** (e.g. `[]` or `[{s,e,p}]`). The raw DB stores them as JSON-encoded strings, but `formatTodo()` parses them before returning. This differs from `templates` rows in `expand=false` responses, where `search_terms` and `time_records` stay as raw strings (see `expand=false` section below).
 
 #### Raw field `time_records`
 
@@ -435,13 +498,20 @@ curl -s -X POST -H "X-API-Key: $CF_TODO_API_KEY" -H "Content-Type: application/j
 | `copy_text` | String | `""` |
 | `subtasks` | `[{"text":"...", "done":false}]` or `["..."]` | `[]` |
 | `search_terms` | `[{"text":"...", "done":false}]` or `["..."]` | `[]` |
-| `repeat_type` | `"none"`, `"daily"`, `"weekly"`, `"monthly"`, `"yearly"` | `"none"` |
+| `repeat_type` | `"none"`, `"daily"`, `"weekly"`, `"monthly"`, `"yearly"`, `"fragment"` | `"none"` |
 | `repeat_end` | YYYY-MM-DD or `""` | `""` |
 | `end_time` | HH:MM | `""` |
 | `category_id` | Category ID | `""` |
 | `repeat_interval` | Integer (every N units) | `1` |
 
 Note: `"medium"` priority is auto-converted to `"med"`. Subtask/search_term strings are auto-converted to `{text, done:false}` objects.
+
+**`repeat_type: "fragment"` (碎时记) constraints** — When `repeat_type` is `"fragment"`:
+- A floating todo not tied to a specific date; no template is created (same as `"none"`).
+- Server forces `time = ""`, `end_time = ""`, `repeat_end = ""`, `repeat_interval = 1`.
+- `fragment_anchor` is auto-set to the value of `date` (the start date).
+- Visible on any date `>= fragment_anchor` while uncompleted; on completion, `date` is frozen to the completion date and `fragment_anchor` retains the original start date.
+- Supports multi-segment timing (开始 / 暂停 / 继续 / 记录当前段 / 完成 / 继续计时). All sessions retained (no FIFO truncation). See `time_records` retention rules below.
 
 Response (HTTP 201):
 
@@ -453,12 +523,14 @@ Response (HTTP 201):
     "date": "2026-06-12",
     "text": "Buy groceries",
     "repeat_type": "none",
-    "category_id": ""
+    "category_id": "",
+    "repeat_interval": 1,
+    "fragment_anchor": ""
   }
 }
 ```
 
-**Creating a recurring todo:** When `repeat_type` is not `"none"`, a template is also created in `todo_templates`. The `date` field becomes the anchor (first occurrence) date.
+**Creating a recurring todo:** When `repeat_type` is `daily`/`weekly`/`monthly`/`yearly`, a template is also created in `todo_templates`. The `date` field becomes the anchor (first occurrence) date. When `repeat_type` is `"fragment"` or `"none"`, no template is created.
 
 ```bash
 # Create a daily recurring todo
@@ -470,6 +542,11 @@ curl -s -X POST -H "X-API-Key: $CF_TODO_API_KEY" -H "Content-Type: application/j
 curl -s -X POST -H "X-API-Key: $CF_TODO_API_KEY" -H "Content-Type: application/json" \
   "$CF_TODO_API_URL/api/v1/todos" \
   -d '{"date":"2026-06-13","text":"周会","repeat_type":"weekly","repeat_end":"2026-12-31"}'
+
+# Create a fragment (碎时记) todo — floating, multi-segment timing
+curl -s -X POST -H "X-API-Key: $CF_TODO_API_KEY" -H "Content-Type: application/json" \
+  "$CF_TODO_API_URL/api/v1/todos" \
+  -d '{"date":"2026-06-12","text":"读《深度工作》","repeat_type":"fragment"}'
 ```
 
 ### Update a todo
@@ -493,9 +570,12 @@ For recurring todos, set `scope`:
 - `"all"` — update all instances — **DESTRUCTIVE, confirm first**. Updates template + all existing instances.
 
 **Special behaviors:**
-- Changing a non-recurring todo to recurring (`repeat_type` != `"none"`) creates a template automatically.
+- Changing a non-recurring todo to recurring (`repeat_type` in `daily`/`weekly`/`monthly`/`yearly`) creates a template automatically.
 - Changing a recurring instance to non-recurring detaches it from the series (sets `parent_id` = own `id`, adds exdate to template).
 - Changing `date` on a recurring todo with `scope=all` or `thisAndFuture` will delete future instances and regenerate them from the updated template.
+- Changing `repeat_type` to `"fragment"`: detaches from old series (adds exdate to old template), forces `time=""`, `end_time=""`, `repeat_end=""`, `repeat_interval=1`, sets `fragment_anchor` to `date` (if uncompleted) or keeps existing `fragment_anchor` (if completed).
+- Changing `repeat_type` from `"fragment"` to `"none"` or any recurring type: clears `fragment_anchor` to `""`.
+- Updating `date` on a fragment todo: if uncompleted, `fragment_anchor` syncs to new `date`; if completed, `fragment_anchor` retains its original value.
 
 Response:
 
@@ -591,51 +671,53 @@ Response:
 # Batch toggle done (basic, no completion timestamp)
 curl -s -X POST -H "X-API-Key: $CF_TODO_API_KEY" -H "Content-Type: application/json" \
   "$CF_TODO_API_URL/api/v1/todos/batch" \
-  -d '{"action":"BATCH_TOGGLE_DONE","ids":["id1","id2"],"doneStatus":true}'
+  -d '{"action":"BATCH_TOGGLE_DONE","ids":["id1","id2"],"done_status":true}'
 
-# Batch toggle done WITH timerRecords (mixed: one zero-duration, one real-duration)
+# Batch toggle done WITH timer_records (mixed: one zero-duration, one real-duration)
 curl -s -X POST -H "X-API-Key: $CF_TODO_API_KEY" -H "Content-Type: application/json" \
   "$CF_TODO_API_URL/api/v1/todos/batch" \
   -d '{
     "action":"BATCH_TOGGLE_DONE",
     "ids":["id1","id2"],
-    "doneStatus":true,
-    "timerRecords":[
-      {"id":"id1","parentId":"parent-uuid-1","record":{"s":1719000000000,"e":1719000000000,"p":0}},
-      {"id":"id2","parentId":"parent-uuid-2","record":{"s":1719000000000,"e":1719000120000,"p":0}}
+    "done_status":true,
+    "timer_records":[
+      {"id":"id1","parent_id":"parent-uuid-1","record":{"s":1719000000000,"e":1719000000000,"p":0}},
+      {"id":"id2","parent_id":"parent-uuid-2","record":{"s":1719000000000,"e":1719000120000,"p":0}}
     ]
   }'
 
-# Batch delete (soft delete, max 100)
+# Batch delete (soft delete, auto-chunked)
 curl -s -X POST -H "X-API-Key: $CF_TODO_API_KEY" -H "Content-Type: application/json" \
   "$CF_TODO_API_URL/api/v1/todos/batch" \
   -d '{"action":"BATCH_DELETE","ids":["id1","id2"]}'
 ```
 
-**BATCH_TOGGLE_DONE** — Set `doneStatus` to `true` (mark done) or `false` (mark undone) for all given `ids`.
+**BATCH_TOGGLE_DONE** — Set `done_status` to `true` (mark done) or `false` (mark undone) for all given `ids`.
 
-- `doneStatus: true`: First batch-updates `done=1`, then writes `time_records` for each entry in `timerRecords` (if provided). Record write rules are identical to `PATCH /toggle`.
-- `doneStatus: false`: Batch-updates `done=0, time_records='[]'` (clears instance-level records for all selected ids).
-- `ids` present but missing from `timerRecords`: only `done=1` is set, no `time_records` written (backward compatible).
+- `done_status: true`: First batch-updates `done=1`, then writes `time_records` for each entry in `timer_records` (if provided). Record write rules are identical to `PATCH /toggle`.
+- `done_status: false`: Batch-updates `done=0, time_records='[]'` (clears instance-level records for all selected ids).
+- `ids` present but missing from `timer_records`: only `done=1` is set, no `time_records` written (backward compatible).
 
 **BATCH_DELETE** — Soft-deletes all given `ids` (moves to trash). For recurring todos in the batch, exdates are automatically added to their templates to prevent regeneration.
 
 | Parameter | Type | Required | Description |
 |---|---|---|---|
 | `action` | string | Yes | `BATCH_TOGGLE_DONE` or `BATCH_DELETE` |
-| `ids` | string[] | Yes | Array of todo IDs (max 100) |
-| `doneStatus` | boolean | BATCH_TOGGLE_DONE | `true` = done, `false` = undone |
-| `timerRecords` | array | No | `[{id, parentId, record}]` — only effective when `doneStatus: true`. Each `record` follows the same validation rules as `PATCH /toggle`. |
+| `ids` | string[] | Yes | Array of todo IDs. No upper limit (auto-chunked at 99) |
+| `done_status` | boolean | BATCH_TOGGLE_DONE | `true` = done, `false` = undone |
+| `timer_records` | array | No | `[{id, parent_id, record}]` — only effective when `done_status: true`. Each `record` follows the same validation rules as `PATCH /toggle`. |
 
 Response:
 
 ```json
-// BATCH_TOGGLE_DONE
-{"success": true, "data": {"affected": 3, "done": true}}
+// BATCH_TOGGLE_DONE (includes chunked/chunkCount, affected = actual changed rows)
+{"success": true, "data": {"affected": 105, "done": true, "chunked": true, "chunkCount": 2}}
 
 // BATCH_DELETE
-{"success": true, "data": {"affected": 3}}
+{"success": true, "data": {"affected": 105, "chunked": true, "chunkCount": 2}}
 ```
+
+**Auto-chunking**: When `ids.length > 99`, the backend processes in chunks of 99. `chunked` indicates whether chunking was triggered; `chunkCount` = `ceil(ids.length / 99)`. `affected` is the actual number of changed rows (excludes non-existent/already-deleted ids), not `ids.length`.
 
 ### List categories
 
@@ -991,7 +1073,7 @@ POST response: `{"success": true, "data": ["#FF5733", "#3B82F6"]}`
 1. **Fetch first** — GET the list before update/delete to find the correct `id`
 2. **Identify target** — Match by `text` field. If multiple match, ASK
 3. **Calculate date** — Convert natural language to YYYY-MM-DD. For recurring, `date` = first occurrence
-4. **Check recurring** — If `isSeries: true`, determine `scope` from user intent
+4. **Check recurring** — If `is_series: true`, determine `scope` from user intent
 5. **Confirm destructive** — Before delete, `scope=all`, or `scope=thisAndFuture`
 6. **Execute only what was asked** — No extra operations
 7. **Verify** — GET again after the operation to confirm
@@ -1012,7 +1094,7 @@ HTTP status codes:
 
 - Date format must be YYYY-MM-DD
 - Max 500 todos per query (use pagination)
-- Max 100 items per batch operation
+- Batch operations auto-chunk (99 per chunk), no upper limit. Response includes `chunked` (boolean) and `chunkCount` (number) fields. `affected`/`restored`/`deleted` reflect actual changed rows (not `ids.length`).
 - Category names must be unique (case-insensitive)
 - Category delete is hard delete (cannot be restored); todo delete is soft delete (restorable from trash)
 - Deleting a recurring todo with `scope=all` also permanently deletes the template — the series cannot be restored from trash

@@ -88,7 +88,7 @@ export const detail = `
       const isFragment = tempRepeatType === 'fragment';
       const instanceDate = isFragment ? (tempFragmentAnchor || '') : tempAddDate;
       const newTask = {
-        id: newId, parentId: newId, text: text, time: tempTime,
+        id: newId, parent_id: newId, text: text, time: tempTime,
         end_time: tempEndTime,
         priority: tempPriority, 
         repeat_type: tempRepeatType,
@@ -97,7 +97,7 @@ export const detail = `
         repeat_interval: isFragment ? 1 : (tempRepeatInterval || 1),
         category_id: tempCategoryId,
         desc: document.getElementById('add-desc').value, url: document.getElementById('add-url').value,
-        copyText: document.getElementById('add-copy').value, done: false,
+        copy_text: document.getElementById('add-copy').value, done: false,
         subtasks: tempSubtasks, search_terms: tempSearchTerms
       };
       closeAddModal();
@@ -259,15 +259,17 @@ export const detail = `
 
       if (task.done) {
         // 已完成态按 todo 类型分流：
-        // - 碎时记：累计 X + 最后记录于 Y + [继续计时]（多 session 累计模型）
+        // - 碎时记：完成于 X，累计 Y + [开始计时]（多 session 累计模型）
         // - 普通 todo：完成于 X，耗时 Y（实例时效性语义，无跨日累计）
         const lastRec = overrideRecord || (records.length ? records[records.length - 1] : null);
         html += '<div class="detail-value" style="display:block;">';
         if (isFragment) {
-          if (cumMs > 0) html += '<div>累计 ' + formatMs(cumMs) + '</div>';
+          // 碎时记已完成态：完成于 X，累计 Y（与普通 todo 风格对齐）
           if (lastRec && lastRec.e) {
-            html += '<div style="font-size:0.85em; opacity:0.7; margin-top:4px;">最后记录于 ' + formatDoneTime(lastRec.e) + '</div>';
-          } else if (cumMs === 0) {
+            html += '<div>完成于 ' + formatDoneTime(lastRec.e) + (cumMs > 0 ? '，累计 ' + formatMs(cumMs) : '') + '</div>';
+          } else if (cumMs > 0) {
+            html += '<div>累计 ' + formatMs(cumMs) + '</div>';  // 兜底：有耗时但缺 lastRec.e
+          } else {
             html += '<div style="color:var(--fg); opacity:0.6;">无完成耗时记录</div>';
           }
         } else {
@@ -280,10 +282,11 @@ export const detail = `
             html += '<div style="color:var(--fg); opacity:0.6;">无完成耗时记录</div>';
           }
         }
-        // 碎时记独有：[继续计时]
+        // 碎时记独有：[开始计时]
+        // 完成后重新开始 = 全新 session（之前的累计已被完成动作封存），故标签为"开始计时"
         if (isFragment) {
           html += '<div class="timer-row" style="margin-top:8px;">';
-          html += '<button class="btn-ghost" onclick="continueAfterDoneDetail()">继续计时</button>';
+          html += '<button class="btn-ghost" onclick="continueAfterDoneDetail()">开始计时</button>';
           html += '</div>';
         }
         html += '</div>';
@@ -312,13 +315,22 @@ export const detail = `
         if (predictText) html += '<div style="font-size:0.85em; opacity:0.7; margin-top:6px;">' + predictText + '</div>';
         html += '</div>';
       } else {
-        // 空闲：累计（仅>0 时）+ [开始计时]
+        // 空闲：累计（仅>0 时）+ 最后记录于 Y（仅碎时记，与已完成态对齐）+ [开始计时] / [继续计时]
+        // - 无累计（cumMs===0）：[开始计时] —— 全新 session
+        // - 有累计（cumMs>0，典型场景：刚点过"记录"回到空闲态）：[继续计时] —— 在已累计基础上继续
         html += '<div class="detail-value" style="display:block;">';
         if (cumMs > 0) {
           html += '<div>累计 ' + formatMs(cumMs) + '</div>';
         }
+        // 碎时记：与已完成态一致，显示"最后记录于"
+        if (isFragment) {
+          const lastRecIdle = records.length ? records[records.length - 1] : null;
+          if (lastRecIdle && lastRecIdle.e) {
+            html += '<div style="font-size:0.85em; opacity:0.7; margin-top:4px;">最后记录于 ' + formatDoneTime(lastRecIdle.e) + '</div>';
+          }
+        }
         html += '<div class="timer-row" style="margin-top:' + (cumMs > 0 ? '8px' : '0') + ';">';
-        html += '<button class="btn-ghost" onclick="startTimerDetail()">开始计时</button>';
+        html += '<button class="btn-ghost" onclick="startTimerDetail()">' + (cumMs > 0 ? '继续计时' : '开始计时') + '</button>';
         if (predictText) html += '<span style="font-size:0.85em; opacity:0.7; margin-left:10px;">' + predictText + '</span>';
         html += '</div>';
         html += '</div>';
@@ -435,13 +447,18 @@ export const detail = `
       
       if (!isEditMode) {
         let urlSection = '';
-        if (task.url) urlSection = \`<div class="detail-label">链接 (URL)</div><div class="detail-value"><a href="\${task.url}" target="_blank">\${task.url}</a></div>\`;
+        if (task.url) {
+          // 仅允许 http(s)/ftp/mailto/tel/相对路径协议，阻断 javascript:/data: 等 XSS 向量
+          var safeUrl = String(task.url).trim();
+          var urlHref = /^(https?:|ftp:|mailto:|tel:|\\/|\\.\\/|\\.\\.\\/|#)/i.test(safeUrl) ? safeUrl : '#';
+          urlSection = \`<div class="detail-label">链接 (URL)</div><div class="detail-value"><a href="\${urlHref}" target="_blank" rel="noopener noreferrer">\${escapeHtml(task.url)}</a></div>\`;
+        }
 
         let copySection = '';
         if (task.copy_text) {
           const safeText = encodeURIComponent(task.copy_text).replace(/'/g, "%27");
           copySection = \`<div class="detail-label">快捷复制内容</div><div class="detail-value" style="display:flex; justify-content:space-between; align-items:center;">
-              <span>\${task.copy_text}</span><button class="btn-ghost" style="padding:4px 8px;" onclick="copyText(decodeURIComponent('\${safeText}'))">复制</button>
+              <span>\${escapeHtml(task.copy_text)}</span><button class="btn-ghost" style="padding:4px 8px;" onclick="copyText(decodeURIComponent('\${safeText}'))">复制</button>
             </div>\`;
         }
 
@@ -456,7 +473,7 @@ export const detail = `
           let stHtml = task.subtasks.map((st, i) => \`
             <div class="subtask-view-item \${st.done ? 'done' : ''}" onclick="toggleSubtask(\${currentDetailIndex}, \${i})">
                 <div class="checkbox"></div>
-                <div class="item-meta"><div class="item-title">\${st.text}</div></div>
+                <div class="item-meta"><div class="item-title">\${escapeHtml(st.text)}</div></div>
             </div>
           \`).join('');
           subtasksSection = \`<div class="detail-label">子任务</div><div style="margin-bottom:20px;">\${stHtml}</div>\`;
@@ -469,7 +486,7 @@ export const detail = `
             const safeText = encodeURIComponent(text).replace(/'/g, "%27");
             return \`<div class="search-term-tag \${termObj.done ? 'done' : ''}">
               <div class="search-term-checkbox" onclick="toggleSearchTerm(\${currentDetailIndex}, \${i})"></div>
-              <span>\${text}</span>
+              <span>\${escapeHtml(text)}</span>
               <button onclick="copySearchTerm(\${currentDetailIndex}, \${i}, '\${safeText}')">⎘</button>
             </div>\`;
           }).join('');
@@ -482,7 +499,7 @@ export const detail = `
         }
 
         let rText = getRepeatDisplayText(task.repeat_type, task.date, task.repeat_end, task.repeat_interval);
-        if ((!task.repeat_type || task.repeat_type === 'none') && task.isSeries) {
+        if ((!task.repeat_type || task.repeat_type === 'none') && task.is_series) {
             rText = '已停止重复';
         }
 
@@ -522,11 +539,11 @@ export const detail = `
         }
 
         container.innerHTML = \`
-          <div class="detail-label">事项内容</div><div class="detail-value">\${task.text}</div>
+          <div class="detail-label">事项内容</div><div class="detail-value">\${escapeHtml(task.text)}</div>
           \${subtasksSection}
           \${searchSection}
           <div class="row">
-            <div class="flex-1"><div class="detail-label">时间点</div><div class="detail-value">\${task.time || '--:--'}\${task.end_time ? ' - ' + task.end_time : ''}</div></div>
+            <div class="flex-1"><div class="detail-label">时间点</div><div class="detail-value">\${escapeHtml(task.time || '--:--')}\${task.end_time ? ' - ' + escapeHtml(task.end_time) : ''}</div></div>
             <div class="flex-1"><div class="detail-label">优先级</div><div class="detail-value">\${pMap[task.priority]}</div></div>
           </div>
           \${urlSection}\${copySection}
@@ -542,7 +559,7 @@ export const detail = `
         activeMode = 'edit';
         var intervalText = getIntervalDisplayText(tempRepeatInterval, tempRepeatType);
         container.innerHTML = \`
-          <input type="text" id="edit-text" value="\${task.text}" class="detail-value editable" placeholder="事项标题（必填）">
+          <input type="text" id="edit-text" value="\${escapeHtml(task.text)}" class="detail-value editable" placeholder="事项标题（必填）">
           
           <div class="detail-label modal-section">子任务</div>
           <div class="row modal-subtask-row">
@@ -588,8 +605,8 @@ export const detail = `
               <span class="arrow">▼</span>
             </div>
           </div>
-          <input type="url" id="edit-url" value="\${task.url || ''}" class="detail-value editable" placeholder="URL / APP Scheme (可选)">
-          <input type="text" id="edit-copy" value="\${task.copy_text || ''}" class="detail-value editable" placeholder="快捷复制内容（可选）">
+          <input type="url" id="edit-url" value="\${escapeHtml(task.url || '')}" class="detail-value editable" placeholder="URL / APP Scheme (可选)">
+          <input type="text" id="edit-copy" value="\${escapeHtml(task.copy_text || '')}" class="detail-value editable" placeholder="快捷复制内容（可选）">
 
           <div class="detail-label modal-section">其他</div>
           <div class="switch-label" onclick="toggleEditSearch()">
@@ -607,7 +624,7 @@ export const detail = `
             <div class="search-card" id="edit-search-preview"></div>
           </div>
           
-          <textarea id="edit-desc" rows="3" class="detail-value editable" placeholder="输入备注/详细描述（可选）">\${task.desc || ''}</textarea>
+          <textarea id="edit-desc" rows="3" class="detail-value editable" placeholder="输入备注/详细描述（可选）">\${escapeHtml(task.desc || '')}</textarea>
         \`;
         renderTempSubtasks('edit');
         if (tempSearchTerms.length > 0) renderSearchTerms('edit');
@@ -868,13 +885,13 @@ export const detail = `
 
       if (action === 'delete') {
         title.innerText = "确认删除";
-        if (task.isSeries) {
+        if (task.is_series) {
           options.innerHTML += \`<button onclick="confirmAction('this')">仅此日程</button>\`;
           options.innerHTML += \`<button onclick="confirmAction('thisAndFuture')">此日程及之后</button>\`;
           options.innerHTML += \`<button onclick="confirmAction('all')">所有日程</button>\`;
         } else { options.innerHTML += \`<button onclick="confirmAction('this')">确认删除</button>\`; }
       } else if (action === 'save') {
-        if (task.isSeries) {
+        if (task.is_series) {
           title.innerText = "保存范围：";
           options.innerHTML += \`<button onclick="confirmAction('this')">仅此日程</button>\`;
           options.innerHTML += \`<button onclick="confirmAction('thisAndFuture')">此日程及之后</button>\`;
@@ -975,24 +992,24 @@ export const detail = `
         task.text = document.getElementById('edit-text').value; task.time = tempTime; task.priority = tempPriority;
         task.end_time = tempEndTime;
         task.desc = document.getElementById('edit-desc').value; task.url = document.getElementById('edit-url').value;
-        task.copyText = document.getElementById('edit-copy').value; task.copy_text = task.copyText; 
+        task.copy_text = document.getElementById('edit-copy').value;
         task.subtasks = tempSubtasks; task.search_terms = tempSearchTerms;
         task.category_id = tempCategoryId;
         
         // === 编辑保存前清理同系列计时器，避免 localStorage 孤儿 ===
         // 必须在 await fetch / loadTodos 之前完成：fetch 后 todos 数组会被刷新，
         // 同系列其他实例（siblings）就拿不到了。
-        // 必须在 scope 处理改 task.isSeries 之前读原值：原 isSeries 决定是否走清理分支。
+        // 必须在 scope 处理改 task.is_series 之前读原值：原 is_series 决定是否走清理分支。
         // 不调用 completeTimer：被 DELETE 的实例在后端已不存在，TIMER_COMPLETE 会失败。
         // 进度丢失是已知限制（与原行为一致，只是不再静默残留孤儿）。
-        const _origIsSeries = task.isSeries;
+        const _origIsSeries = task.is_series;
         const _taskId = task.id;
-        const _taskParentId = task.parent_id || task.parentId;
+        const _taskParentId = task.parent_id;
         if (_origIsSeries && typeof clearTimerState === 'function' && typeof readTimerState === 'function') {
           // 同系列、当前正在计时（running 或 paused）的其他实例
           const _siblingsWithTimer = todos.filter(function(t) {
             return t.id !== _taskId
-              && (t.parent_id === _taskParentId || t.parentId === _taskParentId)
+              && t.parent_id === _taskParentId
               && readTimerState(t.id);
           });
 
@@ -1026,14 +1043,14 @@ export const detail = `
         // 根据scope处理重复属性
         // 碎时记 (fragment): 即使原任务是系列（如 daily），编辑为碎时记后应保留 fragment 类型
         // 不能走 "仅此项 → repeat_type=none" 分支，否则会把 fragment 误改为 none
-        if (scope === 'this' && task.isSeries && tempRepeatType !== 'fragment') {
+        if (scope === 'this' && task.is_series && tempRepeatType !== 'fragment') {
           // 仅此项：脱离系列，变为非重复单次事项
           // 重复相关变更（间隔、频率、截止）对"仅此项"无意义，遵循标准规则
           task.repeat_type = 'none';
           task.repeat_custom = '';
           task.repeat_end = '';
           task.repeat_interval = 1;
-          task.isSeries = false;
+          task.is_series = false;
         } else {
           // 此项及之后 / 所有日程：应用重复变更
           // 碎时记也走此分支：保留 fragment 类型，清空无意义字段
@@ -1047,12 +1064,12 @@ export const detail = `
             task.end_time = '';
           }
           if (tempRepeatType === 'none' || tempRepeatType === 'fragment') {
-            task.isSeries = false;
+            task.is_series = false;
           }
         }
         
         // 系列任务：直接关闭详情；非系列任务：切回查看模式保留详情
-        if (task.isSeries) {
+        if (task.is_series) {
           closeDetail();
         } else {
           toggleEditMode();
@@ -1061,7 +1078,7 @@ export const detail = `
         await fetch('/api/todo-action', { method: 'POST', body: JSON.stringify({ action: 'UPDATE', date: originalDate, task: task, scope: scope }), headers: { 'Content-Type': 'application/json' } });
         await loadTodos();
         
-        if (!task.isSeries) {
+        if (!task.is_series) {
           const newIndex = todos.findIndex(t => t.id === task.id);
           if (newIndex !== -1) { currentDetailIndex = newIndex; renderDetailContent(); }
           else closeDetail();

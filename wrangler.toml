@@ -1,8 +1,10 @@
 name = "cf-todo"
 main = "src/index.js"
-compatibility_date = "2024-12-01"
+compatibility_date = "2026-05-14"
 
 [[d1_databases]]
 binding = "DB"
 database_name = "todo-db"
 database_id = ""
+read_replication = false
+# D1 读副本：启用后，配合代码里的 env.DB.withSession('first-primary') 可路由读查询到就近副本。如需启用：将read_replication改为 true 并在 CF Dashboard → D1 → Settings → 读取复制 中启用。

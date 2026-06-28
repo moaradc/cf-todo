@@ -97,47 +97,66 @@ function offsetDate(dateStr, days) {
   return formatDateStr(d);
 }
 
+// 健壮性：统一带超时的 fetch，超时或异常返回 null，调用方降级处理
+// CF Workers subrequest fetch 90s 硬超时，这里主动 5s 超时避免长时间挂起
+const HOT_SEARCH_FETCH_TIMEOUT_MS = 5000;
+
+async function fetchJsonWithTimeout(url) {
+  const ctrl = new AbortController();
+  const timeoutId = setTimeout(() => ctrl.abort(), HOT_SEARCH_FETCH_TIMEOUT_MS);
+  try {
+    const res = await fetch(url, { signal: ctrl.signal });
+    if (!res.ok) {
+      // 释放响应体避免连接泄漏
+      try { res.body && res.body.cancel(); } catch (e) {}
+      return null;
+    }
+    return await res.json();
+  } catch (e) {
+    // AbortError 或网络错误，返回 null 让调用方降级
+    return null;
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
 async function fetchHotSearchData(providerName = 'auto') {
   const fetchers = {
-    'bilibili': async () => { 
-      const res = await fetch('https://uapis.cn/api/v1/misc/hotboard?type=bilibili');
-      const json = await res.json();
-      return json?.list?.map(i => i?.title).filter(Boolean) ||[];
+    'bilibili': async () => {
+      const json = await fetchJsonWithTimeout('https://uapis.cn/api/v1/misc/hotboard?type=bilibili');
+      return json?.list?.map(i => i?.title).filter(Boolean) || [];
     },
-    'weibo': async () => { 
-      const res = await fetch('https://uapis.cn/api/v1/misc/hotboard?type=weibo');
-      const json = await res.json();
-      return json?.list?.map(i => i?.title).filter(Boolean) ||[];
+    'weibo': async () => {
+      const json = await fetchJsonWithTimeout('https://uapis.cn/api/v1/misc/hotboard?type=weibo');
+      return json?.list?.map(i => i?.title).filter(Boolean) || [];
     },
-    'zhihu': async () => { 
-      const res = await fetch('https://uapis.cn/api/v1/misc/hotboard?type=zhihu');
-      const json = await res.json();
-      return json?.list?.map(i => i?.title).filter(Boolean) ||[];
+    'zhihu': async () => {
+      const json = await fetchJsonWithTimeout('https://uapis.cn/api/v1/misc/hotboard?type=zhihu');
+      return json?.list?.map(i => i?.title).filter(Boolean) || [];
     },
-    'baidu': async () => { 
-      const res = await fetch('https://top.baidu.com/api/board?platform=pc&tab=realtime');
-      const json = await res.json();
-      return json?.data?.cards?.[0]?.content?.map(i => i?.word).filter(Boolean) ||[];
+    'baidu': async () => {
+      const json = await fetchJsonWithTimeout('https://top.baidu.com/api/board?platform=pc&tab=realtime');
+      return json?.data?.cards?.[0]?.content?.map(i => i?.word).filter(Boolean) || [];
     }
   };
 
-  let providers =[];
+  let providers = [];
   if (providerName && fetchers[providerName]) {
-    providers =[fetchers[providerName]];
+    providers = [fetchers[providerName]];
   } else {
     providers = Object.values(fetchers);
-    providers.sort(() => Math.random() - 0.5); 
+    // 随机打散顺序，避免单点故障：第一个挂了快速切下一个
+    providers.sort(() => Math.random() - 0.5);
   }
-  
-  let allWords =[];
+
+  let allWords = [];
   for (const fetcher of providers) {
-    try {
-      const words = await fetcher();
-      if (words.length >= 10) {
-        allWords = words;
-        break; 
-      }
-    } catch(e) { console.error("Fetch API error:", e); }
+    // fetcher 内部已 try/catch（fetchJsonWithTimeout 返回 null），不会抛出
+    const words = await fetcher();
+    if (words.length >= 10) {
+      allWords = words;
+      break;
+    }
   }
   return allWords;
 }
@@ -148,6 +167,24 @@ function apiError(msg, status = 500, extra = null) {
     status,
     headers: { 'Content-Type': 'application/json' }
   });
+}
+
+/**
+ * 规范化优先级值（前端使用 med，API 同时接受 medium 和 med）
+ * 统一 V0 / V1 行为：
+ *   - 'medium' → 'med'（前端历史习惯，外部调用方常误传）
+ *   - 'low' / 'med' / 'high' 原样返回
+ *   - 其它非法值（含 undefined / null / 空串 / 数字 / 任意字符串）→ 'low'（DB 默认）
+ * 该函数纯函数无副作用，调用方应在所有 priority 写入点（CREATE / UPDATE / 模板展开）
+ * 统一调用，避免 DB 出现 'medium' 等非标准值导致 stats 聚合（priCounts 仅识别 low/med/high）漏统计。
+ *
+ * @param {*} val - 调用方传入的原始 priority 值
+ * @returns {'low'|'med'|'high'} 规范化后的 priority
+ */
+function normalizePriority(val) {
+  if (val === 'medium') return 'med';
+  if (val === 'low' || val === 'med' || val === 'high') return val;
+  return 'low';
 }
 
 export {
@@ -165,5 +202,6 @@ export {
   formatDateStr,
   offsetDate,
   fetchHotSearchData,
-  apiError
+  apiError,
+  normalizePriority
 };

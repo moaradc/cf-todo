@@ -231,23 +231,59 @@ export const core = `
       var s = document.getElementById('update-status');
       if (!s) return;
       s.innerHTML = '<span style="color:#888;font-size:0.8rem;">检查中...</span>';
+
+      // 健壮性：localStorage 24h 缓存，避免每次打开页面都打 GitHub raw
+      // 缓存键：vcheck_data (version.json 内容) + vcheck_ts (时间戳)
+      // 24h 内用缓存；过期或无缓存才发请求；请求失败回退到缓存（即使过期）
+      var CACHE_TTL_MS = 24 * 60 * 60 * 1000;
+      var now = Date.now();
+      var cachedTs = 0;
+      var cachedData = null;
       try {
-        var res = await fetch('https://raw.githubusercontent.com/moaradc/cf-todo/main/version.json');
-        if (!res.ok) throw new Error('HTTP ' + res.status);
-        var d = await res.json();
-        if (!d.version) throw new Error('No version');
-        var latest = d.version;
-        var cmp = compareVersions(CURRENT_VERSION, latest);
-        if (cmp < 0) {
-          remoteLatestVersion = latest;
-          s.innerHTML = '<span style="font-size:0.8rem;font-weight:bold;cursor:pointer;color:var(--accent);" onclick="openChangelogModal()">→ v' + escapeHtml(latest) + '</span>';
-        } else {
-          remoteLatestVersion = null;
-          s.innerHTML = '<span style="font-size:0.8rem;">已是最新</span>';
+        cachedTs = parseInt(localStorage.getItem('vcheck_ts') || '0', 10);
+        cachedData = localStorage.getItem('vcheck_data');
+      } catch (e) { /* localStorage 不可用时降级为每次都请求 */ }
+
+      var d = null;
+      var fromCache = false;
+      if (cachedData && (now - cachedTs) < CACHE_TTL_MS) {
+        // 缓存有效
+        try { d = JSON.parse(cachedData); fromCache = true; } catch (e) { d = null; }
+      }
+
+      if (!d) {
+        // 缓存无效或过期，发请求
+        try {
+          var res = await fetch('https://raw.githubusercontent.com/moaradc/cf-todo/main/version.json');
+          if (!res.ok) throw new Error('HTTP ' + res.status);
+          d = await res.json();
+          if (!d.version) throw new Error('No version');
+          // 写入缓存
+          try {
+            localStorage.setItem('vcheck_ts', String(now));
+            localStorage.setItem('vcheck_data', JSON.stringify(d));
+          } catch (e) { /* 配额满等忽略 */ }
+        } catch (e) {
+          // 请求失败：回退到缓存（即使过期），避免断网时显示"检查失败"
+          if (cachedData) {
+            try { d = JSON.parse(cachedData); fromCache = true; } catch (e2) { d = null; }
+          }
+          if (!d) {
+            remoteLatestVersion = null;
+            s.innerHTML = '<span style="color:var(--accent);font-size:0.8rem;">检查失败</span>';
+            return;
+          }
         }
-      } catch (e) {
+      }
+
+      var latest = d.version;
+      var cmp = compareVersions(CURRENT_VERSION, latest);
+      if (cmp < 0) {
+        remoteLatestVersion = latest;
+        s.innerHTML = '<span style="font-size:0.8rem;font-weight:bold;cursor:pointer;color:var(--accent);" onclick="openChangelogModal()">→ v' + escapeHtml(latest) + '</span>';
+      } else {
         remoteLatestVersion = null;
-        s.innerHTML = '<span style="color:var(--accent);font-size:0.8rem;">检查失败</span>';
+        s.innerHTML = '<span style="font-size:0.8rem;">已是最新' + (fromCache ? '' : '') + '</span>';
       }
     }
 
@@ -266,8 +302,9 @@ export const core = `
 
     function escapeHtml(text) {
       var div = document.createElement('div');
-      div.appendChild(document.createTextNode(text));
-      return div.innerHTML;
+      div.appendChild(document.createTextNode(text == null ? '' : String(text)));
+      // textContent->innerHTML 只转义 & < >；补转义引号以安全用于属性值
+      return div.innerHTML.replace(/"/g, '&quot;').replace(/'/g, '&#39;');
     }
 
     // 实时从 GitHub 拉取最新 changelog（改 version.json 推 main 后立即可见）
@@ -616,7 +653,7 @@ export const core = `
       if (todo.time) {
         var timeLabel = todo.time;
         if (todo.end_time) timeLabel += '-' + todo.end_time;
-        badges += '<span class="badge badge-time">' + timeLabel + '</span> ';
+        badges += '<span class="badge badge-time">' + escapeHtml(timeLabel) + '</span> ';
       }
 
       if (!todo.done && todo.end_time && todo.time && todo.date) {
@@ -655,7 +692,7 @@ export const core = `
         }
         // 碎时记不显示 repeat_end（完成时自动管理，对用户无意义）
         if (todo.repeat_end && todo.repeat_type !== 'fragment') repeatLabel += '·至' + todo.repeat_end;
-        badges += '<span class="badge" style="background:transparent;border:1px solid var(--fg);color:var(--fg);">' + repeatLabel + '</span> ';
+        badges += '<span class="badge" style="background:transparent;border:1px solid var(--fg);color:var(--fg);">' + escapeHtml(repeatLabel) + '</span> ';
       }
 
       if (todo.subtasks && todo.subtasks.length > 0) {
@@ -667,7 +704,7 @@ export const core = `
 
       var meta = document.createElement('div');
       meta.className = 'item-meta';
-      meta.innerHTML = '<div class="item-title">' + todo.text + '</div><div class="item-info">' + badges + '</div>';
+      meta.innerHTML = '<div class="item-title">' + escapeHtml(todo.text) + '</div><div class="item-info">' + badges + '</div>';
 
       var checkbox = document.createElement('div');
       // 计时激活时点击 checkbox = 结束+完成；不改变 checkbox 视觉（计时状态用 badges 行的"计时中"标签表达）
@@ -685,8 +722,15 @@ export const core = `
       if (!isBatchMode) {
         if (todo.url) {
           var linkBtn = document.createElement('a');
-          linkBtn.href = todo.url;
+          // 仅允许 http(s)/ftp 协议，阻断 javascript:/data: 等 XSS 向量
+          var safeUrl = String(todo.url).trim();
+          if (/^(https?:|ftp:|mailto:|tel:|\\/|\\.\\/|\\.\\.\\/|#)/i.test(safeUrl)) {
+            linkBtn.href = safeUrl;
+          } else {
+            linkBtn.href = '#';
+          }
           linkBtn.target = '_blank';
+          linkBtn.rel = 'noopener noreferrer';
           linkBtn.className = 'btn-link';
           linkBtn.innerText = '↗';
           linkBtn.addEventListener('click', function(e){ e.stopPropagation(); });
