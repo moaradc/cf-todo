@@ -196,6 +196,7 @@ export function validateTimeRange(time, endTime) {
  *
  * 规则：repeat_end 非空时，repeat_type 必须是 daily/weekly/monthly/yearly。
  * none/fragment 类型无 RRULE，repeat_end 无意义，应拒绝。
+ * 同时校验 repeat_end 格式为 YYYY-MM-DD。
  *
  * @param {string} repeatEnd - YYYY-MM-DD 或空
  * @param {string} repeatType - none/daily/weekly/monthly/yearly/fragment
@@ -206,6 +207,9 @@ export function validateRepeatEndCompat(repeatEnd, repeatType) {
   if (repeatType === 'none' || repeatType === 'fragment') {
     return `repeat_end 仅在 repeat_type 为 daily/weekly/monthly/yearly 时有效，当前 repeat_type=${repeatType}`;
   }
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(repeatEnd)) {
+    return `repeat_end 格式应为 YYYY-MM-DD，当前值: ${repeatEnd}`;
+  }
   return null;
 }
 
@@ -214,6 +218,7 @@ export function validateRepeatEndCompat(repeatEnd, repeatType) {
  *
  * 规则：repeat_interval > 1 时，repeat_type 必须是 daily/weekly/monthly/yearly。
  * none/fragment 类型 repeat_interval 强制为 1，传 > 1 应拒绝（防止数据不一致）。
+ * 同时校验 repeat_interval 为正整数。
  *
  * @param {number} repeatInterval
  * @param {string} repeatType
@@ -226,6 +231,42 @@ export function validateRepeatIntervalCompat(repeatInterval, repeatType) {
   }
   if (repeatInterval > 1 && (repeatType === 'none' || repeatType === 'fragment')) {
     return `repeat_interval > 1 仅在 repeat_type 为 daily/weekly/monthly/yearly 时有效，当前 repeat_type=${repeatType}`;
+  }
+  return null;
+}
+
+/**
+ * 校验日期格式 YYYY-MM-DD
+ * @param {string} dateStr
+ * @returns {string|null} 错误消息，null 表示通过
+ */
+export function validateDateFormat(dateStr) {
+  if (!dateStr) return null; // 空值由其他校验处理（如 fragment 允许空）
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
+    return `日期格式应为 YYYY-MM-DD，当前值: ${dateStr}`;
+  }
+  // 校验真实日期（防 2026-13-45）
+  const [y, m, d] = dateStr.split('-').map(Number);
+  const dt = new Date(Date.UTC(y, m - 1, d));
+  if (dt.getUTCFullYear() !== y || dt.getUTCMonth() !== m - 1 || dt.getUTCDate() !== d) {
+    return `日期无效: ${dateStr}`;
+  }
+  return null;
+}
+
+/**
+ * 校验时间格式 HH:MM（00:00 - 23:59）
+ * @param {string} timeStr
+ * @returns {string|null} 错误消息，null 表示通过
+ */
+export function validateTimeFormat(timeStr) {
+  if (!timeStr) return null;
+  if (!/^\d{2}:\d{2}$/.test(timeStr)) {
+    return `时间格式应为 HH:MM，当前值: ${timeStr}`;
+  }
+  const [h, m] = timeStr.split(':').map(Number);
+  if (h < 0 || h > 23 || m < 0 || m > 59) {
+    return `时间范围无效（HH: 00-23, MM: 00-59），当前值: ${timeStr}`;
   }
   return null;
 }

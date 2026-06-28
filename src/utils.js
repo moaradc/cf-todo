@@ -170,6 +170,20 @@ function apiError(msg, status = 500, extra = null) {
 }
 
 /**
+ * 解析 subtasks/search_terms JSON 字段
+ * 接受：数组（原样返回）、JSON 字符串（parse）、空值/非法值（返回空数组）
+ * @param {*} val
+ * @returns {Array}
+ */
+function parseJsonField(val) {
+  if (Array.isArray(val)) return val;
+  if (typeof val === 'string' && val) {
+    try { return JSON.parse(val); } catch (e) {}
+  }
+  return [];
+}
+
+/**
  * 规范化优先级值（前端使用 med，API 同时接受 medium 和 med）
  * 统一 V0 / V1 行为：
  *   - 'medium' → 'med'（前端历史习惯，外部调用方常误传）
@@ -203,5 +217,6 @@ export {
   offsetDate,
   fetchHotSearchData,
   apiError,
-  normalizePriority
+  normalizePriority,
+  parseJsonField
 };

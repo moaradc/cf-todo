@@ -13,6 +13,7 @@ import {
   parseCookies,
   verify as verifySig,
   normalizePriority,
+  parseJsonField,
 } from './utils.js';
 
 // 健壮性：统一安全解析 JSON 请求体，解析失败返回 400
@@ -52,6 +53,8 @@ import {
   validateTimeRange,
   validateRepeatEndCompat,
   validateRepeatIntervalCompat,
+  validateDateFormat,
+  validateTimeFormat,
 } from './recurring-engine.js';
 
 // ==================== API Key 管理 ====================
@@ -306,16 +309,7 @@ async function touchApiKeyLastUsed(DB, apiKey) {
   } catch (e) {}
 }
 
-/**
- * 解析 subtasks/search_terms JSON 字段
- */
-function parseJsonField(val) {
-  if (Array.isArray(val)) return val;
-  if (typeof val === 'string' && val) {
-    try { return JSON.parse(val); } catch (e) {}
-  }
-  return [];
-}
+// parseJsonField 已抽到 utils.js，供 V0 / V1 共享
 
 // normalizePriority 已抽到 utils.js，供 V0 / V1 共享
 
@@ -619,9 +613,9 @@ async function handleV1Todos(request, env, url) {
     if (customResult.error) return apiError(customResult.error, 400);
     const effective_repeat_custom = customResult.value;
 
-    // 联动推导：repeat_custom 非空 + rpt_type ∈ {none, fragment} → 从 custom 的 FREQ 反推 rpt_type
-    // 保证 DB 中 repeat_type 与实际展开规则一致
-    if (effective_repeat_custom && (rpt_type === 'none' || rpt_type === 'fragment')) {
+    // 联动推导：repeat_custom 非空 + rpt_type === 'none' → 从 custom 的 FREQ 反推 rpt_type
+    // 不覆盖 fragment（尊重调用方显式意图，fragment 强制清空 custom 由后续逻辑处理）
+    if (effective_repeat_custom && rpt_type === 'none') {
       const derived = deriveRepeatTypeFromCustom(effective_repeat_custom);
       if (derived) rpt_type = derived;
     }
@@ -664,6 +658,19 @@ async function handleV1Todos(request, env, url) {
     // 3. time 与 end_time 时序一致性
     const timeErr = validateTimeRange(effectiveTime, eTime);
     if (timeErr) return apiError(timeErr, 400);
+    // 4. 日期/时间格式校验
+    if (effective_date) {
+      const dateErr = validateDateFormat(effective_date);
+      if (dateErr) return apiError(dateErr, 400);
+    }
+    if (effectiveTime) {
+      const tfErr = validateTimeFormat(effectiveTime);
+      if (tfErr) return apiError(tfErr, 400);
+    }
+    if (eTime) {
+      const etErr = validateTimeFormat(eTime);
+      if (etErr) return apiError(etErr, 400);
+    }
     // 规范化 subtasks：字符串→{text, done:false} 对象
     const normalizedSubtasks = (subtasks || []).map(s => {
       if (typeof s === 'string') return { text: s, done: false };
@@ -698,10 +705,11 @@ async function handleV1Todos(request, env, url) {
       ).run();
     }
 
-    // 健壮性：创建响应增加关键字段，减少客户端额外 GET
+    // 健壮性：创建响应返回完整记录（formatTodo），减少客户端额外 GET
+    const created = await DB.prepare('SELECT * FROM todos WHERE id = ?').bind(id).first();
     return jsonResponse({
       success: true,
-      data: { id, parent_id: id, date: effective_date, text, time: effectiveTime, priority: normPriority, repeat_type: rpt_type, repeat_custom: final_repeat_custom, category_id: catId, repeat_interval: rInterval, fragment_anchor: effective_fragment_anchor }
+      data: formatTodo(created)
     }, 201);
   }
 
@@ -773,15 +781,16 @@ async function handleV1TodoPut(request, DB, todo_id) {
     }
   }
 
-  // 联动推导（服务端自动）：repeat_custom 非空时，从 custom 的 FREQ 反推 repeat_type
-  // 这保证 DB 中 repeat_type 与实际展开规则一致，避免「传 custom 但不传 type」导致的数据错乱
-  // 仅当 rpt_type ∈ {none, fragment} 时反推（即调用方未明确指定有效的 repeat_type）
-  // 若调用方显式传了 daily/weekly/monthly/yearly，尊重调用方意图，不反推（允许 type 与 custom FREQ 不一致——
-  //   type 仅作 SQL 过滤与 UI 标签，custom 才是实际展开规则）
-  if (effective_repeat_custom && (rpt_type === 'none' || rpt_type === 'fragment')) {
-    const derived = deriveRepeatTypeFromCustom(effective_repeat_custom);
-    if (derived) rpt_type = derived;
-  }
+    // 联动推导（服务端自动）：repeat_custom 非空时，从 custom 的 FREQ 反推 repeat_type
+    // 这保证 DB 中 repeat_type 与实际展开规则一致，避免「传 custom 但不传 type」导致的数据错乱
+    // 仅当 rpt_type === 'none' 时反推（调用方未明确指定有效的 repeat_type）
+    // 不覆盖 'fragment'：若调用方显式传 fragment，尊重其意图（fragment 强制清空 custom 由后续逻辑处理）
+    // 若调用方显式传了 daily/weekly/monthly/yearly，也尊重调用方意图（允许 type 与 custom FREQ 不一致——
+    //   type 仅作 SQL 过滤与 UI 标签，custom 才是实际展开规则）
+    if (effective_repeat_custom && rpt_type === 'none') {
+      const derived = deriveRepeatTypeFromCustom(effective_repeat_custom);
+      if (derived) rpt_type = derived;
+    }
 
   // 此时 rpt_type 已是最终值（考虑了 body 传入 + custom 反推）
   // is_series 基于最终的 rpt_type 判断
@@ -833,6 +842,19 @@ async function handleV1TodoPut(request, DB, todo_id) {
   // 3. time 与 end_time 时序一致性
   const timeErr = validateTimeRange(new_values.time, new_values.end_time);
   if (timeErr) return apiError(timeErr, 400);
+  // 4. 日期/时间格式校验
+  if (new_values.date) {
+    const dateErr = validateDateFormat(new_values.date);
+    if (dateErr) return apiError(dateErr, 400);
+  }
+  if (new_values.time) {
+    const tfErr = validateTimeFormat(new_values.time);
+    if (tfErr) return apiError(tfErr, 400);
+  }
+  if (new_values.end_time) {
+    const etErr = validateTimeFormat(new_values.end_time);
+    if (etErr) return apiError(etErr, 400);
+  }
 
   const date = existing.date;
   // rpt_type 已在上方确定（考虑了 body 传入 + custom 反推），这里直接复用
@@ -991,13 +1013,18 @@ async function handleV1TodoPut(request, DB, todo_id) {
       } else if (tmpl.type === 'update_all') {
         if (rpt_type !== 'none') {
           let existing_exdates = '[]';
+          let existing_time_records = '[]';
           try {
-            const existing_tpl = await DB.prepare('SELECT exdates FROM todo_templates WHERE parent_id = ?').bind(parent_id).first();
-            if (existing_tpl) existing_exdates = existing_tpl.exdates || '[]';
+            const existing_tpl = await DB.prepare('SELECT exdates, time_records FROM todo_templates WHERE parent_id = ?').bind(parent_id).first();
+            if (existing_tpl) {
+              existing_exdates = existing_tpl.exdates || '[]';
+              existing_time_records = existing_tpl.time_records || '[]';
+            }
           } catch (e) {}
+          // 保留 time_records（模板级跨实例预估数据，predictDuration 中位数预估）
           await DB.prepare(
-            'INSERT OR REPLACE INTO todo_templates (parent_id, text, time, priority, desc, url, copy_text, subtasks, search_terms, repeat_type, repeat_custom, repeat_end, end_time, anchor_date, exdates, category_id, repeat_interval) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
-          ).bind(parent_id, new_values.text, new_values.time, new_values.priority, new_values.desc, new_values.url, new_values.copy_text, subtasks_str, search_terms_str, rpt_type, new_values.repeat_custom, new_values.repeat_end, new_values.end_time, new_date, existing_exdates, new_values.category_id, new_values.repeat_interval).run();
+            'INSERT OR REPLACE INTO todo_templates (parent_id, text, time, priority, desc, url, copy_text, subtasks, search_terms, repeat_type, repeat_custom, repeat_end, end_time, anchor_date, exdates, category_id, repeat_interval, time_records) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+          ).bind(parent_id, new_values.text, new_values.time, new_values.priority, new_values.desc, new_values.url, new_values.copy_text, subtasks_str, search_terms_str, rpt_type, new_values.repeat_custom, new_values.repeat_end, new_values.end_time, new_date, existing_exdates, new_values.category_id, new_values.repeat_interval, existing_time_records).run();
         }
       } else if (tmpl.type === 'delete') {
         await DB.prepare('DELETE FROM todo_templates WHERE parent_id=?').bind(parent_id).run();
