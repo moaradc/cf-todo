@@ -313,12 +313,19 @@ export const detail = `
         if (predictText) html += '<div style="font-size:0.85em; opacity:0.7; margin-top:6px;">' + predictText + '</div>';
         html += '</div>';
       } else {
-        // 空闲：累计（仅>0 时）+ [开始计时] / [继续计时]
+        // 空闲：累计（仅>0 时）+ 最后记录于 Y（仅碎时记，与已完成态对齐）+ [开始计时] / [继续计时]
         // - 无累计（cumMs===0）：[开始计时] —— 全新 session
         // - 有累计（cumMs>0，典型场景：刚点过"记录"回到空闲态）：[继续计时] —— 在已累计基础上继续
         html += '<div class="detail-value" style="display:block;">';
         if (cumMs > 0) {
           html += '<div>累计 ' + formatMs(cumMs) + '</div>';
+        }
+        // 碎时记：与已完成态一致，显示"最后记录于"
+        if (isFragment) {
+          const lastRecIdle = records.length ? records[records.length - 1] : null;
+          if (lastRecIdle && lastRecIdle.e) {
+            html += '<div style="font-size:0.85em; opacity:0.7; margin-top:4px;">最后记录于 ' + formatDoneTime(lastRecIdle.e) + '</div>';
+          }
         }
         html += '<div class="timer-row" style="margin-top:' + (cumMs > 0 ? '8px' : '0') + ';">';
         html += '<button class="btn-ghost" onclick="startTimerDetail()">' + (cumMs > 0 ? '继续计时' : '开始计时') + '</button>';
