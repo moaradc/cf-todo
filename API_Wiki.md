@@ -840,8 +840,8 @@ API Key 传递方式（与 V1 一致）：
     | `RESTORE` | 恢复单条。自动处理重复任务冲突和 exdate |
     | `DELETE_PERMANENT` | 永久删除单条。**不可恢复** |
     | `CLEAR_ALL` | 清空回收站。**不可恢复** |
-    | `BATCH_RESTORE` | 批量恢复。自动处理重复任务冲突 |
-    | `BATCH_DELETE_PERMANENT` | 批量永久删除。**不可恢复** |
+    | `BATCH_RESTORE` | 批量恢复。**自动分片**（每 99 条一组，调用方无需手动拆分）。逻辑同 `RESTORE`：同日期已有实例或模板 `repeat_end` 已过期/删除时自动脱钩为单次任务，否则从 EXDATE 移除并入系列 |
+    | `BATCH_DELETE_PERMANENT` | 批量永久删除。**自动分片**（每 99 条一组）。**不可恢复** |
     | `CLEAR_ALL_DATA` | **危险** 清空所有数据（todos、templates、settings、categories），**不可恢复** |
 
 ---
