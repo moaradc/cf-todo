@@ -1487,6 +1487,8 @@ V0 Web API 还支持 `keep_records: true`（来自「继续计时」路径，仅
 
 `repeat_custom` 允许调用方绕过 `repeat_type` + `repeat_interval` 的预设组合，直接传入任意 RFC 5545 RRULE 字符串。引擎在 `repeat_custom` 非空时优先使用它生成实例，`repeat_type` 退化为分类标签（仍影响 SQL 过滤与 UI 显示）。
 
+> 本节所有行为描述均基于 `src/recurring-engine.js` 与 `src/api.js` / `src/api-v1.js` 源码逐项核对，并已在生产部署上端到端验证。
+
 #### 适用场景
 
 | 场景 | 用 `repeat_type`+`repeat_interval` 能否表达 | 用 `repeat_custom` |
@@ -1494,17 +1496,17 @@ V0 Web API 还支持 `keep_records: true`（来自「继续计时」路径，仅
 | 每天 | `repeat_type=daily` | 不需要 |
 | 每周一/三/五 | ❌（只能 `weekly` 单日） | `FREQ=WEEKLY;BYDAY=MO,WE,FR` |
 | 每月最后一个工作日 | ❌ | `FREQ=MONTHLY;BYDAY=MO,TU,WE,TH,FR;BYSETPOS=-1` |
-| 每季度首日 | ❌ | `FREQ=MONTHLY;INTERVAL=3;BYMONTHDAY=1` |
+| 每季度首日 | ❌ | `FREQ=MONTHLY;INTERVAL=3;BYMONTHDAY=1`（**注意**：须同时设 `repeat_interval=1`，否则引擎会用 `repeat_interval` 覆盖 custom 中的 `INTERVAL=3`，见下方引擎优先级） |
 | 工作日（周一至周五） | ❌ | `FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR` |
 | 每年 2 月 29 日 | ❌ | `FREQ=YEARLY;BYMONTH=2;BYMONTHDAY=29` |
-| 每 2 周一三五共 10 次 | ❌ | `FREQ=WEEKLY;INTERVAL=2;BYDAY=MO,WE,FR;COUNT=10` |
+| 每 2 周一三五共 10 次 | ❌ | `FREQ=WEEKLY;INTERVAL=2;BYDAY=MO,WE,FR;COUNT=10`（同样须设 `repeat_interval=1` 或不传） |
 | 每月 1 日和 15 日 | ❌ | `FREQ=MONTHLY;BYMONTHDAY=1,15` |
 
 简单周期任务建议继续用 `repeat_type` + `repeat_interval`（前端 UI 有原生支持）；只有无法用预设组合表达的复杂规则才用 `repeat_custom`。
 
 #### 校验规则
 
-服务端在写入前会做严格校验，校验失败返回 `400 Bad Request`：
+服务端在写入前会做严格校验（`src/recurring-engine.js` `sanitizeRepeatCustom()`），校验失败返回 `400 Bad Request`：
 
 | 规则 | 接受示例 | 拒绝示例 | 拒绝原因 |
 |------|---------|---------|---------|
@@ -1517,7 +1519,7 @@ V0 Web API 还支持 `keep_records: true`（来自「继续计时」路径，仅
 
 **规范化**：服务端自动剥离 `RRULE:` 前缀，全大写规范化。即调用方传 `freq=weekly;byday=mo` 会被规范化为 `FREQ=WEEKLY;BYDAY=MO` 后存入 DB。
 
-**与 `repeat_type` 的兼容性**：
+**与 `repeat_type` 的兼容性**（`processRepeatCustom()` 实现）：
 
 | `repeat_type` | `repeat_custom` 非空时行为 |
 |---------------|---------------------------|
@@ -1527,19 +1529,20 @@ V0 Web API 还支持 `keep_records: true`（来自「继续计时」路径，仅
 
 #### 引擎优先级（重要）
 
-当 `repeat_custom` 非空时，`buildRRuleString` 的实际行为：
+当 `repeat_custom` 非空时，`buildRRuleString()`（`src/recurring-engine.js` 第 166–186 行）的实际行为：
 
 ```
 最终 RRULE = repeat_custom（覆盖 FREQ / BYDAY / BYMONTH 等所有 token）
            + repeat_interval（若 > 1，覆盖 custom 中的 INTERVAL）
            + repeat_end（若 custom 未含 UNTIL，追加 UNTIL=repeat_endT235959Z）
-           + exdates（始终叠加，无论 custom 来源）
+           + exdates（始终叠加，独立于 RRULE 字符串）
 ```
 
-**结论**：
-- 想完全控制 INTERVAL：把 `INTERVAL=N` 写进 `repeat_custom`，并把 `repeat_interval` 设为 `1`（或不传）
-- 想完全控制 UNTIL：把 `UNTIL=YYYYMMDDTHHMMSSZ` 写进 `repeat_custom`，或不传 `repeat_end`
-- `exdates` 始终生效，调用方无需也无法在 `repeat_custom` 内嵌 EXDATE
+**关键细节**（已端到端验证）：
+
+- **`repeat_interval` 覆盖 custom 的 INTERVAL**：若调用方传 `repeat_interval=2` 且 custom 含 `INTERVAL=3`，引擎会用正则替换把 custom 的 `INTERVAL=3` 改为 `INTERVAL=2`。**想完全控制 INTERVAL：把 `INTERVAL=N` 写进 `repeat_custom`，并把 `repeat_interval` 设为 `1` 或不传**。
+- **`repeat_end` 在 custom 含 UNTIL 时不追加**：若 custom 已含 `UNTIL=...`，`repeat_end` 字段被忽略（custom 的 UNTIL 优先）。想完全控制 UNTIL：把 `UNTIL=YYYYMMDDTHHMMSSZ` 写进 `repeat_custom`。
+- **`exdates` 是独立 DB 列**（`todo_templates.exdates`，JSON 数组字符串如 `["2026-07-04"]`），**不是 RRULE 字符串的一部分**。引擎在构建 ical.js VEVENT 时单独注入 EXDATE 属性，与 custom 来源无关，始终生效。调用方无法在 `repeat_custom` 内嵌 EXDATE（ical.js 不支持 RRULE 内含 EXDATE，RFC 5545 也规定 EXDATE 是独立属性）。
 
 #### V1 API 使用示例
 
@@ -1559,7 +1562,7 @@ curl -X POST \
   "https://your-app.workers.dev/api/v1/todos"
 ```
 
-响应：
+响应（V1 POST 响应仅返回部分字段，完整字段需后续 GET）：
 
 ```json
 {
@@ -1569,14 +1572,18 @@ curl -X POST \
     "parent_id": "17826341657711955",
     "date": "2026-06-29",
     "text": "晨会",
+    "time": "",
+    "priority": "low",
     "repeat_type": "weekly",
     "repeat_custom": "FREQ=WEEKLY;BYDAY=MO,WE,FR",
+    "category_id": "",
     "repeat_interval": 1,
-    "is_series": true,
-    "..."
+    "fragment_anchor": ""
   }
 }
 ```
+
+> 注意：POST 响应的 `data` 不含 `subtasks` / `search_terms` / `desc` / `url` / `copy_text` / `end_time` / `repeat_end` 等字段，需通过 `GET /api/v1/todos/{id}` 获取完整对象。
 
 ##### 2. 创建「工作日」重复任务 + 截止 2026 年底
 
@@ -1594,7 +1601,7 @@ curl -X POST \
   "https://your-app.workers.dev/api/v1/todos"
 ```
 
-引擎实际展开的 RRULE：`FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR;UNTIL=20261231T235959Z`
+引擎实际展开的 RRULE：`FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR;UNTIL=20261231T235959Z`（`repeat_end` 被追加为 UNTIL，因 custom 未含 UNTIL）。
 
 ##### 3. 创建「每月最后一个工作日」任务
 
@@ -1611,6 +1618,8 @@ curl -X POST \
   "https://your-app.workers.dev/api/v1/todos"
 ```
 
+> 此处未传 `repeat_interval`，DB 默认为 1，不会覆盖 custom。
+
 ##### 4. `expand=false` 拿 templates 自算（推荐第三方客户端）
 
 ```bash
@@ -1618,64 +1627,117 @@ curl -H "X-API-Key: cfk_your_key" \
   "https://your-app.workers.dev/api/v1/todos?date=2026-06-29&expand=false"
 ```
 
-响应中 `templates` 数组会包含原始的 `repeat_custom` 字段：
+响应中 `templates` 数组包含 `todo_templates` 表的原始行（共 18 个字段，`subtasks` 已 parse 为数组，`exdates`/`search_terms`/`time_records` 保留为字符串）：
 
 ```json
 {
   "success": true,
   "data": [ /* 当天已存在的实例 */ ],
+  "pagination": { "total": 0, "limit": 100, "offset": 0 },
   "templates": [
     {
       "parent_id": "17826341657711955",
+      "text": "晨会",
+      "time": "",
+      "priority": "low",
+      "desc": "",
+      "url": "",
+      "copy_text": "",
+      "subtasks": [],
+      "search_terms": "[]",
       "repeat_type": "weekly",
       "repeat_custom": "FREQ=WEEKLY;BYDAY=MO,WE,FR",
+      "repeat_end": "",
+      "end_time": "",
       "anchor_date": "2026-06-29",
       "exdates": "[]",
-      "repeat_end": "",
-      "..."
+      "category_id": "",
+      "repeat_interval": 1,
+      "time_records": "[]"
     }
   ],
   "expand": false
 }
 ```
 
-调用方用 ical.js / rrule.js 自行计算：
+调用方用 ical.js 自行计算（完整可运行示例）：
 
 ```javascript
 import ICAL from 'ical.js';
 
+// 判断 template 在 dateStr 当天是否应有实例
 function isOccurrenceOnDate(template, dateStr) {
-  // 优先用 repeat_custom；否则用 repeat_type + repeat_interval 构建
-  const rruleStr = template.repeat_custom
-    || buildFromType(template.repeat_type, template.repeat_interval, template.anchor_date);
+  if (!template.repeat_type || template.repeat_type === 'none' || template.repeat_type === 'fragment') return false;
+  if (!template.anchor_date || template.anchor_date > dateStr) return false;
+
+  // 1. 解析 exdates
+  let exdates = [];
+  try { exdates = JSON.parse(template.exdates || '[]'); } catch (e) {}
+  if (exdates.includes(dateStr)) return false;
+
+  // 2. 检查 repeat_end（硬截止）
+  if (template.repeat_end && dateStr > template.repeat_end) return false;
+
+  // 3. anchor_date 始终是首实例（RFC 5545）
+  if (dateStr === template.anchor_date) return true;
+
+  // 4. 构建 RRULE：优先 repeat_custom，否则用 repeat_type + repeat_interval
+  let rruleStr = template.repeat_custom;
+  if (!rruleStr) {
+    const FREQ = { daily: 'DAILY', weekly: 'WEEKLY', monthly: 'MONTHLY', yearly: 'YEARLY' };
+    const f = FREQ[template.repeat_type];
+    if (!f) return false;
+    const parts = [`FREQ=${f}`];
+    if (template.repeat_interval && template.repeat_interval > 1) parts.push(`INTERVAL=${template.repeat_interval}`);
+    if (template.repeat_end) parts.push(`UNTIL=${template.repeat_end.replace(/-/g, '')}T235959Z`);
+    rruleStr = parts.join(';');
+  } else if (template.repeat_end && !rruleStr.includes('UNTIL')) {
+    // custom 未含 UNTIL 时追加 repeat_end
+    rruleStr += `;UNTIL=${template.repeat_end.replace(/-/g, '')}T235959Z`;
+  }
+
+  // 5. 用 ical.js 迭代判断
+  const vcalendar = new ICAL.Component(['vcalendar', [], []]);
   const vevent = new ICAL.Component('vevent');
-  vevent.addPropertyWithValue('dtstart', /* ... */);
+  const [y, m, d] = template.anchor_date.split('-').map(Number);
+  vevent.addPropertyWithValue('dtstart', new ICAL.Time({ year: y, month: m, day: d, isDate: true }));
   const rruleProp = new ICAL.Property('rrule', vevent);
   rruleProp.setValue(ICAL.Recur.fromString(rruleStr));
   vevent.addProperty(rruleProp);
-  // 应用 exdates
-  JSON.parse(template.exdates || '[]').forEach(d => {
-    /* 添加 EXDATE 属性 */
-  });
-  // 迭代判断 dateStr 是否命中
-  // ...
+  vcalendar.addSubcomponent(vevent);
+
+  const event = new ICAL.Event(vevent);
+  const iter = event.iterator();
+  let next, count = 0;
+  while ((next = iter.next()) && count < 1000) {
+    const ns = `${next.year}-${String(next.month).padStart(2,'0')}-${String(next.day).padStart(2,'0')}`;
+    if (ns === dateStr) return true;
+    if (ns > dateStr) return false;
+    count++;
+  }
+  return false;
 }
 
-// templates 优先级：repeat_custom > repeat_type/repeat_interval
-// exdates 与 repeat_end 始终生效
+// 用法
+const template = { /* 从 expand=false 响应取 */ };
+console.log(isOccurrenceOnDate(template, '2026-07-01')); // true (周三)
+console.log(isOccurrenceOnDate(template, '2026-07-02')); // false (周四)
 ```
+
+> 优先级：`repeat_custom` 非空时优先用 custom（`repeat_interval` 仍会覆盖 custom 的 INTERVAL，须调用方自行处理；上面示例简化了此逻辑，生产用建议参考 `src/recurring-engine.js` `buildRRuleString` 完整实现）。`exdates` 与 `repeat_end` 始终生效。
 
 ##### 5. PUT 修改 `repeat_custom`（PATCH 语义）
 
-V1 PUT 为 PATCH 语义——**不传 `repeat_custom` 字段时保留 DB 原值**：
+V1 PUT 为 **PATCH 语义**——`body.repeat_custom` 字段未传（`undefined`）时保留 DB 原值；传 `null` 或 `""` 显式清空；传非空字符串则严格校验后写入。
 
 ```bash
-# 仅修改 text，repeat_custom 不动
+# 仅修改 text，repeat_custom 不传 → 保留 DB 原值
 curl -X PUT \
   -H "X-API-Key: cfk_your_key" \
   -H "Content-Type: application/json" \
   -d '{"scope":"all","text":"晨会（改名）"}' \
   "https://your-app.workers.dev/api/v1/todos/17826341657711955"
+# 响应 data.repeat_custom 保持原值不变
 ```
 
 显式修改 `repeat_custom`：
@@ -1689,9 +1751,9 @@ curl -X PUT \
   "https://your-app.workers.dev/api/v1/todos/17826341657711955"
 ```
 
-> `scope=all` + `repeat_custom` 变更会触发引擎 `recurrence_changed=true`，旧实例被删除并由模板按新 custom 重新生成。
+> `scope=all` + `repeat_custom` 变更会触发引擎 `recurrence_changed=true`（`computeUpdateActions` 第 505 行），旧实例被 DELETE 并由模板按新 custom 重新生成。已端到端验证：MWF 模板改为 TU,TH 后，原 Wed 实例消失，原 Thu 实例出现。
 
-显式清空 `repeat_custom`（回退到 `repeat_type` + `repeat_interval`）：
+显式清空 `repeat_custom`（回退到 `repeat_type` + `repeat_interval` 驱动的 RRULE）：
 
 ```bash
 curl -X PUT \
@@ -1704,7 +1766,7 @@ curl -X PUT \
 ##### 6. 转 fragment / none 时强制清空
 
 ```bash
-# 重复 todo 转 fragment（碎时记）：repeat_custom 会被静默清空
+# 重复 todo 转 fragment（碎时记）：repeat_custom 会被静默清空（即使 body 显式传入）
 curl -X PUT \
   -H "X-API-Key: cfk_your_key" \
   -H "Content-Type: application/json" \
@@ -1715,9 +1777,26 @@ curl -X PUT \
 
 #### V0 API 使用示例（Web 端）
 
-V0 通过 `/api/todo-action` POST + `action` 字段操作。**V0 UPDATE 为全量替换语义**——`task.repeat_custom` 未传时按 `""` 处理（与前端现有契约一致），因此若想保留 custom 必须显式传回原值。
+V0 通过 `/api/todo-action` POST + `action` 字段操作。V0 端点同时支持 **API Key 鉴权**（推荐第三方脚本使用）和 **Cookie 鉴权**（Web 端登录后使用），API Key 优先。两种方式均覆盖所有 V0 端点（`/api/todo-action` / `/api/todos` / `/api/trash-action` / `/api/category-action` 等），鉴权方式详见 [§6 示例代码](#6-示例代码)。注意：作用域为 `v1` 的 API Key 无法访问 V0 端点（返回 403）。
 
-V0 端点同时支持 **API Key 鉴权**（推荐第三方脚本使用）和 **Cookie 鉴权**（Web 端登录后使用），API Key 优先。两种方式均覆盖所有 V0 端点（`/api/todo-action` / `/api/todos` / `/api/trash-action` / `/api/category-action` 等），鉴权方式详见 [§6 示例代码](#6-示例代码)。注意：作用域为 `v1` 的 API Key 无法访问 V0 端点（返回 403）。
+##### V0 UPDATE 字段语义（重要）
+
+V0 UPDATE 为 **混合语义**——部分字段 PATCH（未传时从 DB 回退），部分字段全量替换（未传时清空为默认值）。已逐字段端到端验证：
+
+| 字段 | 未传时行为 | 默认值 |
+|------|-----------|--------|
+| `text` / `desc` / `url` / `priority` / `copy_text` | **PATCH**（从 DB 回退） | — |
+| `repeat_interval` | **PATCH**（从 DB 回退） | 1（DB 无值时） |
+| `repeat_type` | 全量替换 | `'none'` |
+| `repeat_custom` | **全量替换（清空）** | `""` |
+| `repeat_end` | **全量替换（清空）** | `""` |
+| `end_time` | **全量替换（清空）** | `""` |
+| `category_id` | **全量替换（清空）** | `""` |
+| `subtasks` | **全量替换（清空）** | `[]` |
+| `search_terms` | **全量替换（清空）** | `[]` |
+| `date` | 回退到顶层 `date` 参数 | — |
+
+> **关键差异**：V0 UPDATE 即使只想改 `text`，也必须把 `repeat_custom` / `repeat_end` / `category_id` / `subtasks` / `search_terms` / `end_time` 显式传回原值，否则会被清空。前端 `detail.js` 在每次保存时都会重建 `task` 对象包含所有字段，所以前端用户无感知。**外部脚本调用 V0 时必须传完整 task 对象**，或改用 V1 PUT（PATCH 语义，更友好）。
 
 ##### 1. V0 CREATE（推荐用 API Key）
 
@@ -1739,7 +1818,7 @@ curl -X POST \
   "https://your-app.workers.dev/api/todo-action"
 ```
 
-> `task.id` 必填，前端用 `Date.now() + 随机数` 生成；外部脚本可自行生成唯一字符串。
+> `task.id` 必填，前端用 `Date.now() + 随机数` 生成；外部脚本可自行生成唯一字符串。V0 CREATE 响应为 `{"success":true}`（无 data 字段），需后续 GET 获取完整对象。
 
 ##### 1b. V0 CREATE（用 Cookie，仅 Web 端登录场景）
 
@@ -1767,7 +1846,7 @@ curl -b cookies.txt -X POST \
   "https://your-app.workers.dev/api/todo-action"
 ```
 
-##### 2. V0 UPDATE（全量替换——必须显式传回 repeat_custom）
+##### 2. V0 UPDATE（必须传完整 task 对象——repeat_custom 等字段未传会被清空）
 
 ```bash
 curl -X POST \
@@ -1782,30 +1861,42 @@ curl -X POST \
       "text": "晨会（改名）",
       "repeat_type": "weekly",
       "repeat_custom": "FREQ=WEEKLY;BYDAY=TU,TH",
-      "repeat_interval": 1
+      "repeat_interval": 1,
+      "repeat_end": "",
+      "end_time": "",
+      "category_id": "",
+      "subtasks": [],
+      "search_terms": [],
+      "desc": "",
+      "url": "",
+      "copy_text": "",
+      "priority": "low"
     }
   }' \
   "https://your-app.workers.dev/api/todo-action"
 ```
 
-> 注意：V0 UPDATE 即使只想改 `text`，也必须把 `repeat_custom` 显式传回（若 DB 已有值）；否则会被清空。前端 `detail.js` 在每次保存时都会重建 `task` 对象包含所有字段，所以前端用户无感知。**外部脚本调用 V0 时需注意此差异**。
+> 上面示例传了完整 task 对象。若只传 `id` + `text` + `repeat_type` + `repeat_interval`，`repeat_custom` 会被清空（已验证）。外部脚本推荐改用 V1 PUT（`PUT /api/v1/todos/{id}`），PATCH 语义更友好。
 
 #### 常见错误响应
 
 ```json
-// 400 — FREQ 非法
+// 400 — repeat_custom 格式无效（FREQ 非法 / 含控制字符 / ical.js 解析失败等）
 { "error": "repeat_custom 格式无效：必须为合法 RRULE 字符串，以 FREQ=DAILY/WEEKLY/MONTHLY/YEARLY 开头，长度 ≤ 500，不含换行/控制字符" }
 
 // 400 — repeat_interval 非正整数
 { "error": "repeat_interval 必须为正整数" }
 
-// 400 — repeat_type 非法
+// 400 — repeat_type 非法（注意：hourly 不是合法值，仅接受 none/daily/weekly/monthly/yearly/fragment）
 { "error": "无效的 repeat_type: hourly，有效值: none, daily, weekly, monthly, yearly, fragment" }
+
+// 403 — API Key 作用域为 v1，无法访问 V0 端点
+{ "error": "API Key 仅允许访问 v1 接口" }
 ```
 
 #### 调试技巧
 
-1. **验证 RRULE 是否合法**：用 ical.js 在本地试解析
+1. **验证 RRULE 是否合法**：用 ical.js 在本地试解析（与服务端 `sanitizeRepeatCustom` 一致）
    ```javascript
    import ICAL from 'ical.js';
    try { ICAL.Recur.fromString('FREQ=WEEKLY;BYDAY=MO,WE,FR'); console.log('OK'); }
@@ -1825,7 +1916,12 @@ curl -X POST \
    curl -H "X-API-Key: cfk_your_key" \
      "https://your-app.workers.dev/api/v1/todos?date=2026-07-01&expand=true"
    # 周三（07-01）应出现该 todo 实例
+   curl -H "X-API-Key: cfk_your_key" \
+     "https://your-app.workers.dev/api/v1/todos?date=2026-07-02&expand=true"
+   # 周四（07-02）不应出现该 todo 实例
    ```
+
+4. **调试 `repeat_interval` 覆盖问题**：若发现 custom 中的 `INTERVAL=N` 未生效，检查 `repeat_interval` 字段是否被设为 > 1 的值。引擎会用 `repeat_interval` 覆盖 custom 的 INTERVAL。
 
 ---
 
