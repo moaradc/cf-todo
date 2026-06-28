@@ -259,15 +259,17 @@ export const detail = `
 
       if (task.done) {
         // 已完成态按 todo 类型分流：
-        // - 碎时记：累计 X + 最后记录于 Y + [继续计时]（多 session 累计模型）
+        // - 碎时记：完成于 X，累计 Y + [开始计时]（多 session 累计模型）
         // - 普通 todo：完成于 X，耗时 Y（实例时效性语义，无跨日累计）
         const lastRec = overrideRecord || (records.length ? records[records.length - 1] : null);
         html += '<div class="detail-value" style="display:block;">';
         if (isFragment) {
-          if (cumMs > 0) html += '<div>累计 ' + formatMs(cumMs) + '</div>';
+          // 碎时记已完成态：完成于 X，累计 Y（与普通 todo 风格对齐）
           if (lastRec && lastRec.e) {
-            html += '<div style="font-size:0.85em; opacity:0.7; margin-top:4px;">最后记录于 ' + formatDoneTime(lastRec.e) + '</div>';
-          } else if (cumMs === 0) {
+            html += '<div>完成于 ' + formatDoneTime(lastRec.e) + (cumMs > 0 ? '，累计 ' + formatMs(cumMs) : '') + '</div>';
+          } else if (cumMs > 0) {
+            html += '<div>累计 ' + formatMs(cumMs) + '</div>';  // 兜底：有耗时但缺 lastRec.e
+          } else {
             html += '<div style="color:var(--fg); opacity:0.6;">无完成耗时记录</div>';
           }
         } else {
