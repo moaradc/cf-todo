@@ -93,18 +93,22 @@ export function sanitizeRepeatCustom(raw) {
  * 处理 repeat_custom 输入：组合 sanitize + 与 repeat_type 的兼容性约束
  *
  * 与 repeat_type 的兼容性矩阵：
- *   - repeat_type ∈ {none, fragment} → repeat_custom 强制为 ""
- *     （SQL 过滤会排除这两种类型的模板，引擎 isOccurrenceOnDate 也直接返回 false，
- *      非空 repeat_custom 会成为 DB 死重）
- *   - repeat_type ∈ {daily, weekly, monthly, yearly} → 允许非空 repeat_custom
+ *   - repeat_type ∈ {none, fragment} + raw 为空 → 返回 ""（静默清空）
+ *   - repeat_type ∈ {none, fragment} + raw 非空：
+ *       - allowDerive=true（UPDATE 场景）：仅 sanitize，不清空，让调用方尝试 deriveRepeatTypeFromCustom 反推
+ *       - allowDerive=false（CREATE 场景）：静默清空为 ""（兼容旧行为）
+ *   - repeat_type ∈ {daily, weekly, monthly, yearly} → 允许非空 repeat_custom，严格校验
  *
  * @param {*} raw - 用户传入的 repeat_custom
  * @param {string} repeatType - 有效的 repeat_type 值
+ * @param {object} [opts] - 选项
+ * @param {boolean} [opts.allowDerive=false] - UPDATE 场景下允许反推，不清空 none/fragment 的 custom
  * @returns {{value: string, error: string|null}}
  *   - value: 规范化后的 repeat_custom（永远为 string）
  *   - error: 非 null 时表示用户传入非空但校验失败，调用方应返回 400
  */
-export function processRepeatCustom(raw, repeatType) {
+export function processRepeatCustom(raw, repeatType, opts = {}) {
+  const { allowDerive = false } = opts;
   // null/undefined/'' → 视为未设置
   if (raw == null || (typeof raw === 'string' && raw.trim() === '')) {
     return { value: '', error: null };
@@ -113,8 +117,20 @@ export function processRepeatCustom(raw, repeatType) {
   if (typeof raw !== 'string') {
     return { value: '', error: 'repeat_custom 必须为字符串' };
   }
-  // repeat_type 兼容性：fragment/none 强制清空（静默，不报错，匹配既有 fragment-clear 模式）
+  // repeat_type 兼容性：fragment/none 处理
   if (repeatType === 'none' || repeatType === 'fragment') {
+    if (allowDerive) {
+      // UPDATE 场景：sanitize 后返回，让调用方尝试 deriveRepeatTypeFromCustom 反推 repeat_type
+      const sanitized = sanitizeRepeatCustom(raw);
+      if (!sanitized) {
+        return {
+          value: '',
+          error: 'repeat_custom 格式无效：必须为合法 RRULE 字符串，以 FREQ=DAILY/WEEKLY/MONTHLY/YEARLY 开头，长度 ≤ 500，不含换行/控制字符',
+        };
+      }
+      return { value: sanitized, error: null };
+    }
+    // CREATE 场景：静默清空（匹配既有 fragment-clear 模式）
     return { value: '', error: null };
   }
   // 非空 + 非 fragment/none → 严格校验
@@ -126,6 +142,92 @@ export function processRepeatCustom(raw, repeatType) {
     };
   }
   return { value: sanitized, error: null };
+}
+
+// ==================== 联动推导与原子组校验 ====================
+
+/**
+ * 从 repeat_custom 反推 repeat_type
+ *
+ * 当调用方传了 repeat_custom（非空），但未传 repeat_type 或 repeat_type 与 custom 的 FREQ 不一致时，
+ * 服务端用 custom 的 FREQ 反推 repeat_type，保证 DB 中 repeat_type 与实际展开规则一致。
+ *
+ * 反推规则：
+ *   FREQ=DAILY   → daily
+ *   FREQ=WEEKLY  → weekly
+ *   FREQ=MONTHLY → monthly
+ *   FREQ=YEARLY  → yearly
+ *
+ * @param {string} repeatCustom - 已 sanitize 的 repeat_custom 字符串
+ * @returns {string|null} 反推出的 repeat_type，或 null（custom 为空或无法解析）
+ */
+export function deriveRepeatTypeFromCustom(repeatCustom) {
+  if (!repeatCustom || !repeatCustom.trim()) return null;
+  const m = repeatCustom.match(/^FREQ=([A-Z]+)/);
+  if (!m) return null;
+  const freq = m[1];
+  const reverseMap = { DAILY: 'daily', WEEKLY: 'weekly', MONTHLY: 'monthly', YEARLY: 'yearly' };
+  return reverseMap[freq] || null;
+}
+
+/**
+ * 校验 time 与 end_time 的时序一致性
+ *
+ * 规则：若 time 和 end_time 都非空且在同一天，time 不能晚于 end_time。
+ * 允许 end_time 为空（表示无结束时间）。
+ * 允许 time == end_time（零耗时，勾选完成场景）。
+ *
+ * @param {string} time - HH:MM 格式
+ * @param {string} endTime - HH:MM 格式
+ * @returns {string|null} 错误消息，null 表示通过
+ */
+export function validateTimeRange(time, endTime) {
+  if (!time || !endTime) return null;
+  const timeRe = /^\d{2}:\d{2}$/;
+  if (!timeRe.test(time) || !timeRe.test(endTime)) return null; // 格式不符交给其他校验
+  if (time > endTime) {
+    return `time (${time}) 不能晚于 end_time (${endTime})`;
+  }
+  return null;
+}
+
+/**
+ * 校验 repeat_end 与 repeat_type 的兼容性（原子组）
+ *
+ * 规则：repeat_end 非空时，repeat_type 必须是 daily/weekly/monthly/yearly。
+ * none/fragment 类型无 RRULE，repeat_end 无意义，应拒绝。
+ *
+ * @param {string} repeatEnd - YYYY-MM-DD 或空
+ * @param {string} repeatType - none/daily/weekly/monthly/yearly/fragment
+ * @returns {string|null} 错误消息，null 表示通过
+ */
+export function validateRepeatEndCompat(repeatEnd, repeatType) {
+  if (!repeatEnd) return null;
+  if (repeatType === 'none' || repeatType === 'fragment') {
+    return `repeat_end 仅在 repeat_type 为 daily/weekly/monthly/yearly 时有效，当前 repeat_type=${repeatType}`;
+  }
+  return null;
+}
+
+/**
+ * 校验 repeat_interval 与 repeat_type 的兼容性
+ *
+ * 规则：repeat_interval > 1 时，repeat_type 必须是 daily/weekly/monthly/yearly。
+ * none/fragment 类型 repeat_interval 强制为 1，传 > 1 应拒绝（防止数据不一致）。
+ *
+ * @param {number} repeatInterval
+ * @param {string} repeatType
+ * @returns {string|null} 错误消息，null 表示通过
+ */
+export function validateRepeatIntervalCompat(repeatInterval, repeatType) {
+  if (repeatInterval == null) return null;
+  if (typeof repeatInterval !== 'number' || !Number.isInteger(repeatInterval) || repeatInterval < 1) {
+    return 'repeat_interval 必须为正整数';
+  }
+  if (repeatInterval > 1 && (repeatType === 'none' || repeatType === 'fragment')) {
+    return `repeat_interval > 1 仅在 repeat_type 为 daily/weekly/monthly/yearly 时有效，当前 repeat_type=${repeatType}`;
+  }
+  return null;
 }
 
 const DAY_MAP = ['', 'SU', 'MO', 'TU', 'WE', 'TH', 'FR', 'SA'];

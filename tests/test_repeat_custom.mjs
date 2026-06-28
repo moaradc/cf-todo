@@ -1,5 +1,5 @@
 /**
- * Test: repeat_custom 入口开放后的引擎行为 + sanitize 校验
+ * Test: repeat_custom 入口开放后的引擎行为 + sanitize 校验 + 联动推导/校验
  *
  * 运行: node tests/test_repeat_custom.mjs
  *
@@ -9,6 +9,8 @@
  *   3. buildRRuleString：custom 非空时优先 + INTERVAL/UNTIL 注入
  *   4. isOccurrenceOnDate：custom RRULE 实际展开行为
  *   5. computeUpdateActions：split-series 模板透传 repeat_custom + recurrence_changed 检测
+ *   6. deriveRepeatTypeFromCustom：custom 反推 repeat_type
+ *   7. validateTimeRange / validateRepeatEndCompat / validateRepeatIntervalCompat：原子组校验
  */
 
 import {
@@ -16,6 +18,10 @@ import {
   processRepeatCustom,
   isOccurrenceOnDate,
   computeUpdateActions,
+  deriveRepeatTypeFromCustom,
+  validateTimeRange,
+  validateRepeatEndCompat,
+  validateRepeatIntervalCompat,
 } from '../src/recurring-engine.js';
 
 let pass = 0, fail = 0;
@@ -249,6 +255,66 @@ const actions_e = computeUpdateActions({ task: task_e, date: '2026-01-06', scope
 eq(actions_e.currentTodo.repeat_custom, '', 'all→none：currentTodo.repeat_custom 强制清空');
 eq(actions_e.currentTodo.repeat_type, 'none', 'all→none：currentTodo.repeat_type 强制为 none');
 truthy(actions_e.template?.type === 'delete', 'all→none：template.type=delete');
+
+// ============================================================
+// 6. deriveRepeatTypeFromCustom：custom 反推 repeat_type
+// ============================================================
+console.log('\n[6] deriveRepeatTypeFromCustom');
+
+eq(deriveRepeatTypeFromCustom(''), null, '空串 → null');
+eq(deriveRepeatTypeFromCustom(null), null, 'null → null');
+eq(deriveRepeatTypeFromCustom('FREQ=DAILY'), 'daily', 'FREQ=DAILY → daily');
+eq(deriveRepeatTypeFromCustom('FREQ=WEEKLY;BYDAY=MO,WE,FR'), 'weekly', 'FREQ=WEEKLY → weekly');
+eq(deriveRepeatTypeFromCustom('FREQ=MONTHLY;BYMONTHDAY=15'), 'monthly', 'FREQ=MONTHLY → monthly');
+eq(deriveRepeatTypeFromCustom('FREQ=YEARLY;BYMONTH=2;BYMONTHDAY=29'), 'yearly', 'FREQ=YEARLY → yearly');
+eq(deriveRepeatTypeFromCustom('INVALID'), null, '非 RRULE → null');
+eq(deriveRepeatTypeFromCustom('FREQ=SECONDLY'), null, 'FREQ=SECONDLY → null（不在反推表）');
+
+// ============================================================
+// 7. validateTimeRange：time vs end_time 时序校验
+// ============================================================
+console.log('\n[7] validateTimeRange');
+
+eq(validateTimeRange('', ''), null, '都空 → 通过');
+eq(validateTimeRange('09:00', ''), null, 'end_time 空 → 通过');
+eq(validateTimeRange('', '10:00'), null, 'time 空 → 通过');
+eq(validateTimeRange('09:00', '10:00'), null, '09:00 < 10:00 → 通过');
+eq(validateTimeRange('09:00', '09:00'), null, '09:00 == 09:00 → 通过（零耗时）');
+truthy(validateTimeRange('10:00', '09:00') !== null, '10:00 > 09:00 → 拒绝');
+truthy(validateTimeRange('23:59', '00:01') !== null, '23:59 > 00:01 → 拒绝');
+
+// ============================================================
+// 8. validateRepeatEndCompat：repeat_end 与 repeat_type 兼容性
+// ============================================================
+console.log('\n[8] validateRepeatEndCompat');
+
+eq(validateRepeatEndCompat('', 'none'), null, 'repeat_end 空 + none → 通过');
+eq(validateRepeatEndCompat('', 'fragment'), null, 'repeat_end 空 + fragment → 通过');
+eq(validateRepeatEndCompat('', 'weekly'), null, 'repeat_end 空 + weekly → 通过');
+eq(validateRepeatEndCompat('2026-12-31', 'daily'), null, 'repeat_end + daily → 通过');
+eq(validateRepeatEndCompat('2026-12-31', 'weekly'), null, 'repeat_end + weekly → 通过');
+eq(validateRepeatEndCompat('2026-12-31', 'monthly'), null, 'repeat_end + monthly → 通过');
+eq(validateRepeatEndCompat('2026-12-31', 'yearly'), null, 'repeat_end + yearly → 通过');
+truthy(validateRepeatEndCompat('2026-12-31', 'none') !== null, 'repeat_end + none → 拒绝');
+truthy(validateRepeatEndCompat('2026-12-31', 'fragment') !== null, 'repeat_end + fragment → 拒绝');
+
+// ============================================================
+// 9. validateRepeatIntervalCompat：repeat_interval 与 repeat_type 兼容性
+// ============================================================
+console.log('\n[9] validateRepeatIntervalCompat');
+
+eq(validateRepeatIntervalCompat(null, 'none'), null, 'interval null → 通过');
+eq(validateRepeatIntervalCompat(1, 'none'), null, 'interval=1 + none → 通过');
+eq(validateRepeatIntervalCompat(1, 'fragment'), null, 'interval=1 + fragment → 通过');
+eq(validateRepeatIntervalCompat(1, 'weekly'), null, 'interval=1 + weekly → 通过');
+eq(validateRepeatIntervalCompat(2, 'weekly'), null, 'interval=2 + weekly → 通过');
+eq(validateRepeatIntervalCompat(3, 'monthly'), null, 'interval=3 + monthly → 通过');
+truthy(validateRepeatIntervalCompat(2, 'none') !== null, 'interval=2 + none → 拒绝');
+truthy(validateRepeatIntervalCompat(2, 'fragment') !== null, 'interval=2 + fragment → 拒绝');
+truthy(validateRepeatIntervalCompat(0, 'weekly') !== null, 'interval=0 → 拒绝');
+truthy(validateRepeatIntervalCompat(-1, 'weekly') !== null, 'interval=-1 → 拒绝');
+truthy(validateRepeatIntervalCompat(1.5, 'weekly') !== null, 'interval=1.5 → 拒绝（非整数）');
+truthy(validateRepeatIntervalCompat('2', 'weekly') !== null, 'interval="2" → 拒绝（非数字）');
 
 // ============================================================
 // Summary

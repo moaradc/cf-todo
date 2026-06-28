@@ -48,6 +48,10 @@ import {
   getPreviousDate,
   sanitizeRepeatCustom,
   processRepeatCustom,
+  deriveRepeatTypeFromCustom,
+  validateTimeRange,
+  validateRepeatEndCompat,
+  validateRepeatIntervalCompat,
 } from './recurring-engine.js';
 
 // ==================== API Key 管理 ====================
@@ -727,24 +731,22 @@ async function handleV1TodoPut(request, DB, todo_id) {
   }
   // 碎时记 (fragment) 不算重复系列
   // 若新值是 fragment，强制按"非系列"处理：脱离旧系列 + 不创建新模板
-  const rptTypeFromBody = body.repeat_type !== undefined ? body.repeat_type : (existing.repeat_type || 'none');
-  const is_series = existing.repeat_type && existing.repeat_type !== 'none' && existing.repeat_type !== 'fragment' && rptTypeFromBody !== 'fragment';
-  // 重复 todo 未指定 scope 时，默认 scope=this（仅更新此实例）
-  const scope = is_series && (!body.scope || body.scope === 'none') ? 'this' : (body.scope || 'none');
+  // PATCH 语义：body.repeat_type 未传时从 DB 回退
+  let rpt_type = body.repeat_type !== undefined ? body.repeat_type : (existing.repeat_type || 'none');
 
   // 健壮性：处理 repeat_custom（PATCH 语义）
   // - body.repeat_custom === undefined：保留 existing（但 fragment/none 强制清空）
   // - body.repeat_custom === null / ''：显式清空
   // - body.repeat_custom 非空字符串：严格校验，失败返回 400
-  // - fragment/none 类型：始终强制清空（无论 body 是否提供）
+  // - allowDerive=true：UPDATE 场景下，repeat_type=none/fragment + custom 非空时不清空，让 deriveRepeatTypeFromCustom 反推
   let effective_repeat_custom;
   if (body.repeat_custom !== undefined) {
-    const customResult = processRepeatCustom(body.repeat_custom, rptTypeFromBody);
+    const customResult = processRepeatCustom(body.repeat_custom, rpt_type, { allowDerive: true });
     if (customResult.error) return apiError(customResult.error, 400);
     effective_repeat_custom = customResult.value;
   } else {
     // 未提供：按 existing 推导
-    if (rptTypeFromBody === 'none' || rptTypeFromBody === 'fragment') {
+    if (rpt_type === 'none' || rpt_type === 'fragment') {
       effective_repeat_custom = '';
     } else {
       // 保留 existing.repeat_custom，但二次 sanitize 防御 DB 脏数据
@@ -752,6 +754,24 @@ async function handleV1TodoPut(request, DB, todo_id) {
     }
   }
 
+  // 联动推导（服务端自动）：repeat_custom 非空时，从 custom 的 FREQ 反推 repeat_type
+  // 这保证 DB 中 repeat_type 与实际展开规则一致，避免「传 custom 但不传 type」导致的数据错乱
+  // 仅当 rpt_type ∈ {none, fragment} 时反推（即调用方未明确指定有效的 repeat_type）
+  // 若调用方显式传了 daily/weekly/monthly/yearly，尊重调用方意图，不反推（允许 type 与 custom FREQ 不一致——
+  //   type 仅作 SQL 过滤与 UI 标签，custom 才是实际展开规则）
+  if (effective_repeat_custom && (rpt_type === 'none' || rpt_type === 'fragment')) {
+    const derived = deriveRepeatTypeFromCustom(effective_repeat_custom);
+    if (derived) rpt_type = derived;
+  }
+
+  // 此时 rpt_type 已是最终值（考虑了 body 传入 + custom 反推）
+  // is_series 基于最终的 rpt_type 判断
+  const is_series = existing.repeat_type && existing.repeat_type !== 'none' && existing.repeat_type !== 'fragment' && rpt_type !== 'fragment';
+
+  // 重复 todo 未指定 scope 时，默认 scope=this（仅更新此实例）
+  const scope = is_series && (!body.scope || body.scope === 'none') ? 'this' : (body.scope || 'none');
+
+  // PATCH 语义构建 new_values：未传字段从 existing 回退
   const new_values = {
     text: body.text !== undefined ? body.text : existing.text,
     time: body.time !== undefined ? body.time : (existing.time || ''),
@@ -761,7 +781,7 @@ async function handleV1TodoPut(request, DB, todo_id) {
     copy_text: body.copy_text !== undefined ? body.copy_text : (existing.copy_text || ''),
     subtasks: JSON.stringify(body.subtasks !== undefined ? body.subtasks : parseJsonField(existing.subtasks)),
     search_terms: JSON.stringify(body.search_terms !== undefined ? body.search_terms : parseJsonField(existing.search_terms)),
-    repeat_type: body.repeat_type !== undefined ? body.repeat_type : (existing.repeat_type || 'none'),
+    repeat_type: rpt_type,
     repeat_custom: effective_repeat_custom,
     repeat_end: body.repeat_end !== undefined ? body.repeat_end : (existing.repeat_end || ''),
     end_time: body.end_time !== undefined ? body.end_time : (existing.end_time || ''),
@@ -771,7 +791,7 @@ async function handleV1TodoPut(request, DB, todo_id) {
   };
 
   // 碎时记强制约束：若新值是 fragment，强制清空 time/end_time/repeat_end/repeat_interval/repeat_custom
-  // 防止 API 调用者绕过前端约束，向碎时记写入无意义字段
+  // 这是服务端联动推导——调用方无需传这些字段，服务端保证 fragment 类型不会有无效数据
   if (new_values.repeat_type === 'fragment') {
     new_values.time = '';
     new_values.end_time = '';
@@ -784,8 +804,19 @@ async function handleV1TodoPut(request, DB, todo_id) {
     new_values.repeat_custom = '';
   }
 
+  // 原子组校验（联动字段一致性，冲突返回 400 并告知原因）
+  // 1. repeat_end 与 repeat_type 兼容性
+  const repeatEndErr = validateRepeatEndCompat(new_values.repeat_end, new_values.repeat_type);
+  if (repeatEndErr) return apiError(repeatEndErr, 400);
+  // 2. repeat_interval 与 repeat_type 兼容性
+  const intervalErr = validateRepeatIntervalCompat(new_values.repeat_interval, new_values.repeat_type);
+  if (intervalErr) return apiError(intervalErr, 400);
+  // 3. time 与 end_time 时序一致性
+  const timeErr = validateTimeRange(new_values.time, new_values.end_time);
+  if (timeErr) return apiError(timeErr, 400);
+
   const date = existing.date;
-  const rpt_type = new_values.repeat_type;
+  // rpt_type 已在上方确定（考虑了 body 传入 + custom 反推），这里直接复用
   const subtasks_str = new_values.subtasks;
   const search_terms_str = new_values.search_terms;
   // 健壮性兜底：非 fragment 类型必须有有效具体日期

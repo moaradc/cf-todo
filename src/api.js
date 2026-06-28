@@ -30,6 +30,10 @@ import {
   getNextDate,
   sanitizeRepeatCustom,
   processRepeatCustom,
+  deriveRepeatTypeFromCustom,
+  validateTimeRange,
+  validateRepeatEndCompat,
+  validateRepeatIntervalCompat,
 } from './recurring-engine.js';
 import { handleV1Request, verifyApiKey, extractApiKey, getApiKeyScope } from './api-v1.js';
 
@@ -3041,34 +3045,12 @@ self.addEventListener('fetch', (event) => {
           if (!task || !task.id || typeof task.id !== 'string' || !task.id.trim()) {
             return apiError('task.id 为必填字段', 400);
           }
-          const rpt_type = task.repeat_type || 'none';
           // 健壮性：校验 repeat_type 合法值
           const VALID_REPEAT_TYPES_UPD = ['none', 'daily', 'weekly', 'monthly', 'yearly', 'fragment'];
           if (task.repeat_type && !VALID_REPEAT_TYPES_UPD.includes(task.repeat_type)) {
             return apiError(`无效的 repeat_type: ${task.repeat_type}`, 400);
           }
-          // 健壮性：校验 repeat_custom（V0 全量替换语义——task.repeat_custom 未传时按 '' 处理）
-          // - repeat_type ∈ {none, fragment} → 静默清空
-          // - 非 empty + 非 none/fragment → 严格校验，失败返回 400
-          const customResult = processRepeatCustom(task.repeat_custom, rpt_type);
-          if (customResult.error) return apiError(customResult.error, 400);
-          // fragment/none 已被 processRepeatCustom 强制清空，这里二次防御
-          const final_repeat_custom = (rpt_type === 'none' || rpt_type === 'fragment') ? '' : customResult.value;
 
-          const subtasks_str = JSON.stringify(task.subtasks ||[]);
-          const search_terms_str = JSON.stringify(task.search_terms ||[]);
-          const category_id = task.category_id || '';
-          const repeat_end = task.repeat_end || '';
-          const end_time = task.end_time || '';
-          let new_date = (task.date !== undefined && task.date !== null) ? task.date : date;
-          // 健壮性兜底：非 fragment 类型必须有有效具体日期
-          // fragment 允许 date 为空（不限起始），但 none/daily/weekly/monthly/yearly 不允许
-          // 前端已兜底，这里防御 API 直接调用或异常情况
-          const rpt_type_for_check = task.repeat_type || 'none';
-          if (rpt_type_for_check !== 'fragment' && !new_date) {
-            new_date = date;
-          }
-          const date_changed = new_date !== date;
           // 健壮性修复：parent_id 缺失时从 DB 派生
           // 原 bug：UPDATE scope=all 不传 task.parent_id → DELETE FROM todos WHERE parent_id=undefined → 500
           // V0 调用方（含外部 API）可能省略 parent_id（V1 风格），需要服务端补全
@@ -3083,30 +3065,95 @@ self.addEventListener('fetch', (event) => {
             return apiError('无法确定 parent_id（任务不存在或未传 parent_id）', 400);
           }
 
-          // 获取原始任务数据，用于检测重复规则变更和正确判断 is_series
-          // 健壮性修复：同时取 text/time/priority/desc/url/copy_text 等字段，
-          // 调用方按 V1 风格只传需要修改的字段时，缺失字段从 DB 回退，避免 500
-          // 包含 repeat_custom：用于引擎 recurrence_changed 检测（旧值 vs 新值）
+          // 获取原始任务数据，用于 PATCH 语义回退 + 检测重复规则变更 + 正确判断 is_series
+          // 包含所有可 PATCH 字段 + repeat_custom（用于引擎 recurrence_changed 检测）
           let original_task = task;
           try {
-            const orig = await env.DB.prepare('SELECT text, time, priority, desc, url, copy_text, repeat_type, repeat_interval, repeat_custom, done, date, parent_id FROM todos WHERE id = ?').bind(task.id).first();
+            const orig = await env.DB.prepare('SELECT text, time, priority, desc, url, copy_text, repeat_type, repeat_interval, repeat_custom, repeat_end, end_time, category_id, subtasks, search_terms, done, date, parent_id FROM todos WHERE id = ?').bind(task.id).first();
             if (orig) {
-              original_task = { ...task, repeat_type: orig.repeat_type, repeat_interval: orig.repeat_interval, repeat_custom: orig.repeat_custom, _orig_done: orig.done, _orig_date: orig.date, _orig_parent_id: orig.parent_id, _orig_repeat_type: orig.repeat_type, _orig_repeat_custom: orig.repeat_custom };
-              // 缺失字段从 DB 回退（V1 PATCH 风格：仅传需修改字段）
-              if (task.text === undefined) original_task.text = orig.text;
-              if (task.time === undefined) original_task.time = orig.time;
-              if (task.priority === undefined) original_task.priority = orig.priority;
-              if (task.desc === undefined) original_task.desc = orig.desc;
-              if (task.url === undefined) original_task.url = orig.url;
-              if (task.copy_text === undefined) original_task.copy_text = orig.copy_text || '';
+              original_task = { ...task, _orig_done: orig.done, _orig_date: orig.date, _orig_parent_id: orig.parent_id, _orig_repeat_type: orig.repeat_type, _orig_repeat_custom: orig.repeat_custom };
             }
           } catch(e) {}
 
-          // is_series 基于数据库原始数据判断，而非前端提交的新值
-          // 前端可能已将 repeat_type 改为 'none'，但原始任务仍是循环的
-          // 碎时记 (fragment) 不算重复系列
-          // 若新值是 fragment，强制按"非系列"处理：脱离旧系列 + 删除旧模板 + 不创建新模板
-          const is_series = original_task.repeat_type && original_task.repeat_type !== 'none' && original_task.repeat_type !== 'fragment' && rpt_type !== 'fragment';
+          // ====== PATCH 语义：未传字段从 DB 回退 ======
+          // V0 UPDATE 此前为混合语义（部分 PATCH 部分全量替换），现统一为 PATCH 语义
+          // 调用方只需传想修改的字段，未传字段保留 DB 原值
+          // 显式清空：传 null 或 ''（字符串字段）/ [] （数组字段）
+          const patchText       = task.text !== undefined ? task.text : (original_task.text !== undefined ? original_task.text : '');
+          const patchTime       = task.time !== undefined ? task.time : (original_task.time || '');
+          const patchPriority   = task.priority !== undefined ? task.priority : (original_task.priority || 'low');
+          const patchDesc       = task.desc !== undefined ? task.desc : (original_task.desc || '');
+          const patchUrl        = task.url !== undefined ? task.url : (original_task.url || '');
+          const patchCopyText   = task.copy_text !== undefined ? task.copy_text : (original_task.copy_text || '');
+          const patchSubtasks   = task.subtasks !== undefined ? task.subtasks : parseJsonField(original_task.subtasks);
+          const patchSearchTerms= task.search_terms !== undefined ? task.search_terms : parseJsonField(original_task.search_terms);
+          let   patchRptType    = task.repeat_type !== undefined ? task.repeat_type : (original_task.repeat_type || 'none');
+          const patchRepeatEnd  = task.repeat_end !== undefined ? task.repeat_end : (original_task.repeat_end || '');
+          const patchEndTime    = task.end_time !== undefined ? task.end_time : (original_task.end_time || '');
+          const patchCategoryId = task.category_id !== undefined ? task.category_id : (original_task.category_id || '');
+          let   patchDate       = task.date !== undefined ? task.date : (original_task.date || '');
+          let   patchInterval   = task.repeat_interval !== undefined ? task.repeat_interval : (original_task.repeat_interval || 1);
+
+          // ====== repeat_custom 处理（PATCH 语义）======
+          // - task.repeat_custom === undefined：保留 DB 原值（但 fragment/none 强制清空）
+          // - task.repeat_custom === null / ''：显式清空
+          // - task.repeat_custom 非空字符串：严格校验，失败返回 400
+          // - allowDerive=true：UPDATE 场景下，repeat_type=none/fragment + custom 非空时不清空，让 deriveRepeatTypeFromCustom 反推
+          let patchRepeatCustom;
+          if (task.repeat_custom !== undefined) {
+            const customResult = processRepeatCustom(task.repeat_custom, patchRptType, { allowDerive: true });
+            if (customResult.error) return apiError(customResult.error, 400);
+            patchRepeatCustom = customResult.value;
+          } else {
+            if (patchRptType === 'none' || patchRptType === 'fragment') {
+              patchRepeatCustom = '';
+            } else {
+              patchRepeatCustom = sanitizeRepeatCustom(original_task.repeat_custom);
+            }
+          }
+
+          // ====== 联动推导：repeat_custom 非空时反推 repeat_type ======
+          // 保证 DB 中 repeat_type 与实际展开规则一致
+          if (patchRepeatCustom && (patchRptType === 'none' || patchRptType === 'fragment')) {
+            const derived = deriveRepeatTypeFromCustom(patchRepeatCustom);
+            if (derived) patchRptType = derived;
+          }
+
+          // ====== 碎时记/none 强制清空（服务端联动推导）======
+          if (patchRptType === 'fragment') {
+            patchTime = '';
+            patchEndTime = '';
+            patchRepeatEnd = '';
+            patchInterval = 1;
+            patchRepeatCustom = '';
+          }
+          if (patchRptType === 'none') {
+            patchRepeatCustom = '';
+          }
+
+          // ====== 原子组校验（联动字段一致性，冲突返回 400）======
+          const repeatEndErr = validateRepeatEndCompat(patchRepeatEnd, patchRptType);
+          if (repeatEndErr) return apiError(repeatEndErr, 400);
+          const intervalErr = validateRepeatIntervalCompat(patchInterval, patchRptType);
+          if (intervalErr) return apiError(intervalErr, 400);
+          const timeErr = validateTimeRange(patchTime, patchEndTime);
+          if (timeErr) return apiError(timeErr, 400);
+
+          // 健壮性兜底：非 fragment 类型必须有有效具体日期
+          if (patchRptType !== 'fragment' && !patchDate) {
+            patchDate = date;
+          }
+
+          const rpt_type = patchRptType;
+          const subtasks_str = JSON.stringify(patchSubtasks || []);
+          const search_terms_str = JSON.stringify(patchSearchTerms || []);
+          const repeat_end = patchRepeatEnd;
+          const end_time = patchEndTime;
+          const category_id = patchCategoryId;
+          const new_date = patchDate;
+          const date_changed = new_date !== date;
+          const is_series = original_task._orig_repeat_type && original_task._orig_repeat_type !== 'none' && original_task._orig_repeat_type !== 'fragment' && rpt_type !== 'fragment';
+
           // 健壮性：校验 scope 合法值
           if (scope && scope !== 'none' && !['this', 'thisAndFuture', 'all'].includes(scope)) {
             return apiError(`无效的 scope: ${scope}，有效值: this, thisAndFuture, all`, 400);
@@ -3115,37 +3162,25 @@ self.addEventListener('fetch', (event) => {
           const effective_scope = is_series && (!scope || scope === 'none') ? 'this' : (scope || 'none');
 
           const new_values = {
-            text: original_task.text,
-            time: original_task.time || '',
+            text: patchText,
+            time: patchTime,
             // 健壮性：规范化 priority（与 V1 一致），medium → med，非法值 → low
-            priority: normalizePriority(original_task.priority),
-            desc: original_task.desc || '',
-            url: original_task.url || '',
-            copy_text: readCopyText(original_task),
+            priority: normalizePriority(patchPriority),
+            desc: patchDesc,
+            url: patchUrl,
+            copy_text: patchCopyText !== undefined ? patchCopyText : readCopyText(original_task),
             subtasks: subtasks_str,
             search_terms: search_terms_str,
             repeat_type: rpt_type,
-            repeat_custom: final_repeat_custom,
+            repeat_custom: patchRepeatCustom,
             repeat_end: repeat_end,
             end_time: end_time,
             category_id: category_id,
             date: new_date,
-            repeat_interval: task.repeat_interval || 1,
+            repeat_interval: patchInterval,
           };
 
-          // 碎时记强制约束：若新值是 fragment，强制清空 time/end_time/repeat_end/repeat_interval/repeat_custom
-          // 防止 API 调用者绕过前端约束，向碎时记写入无意义字段
-          if (rpt_type === 'fragment') {
-            new_values.time = '';
-            new_values.end_time = '';
-            new_values.repeat_end = '';
-            new_values.repeat_interval = 1;
-            new_values.repeat_custom = '';
-          }
-          // none 类型也强制清空 repeat_custom（防御：processRepeatCustom 已处理，但二次兜底）
-          if (rpt_type === 'none') {
-            new_values.repeat_custom = '';
-          }
+          // 注：fragment/none 的强制清空已在上方 patch* 变量阶段完成，此处无需重复
 
           if (!is_series) {
             // 原始任务不是循环的（none 或 fragment），或新值是 fragment（强制脱离旧系列）
