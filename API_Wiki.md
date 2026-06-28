@@ -1717,7 +1717,31 @@ curl -X PUT \
 
 V0 通过 `/api/todo-action` POST + `action` 字段操作。**V0 UPDATE 为全量替换语义**——`task.repeat_custom` 未传时按 `""` 处理（与前端现有契约一致），因此若想保留 custom 必须显式传回原值。
 
-##### 1. V0 CREATE
+V0 端点同时支持 **API Key 鉴权**（推荐第三方脚本使用）和 **Cookie 鉴权**（Web 端登录后使用），API Key 优先。两种方式均覆盖所有 V0 端点（`/api/todo-action` / `/api/todos` / `/api/trash-action` / `/api/category-action` 等），鉴权方式详见 [§6 示例代码](#6-示例代码)。注意：作用域为 `v1` 的 API Key 无法访问 V0 端点（返回 403）。
+
+##### 1. V0 CREATE（推荐用 API Key）
+
+```bash
+curl -X POST \
+  -H "X-API-Key: cfk_your_key" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "action": "CREATE",
+    "date": "2026-06-29",
+    "task": {
+      "id": "17826341657711955",
+      "text": "晨会",
+      "repeat_type": "weekly",
+      "repeat_custom": "FREQ=WEEKLY;BYDAY=MO,WE,FR",
+      "repeat_interval": 1
+    }
+  }' \
+  "https://your-app.workers.dev/api/todo-action"
+```
+
+> `task.id` 必填，前端用 `Date.now() + 随机数` 生成；外部脚本可自行生成唯一字符串。
+
+##### 1b. V0 CREATE（用 Cookie，仅 Web 端登录场景）
 
 ```bash
 # 先登录拿 cookie
@@ -1726,7 +1750,7 @@ curl -c cookies.txt -X POST \
   -d '{"password":"your_password"}' \
   "https://your-app.workers.dev/api/login"
 
-# CREATE（task.id 必填，前端用 Date.now() 生成）
+# CREATE（带 cookie，无需 API Key）
 curl -b cookies.txt -X POST \
   -H "Content-Type: application/json" \
   -d '{
@@ -1746,7 +1770,8 @@ curl -b cookies.txt -X POST \
 ##### 2. V0 UPDATE（全量替换——必须显式传回 repeat_custom）
 
 ```bash
-curl -b cookies.txt -X POST \
+curl -X POST \
+  -H "X-API-Key: cfk_your_key" \
   -H "Content-Type: application/json" \
   -d '{
     "action": "UPDATE",
