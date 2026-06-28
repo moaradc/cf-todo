@@ -2022,8 +2022,28 @@ self.addEventListener('fetch', (event) => {
     }
 
     if (url.pathname === '/api/trash' && request.method === 'GET') {
-      const { results } = await env.DB.prepare('SELECT * FROM todos WHERE deleted = 1 ORDER BY date DESC LIMIT 100').all();
-      return new Response(JSON.stringify(results), { headers: { 'Content-Type': 'application/json' } });
+      // V0 trash: 自动分页拉取全部回收站数据（前端无感，返回纯数组保持向后兼容）
+      // 健壮性：上限 1000 条防止回收站过大撑爆 Worker CPU/内存
+      // 分片查询：每片 100 条，避免单次 SQL 过重
+      const TRASH_MAX_ITEMS = 1000;
+      const TRASH_CHUNK_SIZE = 100;
+      const allResults = [];
+      let offset = 0;
+      let hasMore = true;
+      while (hasMore && allResults.length < TRASH_MAX_ITEMS) {
+        const { results } = await env.DB.prepare(
+          'SELECT * FROM todos WHERE deleted = 1 ORDER BY date DESC LIMIT ? OFFSET ?'
+        ).bind(TRASH_CHUNK_SIZE, offset).all();
+        if (results && results.length > 0) {
+          allResults.push(...results);
+          offset += results.length;
+          // 不足一片说明已到末尾
+          if (results.length < TRASH_CHUNK_SIZE) hasMore = false;
+        } else {
+          hasMore = false;
+        }
+      }
+      return new Response(JSON.stringify(allResults), { headers: { 'Content-Type': 'application/json' } });
     }
 
     if (url.pathname === '/api/trash-action' && request.method === 'POST') {

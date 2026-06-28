@@ -1670,8 +1670,10 @@ async function handleV1TodoBatch(request, DB) {
 
 // GET /api/v1/trash - 获取回收站列表
 async function handleV1TrashList(DB, url) {
+  // V1 trash: 手动分页（limit/offset），第三方客户端负责翻页
+  // 健壮性：limit 1-500，offset ≥0 且不超过 10000（防止恶意大 offset 拖慢查询）
   const limit = Math.min(Math.max(parseInt(url.searchParams.get('limit') || '100', 10) || 100, 1), 500);
-  const offset = Math.max(parseInt(url.searchParams.get('offset') || '0', 10) || 0, 0);
+  const offset = Math.min(Math.max(parseInt(url.searchParams.get('offset') || '0', 10) || 0, 0), 10000);
   const { results } = await DB.prepare('SELECT * FROM todos WHERE deleted = 1 ORDER BY date DESC LIMIT ? OFFSET ?').bind(limit, offset).all();
   const countRes = await DB.prepare('SELECT COUNT(*) as total FROM todos WHERE deleted = 1').first();
   return jsonResponse({
