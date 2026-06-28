@@ -1562,7 +1562,7 @@ curl -X POST \
   "https://your-app.workers.dev/api/v1/todos"
 ```
 
-响应（V1 POST 响应仅返回部分字段，完整字段需后续 GET）：
+响应（V1 POST 创建后直接返回完整记录，与 `GET /api/v1/todos/{id}` 格式一致，无需额外 GET）：
 
 ```json
 {
@@ -1574,16 +1574,32 @@ curl -X POST \
     "text": "晨会",
     "time": "",
     "priority": "low",
+    "desc": "",
+    "url": "",
+    "copy_text": "",
+    "subtasks": [],
+    "search_terms": [],
+    "done": false,
+    "deleted": false,
     "repeat_type": "weekly",
     "repeat_custom": "FREQ=WEEKLY;BYDAY=MO,WE,FR",
+    "repeat_end": "",
+    "end_time": "",
     "category_id": "",
+    "recurrence_id": "",
+    "is_exception": false,
+    "is_series": true,
     "repeat_interval": 1,
+    "time_records": [],
+    "last_completed_at": null,
+    "last_duration_ms": null,
+    "is_zero_duration": false,
     "fragment_anchor": ""
   }
 }
 ```
 
-> 注意：POST 响应的 `data` 不含 `subtasks` / `search_terms` / `desc` / `url` / `copy_text` / `end_time` / `repeat_end` 等字段，需通过 `GET /api/v1/todos/{id}` 获取完整对象。
+> v2.7.8.4 起 V1 POST 响应返回完整记录（27 字段，含 `formatTodo` 派生的计算字段 `is_series` / `last_completed_at` / `last_duration_ms` / `is_zero_duration`）。此前 v2.7.8.3 仅返回 11 字段，需额外 GET 获取完整对象。
 
 ##### 2. 创建「工作日」重复任务 + 截止 2026 年底
 
@@ -1800,7 +1816,7 @@ V0 UPDATE 现为 **PATCH 语义**（与 V1 PUT 一致）——所有字段未传
 
 ##### 联动推导与原子组校验
 
-V0 UPDATE 和 V1 PUT 共享同一套联动规则，确保字段一致性：
+V0 CREATE / V0 UPDATE / V1 POST / V1 PUT 四个写入端点共享同一套联动规则，确保字段一致性：
 
 **服务端联动推导**（调用方无需关心，服务端自动处理）：
 
@@ -1808,7 +1824,7 @@ V0 UPDATE 和 V1 PUT 共享同一套联动规则，确保字段一致性：
 |---------|---------|
 | `repeat_type=fragment` | 强制清空 `time`/`end_time`/`repeat_end`/`repeat_interval`/`repeat_custom` |
 | `repeat_type=none` | 强制清空 `repeat_custom` |
-| `repeat_custom` 非空 + `repeat_type` ∈ {none, fragment} | 从 `repeat_custom` 的 FREQ 反推 `repeat_type`（`FREQ=DAILY→daily` 等） |
+| `repeat_custom` 非空 + `repeat_type=none` | 从 `repeat_custom` 的 FREQ 反推 `repeat_type`（`FREQ=DAILY→daily` 等）。**不覆盖 `fragment`**：若调用方显式传 `repeat_type=fragment`，尊重其意图，fragment 强制清空 custom 由后续逻辑处理 |
 | `scope=all` + `date` 变更 | 同步更新模板 `anchor_date` |
 
 **原子组校验**（冲突返回 400 并告知原因）：
@@ -1819,6 +1835,13 @@ V0 UPDATE 和 V1 PUT 共享同一套联动规则，确保字段一致性：
 | `repeat_interval > 1` 时 `repeat_type` 必须 ∈ {daily,weekly,monthly,yearly} | `repeat_interval=2` + `repeat_type=none` | `400 repeat_interval > 1 仅在 repeat_type 为 daily/weekly/monthly/yearly 时有效，当前 repeat_type=none` |
 | `time` 不能晚于 `end_time`（同日） | `time="18:00"` + `end_time="09:00"` | `400 time (18:00) 不能晚于 end_time (09:00)` |
 | `repeat_interval` 必须为正整数 | `repeat_interval=0` / `-1` / `1.5` / `"2"` | `400 repeat_interval 必须为正整数` |
+
+**格式校验**（v2.7.8.4 新增，冲突返回 400）：
+
+| 字段 | 格式要求 | 冲突示例 | 错误响应 |
+|------|---------|---------|---------|
+| `date` / `repeat_end` | `YYYY-MM-DD` 且真实存在 | `2026-13-45` / `20260629` / `not-a-date` | `400 日期格式应为 YYYY-MM-DD，当前值: ...` 或 `400 日期无效: ...` |
+| `time` / `end_time` | `HH:MM` 且范围合法（00:00-23:59） | `25:99` / `9:30` / `0930` | `400 时间格式应为 HH:MM，当前值: ...` 或 `400 时间范围无效（HH: 00-23, MM: 00-59），当前值: ...` |
 
 > **设计依据**：参考 Microsoft Graph API 的 `location`/`locations` 联动模式（learn.microsoft.com/graph/api/event-update）+ JSON Schema 2020-12 `dependentRequired` 原子组校验（json-schema.org/understanding-json-schema/reference/conditionals）。服务端联动推导保证调用方零负担，原子组校验保证数据一致性。
 
@@ -1905,7 +1928,8 @@ curl -X POST \
     }
   }' \
   "https://your-app.workers.dev/api/todo-action"
-# 服务端自动从 custom 的 FREQ=WEEKLY 反推 repeat_type=weekly（若原为 none/fragment）
+# 服务端自动从 custom 的 FREQ=WEEKLY 反推 repeat_type=weekly（仅当原 repeat_type=none 时；
+# 若显式传 repeat_type=fragment 则尊重调用方意图，不反推）
 ```
 
 > v2.7.8.4 起 V0 UPDATE 与 V1 PUT 行为一致（PATCH 语义）。调用方只需传想修改的字段，未传字段保留 DB 原值。联动字段（如 `repeat_type` + `repeat_custom`）由服务端自动推导，冲突组合（如 `repeat_end` + `repeat_type=none`）返回 400。
@@ -1919,8 +1943,25 @@ curl -X POST \
 // 400 — repeat_interval 非正整数
 { "error": "repeat_interval 必须为正整数" }
 
+// 400 — repeat_interval > 1 + repeat_type=none（原子组冲突）
+{ "error": "repeat_interval > 1 仅在 repeat_type 为 daily/weekly/monthly/yearly 时有效，当前 repeat_type=none" }
+
+// 400 — repeat_end + repeat_type=none（原子组冲突）
+{ "error": "repeat_end 仅在 repeat_type 为 daily/weekly/monthly/yearly 时有效，当前 repeat_type=none" }
+
+// 400 — time > end_time（原子组冲突）
+{ "error": "time (18:00) 不能晚于 end_time (09:00)" }
+
 // 400 — repeat_type 非法（注意：hourly 不是合法值，仅接受 none/daily/weekly/monthly/yearly/fragment）
 { "error": "无效的 repeat_type: hourly，有效值: none, daily, weekly, monthly, yearly, fragment" }
+
+// 400 — 日期格式错误（v2.7.8.4 新增）
+{ "error": "日期格式应为 YYYY-MM-DD，当前值: 20260629" }
+{ "error": "日期无效: 2026-13-45" }
+
+// 400 — 时间格式错误（v2.7.8.4 新增）
+{ "error": "时间格式应为 HH:MM，当前值: 0930" }
+{ "error": "时间范围无效（HH: 00-23, MM: 00-59），当前值: 25:99" }
 
 // 403 — API Key 作用域为 v1，无法访问 V0 端点
 { "error": "API Key 仅允许访问 v1 接口" }
@@ -2113,5 +2154,6 @@ data = response.json()
     - **会话端点**（`GET /api/sessions`）：camelCase，字段 `ua` / `disabled` / `isCurrent`。
     - 历史背景：V3.0 重构时仅对 Todo/Category 做了 snake_case 化（移除 camelCase 兼容层），其它端点保留原始 camelCase 字段名。客户端集成时需按端点区分命名风格。
 12. V0 `UPDATE` / `DELETE` 缺 `task.parent_id` 时后端自动从 DB 派生
-13. V0 `UPDATE` 未传的字段（`copy_text` / `text` / `time` 等）从 DB 当前值回退，不会被清空
+13. V0 `UPDATE` 未传的字段从 DB 当前值回退，不会被清空（v2.7.8.4 起所有字段统一 PATCH 语义，与 V1 PUT 一致；此前 v2.7.8.3 仅 `text`/`time`/`priority`/`desc`/`url`/`copy_text` 为 PATCH，`repeat_type`/`repeat_custom`/`repeat_end`/`end_time`/`category_id`/`repeat_interval`/`subtasks`/`search_terms` 为全量替换）
 14. Todo 按 `repeat_type` 分为普通 todo（`none`）、重复 todo（`daily/weekly/monthly/yearly`）、碎时记（`fragment`）三种类型，三者的数据模型、模板、完成/取消完成、可见性、字段一致性对比详见 [5. Todo 类型专章](#5-todo-类型专章)。
+15. v2.7.8.4 新增格式校验：`date`/`repeat_end` 必须 `YYYY-MM-DD` 且真实存在；`time`/`end_time` 必须 `HH:MM` 且范围合法（00:00-23:59）。四个写入端点（V0 CREATE/UPDATE + V1 POST/PUT）全部应用，冲突返回 400。
