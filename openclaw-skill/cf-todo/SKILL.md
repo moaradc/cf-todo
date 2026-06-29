@@ -1,7 +1,7 @@
 ---
 name: cf-todo
 description: Manage todos and categories on a self-hosted Cloudflare Worker + D1 Todo App. Use when users ask to add, create, view, complete, update, or delete todos, manage recurring/repeating tasks, organize categories, or check their to-do list.
-version: 1.5.0
+version: 1.5.1
 metadata: {"openclaw":{"emoji":"📝","requires":{"env":["CF_TODO_API_URL","CF_TODO_API_KEY"],"bins":["curl"]},"primaryEnv":"CF_TODO_API_KEY","envVars":[{"name":"CF_TODO_API_URL","required":true,"description":"Base URL of your cf-todo deployment (e.g. https://todo.example.com, no trailing slash)"},{"name":"CF_TODO_API_KEY","required":true,"description":"API Key (cfk_...) generated from the cf-todo web UI Settings page"}]}}
 ---
 
@@ -635,13 +635,14 @@ All fields from Create are also updatable, plus:
 | `repeat_custom` | PATCH 语义：未传保留原值；传 `""` 显式清空；传非空字符串则严格校验后写入。`scope=all` + `repeat_custom` 变更会触发 `recurrence_changed`，旧实例被 DELETE 并由模板按新 custom 重新生成 |
 
 For recurring todos, set `scope`:
-- `"this"` — update this instance only (default for recurring). Adds exdate to template; detaches from series if `repeat_type` changes to `"none"`.
+- `"this"` — update this instance only (default for recurring). Instance detaches from series becoming a single non-recurring task (对齐 Google Calendar / RFC 5545 "仅此项"语义): `repeat_type` forced to `none`, `parent_id` set to own `id`, adds exdate to template. **Note: even if user only changes `text` or other non-repeat fields, the instance still detaches** — this is by design, not a bug.
 - `"thisAndFuture"` — update this + future instances. Updates template.
 - `"all"` — update all instances — **DESTRUCTIVE, confirm first**. Updates template + all existing instances.
 
 **Special behaviors:**
 - Changing a non-recurring todo to recurring (`repeat_type` in `daily`/`weekly`/`monthly`/`yearly`) creates a template automatically.
 - Changing a recurring instance to non-recurring detaches it from the series (sets `parent_id` = own `id`, adds exdate to template).
+- `scope=all` does not affect un-persisted future instances: server `UPDATE ... WHERE parent_id=? AND id != ?` only updates instances currently in DB; future-date instances not yet auto-expanded by `GET /api/v1/todos?date=X` are not in DB and won't be hit by this UPDATE. But these future instances will be expanded from the updated template when GET, so the final behavior is correct — template update is authoritative, instances sync lazily.
 - Changing `date` on a recurring todo with `scope=all` or `thisAndFuture` will delete future instances and regenerate them from the updated template.
 - Changing `repeat_type` to `"fragment"`: detaches from old series (adds exdate to old template), forces `time=""`, `end_time=""`, `repeat_end=""`, `repeat_interval=1`, sets `fragment_anchor` to `date` (if uncompleted) or keeps existing `fragment_anchor` (if completed).
 - Changing `repeat_type` from `"fragment"` to `"none"` or any recurring type: clears `fragment_anchor` to `""`.
