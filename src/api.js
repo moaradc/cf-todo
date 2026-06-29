@@ -3299,9 +3299,10 @@ self.addEventListener('fetch', (event) => {
           if (scope && scope !== 'none' && !['this', 'thisAndFuture', 'all'].includes(scope)) {
             return apiError(`无效的 scope: ${scope}，有效值: this, thisAndFuture, all`, 400);
           }
-          // 重复 todo 未指定 scope 时，默认 scope=this（仅此实例）
+          // 重复 todo 未指定 scope（undefined）时，默认 scope=this（仅此实例）
           // 对齐 Google Calendar / Apple Calendar / Outlook：编辑重复任务默认只改当前实例
-          const effective_scope = is_series && (!scope || scope === 'none') ? 'this' : (scope || 'none');
+          // 显式传 scope=none 时尊重调用方意图：原地更新当前实例，不脱离系列
+          const effective_scope = is_series && scope === undefined ? 'this' : (scope || 'none');
 
           const new_values = {
             text: patchText,

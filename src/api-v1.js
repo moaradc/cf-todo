@@ -799,10 +799,11 @@ async function handleV1TodoPut(request, DB, todo_id) {
   // is_series：原任务是系列 + 新类型不是 fragment
   const is_series = existing.type === 'recurring' && patchType !== 'fragment';
 
-  // 重复 todo 未指定 scope 时，默认 scope=this（仅此实例）
+  // 重复 todo 未指定 scope（undefined）时，默认 scope=this（仅此实例）
   // 对齐 Google Calendar / Apple Calendar / Outlook：编辑重复任务默认只改当前实例
-  // 用户想改全系列时显式传 scope=all，想截断系列传 scope=thisAndFuture
-  const scope = is_series && (!body.scope || body.scope === 'none') ? 'this' : (body.scope || 'none');
+  // 显式传 scope=none 时尊重调用方意图：原地更新当前实例，不脱离系列
+  // 显式传 scope=all 时改全系列，scope=thisAndFuture 时截断系列
+  const scope = is_series && body.scope === undefined ? 'this' : (body.scope || 'none');
 
   // PATCH 语义构建 new_values
   const new_values = {
