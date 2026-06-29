@@ -616,7 +616,7 @@ async function handleV1Todos(request, env, url) {
       if (derived) rpt_type = derived;
     }
 
-    const rawInterval = repeat_interval || 1;
+    const rawInterval = repeat_interval !== undefined ? repeat_interval : 1;
     if (typeof rawInterval !== 'number' || !Number.isInteger(rawInterval) || rawInterval < 1) {
       return apiError('repeat_interval 必须为正整数', 400);
     }

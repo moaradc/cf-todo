@@ -2988,6 +2988,12 @@ self.addEventListener('fetch', (event) => {
           if (rpt_type !== 'none' && !VALID_REPEAT_TYPES.includes(rpt_type)) {
             return apiError(`无效的 repeat_type: ${rpt_type}`, 400);
           }
+          // 显式校验 repeat_interval：必须为正整数（防 0 被 || 1 吞掉）
+          if (task.repeat_interval !== undefined) {
+            if (typeof task.repeat_interval !== 'number' || !Number.isInteger(task.repeat_interval) || task.repeat_interval < 1) {
+              return apiError('repeat_interval 必须为正整数', 400);
+            }
+          }
           // CREATE 场景：allowDerive=true，repeat_type=none/fragment + custom 非空时不清空，让 deriveRepeatTypeFromCustom 反推
           // 这样用户可以只传 repeat_custom 不传 repeat_type，服务端自动推导
           const customResult = processRepeatCustom(task.repeat_custom, rpt_type, { allowDerive: true });
@@ -3064,6 +3070,12 @@ self.addEventListener('fetch', (event) => {
           const VALID_REPEAT_TYPES_UPD = ['none', 'daily', 'weekly', 'monthly', 'yearly', 'fragment'];
           if (task.repeat_type && !VALID_REPEAT_TYPES_UPD.includes(task.repeat_type)) {
             return apiError(`无效的 repeat_type: ${task.repeat_type}`, 400);
+          }
+          // 显式校验 repeat_interval：必须为正整数（防 0 被 || 1 吞掉）
+          if (task.repeat_interval !== undefined) {
+            if (typeof task.repeat_interval !== 'number' || !Number.isInteger(task.repeat_interval) || task.repeat_interval < 1) {
+              return apiError('repeat_interval 必须为正整数', 400);
+            }
           }
 
           // V0 调用方（含外部 API）可能省略 parent_id（V1 风格），需要服务端补全
