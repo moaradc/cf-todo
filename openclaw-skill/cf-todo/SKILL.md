@@ -1,7 +1,7 @@
 ---
 name: cf-todo
 description: Manage todos and categories on a self-hosted Cloudflare Worker + D1 Todo App. Use when users ask to add, create, view, complete, update, or delete todos, manage recurring/repeating tasks, organize categories, or check their to-do list.
-version: 1.4.0
+version: 1.5.0
 metadata: {"openclaw":{"emoji":"📝","requires":{"env":["CF_TODO_API_URL","CF_TODO_API_KEY"],"bins":["curl"]},"primaryEnv":"CF_TODO_API_KEY","envVars":[{"name":"CF_TODO_API_URL","required":true,"description":"Base URL of your cf-todo deployment (e.g. https://todo.example.com, no trailing slash)"},{"name":"CF_TODO_API_KEY","required":true,"description":"API Key (cfk_...) generated from the cf-todo web UI Settings page"}]}}
 ---
 
@@ -369,6 +369,8 @@ All other fields are raw DB values:
 2. Else → build the RRULE from `repeat_type` + `repeat_interval` + `anchor_date` (DTSTART) + `repeat_end` (UNTIL).
 3. Always apply `exdates` (cancel specific dates) and respect `repeat_end` (hard UNTIL bound) regardless of branch 1 or 2.
 
+> **`repeat_custom` 现可能为非空字符串**（API 入口已开放）。调用方需自行用 ical.js / rrule.js 解析，按优先级 custom > type/interval 应用，并叠加 exdates / repeat_end。`repeat_interval > 1` 会用正则替换覆盖 custom 中的 INTERVAL；`repeat_end` 在 custom 未含 UNTIL 时追加为 UNTIL。
+
 **Caveat:** `expand=false` does NOT auto-create recurring instances (no D1 writes). The caller is fully responsible for filtering `templates` against the queried date (applying `exdates`, checking `repeat_end`, honoring `repeat_custom` precedence). Use default `expand=true` if you need persisted instances or don't want to re-implement RRULE evaluation.
 
 **Note on `fragment` type:** `templates` only contains rows where `repeat_type IN ('daily','weekly','monthly','yearly')`. Fragment (碎时记) todos have no template — they appear directly in `data` (filtered by the fragment visibility rule: uncompleted fragments with `date = '' OR date <= queried_date`, completed fragments with `date = queried_date`). `fragment_anchor` is a column on `todos` only, not `todo_templates`, so it never appears in `templates` entries.
@@ -503,8 +505,53 @@ curl -s -X POST -H "X-API-Key: $CF_TODO_API_KEY" -H "Content-Type: application/j
 | `end_time` | HH:MM | `""` |
 | `category_id` | Category ID | `""` |
 | `repeat_interval` | Integer (every N units) | `1` |
+| `repeat_custom` | 自定义 RRULE 字符串（如 `FREQ=WEEKLY;BYDAY=MO,WE,FR`），非空时优先于 `repeat_type`/`repeat_interval` 生效。校验：必须以 `FREQ=DAILY/WEEKLY/MONTHLY/YEARLY` 开头，最大长度 500，全大写规范化，须通过 ical.js 解析。`repeat_type` ∈ {none, fragment} 时强制清空 | `""` |
 
 Note: `"medium"` priority is auto-converted to `"med"`. Subtask/search_term strings are auto-converted to `{text, done:false}` objects.
+
+**字段校验（V0 CREATE / V0 UPDATE / V1 POST / V1 PUT 共享）**
+
+服务端联动推导（调用方无需关心）：
+- `repeat_type=fragment` → 强制清空 `time` / `end_time` / `repeat_end` / `repeat_interval` / `repeat_custom`
+- `repeat_type=none` → 强制清空 `repeat_custom`
+- `repeat_custom` 非空 + `repeat_type=none` → 从 custom 的 FREQ 反推 `repeat_type`（不覆盖 `fragment`）
+
+原子组校验（冲突返回 400）：
+- `repeat_end` 非空时 `repeat_type` 必须 ∈ {daily, weekly, monthly, yearly}
+- `repeat_interval > 1` 时 `repeat_type` 必须 ∈ {daily, weekly, monthly, yearly}
+- `repeat_interval` 必须为正整数
+
+格式校验（冲突返回 400）：
+- `date` / `repeat_end` — `YYYY-MM-DD` 且真实存在（防 `2026-13-45`）
+- `time` / `end_time` — `HH:MM` 且范围合法（00:00-23:59，防 `25:99`）
+
+**`time` / `end_time` 为独立展示字段** — 不参与业务计算（耗时走 `time_records`）。允许的输入组合：仅传 `time`、仅传 `end_time`（语义：在 `end_time` 前完成即可）、两者都传（含跨日/夜班如 `22:00` - `06:00`）、两者都空。服务端不再校验 `time ≤ end_time`。
+
+**常见 400 错误响应**：
+
+```json
+// repeat_custom 格式无效
+{ "error": "repeat_custom 格式无效：必须为合法 RRULE 字符串，以 FREQ=DAILY/WEEKLY/MONTHLY/YEARLY 开头，长度 ≤ 500，不含换行/控制字符" }
+
+// repeat_interval 非正整数
+{ "error": "repeat_interval 必须为正整数" }
+
+// 原子组冲突
+{ "error": "repeat_end 仅在 repeat_type 为 daily/weekly/monthly/yearly 时有效，当前 repeat_type=none" }
+{ "error": "repeat_interval > 1 仅在 repeat_type 为 daily/weekly/monthly/yearly 时有效，当前 repeat_type=none" }
+
+// 格式冲突
+{ "error": "日期格式应为 YYYY-MM-DD，当前值: 20260629" }
+{ "error": "日期无效: 2026-13-45" }
+{ "error": "时间格式应为 HH:MM，当前值: 0930" }
+{ "error": "时间范围无效（HH: 00-23, MM: 00-59），当前值: 25:99" }
+
+// repeat_type 非法
+{ "error": "无效的 repeat_type: hourly，有效值: none, daily, weekly, monthly, yearly, fragment" }
+
+// API Key 作用域错误
+{ "error": "API Key 仅允许访问 v1 接口" }
+```
 
 **`repeat_type: "fragment"` (碎时记) constraints** — When `repeat_type` is `"fragment"`:
 - A floating todo not tied to a specific date; no template is created (same as `"none"`).
@@ -513,18 +560,38 @@ Note: `"medium"` priority is auto-converted to `"med"`. Subtask/search_term stri
 - Visible on any date `>= fragment_anchor` while uncompleted; on completion, `date` is frozen to the completion date and `fragment_anchor` retains the original start date.
 - Supports multi-segment timing (开始 / 暂停 / 继续 / 记录当前段 / 完成 / 继续计时). All sessions retained (no FIFO truncation). See `time_records` retention rules below.
 
-Response (HTTP 201):
+Response (HTTP 201) — 创建响应返回完整记录（27 字段，含 `formatTodo` 派生的计算字段 `is_series` / `last_completed_at` / `last_duration_ms` / `is_zero_duration`），无需再发一次 GET：
 
 ```json
 {
   "success": true,
   "data": {
     "id": "uuid",
+    "parent_id": "uuid",
     "date": "2026-06-12",
     "text": "Buy groceries",
+    "time": "14:00",
+    "priority": "high",
+    "desc": "",
+    "url": "",
+    "copy_text": "",
+    "subtasks": [],
+    "search_terms": [],
+    "done": false,
+    "deleted": false,
     "repeat_type": "none",
+    "repeat_custom": "",
+    "repeat_end": "",
+    "end_time": "",
     "category_id": "",
+    "recurrence_id": "",
+    "is_exception": false,
+    "is_series": false,
     "repeat_interval": 1,
+    "time_records": [],
+    "last_completed_at": null,
+    "last_duration_ms": null,
+    "is_zero_duration": false,
     "fragment_anchor": ""
   }
 }
@@ -557,12 +624,15 @@ curl -s -X PUT -H "X-API-Key: $CF_TODO_API_KEY" -H "Content-Type: application/js
   -d '{"text": "Updated text", "priority": "high", "scope": "this"}'
 ```
 
-Only include fields you want to change. All fields from Create are also updatable, plus:
+**PATCH 语义** — 只传想修改的字段，未传字段保留 DB 原值（不会静默清空）。显式清空方式：字符串字段传 `""` 或 `null`，数组字段传 `[]`。
+
+All fields from Create are also updatable, plus:
 
 | Field | Description |
 |---|---|
 | `date` | Change the date. For recurring todos with `scope=all` or `thisAndFuture`, changing date will delete and regenerate future instances. |
 | `scope` | For recurring todos only: `"this"`, `"thisAndFuture"`, `"all"` |
+| `repeat_custom` | PATCH 语义：未传保留原值；传 `""` 显式清空；传非空字符串则严格校验后写入。`scope=all` + `repeat_custom` 变更会触发 `recurrence_changed`，旧实例被 DELETE 并由模板按新 custom 重新生成 |
 
 For recurring todos, set `scope`:
 - `"this"` — update this instance only (default for recurring). Adds exdate to template; detaches from series if `repeat_type` changes to `"none"`.
