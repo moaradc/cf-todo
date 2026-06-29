@@ -1,7 +1,7 @@
 /**
- * Recurring Event Engine - RFC 5545 Compliant (v3.0)
+ * Recurring Event Engine - RFC 5545 Compliant (v1.0)
  *
- * v3.0 破坏性变更：
+ * v1.0 破坏性变更：
  * - 删除所有旧字段处理（repeat_type / repeat_custom / repeat_interval / repeat_end）
  * - 唯一规范字段：rrule + anchor_date + exdates
  * - type 三态：none / fragment / recurring（仅作分类，不参与 RRULE 展开）
@@ -126,10 +126,10 @@ export function processRRule(raw, type, opts = {}) {
   return { value: sanitized, error: null };
 }
 
-// ==================== 迁移工具（v3.0 内部使用，不再导出）====================
+// ==================== 迁移工具（v1.0 内部使用，不再导出）====================
 
-// v3.0 数据迁移：从旧字段（repeat_type / repeat_interval / repeat_end / repeat_custom / anchor_date）
-// 合成 rrule。仅在 DB schema 3 迁移时使用，业务代码不应调用。
+// v1.0 数据迁移：从旧字段（repeat_type / repeat_interval / repeat_end / repeat_custom / anchor_date）
+// 合成 rrule。仅在迁移工具/导入旧导出文件时使用，业务代码不应调用。
 const FREQ_MAP = {
   daily: 'DAILY',
   weekly: 'WEEKLY',
@@ -188,8 +188,8 @@ export function rruleFromLegacyFields({ repeat_type, repeat_interval = 1, repeat
 }
 
 /**
- * 从 rrule 反推旧字段（仅用于响应序列化时旧客户端兼容，v3.0 已不推荐使用）。
- * v3.0 响应不再返回旧字段，此函数仅保留供迁移工具/调试使用。
+ * 从 rrule 反推旧字段（仅用于响应序列化时旧客户端兼容，v1.0 已不推荐使用）。
+ * v1.0 响应不再返回旧字段，此函数仅保留供迁移工具/调试使用。
  */
 export function deriveLegacyFieldsFromRRule(rrule) {
   const empty = { repeat_type: 'none', repeat_interval: 1, repeat_end: '', repeat_custom: '' };
@@ -240,7 +240,7 @@ function icalTimeToDateStr(time) {
 /**
  * 构建 ical.js VCALENDAR/VEVENT 组件用于 RRULE 展开。
  *
- * v3.0 简化设计：仅依赖 rrule + anchor_date + exdates 三个字段。
+ * v1.0 简化设计：仅依赖 rrule + anchor_date + exdates 三个字段。
  * - rrule：RFC 5545 RRULE 字符串（已 sanitize，不含 RRULE: 前缀）
  * - anchor_date：DTSTART 等价物（YYYY-MM-DD）
  * - exdates：JSON 数组字符串或数组，如 ["2026-07-04"]
@@ -254,7 +254,7 @@ function createICALComponent(template) {
   vevent.addPropertyWithValue('uid', template.parent_id || 'temp');
   vevent.addPropertyWithValue('dtstart', dateStrToICALTime(template.anchor_date));
 
-  // rrule 属性（v3.0 唯一规范字段）
+  // rrule 属性（v1.0 唯一规范字段）
   if (template.rrule && template.rrule.trim()) {
     try {
       const rruleProp = new ICAL.Property('rrule', vevent);
@@ -294,7 +294,7 @@ function createICALComponent(template) {
  * 判断某日期是否为重复事件的发生日期。
  * 对齐 RFC 5545：DTSTART 始终是第一个实例（即使不匹配 RRULE）。
  *
- * v3.0 判定依据：
+ * v1.0 判定依据：
  * - fragment 永不参与 RRULE 判定
  * - rrule 非空 → 按 rrule 展开
  * - rrule 为空 → 非系列（单次），仅 anchor_date 当天匹配
@@ -373,7 +373,7 @@ function simpleIsOccurrence(template, date_str) {
 /**
  * 获取两个日期之间的所有发生日期（含 anchor_date，排除 EXDATE）。
  *
- * v3.0 判定依据：与 isOccurrenceOnDate 一致，按 rrule 展开。
+ * v1.0 判定依据：与 isOccurrenceOnDate 一致，按 rrule 展开。
  */
 export function getOccurrencesBetween(template, startDate, endDate, limit = 365) {
   // fragment 永远不参与 RRULE 展开
@@ -515,7 +515,7 @@ export function computeDeleteActions({ task, date, scope }) {
  * @param {Object} params - { task, date, scope, new_values, new_date }
  * @returns {Object} 操作描述
  *
- * v3.0 简化：recurrence_changed 仅对比 rrule 字符串是否变化。
+ * v1.0 简化：recurrence_changed 仅对比 rrule 字符串是否变化。
  */
 export function computeUpdateActions({ task, date, scope, new_values, new_date }) {
   const parent_id = task.parent_id;
@@ -523,7 +523,7 @@ export function computeUpdateActions({ task, date, scope, new_values, new_date }
   const new_type = new_values.type || task.type || 'none';
   const is_recurring = new_type === 'recurring';
 
-  // 检测重复规则变更：v3.0 仅对比 rrule 字符串
+  // 检测重复规则变更：v1.0 仅对比 rrule 字符串
   const original_rrule = task.rrule || '';
   const new_rrule = new_values.rrule || '';
   const recurrence_changed = original_rrule !== new_rrule;
@@ -685,7 +685,7 @@ export function offsetDate(date_str, days) {
 // ==================== 重复类型标签 ====================
 
 /**
- * 获取重复类型的中文标签（v3.0 简化版，按 type 分流）。
+ * 获取重复类型的中文标签（v1.0 简化版，按 type 分流）。
  * 详细 RRULE 中文翻译由前端 _rruleToZhLabel 处理，此函数仅作 fallback。
  */
 export function getRepeatLabel(type, date_str, rrule) {
@@ -706,7 +706,7 @@ export function getScopeLabel(action) {
   return { this: '仅此日程', thisAndFuture: '此日程及之后', all: '所有日程' };
 }
 
-// ==================== v3.0 校验工具 ====================
+// ==================== v1.0 校验工具 ====================
 
 /**
  * 校验 type 字段合法性。

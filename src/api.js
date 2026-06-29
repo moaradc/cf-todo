@@ -58,8 +58,8 @@ function sqlPlaceholders(count) {
   return Array.from({ length: count }, () => '?').join(',');
 }
 
-// v3.0 统一命名：所有 task 对象属性一律使用 snake_case `copy_text`（与 DB 列名 / API_Wiki §4.2 / V1 API 一致）。
-// 历史 camelCase `copyText` 已废弃，不再兼容读取（v3.0 破坏性变更）。
+// v1.0 统一命名：所有 task 对象属性一律使用 snake_case `copy_text`（与 DB 列名 / API_Wiki §4.2 / V1 API 一致）。
+// 历史 camelCase `copyText` 已废弃，不再兼容读取（v1.0 破坏性变更）。
 function readCopyText(task) {
   if (!task) return '';
   return task.copy_text !== undefined ? task.copy_text : '';
@@ -129,9 +129,10 @@ async function handleRequest(request, env, ctx) {
           return;
         }
 
-        // ==================== 基础表结构（首次部署，v3.0 schema 3）====================
-        // v3.0 破坏性变更：删除 repeat_type/repeat_custom/repeat_interval/repeat_end 4 个旧列，
-        // 新增 type（none/fragment/recurring）+ rrule + anchor_date + exdates 作为唯一规范字段。
+        // ==================== 基础表结构（首次部署，v1.0 schema 1）====================
+        // RFC 5545 RRULE 为重复规则唯一规范字段：
+        // - type（none/fragment/recurring）+ rrule + anchor_date + exdates
+        // - 无旧字段（repeat_type/repeat_custom/repeat_interval/repeat_end）残留
         await env.DB.batch([
           env.DB.prepare(`
             CREATE TABLE IF NOT EXISTS todos (
@@ -224,256 +225,6 @@ async function handleRequest(request, env, ctx) {
             )
           `),
         ]);
-
-        // ==================== 版本化增量迁移 ====================
-        // db_schema 基线为 1。新部署直接走 CREATE TABLE 路径，已部署老用户走 ALTER 路径。
-        //
-        // 迁移历史：
-        // - schema 1: 初始版本（repeat_type/repeat_custom/repeat_end/repeat_interval）
-        // - schema 2: 新增 rrule 列（与旧字段并存）
-        // - schema 3: v3.0 破坏性变更，删除旧字段，新增 type/anchor_date/exdates，重命名 repeat_type→type
-        //
-        // schema 3 迁移策略：
-        // 1. 检测当前表是否有旧列 repeat_type（用 PRAGMA table_info）
-        // 2. 若有旧列（说明是 v1 或 v2 老用户）：
-        //    a. 确保有 type 列（ALTER ADD，若 v2 没建过）
-        //    b. 确保有 anchor_date 列
-        //    c. 确保有 exdates 列
-        //    d. UPDATE todos：从旧字段合成 rrule，按 repeat_type 映射 type
-        //    e. UPDATE todo_templates：同上（用 anchor_date 作 DTSTART）
-        //    f. 删除旧列（D1 ALTER 不支持 DROP COLUMN，需重建表）
-        // 3. 若无旧列（已是 v3 或全新部署）：跳过
-        //
-        // 注意：D1/SQLite ALTER TABLE 不支持 DROP COLUMN，需用"创建新表 + INSERT SELECT + DROP + RENAME"四步法。
-        // 重建表逻辑放在 schema 3 块中，幂等保证可重复执行。
-
-        if (currentSchema < 3) {
-          try {
-            // ===== Step 1: 检测旧 schema 是否存在 =====
-            // PRAGMA table_info 返回所有列信息，检查是否有 repeat_type 列
-            const todosCols = await env.DB.prepare(`PRAGMA table_info(todos)`).all();
-            const tplCols = await env.DB.prepare(`PRAGMA table_info(todo_templates)`).all();
-            const todosColNames = (todosCols.results || []).map(c => c.name);
-            const tplColNames = (tplCols.results || []).map(c => c.name);
-            const hasOldTodosCols = todosColNames.includes('repeat_type');
-            const hasOldTplCols = tplColNames.includes('repeat_type');
-
-            // ===== Step 2: 若有旧列，先补全新列 + 回填 rrule/type/anchor_date/exdates =====
-            if (hasOldTodosCols || hasOldTplCols) {
-              // todos: 补全 type/anchor_date/exdates 列（rrule 在 schema 2 已加）
-              const todosAlterStmts = [];
-              if (!todosColNames.includes('type')) {
-                todosAlterStmts.push(env.DB.prepare(`ALTER TABLE todos ADD COLUMN type TEXT NOT NULL DEFAULT 'none'`));
-              }
-              if (!todosColNames.includes('anchor_date')) {
-                todosAlterStmts.push(env.DB.prepare(`ALTER TABLE todos ADD COLUMN anchor_date TEXT NOT NULL DEFAULT ''`));
-              }
-              if (!todosColNames.includes('exdates')) {
-                todosAlterStmts.push(env.DB.prepare(`ALTER TABLE todos ADD COLUMN exdates TEXT NOT NULL DEFAULT '[]'`));
-              }
-              if (todosAlterStmts.length > 0) {
-                try { await env.DB.batch(todosAlterStmts); } catch (e) { console.error('schema 3 todos ALTER ADD skipped:', e.message || e); }
-              }
-
-              // todo_templates: 补全 type/anchor_date/exdates 列
-              const tplAlterStmts = [];
-              if (!tplColNames.includes('type')) {
-                tplAlterStmts.push(env.DB.prepare(`ALTER TABLE todo_templates ADD COLUMN type TEXT NOT NULL DEFAULT 'recurring'`));
-              }
-              if (!tplColNames.includes('anchor_date')) {
-                tplAlterStmts.push(env.DB.prepare(`ALTER TABLE todo_templates ADD COLUMN anchor_date TEXT NOT NULL DEFAULT ''`));
-              }
-              if (!tplColNames.includes('exdates')) {
-                tplAlterStmts.push(env.DB.prepare(`ALTER TABLE todo_templates ADD COLUMN exdates TEXT NOT NULL DEFAULT '[]'`));
-              }
-              if (tplAlterStmts.length > 0) {
-                try { await env.DB.batch(tplAlterStmts); } catch (e) { console.error('schema 3 todo_templates ALTER ADD skipped:', e.message || e); }
-              }
-
-              // ===== Step 3: 回填 rrule（从旧字段合成）=====
-              // todos: 用 repeat_type + repeat_interval + repeat_end + repeat_custom + date(作 anchor_date) 合成
-              // 仅对 rrule 为空且 repeat_type ∈ (daily,weekly,monthly,yearly) 的行回填
-              // 注意：JS 不可用在 SQL 里，必须读出来逐行处理
-              // 但 D1 行数可能很大，需分批
-              const batchSize = 500;
-              // todos 回填
-              try {
-                let cursor = '';
-                while (true) {
-                  const rows = await env.DB.prepare(
-                    `SELECT id, date, repeat_type, repeat_interval, repeat_end, repeat_custom, rrule, type FROM todos
-                     WHERE repeat_type IN ('daily','weekly','monthly','yearly')
-                       AND (rrule = '' OR rrule IS NULL)
-                       AND id > ?
-                     ORDER BY id ASC LIMIT ?`
-                  ).bind(cursor, batchSize).all();
-                  if (!rows.results || rows.results.length === 0) break;
-                  const updateStmts = [];
-                  for (const r of rows.results) {
-                    // 合成 rrule
-                    const synthesized = rruleFromLegacyFields({
-                      repeat_type: r.repeat_type,
-                      repeat_interval: r.repeat_interval || 1,
-                      repeat_end: r.repeat_end || '',
-                      repeat_custom: r.repeat_custom || '',
-                      anchor_date: r.date || '',
-                    });
-                    if (synthesized) {
-                      updateStmts.push(
-                        env.DB.prepare(`UPDATE todos SET rrule = ?, anchor_date = ?, type = 'recurring' WHERE id = ?`)
-                          .bind(synthesized, r.date || '', r.id)
-                      );
-                    } else {
-                      // 合成失败（如旧数据脏），仍把 type 设为 recurring 避免数据丢失
-                      updateStmts.push(
-                        env.DB.prepare(`UPDATE todos SET type = 'recurring' WHERE id = ?`).bind(r.id)
-                      );
-                    }
-                    cursor = r.id;
-                  }
-                  if (updateStmts.length > 0) {
-                    // D1 batch 上限 99，分片
-                    for (let i = 0; i < updateStmts.length; i += 90) {
-                      await env.DB.batch(updateStmts.slice(i, i + 90));
-                    }
-                  }
-                  if (rows.results.length < batchSize) break;
-                }
-              } catch (e) {
-                console.error('schema 3 todos rrule backfill failed:', e.message || e);
-              }
-
-              // todo_templates 回填（用 anchor_date 已有列）
-              try {
-                const tplRows = await env.DB.prepare(
-                  `SELECT parent_id, anchor_date, repeat_type, repeat_interval, repeat_end, repeat_custom, rrule FROM todo_templates
-                   WHERE repeat_type IN ('daily','weekly','monthly','yearly')
-                     AND (rrule = '' OR rrule IS NULL)`
-                ).all();
-                if (tplRows.results && tplRows.results.length > 0) {
-                  const updateStmts = [];
-                  for (const r of tplRows.results) {
-                    const synthesized = rruleFromLegacyFields({
-                      repeat_type: r.repeat_type,
-                      repeat_interval: r.repeat_interval || 1,
-                      repeat_end: r.repeat_end || '',
-                      repeat_custom: r.repeat_custom || '',
-                      anchor_date: r.anchor_date || '',
-                    });
-                    if (synthesized) {
-                      updateStmts.push(
-                        env.DB.prepare(`UPDATE todo_templates SET rrule = ?, type = 'recurring' WHERE parent_id = ?`)
-                          .bind(synthesized, r.parent_id)
-                      );
-                    } else {
-                      updateStmts.push(
-                        env.DB.prepare(`UPDATE todo_templates SET type = 'recurring' WHERE parent_id = ?`).bind(r.parent_id)
-                      );
-                    }
-                  }
-                  for (let i = 0; i < updateStmts.length; i += 90) {
-                    await env.DB.batch(updateStmts.slice(i, i + 90));
-                  }
-                }
-              } catch (e) {
-                console.error('schema 3 todo_templates rrule backfill failed:', e.message || e);
-              }
-
-              // ===== Step 4: fragment / none 行的 type 回填 =====
-              try {
-                await env.DB.batch([
-                  env.DB.prepare(`UPDATE todos SET type = 'fragment' WHERE type = 'fragment' AND (type = 'none' OR type IS NULL OR type = '')`),
-                  env.DB.prepare(`UPDATE todos SET type = 'none' WHERE (type = 'none' OR repeat_type = '' OR repeat_type IS NULL) AND (type = 'none' OR type IS NULL OR type = '')`),
-                ]);
-              } catch (e) { console.error('schema 3 type backfill failed:', e.message || e); }
-
-              // ===== Step 5: anchor_date 回填（todos 用 date，templates 已有 anchor_date）=====
-              try {
-                await env.DB.prepare(
-                  `UPDATE todos SET anchor_date = date WHERE type = 'recurring' AND (anchor_date = '' OR anchor_date IS NULL)`
-                ).run();
-              } catch (e) { console.error('schema 3 anchor_date backfill failed:', e.message || e); }
-
-              // ===== Step 6: 删除旧列（D1/SQLite 不支持 DROP COLUMN，需重建表）=====
-              // 重建表：CREATE 新表 → INSERT SELECT → DROP 旧 → RENAME
-              // 此操作不可逆，但所有数据已在前面回填到新列
-              try {
-                await env.DB.batch([
-                  // todos 重建
-                  env.DB.prepare(`CREATE TABLE IF NOT EXISTS todos_v3 (
-                    id TEXT PRIMARY KEY,
-                    parent_id TEXT NOT NULL,
-                    date TEXT NOT NULL,
-                    text TEXT NOT NULL,
-                    time TEXT,
-                    priority TEXT,
-                    desc TEXT,
-                    url TEXT,
-                    copy_text TEXT,
-                    subtasks TEXT,
-                    search_terms TEXT,
-                    done INTEGER NOT NULL DEFAULT 0,
-                    deleted INTEGER NOT NULL DEFAULT 0,
-                    type TEXT NOT NULL DEFAULT 'none',
-                    end_time TEXT DEFAULT '',
-                    category_id TEXT DEFAULT '',
-                    recurrence_id TEXT DEFAULT '',
-                    is_exception INTEGER NOT NULL DEFAULT 0,
-                    time_records TEXT NOT NULL DEFAULT '[]',
-                    fragment_anchor TEXT NOT NULL DEFAULT '',
-                    rrule TEXT NOT NULL DEFAULT '',
-                    anchor_date TEXT NOT NULL DEFAULT '',
-                    exdates TEXT NOT NULL DEFAULT '[]'
-                  )`),
-                  env.DB.prepare(`INSERT OR REPLACE INTO todos_v3 (id, parent_id, date, text, time, priority, desc, url, copy_text, subtasks, search_terms, done, deleted, type, end_time, category_id, recurrence_id, is_exception, time_records, fragment_anchor, rrule, anchor_date, exdates)
-                    SELECT id, parent_id, date, text, time, priority, desc, url, copy_text, subtasks, search_terms, done, deleted,
-                           COALESCE(type, 'none'),
-                           end_time, category_id, recurrence_id, is_exception, time_records, fragment_anchor,
-                           COALESCE(rrule, ''), COALESCE(anchor_date, date, ''), COALESCE(exdates, '[]')
-                    FROM todos`),
-                  env.DB.prepare(`DROP TABLE todos`),
-                  env.DB.prepare(`ALTER TABLE todos_v3 RENAME TO todos`),
-                  // 重建索引
-                  env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_todos_cursor ON todos(date, deleted, id)`),
-                  env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_todos_parent_date_del ON todos(parent_id, date, deleted)`),
-                  env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_todos_stats ON todos(date, deleted, priority, done, category_id, time)`),
-                  env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_todos_type ON todos(type)`),
-
-                  // todo_templates 重建
-                  env.DB.prepare(`CREATE TABLE IF NOT EXISTS todo_templates_v3 (
-                    parent_id TEXT PRIMARY KEY,
-                    text TEXT, time TEXT, priority TEXT, desc TEXT, url TEXT,
-                    copy_text TEXT, subtasks TEXT, search_terms TEXT,
-                    type TEXT NOT NULL DEFAULT 'recurring',
-                    end_time TEXT DEFAULT '',
-                    anchor_date TEXT NOT NULL DEFAULT '',
-                    exdates TEXT DEFAULT '[]',
-                    category_id TEXT DEFAULT '',
-                    time_records TEXT NOT NULL DEFAULT '[]',
-                    rrule TEXT NOT NULL DEFAULT ''
-                  )`),
-                  env.DB.prepare(`INSERT OR REPLACE INTO todo_templates_v3 (parent_id, text, time, priority, desc, url, copy_text, subtasks, search_terms, type, end_time, anchor_date, exdates, category_id, time_records, rrule)
-                    SELECT parent_id, text, time, priority, desc, url, copy_text, subtasks, search_terms,
-                           COALESCE(type, 'recurring'),
-                           end_time, COALESCE(anchor_date, ''), COALESCE(exdates, '[]'),
-                           category_id, time_records, COALESCE(rrule, '')
-                    FROM todo_templates`),
-                  env.DB.prepare(`DROP TABLE todo_templates`),
-                  env.DB.prepare(`ALTER TABLE todo_templates_v3 RENAME TO todo_templates`),
-                  env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_templates_type ON todo_templates(type)`),
-                ]);
-              } catch (e) {
-                console.error('schema 3 table rebuild failed:', e.message || e);
-                // 重建失败时尝试清理临时表，下次重试
-                try { await env.DB.prepare(`DROP TABLE IF EXISTS todos_v3`).run(); } catch (e2) {}
-                try { await env.DB.prepare(`DROP TABLE IF EXISTS todo_templates_v3`).run(); } catch (e2) {}
-              }
-            }
-            // 已是 v3 或全新部署：无需迁移
-          } catch (e) {
-            console.error('schema 3 migration failed:', e.message || e);
-          }
-        }
 
         // 写入当前 schema 版本号（整数）
         await env.DB.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('db_schema_version', ?)").bind(String(DB_SCHEMA)).run();
@@ -1619,7 +1370,7 @@ self.addEventListener('fetch', (event) => {
       const TEMPLATE_ROW_PLACEHOLDER = '(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)';
 
       const TODO_BIND_EXTRACTOR = (t) => {
-        // v3.0 type 兜底：旧导出文件可能用 repeat_type；导入时映射
+        // v1.0 type 兜底：旧导出文件可能用 repeat_type；导入时映射
         let type = t.type;
         if (!type) {
           // 兼容 v2.x 导出：从 repeat_type 推导
@@ -1628,7 +1379,7 @@ self.addEventListener('fetch', (event) => {
           else if (rpt && ['daily','weekly','monthly','yearly'].includes(rpt)) type = 'recurring';
           else type = 'none';
         }
-        // v3.0 rrule 兜底：旧导出文件可能 rrule 为空但有旧字段；导入时合成
+        // v1.0 rrule 兜底：旧导出文件可能 rrule 为空但有旧字段；导入时合成
         let rrule = t.rrule || '';
         if (!rrule && type === 'recurring') {
           rrule = rruleFromLegacyFields({
@@ -1649,7 +1400,7 @@ self.addEventListener('fetch', (event) => {
           safeTimeRecords(t.time_records),
           // fragment_anchor: 碎时记起始日期，导入时保留；非碎时记或旧数据为 ''
           t.fragment_anchor || '',
-          // v3.0 规范字段
+          // v1.0 规范字段
           rrule,
           // anchor_date: 优先用导出值，否则用 date 兜底
           t.anchor_date || t.date || '',
@@ -1660,14 +1411,14 @@ self.addEventListener('fetch', (event) => {
 
       const TEMPLATE_BIND_EXTRACTOR = (t) => {
         const exdates = t.exdates || '[]';
-        // v3.0 type 兜底
+        // v1.0 type 兜底
         let type = t.type;
         if (!type) {
           const rpt = t.repeat_type;
           if (rpt && ['daily','weekly','monthly','yearly'].includes(rpt)) type = 'recurring';
           else type = 'recurring';  // 模板默认 recurring
         }
-        // v3.0 rrule 兜底
+        // v1.0 rrule 兜底
         let rrule = t.rrule || '';
         if (!rrule) {
           rrule = rruleFromLegacyFields({
@@ -2350,7 +2101,7 @@ self.addEventListener('fetch', (event) => {
             ).bind(id, 'none', '', '', '[]', id).run();
           } else {
             const tpl = await env.DB.prepare('SELECT rrule, exdates FROM todo_templates WHERE parent_id = ?').bind(t.parent_id).first();
-            // v3.0：检查模板的 rrule 是否仍覆盖此日期（用 isOccurrenceOnDate 判断）
+            // v1.0：检查模板的 rrule 是否仍覆盖此日期（用 isOccurrenceOnDate 判断）
             // 替代旧版 tpl.repeat_end >= t.date 的简单比较
             let tplCoversDate = false;
             if (tpl && tpl.rrule) {
@@ -2458,7 +2209,7 @@ self.addEventListener('fetch', (event) => {
               continue;
             }
             const tpl = tplMap.get(t.parent_id);
-            // v3.0：检查模板 rrule 非空即视为覆盖（严格判断需 isOccurrenceOnDate）
+            // v1.0：检查模板 rrule 非空即视为覆盖（严格判断需 isOccurrenceOnDate）
             if (tpl && tpl.rrule) {
               if (!exdateUpdates[t.parent_id]) exdateUpdates[t.parent_id] = [];
               exdateUpdates[t.parent_id].push(t.date);
@@ -2526,7 +2277,7 @@ self.addEventListener('fetch', (event) => {
       if (!date) return apiError("Date required", 400);
 
       return _withTodosDateLock(date, async () => {
-      // 查询当前日期的所有可见 todos（v3.0 schema 3）：
+      // 查询当前日期的所有可见 todos（v1.0 schema 1）：
       // - 普通 todo (type='none' 或 'recurring')：date = ?
       //   注：recurring 实例的 date = 当前实例日期；模板展开时会 INSERT 实例
       // - 碎时记 (type='fragment')：
@@ -2542,7 +2293,7 @@ self.addEventListener('fetch', (event) => {
       ).bind(date, date, date).all();
       results = r.results || [];
 
-      // v3.0 模板展开：仅 type='recurring' 模板参与
+      // v1.0 模板展开：仅 type='recurring' 模板参与
       // rrule 内的 UNTIL 由 ical.js 在 isOccurrenceOnDate 中判断，无需 SQL 过滤
       const templatesReq = await env.DB.prepare(`
         SELECT * FROM todo_templates t
@@ -2651,14 +2402,14 @@ self.addEventListener('fetch', (event) => {
             return null;
         }).filter(Boolean);
 
-        // v3.0 响应序列化：type 三态 + rrule + anchor_date + exdates
+        // v1.0 响应序列化：type 三态 + rrule + anchor_date + exdates
         // type 兜底（防 DB 脏数据）：none/fragment/recurring 之外的值统一为 'none'
         let type = row.type || 'none';
         if (type !== 'none' && type !== 'fragment' && type !== 'recurring') type = 'none';
 
         return {
           ...row,
-          // v3.0 规范字段（替代旧 repeat_type / repeat_custom / repeat_interval / repeat_end）
+          // v1.0 规范字段（替代旧 repeat_type / repeat_custom / repeat_interval / repeat_end）
           type: type,
           rrule: row.rrule || '',
           anchor_date: row.anchor_date || '',
@@ -3291,17 +3042,17 @@ self.addEventListener('fetch', (event) => {
             return apiError('task.text 为必填字段', 400);
           }
 
-          // ====== v3.0 type 字段校验 ======
+          // ====== v1.0 type 字段校验 ======
           // type 三态：none / fragment / recurring
           // 旧 repeat_type (daily/weekly/monthly/yearly) 已废弃，传入返回 400
           let type = task.type || 'none';
           if (type !== 'none' && type !== 'fragment' && type !== 'recurring') {
-            return apiError(`无效的 type: ${type}，v3.0 有效值: none / fragment / recurring（旧 repeat_type 已废弃）`, 400);
+            return apiError(`无效的 type: ${type}，v1.0 有效值: none / fragment / recurring（旧 repeat_type 已废弃）`, 400);
           }
-          // 拒绝旧字段（v3.0 破坏性变更，强制调用方迁移）
+          // 拒绝旧字段（v1.0 破坏性变更，强制调用方迁移）
           if (task.repeat_type !== undefined || task.repeat_custom !== undefined ||
               task.repeat_interval !== undefined || task.repeat_end !== undefined) {
-            return apiError('v3.0 已废弃 repeat_type / repeat_custom / repeat_interval / repeat_end 字段，请改用 type + rrule + anchor_date + exdates', 400);
+            return apiError('v1.0 已废弃 repeat_type / repeat_custom / repeat_interval / repeat_end 字段，请改用 type + rrule + anchor_date + exdates', 400);
           }
 
           // ====== rrule 校验 ======
@@ -3383,14 +3134,14 @@ self.addEventListener('fetch', (event) => {
           if (!task || !task.id || typeof task.id !== 'string' || !task.id.trim()) {
             return apiError('task.id 为必填字段', 400);
           }
-          // v3.0 拒绝旧字段（破坏性变更）
+          // v1.0 拒绝旧字段（破坏性变更）
           if (task.repeat_type !== undefined || task.repeat_custom !== undefined ||
               task.repeat_interval !== undefined || task.repeat_end !== undefined) {
-            return apiError('v3.0 已废弃 repeat_type / repeat_custom / repeat_interval / repeat_end 字段，请改用 type + rrule + anchor_date + exdates', 400);
+            return apiError('v1.0 已废弃 repeat_type / repeat_custom / repeat_interval / repeat_end 字段，请改用 type + rrule + anchor_date + exdates', 400);
           }
           // type 校验（PATCH 语义：未传时从 DB 回退）
           if (task.type !== undefined && task.type !== 'none' && task.type !== 'fragment' && task.type !== 'recurring') {
-            return apiError(`无效的 type: ${task.type}，v3.0 有效值: none / fragment / recurring`, 400);
+            return apiError(`无效的 type: ${task.type}，v1.0 有效值: none / fragment / recurring`, 400);
           }
 
           // V0 调用方（含外部 API）可能省略 parent_id（V1 风格），需要服务端补全
@@ -3665,7 +3416,7 @@ self.addEventListener('fetch', (event) => {
             }
 
             // Execute pastTodos action (set repeat_end on past instances)
-            // v3.0：pastTodos 的 set_repeat_end 语义改为给过去实例的 rrule 追加 UNTIL
+            // v1.0：pastTodos 的 set_repeat_end 语义改为给过去实例的 rrule 追加 UNTIL
             // 但这需要读出来逐条改 rrule，开销大；当前简化为不做（依赖模板截断实现"此日程及之后"语义）
             // 模板的 set_repeat_end 已通过删除未来实例 + 模板 rrule 不变实现
 
@@ -3712,7 +3463,7 @@ self.addEventListener('fetch', (event) => {
                   await env.DB.prepare('UPDATE todo_templates SET exdates = ? WHERE parent_id = ?').bind(new_exdates, parent_id).run();
                 }
               } else if (tmpl.type === 'set_repeat_end') {
-                // v3.0：旧模板截断 = 给旧模板的 rrule 追加 UNTIL=前一天T235959Z
+                // v1.0：旧模板截断 = 给旧模板的 rrule 追加 UNTIL=前一天T235959Z
                 // 需读出 rrule，解析/修改/写回
                 const prev_date = getPreviousDate(date);
                 try {
@@ -3778,7 +3529,7 @@ self.addEventListener('fetch', (event) => {
               if (pid_row) parent_id = pid_row.parent_id;
             } catch (e) {}
           }
-          // v3.0：从 DB 读取 type，确保 is_series 判断正确
+          // v1.0：从 DB 读取 type，确保 is_series 判断正确
           let delete_is_series = false;
           try {
             const orig = await env.DB.prepare('SELECT type FROM todos WHERE id = ?').bind(task.id).first();
