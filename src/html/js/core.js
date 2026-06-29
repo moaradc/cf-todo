@@ -164,9 +164,17 @@ export const core = `
                 var sorted2 = bydays.slice().sort(function(a, b) {
                   return _RRULE_WDAY_ORDER.indexOf(a.wday) - _RRULE_WDAY_ORDER.indexOf(b.wday);
                 });
-                var wdayZh2 = '';
-                for (var j = 0; j < sorted2.length; j++) wdayZh2 += _RRULE_WDAY_MAP[sorted2[j].wday];
-                label = ivPrefix + '最后' + wdayZh2;
+                // v1.0：检测 MO-FR 组合 → "工作日"；SA,SU 组合 → "周末"
+                var wdaySet = sorted2.map(function(d) { return d.wday; }).join(',');
+                if (wdaySet === 'MO,TU,WE,TH,FR') {
+                  label = ivPrefix + '最后工作日';
+                } else if (wdaySet === 'SA,SU') {
+                  label = ivPrefix + '最后周末';
+                } else {
+                  var wdayZh2 = '';
+                  for (var j = 0; j < sorted2.length; j++) wdayZh2 += _RRULE_WDAY_MAP[sorted2[j].wday];
+                  label = ivPrefix + '最后' + wdayZh2;
+                }
               } else {
                 return null;
               }
