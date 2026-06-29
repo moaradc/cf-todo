@@ -80,6 +80,25 @@ export function sanitizeRRule(raw) {
     if (!ALLOWED_RRULE_TOKENS.has(tokenName)) return '';
   }
 
+  // RFC 5545 §3.3.10: UNTIL 和 COUNT 互斥，不能同时出现
+  const hasUntil = parts.some(p => p.toUpperCase().startsWith('UNTIL='));
+  const hasCount = parts.some(p => p.toUpperCase().startsWith('COUNT='));
+  if (hasUntil && hasCount) return '';
+
+  // RFC 5545 §3.3.10: INTERVAL 必须为正整数（≥1）
+  const intervalPart = parts.find(p => p.toUpperCase().startsWith('INTERVAL='));
+  if (intervalPart) {
+    const intervalVal = parseInt(intervalPart.split('=')[1], 10);
+    if (!Number.isInteger(intervalVal) || intervalVal < 1) return '';
+  }
+
+  // RFC 5545 §3.3.10: COUNT 必须为正整数（≥1）
+  const countPart = parts.find(p => p.toUpperCase().startsWith('COUNT='));
+  if (countPart) {
+    const countVal = parseInt(countPart.split('=')[1], 10);
+    if (!Number.isInteger(countVal) || countVal < 1) return '';
+  }
+
   const canonical = 'FREQ=' + freqVal + (parts.length > 1 ? ';' + parts.slice(1).join(';') : '').toUpperCase();
 
   try {
