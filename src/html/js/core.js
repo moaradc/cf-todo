@@ -1,4 +1,26 @@
 export const core = `
+    // 解析 repeat_custom 中的 BYDAY 列表为中文星期字符串（如 "一三五"）。
+    // 仅处理纯星期代码（MO/TU/WE/TH/FR/SA/SU）的多日组合；
+    // 含数字前缀（如 2MO 表示每月第二周周一）或其他复杂 token 时返回 null，由调用方回退到 todo.date 推导。
+    function _bydayToZh(custom) {
+      if (!custom || typeof custom !== 'string') return null;
+      var m = custom.match(/BYDAY=([A-Z,+-0-9]+)/);
+      if (!m) return null;
+      var tokens = m[1].split(',');
+      var codeMap = { MO:'一', TU:'二', WE:'三', TH:'四', FR:'五', SA:'六', SU:'日' };
+      var order = ['MO','TU','WE','TH','FR','SA','SU'];
+      var found = [];
+      for (var i = 0; i < tokens.length; i++) {
+        var t = (tokens[i] || '').trim();
+        if (!codeMap[t]) return null;
+        found.push(t);
+      }
+      if (!found.length) return null;
+      found.sort(function(a, b) { return order.indexOf(a) - order.indexOf(b); });
+      var zh = '';
+      for (var j = 0; j < found.length; j++) zh += codeMap[found[j]];
+      return zh;
+    }
     var _isOffline = !navigator.onLine;
     // 统一通知条：复用 preview-notice，合并预览/离线提示
     function _updateNoticeBar() {
@@ -678,9 +700,16 @@ export const core = `
           repeatLabel = n ? '每' + n + '天' : '每天';
         } else if (todo.repeat_type === 'weekly') {
           var days = ['日','一','二','三','四','五','六'];
-          var parts = todo.date.split('-');
-          var day = new Date(parts[0], parts[1]-1, parts[2]).getDay();
-          repeatLabel = n ? '每' + n + '周' + days[day] : '每周' + days[day];
+          // 优先解析 repeat_custom 中的 BYDAY（如 FREQ=WEEKLY;BYDAY=MO,WE,FR → "每周一三五"），
+          // 否则回退到 todo.date 当日星期（兼容无 custom 的旧任务）
+          var bydayZh = _bydayToZh(todo.repeat_custom);
+          if (bydayZh) {
+            repeatLabel = n ? '每' + n + '周' + bydayZh : '每周' + bydayZh;
+          } else {
+            var parts = todo.date.split('-');
+            var day = new Date(parts[0], parts[1]-1, parts[2]).getDay();
+            repeatLabel = n ? '每' + n + '周' + days[day] : '每周' + days[day];
+          }
         } else if (todo.repeat_type === 'monthly') {
           var parts2 = todo.date.split('-');
           repeatLabel = n ? '每' + n + '月' + parseInt(parts2[2], 10) + '号' : '每月' + parseInt(parts2[2], 10) + '号';

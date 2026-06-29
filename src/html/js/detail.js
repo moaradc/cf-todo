@@ -167,7 +167,7 @@ export const detail = `
       _navClose('detail-view');
     }
 
-    function getRepeatDisplayText(repeatType, dateStr, repeatEnd, repeatInterval) {
+    function getRepeatDisplayText(repeatType, dateStr, repeatEnd, repeatInterval, repeatCustom) {
       if (!repeatType || repeatType === 'none') return '单次任务';
       // 碎时记: 一次性浮动事项，固定显示"碎时记"
       if (repeatType === 'fragment') {
@@ -178,9 +178,16 @@ export const detail = `
       var rText = '';
       if (repeatType === 'daily') rText = n ? '每' + n + '天' : '每天';
       else if (repeatType === 'weekly') {
-        var dp = (dateStr || '').split('-');
-        if (dp.length === 3) { var dw = new Date(dp[0], dp[1]-1, dp[2]).getDay(); rText = n ? '每' + n + '周' + days[dw] : '每周' + days[dw]; }
-        else rText = n ? '每' + n + '周' : '每周';
+        // 优先解析 repeat_custom 中的 BYDAY（如 FREQ=WEEKLY;BYDAY=MO,WE,FR → "每周一三五"），
+        // 否则回退到 dateStr 当日星期（兼容无 custom 的旧任务）
+        var bydayZh = _bydayToZh(repeatCustom);
+        if (bydayZh) {
+          rText = n ? '每' + n + '周' + bydayZh : '每周' + bydayZh;
+        } else {
+          var dp = (dateStr || '').split('-');
+          if (dp.length === 3) { var dw = new Date(dp[0], dp[1]-1, dp[2]).getDay(); rText = n ? '每' + n + '周' + days[dw] : '每周' + days[dw]; }
+          else rText = n ? '每' + n + '周' : '每周';
+        }
       } else if (repeatType === 'monthly') {
         var mp = (dateStr || '').split('-');
         rText = n ? '每' + n + '月' + (mp.length === 3 ? parseInt(mp[2], 10) + '号' : '') : (mp.length === 3 ? '每月' + parseInt(mp[2], 10) + '号' : '每月');
@@ -495,7 +502,7 @@ export const detail = `
           \`;
         }
 
-        let rText = getRepeatDisplayText(task.repeat_type, task.date, task.repeat_end, task.repeat_interval);
+        let rText = getRepeatDisplayText(task.repeat_type, task.date, task.repeat_end, task.repeat_interval, task.repeat_custom);
         if ((!task.repeat_type || task.repeat_type === 'none') && task.is_series) {
             rText = '已停止重复';
         }
