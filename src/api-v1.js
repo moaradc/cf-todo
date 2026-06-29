@@ -616,7 +616,7 @@ async function handleV1Todos(request, env, url) {
       if (derived) rpt_type = derived;
     }
 
-    const rawInterval = repeat_interval || 1;
+    const rawInterval = repeat_interval !== undefined ? repeat_interval : 1;
     if (typeof rawInterval !== 'number' || !Number.isInteger(rawInterval) || rawInterval < 1) {
       return apiError('repeat_interval 必须为正整数', 400);
     }
@@ -1341,6 +1341,8 @@ async function handleV1TodoBatch(request, DB) {
 
   if (action === 'BATCH_TOGGLE_DONE') {
     if (!ids || !Array.isArray(ids) || ids.length === 0) return apiError('ids 为必填数组', 400);
+    // 规范化 ids 为字符串数组（防数字 id 导致 D1 类型不匹配静默失败）
+    ids = ids.map(id => String(id));
 
     let totalAffected = 0;
     const all_fragment_ids = [];
@@ -1562,6 +1564,8 @@ async function handleV1TodoBatch(request, DB) {
 
   if (action === 'BATCH_DELETE') {
     if (!ids || !Array.isArray(ids) || ids.length === 0) return apiError('ids 为必填数组', 400);
+    // 规范化 ids 为字符串数组（防数字 id 导致 D1 类型不匹配静默失败）
+    ids = ids.map(id => String(id));
 
     // 自动分片查询重复任务信息（用于 exdate 维护）
     const tasks = [];
@@ -1716,6 +1720,8 @@ async function handleV1TrashAction(request, DB) {
 
   if (action === 'BATCH_RESTORE') {
     if (!ids || !Array.isArray(ids) || ids.length === 0) return apiError('ids 为必填数组', 400);
+    // 规范化 ids 为字符串数组（防数字 id 导致 D1 类型不匹配静默失败）
+    ids = ids.map(id => String(id));
 
     // 自动分片查询
     const tasks = [];
@@ -1850,6 +1856,8 @@ async function handleV1TrashAction(request, DB) {
 
   if (action === 'BATCH_DELETE_PERMANENT') {
     if (!ids || !Array.isArray(ids) || ids.length === 0) return apiError('ids 为必填数组', 400);
+    // 规范化 ids 为字符串数组（防数字 id 导致 D1 类型不匹配静默失败）
+    ids = ids.map(id => String(id));
     let totalDeleted = 0;
     for (const chunk of chunkArray(ids, BATCH_CHUNK_SIZE)) {
       const ph = sqlPlaceholders(chunk.length);
@@ -2000,6 +2008,8 @@ async function handleV1CategoryBatch(request, DB) {
 
   if (action === 'BATCH_DELETE') {
     if (!ids || !Array.isArray(ids) || ids.length === 0) return apiError('ids 为必填数组', 400);
+    // 规范化 ids 为字符串数组（防数字 id 导致 D1 类型不匹配静默失败）
+    ids = ids.map(id => String(id));
 
     // 自动分片：每片内 categories 删除 + todos/todo_templates category_id 清空原子提交
     // 累加实际删除的分类数（取 batch 第一个语句 DELETE FROM categories 的 changes）
