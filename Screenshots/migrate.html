@@ -790,6 +790,27 @@
           addLog('合成 id:' + m.id + ' rrule: ' + m.rrule, 'info', 'rrule');
         }
       }
+      // v3.0：type 字段从 repeat_type 映射
+      if (m.type === undefined || m.type === null) {
+        var rpt = m.repeat_type;
+        if (rpt === 'fragment') m.type = 'fragment';
+        else if (rpt && ['daily','weekly','monthly','yearly'].includes(rpt)) m.type = 'recurring';
+        else m.type = 'none';
+      }
+      // v3.0：anchor_date 字段（recurring 用 date，fragment/none 用 ''）
+      if (m.anchor_date === undefined || m.anchor_date === null) {
+        m.anchor_date = (m.type === 'recurring') ? (m.date || '') : '';
+      }
+      // v3.0：exdates 字段
+      if (m.exdates === undefined || m.exdates === null) {
+        m.exdates = '[]';
+      }
+      // v3.0：删除旧字段（v3.0 schema 3 不再存储）
+      delete m.repeat_type;
+      delete m.repeat_custom;
+      delete m.repeat_interval;
+      delete m.repeat_end;
+      }
 
       migratedTodos.push(m);
     }
@@ -863,6 +884,16 @@
         if (mt.rrule) {
           addLog('合成 模板 parent_id:' + mt.parent_id + ' rrule: ' + mt.rrule, 'info', 'rrule');
         }
+      }
+      // v3.0：type 字段固定为 recurring（模板只有 recurring 类型）
+      if (mt.type === undefined || mt.type === null) {
+        mt.type = 'recurring';
+      }
+      // v3.0：删除旧字段
+      delete mt.repeat_type;
+      delete mt.repeat_custom;
+      delete mt.repeat_interval;
+      delete mt.repeat_end;
       }
 
       migratedTemplates.push(mt);

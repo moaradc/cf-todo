@@ -255,7 +255,7 @@ export const todos = `
     async function toggleDone(index) {
       const todo = todos[index];
       if (!todo) return;
-      const isFragment = todo.repeat_type === 'fragment';
+      const isFragment = todo.type === 'fragment';
       // 碎时记有活动计时器时点完成 → 转交 completeTimer 写真实耗时 record
       if (isFragment && !todo.done && typeof readTimerState === 'function' && readTimerState(todo.id)) {
         await completeTimer(index);
@@ -322,7 +322,7 @@ export const todos = `
     //   - 单 session 上限 24h
     function isFragmentTodo(todoId) {
       const t = todos.find(function(t) { return t.id === todoId; });
-      return !!(t && t.repeat_type === 'fragment');
+      return !!(t && t.type === 'fragment');
     }
     const TIMER_STALE_MS = 24 * 60 * 60 * 1000; // 超过 24h 视为遗留，自动清除
     const TIMER_MAX_SESSION_MS = 7 * 24 * 60 * 60 * 1000; // 单 session 上限（与服务端一致）
@@ -490,7 +490,7 @@ export const todos = `
     async function completeTimer(index) {
       const todo = todos[index];
       if (!todo) return;
-      const isFragment = todo.repeat_type === 'fragment';
+      const isFragment = todo.type === 'fragment';
       if (todo.done) return;  // 防御：recordTimer 飞行中或重复触发
       if (!acquireTimerLock(todo.id)) return;  // 防御：连点
       try {
@@ -564,7 +564,7 @@ export const todos = `
     async function recordTimer(index) {
       const todo = todos[index];
       if (!todo) return;
-      if (todo.repeat_type !== 'fragment') {
+      if (todo.type !== 'fragment') {
         writeTimerState(todo.id, null);
         return;
       }
@@ -634,7 +634,7 @@ export const todos = `
     async function continueAfterDone(index) {
       const todo = todos[index];
       if (!todo) return;
-      if (todo.repeat_type !== 'fragment') {
+      if (todo.type !== 'fragment') {
         writeTimerState(todo.id, null);
         return;
       }
@@ -644,7 +644,7 @@ export const todos = `
         todo.done = false;
         // 碎时记：取消完成时 date 从 fragment_anchor 恢复（保留用户设置的起始日期）
         // 用户在已完成的碎时记上点"开始计时"后，该事项恢复到未完成状态，起始日期保留
-        if (todo.repeat_type === 'fragment') {
+        if (todo.type === 'fragment') {
           todo.date = todo.fragment_anchor || '';
         }
         startTimer(todo.id);
@@ -817,7 +817,7 @@ export const todos = `
         Array.from(selectedTasks).forEach(idx => {
           const todo = todos[idx];
           if (!todo) return;
-          const isFragmentItem = todo.repeat_type === 'fragment';
+          const isFragmentItem = todo.type === 'fragment';
           if (isFragmentItem) {
             const st = readTimerState(todo.id);
             if (st) {
@@ -873,20 +873,20 @@ export const todos = `
               if (!Array.isArray(arr)) arr = [];
               arr.push(tr.record);
               // 碎时记不截断 / 普通 todo FIFO 5
-              if (todo.repeat_type !== 'fragment' && arr.length > 5) arr = arr.slice(arr.length - 5);
+              if (todo.type !== 'fragment' && arr.length > 5) arr = arr.slice(arr.length - 5);
               todo.time_records = arr;
             } catch (e) {
               todo.time_records = [tr.record];
             }
           }
           // 碎时记完成时 date 冻结到当前查看日期（仅对原本未完成项，避免覆盖已冻结的完成日期）
-          if (todo.repeat_type === 'fragment' && !todo._wasDone) {
+          if (todo.type === 'fragment' && !todo._wasDone) {
             todo.date = formatDate(currentDate);
           }
         } else {
           // 批量取消：清空实例级 time_records；碎时记 date 从 fragment_anchor 恢复
           todo.time_records = [];
-          if (todo.repeat_type === 'fragment') {
+          if (todo.type === 'fragment') {
             todo.date = todo.fragment_anchor || '';
           }
         }
@@ -905,7 +905,7 @@ export const todos = `
         };
         // 碎时记完成/取消完成都需要 date 字段（完成时冻结，取消时服务端会忽略并重置为空）
         // 只要选中项中存在碎时记，就传 date
-        const hasFragment = Array.from(selectedTasks).some(idx => todos[idx] && todos[idx].repeat_type === 'fragment');
+        const hasFragment = Array.from(selectedTasks).some(idx => todos[idx] && todos[idx].type === 'fragment');
         if (hasFragment) {
           batchPayload.date = formatDate(currentDate);
         }

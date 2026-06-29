@@ -1,7 +1,7 @@
 export const detail = `
     // ==================== RRULE 构建器（前端 → 后端规范字段）====================
     // 从 UI 状态（repeatType / interval / repeatEnd / anchorDate）合成 RFC 5545 RRULE 字符串。
-    // 服务端 v2.8.0+ 优先识别 rrule 字段，反推 repeat_type / repeat_interval / repeat_end / repeat_custom。
+    // 服务端 v3.0 仅识别 type + rrule + anchor_date + exdates 字段。
     // RRULE 限制与后端 sanitizeRRule 一致：
     // - FREQ ∈ {DAILY, WEEKLY, MONTHLY, YEARLY}
     // - INTERVAL（>1 时才输出）
@@ -11,6 +11,10 @@ export const detail = `
     // none / fragment → 返回 ''（与后端 final_rrule='' 对齐）
     function _buildRRuleFromUI(repeatType, interval, repeatEnd, anchorDate) {
       if (!repeatType || repeatType === 'none' || repeatType === 'fragment') return '';
+      // v3.0：UI 状态用 daily/weekly/monthly/yearly（兼容旧 tempRepeatType）
+      // 服务端 v3.0 期望 type=recurring + rrule，但前端 UI 状态仍保留细分频率用于 rrule 合成
+      // 注：tempRepeatType 在 UI 中仍为 daily/weekly/monthly/yearly/fragment/none 6 值
+      // 提交时由 confirmAddTask/confirmAction 把 type 映射为 none/fragment/recurring 三态
       var FREQ_MAP = { daily: 'DAILY', weekly: 'WEEKLY', monthly: 'MONTHLY', yearly: 'YEARLY' };
       var freq = FREQ_MAP[repeatType];
       if (!freq) return '';
@@ -36,6 +40,33 @@ export const detail = `
         parts.push('UNTIL=' + repeatEnd.replace(/-/g, '') + 'T235959Z');
       }
       return parts.join(';');
+    }
+
+    // v3.0：从 rrule 解析 UNTIL（YYYYMMDDTHHMMSSZ 或 YYYYMMDD）→ YYYY-MM-DD
+    function _extractUntilFromRRule(rrule) {
+      if (!rrule || typeof rrule !== 'string') return '';
+      var m = rrule.match(/UNTIL=(\d{4})(\d{2})(\d{2})/);
+      if (m) return m[1] + '-' + m[2] + '-' + m[3];
+      return '';
+    }
+
+    // v3.0：从 rrule 解析 INTERVAL → 数字
+    function _extractIntervalFromRRule(rrule) {
+      if (!rrule || typeof rrule !== 'string') return 1;
+      var m = rrule.match(/INTERVAL=(\d+)/);
+      if (m) return parseInt(m[1], 10);
+      return 1;
+    }
+
+    // v3.0：从 rrule 解析 FREQ → daily/weekly/monthly/yearly（UI 状态用）
+    function _extractFreqFromRRule(rrule) {
+      if (!rrule || typeof rrule !== 'string') return 'none';
+      var m = rrule.match(/FREQ=(DAILY|WEEKLY|MONTHLY|YEARLY)/);
+      if (m) {
+        var freqMap = { DAILY: 'daily', WEEKLY: 'weekly', MONTHLY: 'monthly', YEARLY: 'yearly' };
+        return freqMap[m[1]] || 'none';
+      }
+      return 'none';
     }
 
     function openAddModal() {
@@ -126,24 +157,25 @@ export const detail = `
       // 非碎时记: 实例日期 = tempAddDate（用户选择器挑选的日期）
       const isFragment = tempRepeatType === 'fragment';
       const instanceDate = isFragment ? (tempFragmentAnchor || '') : tempAddDate;
-      // rrule 规范字段（v2.8.0+）：从 UI 状态合成 RFC 5545 RRULE 字符串。
-      // 服务端会从 rrule 反推 repeat_type / repeat_interval / repeat_end / repeat_custom，
-      // 因此旧字段无需前端构建（仅保留为后兼容快照，服务端会覆盖）。
+      // v3.0 rrule 规范字段：从 UI 状态合成 RFC 5545 RRULE 字符串
       const rrule = _buildRRuleFromUI(
         tempRepeatType,
         isFragment ? 1 : (tempRepeatInterval || 1),
         isFragment ? '' : tempRepeatEnd,
         instanceDate
       );
+      // v3.0：tempRepeatType (daily/weekly/monthly/yearly) 映射为 type (none/fragment/recurring)
+      var v3Type = 'none';
+      if (tempRepeatType === 'fragment') v3Type = 'fragment';
+      else if (tempRepeatType && tempRepeatType !== 'none') v3Type = 'recurring';
       const newTask = {
         id: newId, parent_id: newId, text: text, time: tempTime,
         end_time: tempEndTime,
-        priority: tempPriority, 
-        repeat_type: tempRepeatType,
-        repeat_custom: '',
-        repeat_end: isFragment ? '' : tempRepeatEnd,
-        repeat_interval: isFragment ? 1 : (tempRepeatInterval || 1),
+        priority: tempPriority,
+        type: v3Type,
         rrule: rrule,
+        anchor_date: v3Type === 'recurring' ? (tempAddDate || '') : '',
+        exdates: '[]',
         category_id: tempCategoryId,
         desc: document.getElementById('add-desc').value, url: document.getElementById('add-url').value,
         copy_text: document.getElementById('add-copy').value, done: false,
@@ -286,7 +318,7 @@ export const detail = `
       if (!task || !slot) return;
 
       // 非重复 todo：只读显示（不支持计时操作，但可能保留从重复 todo 转换来的历史记录）
-      const isRepeating = task.repeat_type && task.repeat_type !== 'none';
+      const isRepeating = task.type && task.type !== 'none';
       if (!isRepeating) {
         let html = '<div class="detail-label">计时</div>';
         const records = getDetailTimeRecords();
@@ -302,7 +334,7 @@ export const detail = `
       }
 
       // [记录]/[继续计时] 仅对碎时记渲染
-      const isFragment = task.repeat_type === 'fragment';
+      const isFragment = task.type === 'fragment';
 
       const timerState = task.done ? null : maybePruneStaleTimer(task.id);
       const paused = timerState && isTimerPaused(timerState);
@@ -553,8 +585,8 @@ export const detail = `
           \`;
         }
 
-        let rText = getRepeatDisplayText(task.repeat_type, task.date, task.repeat_end, task.repeat_interval, task.repeat_custom, task.rrule);
-        if ((!task.repeat_type || task.repeat_type === 'none') && task.is_series) {
+        let rText = getRepeatDisplayText(task.type, task.date, task.rrule);
+        if ((!task.type || task.type === 'none') && task.is_series) {
             rText = '已停止重复';
         }
 
@@ -570,7 +602,7 @@ export const detail = `
         // 计时区块：所有 todo 都渲染；templateRecords 仅对非碎时记的重复 todo 拉取
         // （碎时记无模板，非重复 todo 无计时按钮，都跳过省一次网络往返）
         let timerSection = '<div id="timer-section"></div>';
-        if (task.repeat_type && task.repeat_type !== 'none' && task.repeat_type !== 'fragment') {
+        if (task.type && task.type !== 'none' && task.type !== 'fragment') {
           // 仅拉取模板级记录（templateRecords），用于 predictDuration 预估时长
           const fetchTodoId = task.id;
           if (fetchTodoId) {
@@ -695,9 +727,17 @@ export const detail = `
         tempEditDate = task.date || '';
         tempTime = task.time || ''; tempPriority = task.priority || 'low';
         tempEndTime = task.end_time || '';
-        tempRepeatType = task.repeat_type || 'none';
-        tempRepeatEnd = task.repeat_end || '';
-        tempRepeatInterval = task.repeat_interval || 1;
+        // v3.0：task.type 为 none/fragment/recurring；UI tempRepeatType 需从 rrule 解析 FREQ
+        // 兼容旧 task.repeat_type 字段（从 v2.x 升级但前端缓存未刷新的边缘场景）
+        if (task.type === 'fragment') {
+          tempRepeatType = 'fragment';
+        } else if (task.type === 'recurring') {
+          tempRepeatType = _extractFreqFromRRule(task.rrule) || 'daily';
+        } else {
+          tempRepeatType = 'none';
+        }
+        tempRepeatEnd = _extractUntilFromRRule(task.rrule) || '';
+        tempRepeatInterval = _extractIntervalFromRRule(task.rrule) || 1;
         // 碎时记 (fragment): 从 task.date 读起始日期
         //   - 未完成：date = 起始日期（空=任意日期可见）
         //   - 已完成：date = 完成日期（冻结，编辑模式只读）
@@ -705,7 +745,7 @@ export const detail = `
         //   - 未完成：fragment_anchor 与 date 一致，两者都可读
         //   - 已完成：date 是冻结的完成日期，fragment_anchor 才是起始日期
         // 优先读 fragment_anchor（后端 formatTodo 已透传），兜底读 date（兼容旧数据）
-        tempFragmentAnchor = (task.repeat_type === 'fragment') ? (task.fragment_anchor || task.date || '') : '';
+        tempFragmentAnchor = (task.type === 'fragment') ? (task.fragment_anchor || task.date || '') : '';
         tempSubtasks = JSON.parse(JSON.stringify(task.subtasks ||[]));
         tempSearchTerms = JSON.parse(JSON.stringify(task.search_terms ||[]));
         tempSearchProvider = appSettings.provider || 'auto';
@@ -925,9 +965,9 @@ export const detail = `
 
       // 碎时记 (fragment): 一次性事项，编辑/删除直接生效，需二次确认
       // 碎时记是单实例，等同"仅此日程"语义，不显示范围选择器
-      const fragOnDelete = action === 'delete' && task && task.repeat_type === 'fragment';
+      const fragOnDelete = action === 'delete' && task && task.type === 'fragment';
       const fragOnSave = action === 'save' && (
-        (task && task.repeat_type === 'fragment') ||
+        (task && task.type === 'fragment') ||
         (typeof tempRepeatType !== 'undefined' && tempRepeatType === 'fragment')
       );
       if (fragOnDelete || fragOnSave) {
@@ -1091,29 +1131,30 @@ export const detail = `
         
         // 根据scope处理重复属性
         // 碎时记 (fragment): 即使原任务是系列（如 daily），编辑为碎时记后应保留 fragment 类型
-        // 不能走 "仅此项 → repeat_type=none" 分支，否则会把 fragment 误改为 none
-        if (scope === 'this' && task.is_series && tempRepeatType !== 'fragment') {
+        // 不能走 "仅此项 → type=none" 分支，否则会把 fragment 误改为 none
+        // v3.0：tempRepeatType (daily/weekly/monthly/yearly) 映射为 type (none/fragment/recurring)
+        var v3TypeEdit = 'none';
+        if (tempRepeatType === 'fragment') v3TypeEdit = 'fragment';
+        else if (tempRepeatType && tempRepeatType !== 'none') v3TypeEdit = 'recurring';
+        if (scope === 'this' && task.is_series && v3TypeEdit !== 'fragment') {
           // 仅此项：脱离系列，变为非重复单次事项
           // 重复相关变更（间隔、频率、截止）对"仅此项"无意义，遵循标准规则
-          task.repeat_type = 'none';
-          task.repeat_custom = '';
-          task.repeat_end = '';
-          task.repeat_interval = 1;
-          task.rrule = '';  // v2.8.0+ rrule 规范字段同步清空
+          task.type = 'none';
+          task.rrule = '';
+          task.anchor_date = '';
+          task.exdates = '[]';
           task.is_series = false;
         } else {
           // 此项及之后 / 所有日程：应用重复变更
           // 碎时记也走此分支：保留 fragment 类型，清空无意义字段
-          task.repeat_type = tempRepeatType;
-          task.repeat_custom = '';
-          task.repeat_end = tempRepeatType === 'fragment' ? '' : tempRepeatEnd;
-          task.repeat_interval = tempRepeatType === 'fragment' ? 1 : (tempRepeatInterval || 1);
-          // v2.8.0+ rrule 规范字段：从 UI 状态合成。服务端会反推旧字段（覆盖上面的旧字段值）。
-          // anchorDate 用 tempEditDate（此项及以后场景下新系列起始日期）
+          task.type = v3TypeEdit;
+          task.anchor_date = v3TypeEdit === 'recurring' ? (tempEditDate || task.date || '') : '';
+          task.exdates = '[]';
+          // v3.0 rrule 规范字段：从 UI 状态合成。anchorDate 用 tempEditDate（此项及以后场景下新系列起始日期）
           task.rrule = _buildRRuleFromUI(
             tempRepeatType,
-            task.repeat_interval,
-            task.repeat_end,
+            tempRepeatInterval,
+            tempRepeatEnd,
             tempEditDate || task.date || ''
           );
           // 清空 time/end_time（碎时记无意义）
@@ -1121,7 +1162,7 @@ export const detail = `
             task.time = '';
             task.end_time = '';
           }
-          if (tempRepeatType === 'none' || tempRepeatType === 'fragment') {
+          if (v3TypeEdit === 'none' || v3TypeEdit === 'fragment') {
             task.is_series = false;
           }
         }

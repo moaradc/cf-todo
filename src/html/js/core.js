@@ -909,7 +909,7 @@ export const core = `
 
       // 计时状态：先确定是否激活（用于 badges 行显示"计时中"标签）
       var timerState = null;
-      var canTimer = !todo.done && todo.repeat_type && todo.repeat_type !== 'none';
+      var canTimer = !todo.done && todo.type && todo.type !== 'none';
       if (!canTimer) {
         if (readTimerState(todo.id)) writeTimerState(todo.id, null);
       } else {
@@ -942,10 +942,10 @@ export const core = `
         }
       }
 
-      if (todo.repeat_type && todo.repeat_type !== 'none') {
+      if (todo.type && todo.type !== 'none') {
         var repeatLabel = '';
         var n = todo.repeat_interval && todo.repeat_interval > 1 ? todo.repeat_interval : null;
-        if (todo.repeat_type === 'fragment') {
+        if (todo.type === 'fragment') {
           // 碎时记: 一次性浮动事项，固定显示"碎时记"标签（与"每天"样式一致）
           repeatLabel = '碎时记';
         } else {
@@ -954,7 +954,7 @@ export const core = `
           // - 渲染失败但有 custom：卡片空间有限，显示通用的"自定义重复"
           //   （详情页会显示完整 RRULE 字符串）
           // - 无 custom：回退到 repeat_type + todo.date 推导（兼容旧任务）
-          var rruleLabel = todo.repeat_custom ? _rruleToZhLabel(todo.repeat_custom, todo.repeat_type, todo.date, n, todo.repeat_end) : null;
+          var rruleLabel = todo.repeat_custom ? _rruleToZhLabel(todo.repeat_custom, todo.type, todo.date, n, todo.repeat_end) : null;
           if (rruleLabel) {
             repeatLabel = rruleLabel;
             // rruleLabel 已包含 repeat_end/UNTIL/COUNT 终止条件，不再追加
@@ -962,17 +962,17 @@ export const core = `
             // custom 存在但无法精确翻译（如 BYHOUR、多 BYMONTH 等复杂组合）
             repeatLabel = '自定义重复';
             if (todo.repeat_end) repeatLabel += '·至' + todo.repeat_end;
-          } else if (todo.repeat_type === 'daily') {
+          } else if (todo.type === 'daily') {
             repeatLabel = n ? '每' + n + '天' : '每天';
-          } else if (todo.repeat_type === 'weekly') {
+          } else if (todo.type === 'weekly') {
             var days = ['日','一','二','三','四','五','六'];
             var parts = todo.date.split('-');
             var day = new Date(parts[0], parts[1]-1, parts[2]).getDay();
             repeatLabel = n ? '每' + n + '周' + days[day] : '每周' + days[day];
-          } else if (todo.repeat_type === 'monthly') {
+          } else if (todo.type === 'monthly') {
             var parts2 = todo.date.split('-');
             repeatLabel = n ? '每' + n + '月' + parseInt(parts2[2], 10) + '号' : '每月' + parseInt(parts2[2], 10) + '号';
-          } else if (todo.repeat_type === 'yearly') {
+          } else if (todo.type === 'yearly') {
             var parts3 = todo.date.split('-');
             repeatLabel = n ? '每' + n + '年' + parseInt(parts3[1], 10) + '月' + parseInt(parts3[2], 10) + '日' : '每年' + parseInt(parts3[1], 10) + '月' + parseInt(parts3[2], 10) + '日';
           }
