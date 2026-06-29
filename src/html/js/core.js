@@ -84,7 +84,10 @@ export const core = `
     }
 
     // 主渲染函数：将 repeat_custom 翻译为短中文标签
-    // 返回字符串（如"每周一三五"、"每月第2个周一"、"每季度1号"）；无法翻译返回 null
+    // 项目场景：仅覆盖 DAILY/WEEKLY/MONTHLY/YEARLY 的常见重复规则（每天/每周/每月/每年）
+    // 不支持：SECONDLY/MINUTELY/HOURLY（后端已拒绝）、BYHOUR/BYMINUTE/BYSECOND（时间段语义）、
+    //         COUNT（"重复N次"非项目场景）、RSCALE 等 RFC 7529 扩展
+    // 遇到不支持 token 返回 null，调用方回退到"自定义重复"或 todo.date 推导
     function _rruleToZhLabel(custom, repeatType, dateStr, interval, repeatEnd) {
       var tok = _rruleParse(custom);
       if (!tok) return null;
@@ -97,7 +100,8 @@ export const core = `
       var ivPrefix = iv > 1 ? '每' + iv + freqUnit : '每' + freqUnit;
       var ivSuffix = '';  // 已合并到 ivPrefix，保留参数以兼容旧代码
 
-      // 拒绝无法精确翻译的 token
+      // 安全兜底：BYHOUR/BYMINUTE/BYSECOND 是时间段语义（如"每天9点"），项目场景不会出现
+      // 但若入库了不能误导成"每天"，直接返 null 走"自定义重复"分支
       if (tok.BYHOUR || tok.BYMINUTE || tok.BYSECOND) return null;
 
       var label = '';
@@ -238,15 +242,14 @@ export const core = `
         return null;
       }
 
-      // 追加 repeat_end / UNTIL / COUNT 终止条件
+      // 追加 repeat_end / UNTIL 终止条件（项目不支持 COUNT，遇 COUNT 视为复杂规则返回 null）
+      if (tok.COUNT) return null;
       if (repeatEnd) {
         label += '·至' + repeatEnd;
       } else if (tok.UNTIL) {
         // UNTIL 格式 YYYYMMDD 或 YYYYMMDDTHHMMSSZ，截取日期部分
         var untilDate = tok.UNTIL.length >= 8 ? tok.UNTIL.slice(0, 4) + '-' + tok.UNTIL.slice(4, 6) + '-' + tok.UNTIL.slice(6, 8) : '';
         if (untilDate) label += '·至' + untilDate;
-      } else if (tok.COUNT) {
-        label += '·共' + tok.COUNT + '次';
       }
 
       return label;
