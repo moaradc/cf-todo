@@ -944,10 +944,18 @@ export const core = `
           repeatLabel = '碎时记';
         } else {
           // 优先使用 _rruleToZhLabel 解析 repeat_custom（支持完整 RFC 5545 RRULE）
-          // 失败回退到 repeat_type + todo.date 推导（兼容旧任务）
+          // - 渲染成功：用解析后的中文标签（如 "每周一三五·共10次"，已含 repeat_end）
+          // - 渲染失败但有 custom：卡片空间有限，显示通用的"自定义重复"
+          //   （详情页会显示完整 RRULE 字符串）
+          // - 无 custom：回退到 repeat_type + todo.date 推导（兼容旧任务）
           var rruleLabel = todo.repeat_custom ? _rruleToZhLabel(todo.repeat_custom, todo.repeat_type, todo.date, n, todo.repeat_end) : null;
           if (rruleLabel) {
             repeatLabel = rruleLabel;
+            // rruleLabel 已包含 repeat_end/UNTIL/COUNT 终止条件，不再追加
+          } else if (todo.repeat_custom) {
+            // custom 存在但无法精确翻译（如 BYHOUR、多 BYMONTH 等复杂组合）
+            repeatLabel = '自定义重复';
+            if (todo.repeat_end) repeatLabel += '·至' + todo.repeat_end;
           } else if (todo.repeat_type === 'daily') {
             repeatLabel = n ? '每' + n + '天' : '每天';
           } else if (todo.repeat_type === 'weekly') {
@@ -962,9 +970,9 @@ export const core = `
             var parts3 = todo.date.split('-');
             repeatLabel = n ? '每' + n + '年' + parseInt(parts3[1], 10) + '月' + parseInt(parts3[2], 10) + '日' : '每年' + parseInt(parts3[1], 10) + '月' + parseInt(parts3[2], 10) + '日';
           }
+          // 无 custom 时追加 repeat_end（有 custom 时已由 _rruleToZhLabel 或上面分支处理）
+          if (!todo.repeat_custom && todo.repeat_end) repeatLabel += '·至' + todo.repeat_end;
         }
-        // 碎时记不显示 repeat_end（完成时自动管理，对用户无意义）
-        if (todo.repeat_end && todo.repeat_type !== 'fragment' && !rruleLabel) repeatLabel += '·至' + todo.repeat_end;
         badges += '<span class="badge" style="background:transparent;border:1px solid var(--fg);color:var(--fg);">' + escapeHtml(repeatLabel) + '</span> ';
       }
 

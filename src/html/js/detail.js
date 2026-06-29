@@ -175,10 +175,15 @@ export const detail = `
       }
       var n = repeatInterval && repeatInterval > 1 ? repeatInterval : null;
       // 优先使用 _rruleToZhLabel 解析 repeat_custom（支持完整 RFC 5545 RRULE）
-      // 失败回退到 repeat_type + dateStr 推导（兼容旧任务）
+      // - 渲染成功：返回完整中文标签（如 "每周一三五·至2026-12-31·共10次"）
+      // - 渲染失败但有 custom：详情页空间充足，显示"自定义重复"+ 原始 RRULE 字符串
+      //   方便用户/开发者直接看到规则内容
+      // - 无 custom：回退到 repeat_type + dateStr 推导（兼容旧任务）
       if (repeatCustom) {
         var rruleText = _rruleToZhLabel(repeatCustom, repeatType, dateStr, n, repeatEnd);
         if (rruleText) return rruleText;
+        // 渲染失败：显示自定义重复 + 原始 RRULE（详情页空间充足）
+        return '自定义重复 (' + repeatCustom + ')';
       }
       var days = ['日','一','二','三','四','五','六'];
       var rText = '';
@@ -551,7 +556,7 @@ export const detail = `
           </div>
           \${urlSection}\${copySection}
           \${catSection}
-          <div class="detail-label">属性</div><div class="detail-value">\${rText}</div>
+          <div class="detail-label">属性</div><div class="detail-value">\${escapeHtml(rText)}</div>
           \${descSection}
           \${timerSection}
         \`;
