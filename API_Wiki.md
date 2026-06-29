@@ -1834,8 +1834,9 @@ V0 CREATE / V0 UPDATE / V1 POST / V1 PUT 四个写入端点共享同一套联动
 |---------|---------|---------|
 | `repeat_end` 非空时 `repeat_type` 必须 ∈ {daily,weekly,monthly,yearly} | `repeat_end="2026-12-31"` + `repeat_type=none` | `400 repeat_end 仅在 repeat_type 为 daily/weekly/monthly/yearly 时有效，当前 repeat_type=none` |
 | `repeat_interval > 1` 时 `repeat_type` 必须 ∈ {daily,weekly,monthly,yearly} | `repeat_interval=2` + `repeat_type=none` | `400 repeat_interval > 1 仅在 repeat_type 为 daily/weekly/monthly/yearly 时有效，当前 repeat_type=none` |
-| `time` 不能晚于 `end_time`（同日） | `time="18:00"` + `end_time="09:00"` | `400 time (18:00) 不能晚于 end_time (09:00)` |
 | `repeat_interval` 必须为正整数 | `repeat_interval=0` / `-1` / `1.5` / `"2"` | `400 repeat_interval 必须为正整数` |
+
+> **`time` / `end_time` 为独立展示字段**：两者均为展示型，不参与业务计算（耗时走 `time_records`）。允许的输入组合：仅传 `time`、仅传 `end_time`（语义：在 `end_time` 前完成即可）、两者都传（含跨日/夜班如 `22:00` - `06:00`）、两者都空。服务端不再校验 `time ≤ end_time`，仅保留 `HH:MM` 格式与范围校验。
 
 **格式校验**（v2.7.8.4 新增，冲突返回 400）：
 
@@ -1933,7 +1934,7 @@ curl -X POST \
 # 若显式传 repeat_type=fragment 则尊重调用方意图，不反推）
 ```
 
-> v2.7.8.4 起 V0 UPDATE 与 V1 PUT 行为一致（PATCH 语义）。调用方只需传想修改的字段，未传字段保留 DB 原值。联动字段（如 `repeat_type` + `repeat_custom`）由服务端自动推导，冲突组合（如 `repeat_end` + `repeat_type=none`）返回 400。
+> v2.7.8.4 起 V0 UPDATE 与 V1 PUT 行为一致（PATCH 语义）。调用方只需传想修改的字段，未传字段保留 DB 原值。联动字段（如 `repeat_type` + `repeat_custom`）由服务端自动推导，冲突组合（如 `repeat_end` + `repeat_type=none`）返回 400。`time` / `end_time` 为独立展示字段，不联动校验。
 
 #### 常见错误响应
 
@@ -1949,9 +1950,6 @@ curl -X POST \
 
 // 400 — repeat_end + repeat_type=none（原子组冲突）
 { "error": "repeat_end 仅在 repeat_type 为 daily/weekly/monthly/yearly 时有效，当前 repeat_type=none" }
-
-// 400 — time > end_time（原子组冲突）
-{ "error": "time (18:00) 不能晚于 end_time (09:00)" }
 
 // 400 — repeat_type 非法（注意：hourly 不是合法值，仅接受 none/daily/weekly/monthly/yearly/fragment）
 { "error": "无效的 repeat_type: hourly，有效值: none, daily, weekly, monthly, yearly, fragment" }
