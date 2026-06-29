@@ -799,16 +799,10 @@ async function handleV1TodoPut(request, DB, todo_id) {
   // is_series：原任务是系列 + 新类型不是 fragment
   const is_series = existing.type === 'recurring' && patchType !== 'fragment';
 
-  // v1.0 修复：scope 默认值需区分"重复规则变更"和"非重复字段变更"
-  // - 重复规则变更（rrule 或 type 变了）：默认 scope=this（仅此实例）
-  // - 仅非重复字段变更（text/time/priority 等）：scope=none（原地更新，不脱离系列）
-  // 避免用户只改 text 时实例意外脱离系列
-  const rruleChanged = patchRRule !== (existing.rrule || '');
-  const typeChanged = patchType !== (existing.type || 'none');
-  const recurrenceChanged = rruleChanged || typeChanged;
-  const scope = is_series && recurrenceChanged && (!body.scope || body.scope === 'none')
-    ? 'this'
-    : (body.scope || 'none');
+  // 重复 todo 未指定 scope 时，默认 scope=this（仅此实例）
+  // 对齐 Google Calendar / Apple Calendar / Outlook：编辑重复任务默认只改当前实例
+  // 用户想改全系列时显式传 scope=all，想截断系列传 scope=thisAndFuture
+  const scope = is_series && (!body.scope || body.scope === 'none') ? 'this' : (body.scope || 'none');
 
   // PATCH 语义构建 new_values
   const new_values = {

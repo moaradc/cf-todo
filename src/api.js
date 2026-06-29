@@ -3299,13 +3299,9 @@ self.addEventListener('fetch', (event) => {
           if (scope && scope !== 'none' && !['this', 'thisAndFuture', 'all'].includes(scope)) {
             return apiError(`无效的 scope: ${scope}，有效值: this, thisAndFuture, all`, 400);
           }
-          // v1.0 修复：scope 默认值需区分"重复规则变更"和"非重复字段变更"
-          // - 重复规则变更（rrule 或 type 变了）：默认 scope=this（仅此实例）
-          // - 仅非重复字段变更（text/time/priority 等）：scope=none（原地更新，不脱离系列）
-          const v0_rruleChanged = patchRRule !== (original_task._orig_rrule || '');
-          const v0_typeChanged = type !== (original_task._orig_type || 'none');
-          const v0_recurrenceChanged = v0_rruleChanged || v0_typeChanged;
-          const effective_scope = is_series && v0_recurrenceChanged && (!scope || scope === 'none') ? 'this' : (scope || 'none');
+          // 重复 todo 未指定 scope 时，默认 scope=this（仅此实例）
+          // 对齐 Google Calendar / Apple Calendar / Outlook：编辑重复任务默认只改当前实例
+          const effective_scope = is_series && (!scope || scope === 'none') ? 'this' : (scope || 'none');
 
           const new_values = {
             text: patchText,
