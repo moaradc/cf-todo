@@ -232,9 +232,7 @@ export const core = `
       if (!s) return;
       s.innerHTML = '<span style="color:#888;font-size:0.8rem;">检查中...</span>';
 
-      // 健壮性：localStorage 24h 缓存，避免每次打开页面都打 GitHub raw
       // 缓存键：vcheck_data (version.json 内容) + vcheck_ts (时间戳)
-      // 24h 内用缓存；过期或无缓存才发请求；请求失败回退到缓存（即使过期）
       var CACHE_TTL_MS = 24 * 60 * 60 * 1000;
       var now = Date.now();
       var cachedTs = 0;

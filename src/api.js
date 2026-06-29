@@ -42,7 +42,6 @@ import { handleV1Request, verifyApiKey, extractApiKey, getApiKeyScope } from './
 
 let isDbInitialized = false;
 
-// 健壮性：批量操作自动分片工具（与 api-v1.js 一致）
 // D1 Free 限制 bound parameters/query = 100，部分 SQL 含额外参数（date/time_records），
 // 留 1 个余量，chunk size 设为 99 防止 100+1=101 溢出。
 const BATCH_CHUNK_SIZE = 99;
@@ -223,13 +222,11 @@ async function handleRequest(request, env, ctx) {
         // ==================== 版本化增量迁移 ====================
         // db_schema 基线为 1。所有列与索引已在上方 CREATE TABLE / CREATE INDEX
         // 基础批次里一次性建出，新部署等同于全新状态，不依赖版本号判断。
-        //
         // 当前没有运行时迁移代码。如未来需要新增字段/索引：
         // 1. 在上方 CREATE TABLE / CREATE INDEX 基础批次里加上对应定义（覆盖新部署）
         // 2. 在 Screenshots/migrate.html 离线迁移工具里加上对应字段补全（覆盖老用户）
         // 3. 递增 version.json 中的 db_schema 版本号
         // 4. 在下方添加 `if (currentSchema < N)` 块（运行时 ALTER TABLE 覆盖已部署老用户）
-        //
         // 模板（仅作参考，需要时取消注释并替换为实际 SQL）：
         // if (currentSchema < 2) {
         //   try {
@@ -447,7 +444,6 @@ async function handleRequest(request, env, ctx) {
     // PWA: Service Worker
     if (url.pathname === '/sw.js' && request.method === 'GET') {
       // CACHE_NAME 跟随 APP_VERSION：版本升级 → 新 SW activate 时自动清理旧缓存
-      // 避免用户拿到旧 HTML/JS 缓存，导致新代码"完全没效果"
       const swCode = `
 'use strict';
 const CACHE_NAME = 'moara-todo-v${APP_VERSION}';
@@ -754,7 +750,6 @@ self.addEventListener('fetch', (event) => {
         return apiError('请求体不是有效的 JSON', 400);
       }
       const { action, ua } = sessionParsedBody;
-      // 健壮性：校验 action
       if (!action || !['DELETE', 'DELETE_ALL'].includes(action)) {
         return apiError('action 必须为 DELETE 或 DELETE_ALL', 400);
       }
@@ -879,7 +874,6 @@ self.addEventListener('fetch', (event) => {
       // 收益：rows returned / 网络字节 / Worker 内存 / 客户端解析 全部从 O(N) 降为 O(log N)。
       // 索引依赖：idx_todos_stats(date, deleted, priority, done, category_id, time) covering index。
       // 注意：D1 batch 顺序执行（非并行），但只占一次 HTTP 往返。
-      // 健壮性：日期范围 ≤ 366 天（Free 计划 CPU 10ms 防护），由 validateStatsDateRange 校验
       // 统计 WHERE 子句（优化版，语义与原版完全等价）
       // 原版 3 个 OR 子句触发 SQLite MULTI-INDEX OR（5 次索引扫描），50k 行 47ms 超 Free 10ms 限制
       // 优化：合并普通 todo + fragment 已完成（都是 date 在范围），fragment 未完成浮动单独 OR
@@ -1342,7 +1336,6 @@ self.addEventListener('fetch', (event) => {
     
     if (url.pathname === '/api/import' && request.method === 'POST') {
       const contentType = request.headers.get('Content-Type') || '';
-      // 健壮性：两个不同的 batch 概念
       // BATCH_ROWS: 累积多少行触发一次 execBatch（与上传分片解耦）
       // BATCH_STMTS: execBatch 内每多少 prepared statement 组一个 DB.batch
       //   multi-row VALUES 后每 statement 含 4-5 行，25 statement = 100-125 行/事务
@@ -1358,10 +1351,6 @@ self.addEventListener('fetch', (event) => {
       };
 
       // 严格校验 time_records：必须是 JSON 数组字符串，否则返回 '[]'
-      // 防止导入文件携带畸形数据污染数据库，导致后续 JSON.parse 报错
-      // 性能：99%+ 的行该字段为 undefined（旧导出）或 '[]'（新导出但未计时），
-      // 首两个分支零开销短路，只有实际有记录的行才 JSON.parse。
-      // 上万行导入估算额外 CPU < 5ms（远低于 Workers CPU 限制）。
       const safeTimeRecords = (v) => {
         if (v == null || v === '[]') return '[]';
         if (typeof v === 'string') {
@@ -1375,7 +1364,6 @@ self.addEventListener('fetch', (event) => {
         return '[]';
       };
 
-      // 健壮性：multi-row VALUES INSERT 优化
       // D1 bound params/query 限制 100，单行 todos 23 列，4 行 = 92 params（留 8 余量）
       // 单行 templates 18 列，5 行 = 90 params（留 10 余量）
       // 性能：SQLite multi-row VALUES 比 N 个单行 INSERT 快 5-10x（减少 prepared statement 创建 + 网络往返）
@@ -1470,7 +1458,6 @@ self.addEventListener('fetch', (event) => {
           let todoBatch = [];
           let tplBatch = [];
 
-          // 健壮性：处理 buffer 内所有完整行，返回未完成的尾部
           const processBuffer = async () => {
             const lines = buffer.split('\n');
             buffer = lines.pop() || '';  // 最后一段（可能不完整）留到下次
@@ -1495,7 +1482,6 @@ self.addEventListener('fetch', (event) => {
           while (true) {
             const { done, value } = await reader.read();
             if (done) {
-              // 健壮性：done=true 时 value 仍可能含数据（CF Workers 边界场景）
               if (value) {
                 buffer += decoder.decode(value, { stream: true });
               }
@@ -2023,7 +2009,6 @@ self.addEventListener('fetch', (event) => {
 
     if (url.pathname === '/api/trash' && request.method === 'GET') {
       // V0 trash: 自动分页拉取全部回收站数据（前端无感，返回纯数组保持向后兼容）
-      // 健壮性：上限 1000 条防止回收站过大撑爆 Worker CPU/内存
       // 分片查询：每片 100 条，避免单次 SQL 过重
       const TRASH_MAX_ITEMS = 1000;
       const TRASH_CHUNK_SIZE = 100;
@@ -2068,7 +2053,6 @@ self.addEventListener('fetch', (event) => {
               'UPDATE todos SET parent_id=?, repeat_type=\'none\', repeat_custom=\'\', repeat_end=\'\', repeat_interval=1 WHERE id=?'
             ).bind(id, id).run();
           } else {
-            // 以模板的 repeat_end 为准判定系列是否仍覆盖此日期 (旧版按实例 repeat_end 判定，但实例 repeat_end 常为空导致漏判)
             const tpl = await env.DB.prepare('SELECT repeat_end, exdates FROM todo_templates WHERE parent_id = ?').bind(t.parent_id).first();
             if (tpl && (tpl.repeat_end === '' || tpl.repeat_end == null || tpl.repeat_end >= t.date)) {
               // 模板仍覆盖此日期: 视为"仅此日程"删除的恢复，从EXDATE移除此日期，重新并入系列
@@ -2114,7 +2098,6 @@ self.addEventListener('fetch', (event) => {
           // 仅回收站行仍携带循环属性的 (this-scope 删除或旧版未脱钩行) 需要判定
           // 新版 thisAndFuture/all 删除时已脱钩为单次 (repeat_type='none', parent_id=id)，跳过
           // 对齐 RFC 5545 + Google Tasks: 模板已删除/截断的，恢复为单次任务，不重建系列
-          // 健壮性：批量预取所有相关 template 和 existing，避免逐行查询撞 D1 50 queries/invocation 限制
           const candidateTasks = tasks.filter(t =>
             t.repeat_type && t.repeat_type !== 'none' && t.repeat_type !== 'fragment' && t.parent_id && t.parent_id !== t.id
           );
@@ -2186,7 +2169,6 @@ self.addEventListener('fetch', (event) => {
             }
           }
 
-          // 健壮性：批量 UPDATE exdates（removeExdate），避免逐 parent 单条 .run() 撞 D1 50 queries/invocation (Free) 限制
           const exdateStmts = [];
           for (const pid of Object.keys(exdateUpdates)) {
             const tpl = tplMap.get(pid);
@@ -2318,9 +2300,6 @@ self.addEventListener('fetch', (event) => {
           subtasks: parsedSubtasks,
           search_terms: parsedSearchTerms,
           // 关键修复：模板的 time_records 是跨实例预估数据（供 predictDuration），
-          // 不能带到新实例上。新实例的实例级 time_records 应为空（DB INSERT 也不写该列，默认 '[]'）。
-          // 否则前端 getDetailTimeRecords() 会从 task.time_records 读到模板级记录，
-          // 导致新实例错误显示历史累计（如 06.27 新实例显示 06.25+06.26 的累计）。
           time_records: '[]'
         };
         results.push(newRecord); 
@@ -2369,7 +2348,6 @@ self.addEventListener('fetch', (event) => {
         }).filter(Boolean);
 
         let rType = row.repeat_type || 'none';
-        // 兜底：repeat_type 为无效值时默认 daily（防御迁移未覆盖的边界情况）
         // 'fragment' 是合法值（碎时记），不在此兜底范围内
         if (rType !== 'none' && rType !== 'fragment' && !['daily','weekly','monthly','yearly'].includes(rType)) rType = 'daily';
 
@@ -2454,7 +2432,6 @@ self.addEventListener('fetch', (event) => {
       }
       const { action, date, task, scope, ids, done_status, record, parent_id, timer_records, keep_records } = parsedBody;
 
-      // 健壮性：校验 action 必填且有效
       if (!action || typeof action !== 'string') {
         return apiError('action 为必填字段', 400);
       }
@@ -2463,8 +2440,6 @@ self.addEventListener('fetch', (event) => {
         return apiError(`未知的 action: ${action}，有效值: ${VALID_ACTIONS.join(', ')}`, 400);
       }
 
-      // 健壮性：碎时记完成场景校验 date 不能是未来日期
-      // 否则恶意/错误客户端可将 fragment 冻结到未来日期，导致它在未来前完全不可见
       // 仅对 TOGGLE_DONE/TIMER_COMPLETE/BATCH_TOGGLE_DONE 的完成分支校验
       let effective_date = date;
       if (date && ['TOGGLE_DONE', 'TIMER_COMPLETE', 'BATCH_TOGGLE_DONE'].includes(action)) {
@@ -2596,7 +2571,6 @@ self.addEventListener('fetch', (event) => {
                 await env.DB.prepare('UPDATE todos SET done = 1 WHERE id = ?').bind(task.id).run();
               }
             } catch (e) {
-              // 兜底：仅更新 done
               await env.DB.prepare('UPDATE todos SET done = 1 WHERE id = ?').bind(task.id).run();
             }
           }
@@ -2767,7 +2741,6 @@ self.addEventListener('fetch', (event) => {
             // 批量取消勾选
             if (!done_status) {
               // 碎时记：清空 time_records，done=0，date 从 fragment_anchor 恢复
-              // 健壮性：fragment 与 plain 并发执行（6 连接限内，2 个并发安全）
               const runFragmentUncomplete = async () => {
                 for (const chunk of chunkArray(fragmentIds, BATCH_CHUNK_SIZE)) {
                   const frPh = sqlPlaceholders(chunk.length);
@@ -2800,7 +2773,6 @@ self.addEventListener('fetch', (event) => {
             } else {
               // 批量完成
               // 碎时记：冻结 date 为完成日期，但仅对未完成项（done=0）执行
-              // 健壮性：fragment 与 plain 并发执行
               const runFragmentComplete = async () => {
                 for (const chunk of chunkArray(fragmentIds, BATCH_CHUNK_SIZE)) {
                   const frPh = sqlPlaceholders(chunk.length);
@@ -2834,7 +2806,6 @@ self.addEventListener('fetch', (event) => {
             // - 真实耗时（s<e）：实例级 + 模板级双写（与 TIMER_COMPLETE 一致；碎时记跳过模板级）
             // - 零耗时（s===e）：仅实例级，不写模板级（与 TOGGLE_DONE 一致，
             //   避免零耗时记录污染 predictDuration 中位数预估）
-            // 健壮性：批量预取 + 分片 UPDATE，避免逐条 SELECT/UPDATE 撞 D1 50 queries/invocation 限制
             if (done_status && Array.isArray(timer_records) && timer_records.length > 0) {
               const MAX_DURATION_MS = 7 * 24 * 60 * 60 * 1000;
               // 过滤+校验 record
@@ -2975,7 +2946,6 @@ self.addEventListener('fetch', (event) => {
                 exdateUpdates[t.parent_id].push(t.date);
               }
             }
-            // 健壮性：批量预取所有相关 template 的 exdates，避免逐 parent 查询撞 D1 50 queries/invocation 限制
             const parentIds = Object.keys(exdateUpdates);
             const tplExdatesMap = new Map();
             for (const chunk of chunkArray(parentIds, BATCH_CHUNK_SIZE)) {
@@ -2987,7 +2957,6 @@ self.addEventListener('fetch', (event) => {
                 // 单片查询失败不阻断整体流程
               }
             }
-            // 健壮性：批量 UPDATE exdates，避免逐 parent 单条 .run() 撞 D1 50 queries/invocation (Free) 限制
             const exdateStmts = [];
             for (const pid of parentIds) {
               const currentExdates = tplExdatesMap.get(pid);
@@ -3008,7 +2977,6 @@ self.addEventListener('fetch', (event) => {
           }
         }
         else if (action === 'CREATE') {
-          // 健壮性：校验 task.id 和 task.text
           if (!task || !task.id || typeof task.id !== 'string' || !task.id.trim()) {
             return apiError('task.id 为必填字段且不能为空字符串', 400);
           }
@@ -3016,12 +2984,10 @@ self.addEventListener('fetch', (event) => {
             return apiError('task.text 为必填字段', 400);
           }
           let rpt_type = task.repeat_type || 'none';
-          // 健壮性：校验 repeat_type 合法值
           const VALID_REPEAT_TYPES = ['none', 'daily', 'weekly', 'monthly', 'yearly', 'fragment'];
           if (rpt_type !== 'none' && !VALID_REPEAT_TYPES.includes(rpt_type)) {
             return apiError(`无效的 repeat_type: ${rpt_type}`, 400);
           }
-          // 健壮性：校验 repeat_custom（自定义 RRULE）
           // CREATE 场景：allowDerive=true，repeat_type=none/fragment + custom 非空时不清空，让 deriveRepeatTypeFromCustom 反推
           // 这样用户可以只传 repeat_custom 不传 repeat_type，服务端自动推导
           const customResult = processRepeatCustom(task.repeat_custom, rpt_type, { allowDerive: true });
@@ -3044,7 +3010,6 @@ self.addEventListener('fetch', (event) => {
           const effectiveTime = is_fragment ? '' : (task.time || '');
           const effectiveRepeatEnd = is_fragment ? '' : (task.repeat_end || '');
           const effectiveRepeatInterval = is_fragment ? 1 : (task.repeat_interval || 1);
-          // none 类型也强制清空 repeat_custom（防御：processRepeatCustom + derive 已处理，但二次兜底）
           const final_repeat_custom = (rpt_type === 'none' || rpt_type === 'fragment') ? '' : effective_repeat_custom;
 
           // 原子组校验（联动字段一致性，冲突返回 400 并告知原因）
@@ -3065,9 +3030,7 @@ self.addEventListener('fetch', (event) => {
             if (etErr) return apiError(etErr, 400);
           }
 
-          // 健壮性修复：date 顶层字段缺失时回退到 task.date（与 V1 行为对齐）
           // API_Wiki §3.2 文档要求 date 在 body 顶层，但外部调用方常按 V1 风格放在 task.date
-          // 原 bug：非碎时记 + date 缺失 → D1_TYPE_ERROR 500（无指引性）
           const fallbackDate = date || (task && task.date) || '';
           // 非碎时记必须有有效日期；碎时记允许空（浮动）
           if (!is_fragment && !fallbackDate) {
@@ -3095,18 +3058,14 @@ self.addEventListener('fetch', (event) => {
           }
         }
         else if (action === 'UPDATE') {
-          // 健壮性：校验 task.id
           if (!task || !task.id || typeof task.id !== 'string' || !task.id.trim()) {
             return apiError('task.id 为必填字段', 400);
           }
-          // 健壮性：校验 repeat_type 合法值
           const VALID_REPEAT_TYPES_UPD = ['none', 'daily', 'weekly', 'monthly', 'yearly', 'fragment'];
           if (task.repeat_type && !VALID_REPEAT_TYPES_UPD.includes(task.repeat_type)) {
             return apiError(`无效的 repeat_type: ${task.repeat_type}`, 400);
           }
 
-          // 健壮性修复：parent_id 缺失时从 DB 派生
-          // 原 bug：UPDATE scope=all 不传 task.parent_id → DELETE FROM todos WHERE parent_id=undefined → 500
           // V0 调用方（含外部 API）可能省略 parent_id（V1 风格），需要服务端补全
           let parent_id = task.parent_id;
           if (!parent_id) {
@@ -3173,10 +3132,6 @@ self.addEventListener('fetch', (event) => {
           } catch(e) {}
 
           // ====== PATCH 语义：未传字段从 DB 回退 ======
-          // V0 UPDATE 此前为混合语义（部分 PATCH 部分全量替换），现统一为 PATCH 语义
-          // 调用方只需传想修改的字段，未传字段保留 DB 原值
-          // 显式清空：传 null 或 ''（字符串字段）/ [] （数组字段）
-          // 注：original_task 已全量合并 DB 字段，这里直接用 original_task.X 即可拿到 DB 值或用户输入
           let   patchText       = original_task.text || '';
           let   patchTime       = original_task.time || '';
           const patchPriority   = original_task.priority || 'low';
@@ -3249,7 +3204,6 @@ self.addEventListener('fetch', (event) => {
             if (etErr) return apiError(etErr, 400);
           }
 
-          // 健壮性兜底：非 fragment 类型必须有有效具体日期
           if (patchRptType !== 'fragment' && !patchDate) {
             patchDate = date;
           }
@@ -3264,7 +3218,6 @@ self.addEventListener('fetch', (event) => {
           const date_changed = new_date !== date;
           const is_series = original_task._orig_repeat_type && original_task._orig_repeat_type !== 'none' && original_task._orig_repeat_type !== 'fragment' && rpt_type !== 'fragment';
 
-          // 健壮性：校验 scope 合法值
           if (scope && scope !== 'none' && !['this', 'thisAndFuture', 'all'].includes(scope)) {
             return apiError(`无效的 scope: ${scope}，有效值: this, thisAndFuture, all`, 400);
           }
@@ -3274,7 +3227,6 @@ self.addEventListener('fetch', (event) => {
           const new_values = {
             text: patchText,
             time: patchTime,
-            // 健壮性：规范化 priority（与 V1 一致），medium → med，非法值 → low
             priority: normalizePriority(patchPriority),
             desc: patchDesc,
             url: patchUrl,
@@ -3514,7 +3466,6 @@ self.addEventListener('fetch', (event) => {
         }
         else if (action === 'DELETE') {
           const rpt_type = task.repeat_type || 'none';
-          // 健壮性修复：与 UPDATE 路径一致，parent_id 缺失时从 DB 派生
           let parent_id = task.parent_id;
           if (!parent_id) {
             try {
@@ -3522,10 +3473,7 @@ self.addEventListener('fetch', (event) => {
               if (pid_row) parent_id = pid_row.parent_id;
             } catch (e) {}
           }
-          // DELETE 兜底：若仍无 parent_id（任务不存在），后续 is_series 分支会跳过模板操作，无需 400
           // 从数据库获取原始 repeat_type，确保 is_series 判断正确
-          // 碎时记 (fragment) 不算重复系列，直接软删除
-          // 后端不信任前端传入的 is_series，统一从 DB repeat_type 推导，避免客户端篡改
           let delete_is_series = task.is_series || (rpt_type && rpt_type !== 'none' && rpt_type !== 'fragment');
           try {
             const orig = await env.DB.prepare('SELECT repeat_type FROM todos WHERE id = ?').bind(task.id).first();
@@ -3534,15 +3482,10 @@ self.addEventListener('fetch', (event) => {
             }
           } catch(e) {}
 
-          // 健壮性：校验 scope 合法值
           if (scope && !['this', 'thisAndFuture', 'all'].includes(scope)) {
             return apiError(`无效的 scope: ${scope}，有效值: this, thisAndFuture, all`, 400);
           }
           // 重复任务未指定 scope 时默认 scope=this（与 V1 一致）：
-          //   - 仅软删除当前实例
-          //   - 同时给模板加 exdate，防止下次 GET /api/todos?date=X 时模板重新展开生成新实例（"复活"）
-          // 历史 bug：原逻辑 `if (!delete_is_series || !scope)` 对未传 scope 的重复任务直接软删除，
-          //   不加 exdate，导致被删实例在下次查询时复活。V1 已在 api-v1.js handleV1TodoDelete 修复。
           const effective_delete_scope = delete_is_series && !scope ? 'this' : scope;
           if (!delete_is_series || !effective_delete_scope) {
             // 非循环任务（含碎时记 / 普通单次）: 直接软删除
@@ -3606,7 +3549,6 @@ self.addEventListener('fetch', (event) => {
 
     return apiError('Not Found', 404);
     } catch (e) {
-      // 健壮性：区分错误类型返回不同 HTTP 状态码
       if (e instanceof SyntaxError) {
         return apiError('请求体不是有效的 JSON', 400);
       }

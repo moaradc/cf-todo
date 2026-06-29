@@ -49,12 +49,6 @@ export const todos = `
     }
 
     // ==================== 日期切换加载竞态控制 ====================
-    // 快速切换日期时，旧请求若未完成会浪费网络资源，且其响应可能晚于新请求到达，
-    // 导致 UI 显示错误日期的数据。这里用双重防护：
-    //   1) AbortController：主动 abort 上一个未完成的 fetch（含 SW 链路），
-    //      释放网络资源，避免无效请求继续在后端跑。
-    //   2) generation 计数：即便 abort 未真正生效（如老浏览器、SW 缓存命中已返回），
-    //      旧代次的响应也不会写入 todos 或触发 renderTodos，确保 UI 一致。
     let _loadTodosGen = 0;
     let _loadTodosAbortCtrl = null;
 
@@ -108,7 +102,6 @@ export const todos = `
         }
       } finally {
         // 清理 abort controller 引用（仅当本次仍持有最新 controller 时才清空，
-        // 避免误清新请求的 controller 导致新请求无法被后续 abort）
         if (abortCtrl && _loadTodosAbortCtrl === abortCtrl) _loadTodosAbortCtrl = null;
       }
     }
@@ -533,7 +526,6 @@ export const todos = `
         if (isFragment) todo.date = formatDate(currentDate);
         ensureTimerTick();
         renderTodos();
-        // renderTodos 可能 sort 导致 index 漂移，用 id 重定位
         if (currentDetailIndex >= 0 && todos[currentDetailIndex] && todos[currentDetailIndex].id !== completedTodoId) {
           const newIdx = todos.findIndex(function(t) { return t.id === completedTodoId; });
           if (newIdx !== -1) currentDetailIndex = newIdx;

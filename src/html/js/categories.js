@@ -293,9 +293,6 @@ export const categories = `
     }
 
     // 高亮匹配：在原始（未转义）文本上定位 query 出现位置，再做转义 + 包裹 <span>。
-    // 这样即便分类名或 query 含 < > & 等 HTML 特殊字符，也能正确高亮（修复旧实现在
-    // escaped 字符串上 indexOf 导致长度错位、范围截断的 bug）。
-    // 同时高亮所有匹配位置，而非仅首个，提升长名称的搜索体验。
     function highlightMatch(text, query) {
       if (!text) return '';
       if (!query) return escapeHtml(text);
@@ -350,10 +347,7 @@ export const categories = `
 
       if (matchedUnchanged) {
         // 选择器明确排除 data-cat-id="" 的项（无分类项），
-        // 防御性 :not() 即便将来有人误给无分类项加属性也不会错位
         var nameEls = listEl.querySelectorAll('.category-modal-item[data-cat-id]:not([data-cat-id=""]) .cat-name');
-        // 长度兜底：理论上应与 matched.length 相等，但若用户在重建过程中
-        // 切换 tab 等导致 DOM 与缓存不一致，取 min 防止越界。
         var n = Math.min(matched.length, nameEls.length);
         for (var i = 0; i < n; i++) {
           nameEls[i].innerHTML = highlightMatch(matched[i].name, trimmedQuery);

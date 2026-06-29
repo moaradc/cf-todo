@@ -17,7 +17,6 @@ import {
   validateStatsDateRange,
 } from './utils.js';
 
-// 健壮性：统一安全解析 JSON 请求体，解析失败返回 400
 async function safeParseJson(request) {
   try {
     return await request.json();
@@ -26,7 +25,6 @@ async function safeParseJson(request) {
   }
 }
 
-// 健壮性：批量操作自动分片工具
 // D1 Free 限制 bound parameters/query = 100，部分 SQL 含额外参数（date/time_records），
 // 留 1 个余量，chunk size 设为 99 防止 100+1=101 溢出。
 const BATCH_CHUNK_SIZE = 99;
@@ -412,7 +410,6 @@ function formatCategory(row) {
 // ==================== v1 Todo CRUD ====================
 
 async function handleV1Todos(request, env, url) {
-  // 健壮性：GET 用 D1 Sessions API (first-primary) 路由到读副本降低延迟；写仍走 primary
   const DB = request.method === 'GET' && env.DB.withSession
     ? env.DB.withSession('first-primary')
     : env.DB;
@@ -425,11 +422,9 @@ async function handleV1Todos(request, env, url) {
     const category_id = url.searchParams.get('category_id');
     const done = url.searchParams.get('done'); // 'true' | 'false' | 不传=全部
     const limit = Math.min(Math.max(parseInt(url.searchParams.get('limit') || '100', 10) || 100, 1), 500);
-    // 健壮性：offset ≥0 且不超过 10000，对齐 V1 trash 上限
     // Free 计划依据：D1 是单线程，OFFSET N 需扫描并丢弃前 N 行，大 offset 显著增加 SQL duration 和 CPU 10ms 预算消耗；
     // 10000 / 500(最大 limit) = 20 页，覆盖任何合理分页场景
     const offset = Math.min(Math.max(parseInt(url.searchParams.get('offset') || '0', 10) || 0, 0), 10000);
-    // 健壮性：expand=false 时跳过服务端 RRULE 展开，调用方自行用 ical.js/rrule.js 计算
     // 适用场景：程序化调用方需降低 Worker CPU time（Free 10ms 限制），或需自定义展开逻辑
     // 默认 true（向后兼容）；仅在 date 查询时有效，范围查询本就不展开
     const expand = url.searchParams.get('expand') !== 'false';
@@ -602,14 +597,12 @@ async function handleV1Todos(request, env, url) {
     }
     const { date, text, time, priority, desc, url, copy_text, subtasks, search_terms, repeat_type, repeat_end, end_time, category_id, repeat_interval, repeat_custom } = body;
 
-    // 健壮性：校验 repeat_type 合法值
     const VALID_REPEAT_TYPES_V1 = ['none', 'daily', 'weekly', 'monthly', 'yearly', 'fragment'];
     let rpt_type = repeat_type || 'none';
     if (rpt_type !== 'none' && !VALID_REPEAT_TYPES_V1.includes(rpt_type)) {
       return apiError(`无效的 repeat_type: ${rpt_type}，有效值: ${VALID_REPEAT_TYPES_V1.join(', ')}`, 400);
     }
 
-    // 健壮性：校验 repeat_custom（自定义 RRULE）
     // CREATE 场景：allowDerive=true，repeat_type=none/fragment + custom 非空时不清空，让 deriveRepeatTypeFromCustom 反推
     // 这样用户可以只传 repeat_custom 不传 repeat_type，服务端自动推导
     const customResult = processRepeatCustom(repeat_custom, rpt_type, { allowDerive: true });
@@ -623,7 +616,6 @@ async function handleV1Todos(request, env, url) {
       if (derived) rpt_type = derived;
     }
 
-    // 健壮性：校验 repeat_interval 正整数
     const rawInterval = repeat_interval || 1;
     if (typeof rawInterval !== 'number' || !Number.isInteger(rawInterval) || rawInterval < 1) {
       return apiError('repeat_interval 必须为正整数', 400);
@@ -647,7 +639,6 @@ async function handleV1Todos(request, env, url) {
     const rInterval = is_fragment ? 1 : rawInterval;
     const effectiveTime = is_fragment ? '' : (time || '');
     const effective_date = is_fragment ? (date || '') : date;
-    // none 类型也强制清空 repeat_custom（防御：processRepeatCustom + derive 已处理，但二次兜底）
     const final_repeat_custom = (rpt_type === 'none' || rpt_type === 'fragment') ? '' : effective_repeat_custom;
     const normPriority = normalizePriority(priority || 'low');
 
@@ -702,7 +693,6 @@ async function handleV1Todos(request, env, url) {
       ).run();
     }
 
-    // 健壮性：创建响应返回完整记录（formatTodo），减少客户端额外 GET
     const created = await DB.prepare('SELECT * FROM todos WHERE id = ?').bind(id).first();
     return jsonResponse({
       success: true,
@@ -733,20 +723,17 @@ async function handleV1TodoPut(request, DB, todo_id) {
     return apiError('请求体不是有效的 JSON', 400);
   }
   const parent_id = existing.parent_id; // 始终使用数据库中的 parent_id，不可被用户篡改
-  // 健壮性：校验 repeat_type 合法值
   if (body.repeat_type !== undefined) {
     const VALID_RT = ['none', 'daily', 'weekly', 'monthly', 'yearly', 'fragment'];
     if (!VALID_RT.includes(body.repeat_type)) {
       return apiError(`无效的 repeat_type: ${body.repeat_type}`, 400);
     }
   }
-  // 健壮性：校验 repeat_interval
   if (body.repeat_interval !== undefined) {
     if (typeof body.repeat_interval !== 'number' || !Number.isInteger(body.repeat_interval) || body.repeat_interval < 1) {
       return apiError('repeat_interval 必须为正整数', 400);
     }
   }
-  // 健壮性：校验 scope 合法值
   if (body.scope !== undefined && body.scope !== 'none') {
     const VALID_SCOPES = ['this', 'thisAndFuture', 'all'];
     if (!VALID_SCOPES.includes(body.scope)) {
@@ -758,7 +745,6 @@ async function handleV1TodoPut(request, DB, todo_id) {
   // PATCH 语义：body.repeat_type 未传时从 DB 回退
   let rpt_type = body.repeat_type !== undefined ? body.repeat_type : (existing.repeat_type || 'none');
 
-  // 健壮性：处理 repeat_custom（PATCH 语义）
   // - body.repeat_custom === undefined：保留 existing（但 fragment/none 强制清空）
   // - body.repeat_custom === null / ''：显式清空
   // - body.repeat_custom 非空字符串：严格校验，失败返回 400
@@ -779,11 +765,6 @@ async function handleV1TodoPut(request, DB, todo_id) {
   }
 
     // 联动推导（服务端自动）：repeat_custom 非空时，从 custom 的 FREQ 反推 repeat_type
-    // 这保证 DB 中 repeat_type 与实际展开规则一致，避免「传 custom 但不传 type」导致的数据错乱
-    // 仅当 rpt_type === 'none' 时反推（调用方未明确指定有效的 repeat_type）
-    // 不覆盖 'fragment'：若调用方显式传 fragment，尊重其意图（fragment 强制清空 custom 由后续逻辑处理）
-    // 若调用方显式传了 daily/weekly/monthly/yearly，也尊重调用方意图（允许 type 与 custom FREQ 不一致——
-    //   type 仅作 SQL 过滤与 UI 标签，custom 才是实际展开规则）
     if (effective_repeat_custom && rpt_type === 'none') {
       const derived = deriveRepeatTypeFromCustom(effective_repeat_custom);
       if (derived) rpt_type = derived;
@@ -824,7 +805,6 @@ async function handleV1TodoPut(request, DB, todo_id) {
     new_values.repeat_interval = 1;
     new_values.repeat_custom = '';
   }
-  // none 类型也强制清空 repeat_custom（防御：processRepeatCustom 已处理，但二次兜底）
   if (new_values.repeat_type === 'none') {
     new_values.repeat_custom = '';
   }
@@ -851,7 +831,6 @@ async function handleV1TodoPut(request, DB, todo_id) {
   // rpt_type 已在上方确定（考虑了 body 传入 + custom 反推），这里直接复用
   const subtasks_str = new_values.subtasks;
   const search_terms_str = new_values.search_terms;
-  // 健壮性兜底：非 fragment 类型必须有有效具体日期
   // fragment 允许 date 为空（不限起始），但 none/daily/weekly/monthly/yearly 不允许
   let new_date = new_values.date;
   if (rpt_type !== 'fragment' && !new_date) {
@@ -1131,8 +1110,6 @@ async function handleV1TodoToggle(request, DB, todo_id) {
     record = null;
   }
 
-  // 健壮性：碎时记完成时校验 body_date 不能是未来日期
-  // 否则恶意/错误客户端可将 fragment 冻结到未来日期，导致它在未来前完全不可见
   if (is_fragment && new_done && body_date) {
     const todayStr = new Date().toISOString().slice(0, 10);
     if (body_date > todayStr) {
@@ -1180,13 +1157,11 @@ async function handleV1TodoToggle(request, DB, todo_id) {
         await DB.prepare('UPDATE todos SET done = 0, time_records = ? WHERE id = ?')
           .bind('[]', todo_id).run();
       } catch (e) {
-        // 兜底：仅更新 done（极端情况：列不存在等）
         await DB.prepare('UPDATE todos SET done = 0 WHERE id = ?').bind(todo_id).run();
       }
     }
   }
 
-  // 健壮性：toggle 响应增加 date 和 time_records，减少客户端额外 GET
   const updated_todo = await DB.prepare('SELECT date, time_records FROM todos WHERE id = ?').bind(todo_id).first();
   const response_data = { id: todo_id, done: !!new_done };
   if (updated_todo) {
@@ -1264,7 +1239,6 @@ async function writeTimerRecord(DB, todo_id, parent_id, record, is_fragment) {
 // ==================== v1 Category CRUD ====================
 
 async function handleV1Categories(request, env, url) {
-  // 健壮性：GET 用 D1 Sessions API (first-primary) 路由到读副本；写仍走 primary
   const DB = request.method === 'GET' && env.DB.withSession
     ? env.DB.withSession('first-primary')
     : env.DB;
@@ -1389,7 +1363,6 @@ async function handleV1TodoBatch(request, DB) {
 
     if (done_status) {
       // 自动分片批量完成
-      // 健壮性：fragment 与 plain 是独立行，可并发执行（6 连接限内，2 个并发安全）
       const runFragmentComplete = async () => {
         let affected = 0;
         for (const chunk of chunkArray(all_fragment_ids, BATCH_CHUNK_SIZE)) {
@@ -1430,7 +1403,6 @@ async function handleV1TodoBatch(request, DB) {
       totalAffected += fragAffected + plainAffected;
 
       // 对带 record 的 todo 写入 time_records（与 /api/todo-action BATCH_TOGGLE_DONE 一致）
-      // 健壮性：批量预取 + 分片 UPDATE，避免逐条调用 writeTimerRecord 撞 D1 50 queries/invocation 限制
       if (Array.isArray(timer_records) && timer_records.length > 0) {
         const MAX_DURATION_MS = 7 * 24 * 60 * 60 * 1000;
         // 过滤+校验 record
@@ -1544,7 +1516,6 @@ async function handleV1TodoBatch(request, DB) {
       }
     } else {
       // 自动分片批量取消完成
-      // 健壮性：fragment 与 plain 并发执行
       const runFragmentUncomplete = async () => {
         let affected = 0;
         for (const chunk of chunkArray(all_fragment_ids, BATCH_CHUNK_SIZE)) {
@@ -1624,7 +1595,6 @@ async function handleV1TodoBatch(request, DB) {
         exdateUpdates[t.parent_id].push(t.date);
       }
     }
-    // 健壮性：批量预取所有相关 template 的 exdates，避免逐 parent 查询撞 D1 50 queries/invocation 限制
     const parentIds = Object.keys(exdateUpdates);
     const tplExdatesMap = new Map(); // parent_id -> exdates (string)
     for (const chunk of chunkArray(parentIds, BATCH_CHUNK_SIZE)) {
@@ -1636,7 +1606,6 @@ async function handleV1TodoBatch(request, DB) {
         // 单片查询失败不阻断整体流程
       }
     }
-    // 健壮性：批量 UPDATE exdates，避免逐 parent 单条 .run() 撞 D1 50 queries/invocation (Free) 限制
     // DB.batch([N statements]) 只算 1 个 internal subrequest（D1 文档：batch 内每条 statement 独立受限，但整体是单次 RPC）
     const exdateStmts = [];
     for (const pid of parentIds) {
@@ -1666,7 +1635,6 @@ async function handleV1TodoBatch(request, DB) {
 // GET /api/v1/trash - 获取回收站列表
 async function handleV1TrashList(DB, url) {
   // V1 trash: 手动分页（limit/offset），第三方客户端负责翻页
-  // 健壮性：limit 1-500，offset ≥0 且不超过 10000（防止恶意大 offset 拖慢查询）
   const limit = Math.min(Math.max(parseInt(url.searchParams.get('limit') || '100', 10) || 100, 1), 500);
   const offset = Math.min(Math.max(parseInt(url.searchParams.get('offset') || '0', 10) || 0, 0), 10000);
   const { results } = await DB.prepare('SELECT * FROM todos WHERE deleted = 1 ORDER BY date DESC LIMIT ? OFFSET ?').bind(limit, offset).all();
@@ -1708,7 +1676,6 @@ async function handleV1TrashAction(request, DB) {
           'UPDATE todos SET parent_id=?, repeat_type=\'none\', repeat_custom=\'\', repeat_end=\'\', repeat_interval=1 WHERE id=?'
         ).bind(id, id).run();
       } else {
-        // 以模板的 repeat_end 为准判定系列是否仍覆盖此日期 (旧版按实例 repeat_end 判定，但实例 repeat_end 常为空导致漏判)
         const tpl = await DB.prepare('SELECT repeat_end, exdates FROM todo_templates WHERE parent_id = ?').bind(t.parent_id).first();
         if (tpl && (tpl.repeat_end === '' || tpl.repeat_end == null || tpl.repeat_end >= t.date)) {
           // 模板仍覆盖此日期: 视为"仅此日程"删除的恢复，从EXDATE移除此日期，重新并入系列
@@ -1777,7 +1744,6 @@ async function handleV1TrashAction(request, DB) {
     // 仅回收站行仍携带循环属性的 (this-scope 删除或旧版未脱钩行) 需要判定
     // 新版 thisAndFuture/all 删除时已脱钩为单次 (repeat_type='none', parent_id=id)，跳过
     // 对齐 RFC 5545 + Google Tasks: 模板已删除/截断的，恢复为单次任务，不重建系列
-    // 健壮性：批量预取所有相关 template 和 existing，避免逐行查询撞 D1 50 queries/invocation 限制
     const candidateTasks = tasks.filter(t =>
       t.repeat_type && t.repeat_type !== 'none' && t.repeat_type !== 'fragment' && t.parent_id && t.parent_id !== t.id
     );
@@ -1859,7 +1825,6 @@ async function handleV1TrashAction(request, DB) {
       }
     }
 
-    // 健壮性：批量 UPDATE exdates（removeExdate），避免逐 parent 单条 .run() 撞 D1 50 queries/invocation (Free) 限制
     const exdateStmts = [];
     for (const pid of Object.keys(exdateUpdates)) {
       const tpl = tplMap.get(pid);
@@ -1907,7 +1872,6 @@ async function handleV1TrashAction(request, DB) {
 // 服务端聚合：D1 batch 一次往返跑 6 条 GROUP BY 查询，把数万行原始数据
 // 压缩为几十行聚合结果，Worker 内存与网络出口字节下降一个数量级。
 // 索引依赖：idx_todos_stats(date, deleted, priority, done, category_id, time)
-// 健壮性：日期范围 ≤ 366 天（Free 计划 CPU 10ms 防护），由 validateStatsDateRange 校验
 async function handleV1Stats(DB, url) {
   const start = url.searchParams.get('start');
   const end = url.searchParams.get('end');
@@ -2207,7 +2171,6 @@ export async function handleV1Request(request, env, ctx) {
   }
 
   // ---- Todo 路由 ----
-  // 健壮性：GET 请求用 D1 Sessions API (first-primary 策略) 路由到读副本，降低延迟
   // 写请求仍走 primary 保证强一致
   // first-primary: 第一查询走 primary (保证刚写入的数据可见)，后续走 replica
   const readDB = env.DB.withSession && env.DB.withSession('first-primary') || env.DB;
@@ -2215,7 +2178,6 @@ export async function handleV1Request(request, env, ctx) {
     return handleV1Todos(request, env, url);
   }
 
-  // POST /api/v1/todos/batch - 批量操作（必须在 :id 正则之前，否则 "batch" 会被当作 :id 拦截）
   if (path === '/api/v1/todos/batch' && request.method === 'POST') {
     return handleV1TodoBatch(request, env.DB);
   }
@@ -2228,7 +2190,6 @@ export async function handleV1Request(request, env, ctx) {
     if (request.method === 'PUT') return handleV1TodoPut(request, env.DB, todo_id);
     if (request.method === 'DELETE') {
       const scope = url.searchParams.get('scope') || undefined;
-      // 健壮性：校验 scope 合法值
       if (scope && !['this', 'thisAndFuture', 'all'].includes(scope)) {
         return apiError(`无效的 scope: ${scope}，有效值: this, thisAndFuture, all`, 400);
       }

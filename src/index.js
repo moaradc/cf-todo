@@ -1,6 +1,4 @@
-/*
- * Cloudflare Worker + D1 Todo App - Main Entry Point
- */
+// Cloudflare Worker + D1 Todo App - Main Entry Point
 
 import { handleRequest } from './api.js';
 
