@@ -20,7 +20,9 @@ const FREQ_MAP = {
 
 // repeat_custom 安全约束：仅允许 DAILY/WEEKLY/MONTHLY/YEARLY（高频 FREQ 会撑爆 Worker CPU），
 // 最大长度 500，拒绝控制字符防 CRLF 注入
+// 拒绝 BYHOUR/BYMINUTE/BYSECOND（时间段语义，项目无此场景；早 fail 省 ical.js 解析开销）
 const ALLOWED_FREQ_IN_CUSTOM = new Set(['DAILY', 'WEEKLY', 'MONTHLY', 'YEARLY']);
+const FORBIDDEN_TOKENS_IN_CUSTOM = new Set(['BYHOUR', 'BYMINUTE', 'BYSECOND']);
 const REPEAT_CUSTOM_MAX_LEN = 500;
 // eslint-disable-next-line no-control-regex
 const CONTROL_CHAR_RE = /[\x00-\x1f\x7f]/;
@@ -47,6 +49,13 @@ export function sanitizeRepeatCustom(raw) {
   if (!parts[0].toUpperCase().startsWith('FREQ=')) return '';
   const freqVal = parts[0].split('=')[1]?.toUpperCase();
   if (!freqVal || !ALLOWED_FREQ_IN_CUSTOM.has(freqVal)) return '';
+
+  // 拒绝时间段语义 token（BYHOUR/BYMINUTE/BYSECOND）
+  // 早 fail：避免 ical.js 解析 + 后续 D1 写入开销
+  for (let i = 1; i < parts.length; i++) {
+    const key = parts[i].split('=')[0]?.toUpperCase();
+    if (FORBIDDEN_TOKENS_IN_CUSTOM.has(key)) return '';
+  }
 
   const canonical = 'FREQ=' + freqVal + (parts.length > 1 ? ';' + parts.slice(1).join(';') : '').toUpperCase();
 
