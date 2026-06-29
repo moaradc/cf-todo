@@ -45,7 +45,7 @@ export const detail = `
     // v1.0：从 rrule 解析 UNTIL（YYYYMMDDTHHMMSSZ 或 YYYYMMDD）→ YYYY-MM-DD
     function _extractUntilFromRRule(rrule) {
       if (!rrule || typeof rrule !== 'string') return '';
-      var m = rrule.match(/UNTIL=(\d{4})(\d{2})(\d{2})/);
+      var m = rrule.match(/UNTIL=(\\d{4})(\\d{2})(\\d{2})/);
       if (m) return m[1] + '-' + m[2] + '-' + m[3];
       return '';
     }
@@ -53,7 +53,7 @@ export const detail = `
     // v1.0：从 rrule 解析 INTERVAL → 数字
     function _extractIntervalFromRRule(rrule) {
       if (!rrule || typeof rrule !== 'string') return 1;
-      var m = rrule.match(/INTERVAL=(\d+)/);
+      var m = rrule.match(/INTERVAL=(\\d+)/);
       if (m) return parseInt(m[1], 10);
       return 1;
     }
