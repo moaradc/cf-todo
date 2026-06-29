@@ -1988,8 +1988,6 @@ self.addEventListener('fetch', (event) => {
         if (!ids || !Array.isArray(ids) || ids.length === 0) {
           return apiError('缺少分类ID列表', 400);
         }
-        // 规范化 ids 为字符串数组（防数字 id 导致 D1 类型不匹配静默失败）
-        ids = ids.map(id => String(id));
         // 自动分片：每片内三个语句原子提交，跨片独立
         for (const chunk of chunkArray(ids, BATCH_CHUNK_SIZE)) {
           const placeholders = sqlPlaceholders(chunk.length);
@@ -2075,8 +2073,6 @@ self.addEventListener('fetch', (event) => {
         await env.DB.prepare('DELETE FROM todos WHERE deleted = 1').run();
       } else if (action === 'BATCH_RESTORE') {
         if (ids && ids.length > 0) {
-          // 规范化 ids 为字符串数组（防数字 id 导致 D1 类型不匹配静默失败）
-          ids = ids.map(id => String(id));
           // 自动分片查询
           const tasks = [];
           for (const chunk of chunkArray(ids, BATCH_CHUNK_SIZE)) {
@@ -2196,8 +2192,6 @@ self.addEventListener('fetch', (event) => {
         }
       } else if (action === 'BATCH_DELETE_PERMANENT') {
         if (ids && ids.length > 0) {
-          // 规范化 ids 为字符串数组（防数字 id 导致 D1 类型不匹配静默失败）
-          ids = ids.map(id => String(id));
           // 自动分片永久删除
           for (const chunk of chunkArray(ids, BATCH_CHUNK_SIZE)) {
             const ph = sqlPlaceholders(chunk.length);
@@ -2721,9 +2715,7 @@ self.addEventListener('fetch', (event) => {
         }
         else if (action === 'BATCH_TOGGLE_DONE') {
           if (ids && ids.length > 0) {
-            // 规范化 ids 为字符串数组（防数字 id 导致 D1 类型不匹配静默失败）
-            ids = ids.map(id => String(id));
-            // 自动分片查询 repeat_type，汇总 fragment/plain分类
+            // 自动分片查询 repeat_type，汇总 fragment/plain 分类
             let fragmentIds = [];
             let fragment_id_set = new Set();
             let plainIds = [];
@@ -2924,8 +2916,6 @@ self.addEventListener('fetch', (event) => {
         }
         else if (action === 'BATCH_DELETE') {
           if (ids && ids.length > 0) {
-            // 规范化 ids 为字符串数组（防数字 id 导致 D1 类型不匹配静默失败）
-            ids = ids.map(id => String(id));
             // 自动分片查询重复任务信息（用于 exdate 维护）
             const tasks = [];
             for (const chunk of chunkArray(ids, BATCH_CHUNK_SIZE)) {
@@ -2997,12 +2987,6 @@ self.addEventListener('fetch', (event) => {
           const VALID_REPEAT_TYPES = ['none', 'daily', 'weekly', 'monthly', 'yearly', 'fragment'];
           if (rpt_type !== 'none' && !VALID_REPEAT_TYPES.includes(rpt_type)) {
             return apiError(`无效的 repeat_type: ${rpt_type}`, 400);
-          }
-          // 显式校验 repeat_interval：必须为正整数（防 0 被 || 1 吞掉）
-          if (task.repeat_interval !== undefined) {
-            if (typeof task.repeat_interval !== 'number' || !Number.isInteger(task.repeat_interval) || task.repeat_interval < 1) {
-              return apiError('repeat_interval 必须为正整数', 400);
-            }
           }
           // CREATE 场景：allowDerive=true，repeat_type=none/fragment + custom 非空时不清空，让 deriveRepeatTypeFromCustom 反推
           // 这样用户可以只传 repeat_custom 不传 repeat_type，服务端自动推导
@@ -3080,12 +3064,6 @@ self.addEventListener('fetch', (event) => {
           const VALID_REPEAT_TYPES_UPD = ['none', 'daily', 'weekly', 'monthly', 'yearly', 'fragment'];
           if (task.repeat_type && !VALID_REPEAT_TYPES_UPD.includes(task.repeat_type)) {
             return apiError(`无效的 repeat_type: ${task.repeat_type}`, 400);
-          }
-          // 显式校验 repeat_interval：必须为正整数（防 0 被 || 1 吞掉）
-          if (task.repeat_interval !== undefined) {
-            if (typeof task.repeat_interval !== 'number' || !Number.isInteger(task.repeat_interval) || task.repeat_interval < 1) {
-              return apiError('repeat_interval 必须为正整数', 400);
-            }
           }
 
           // V0 调用方（含外部 API）可能省略 parent_id（V1 风格），需要服务端补全
