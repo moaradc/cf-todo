@@ -2498,10 +2498,12 @@ self.addEventListener('fetch', (event) => {
         return apiError(`未知的 action: ${action}，有效值: ${VALID_ACTIONS.join(', ')}`, 400);
       }
 
-      // 仅对 TOGGLE_DONE/TIMER_COMPLETE/BATCH_TOGGLE_DONE 的完成分支校验
+      // TOGGLE_DONE/TIMER_COMPLETE/BATCH_TOGGLE_DONE 的完成日期校验
+      // todayStr 使用 UTC+8（用户时区 Asia/Shanghai），避免 UTC 与本地日期跨天偏差
+      // 例：UTC+8 凌晨 00:30 查看 06.30，UTC 是 06.29 16:30，UTC todayStr=06.29 会误判 06.30 为"未来"
       let effective_date = date;
       if (date && ['TOGGLE_DONE', 'TIMER_COMPLETE', 'BATCH_TOGGLE_DONE'].includes(action)) {
-        const todayStr = new Date().toISOString().slice(0, 10);
+        const todayStr = new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10);
         if (date > todayStr) {
           effective_date = todayStr; // 纠正为今天，而非拒绝请求（保持幂等）
         }

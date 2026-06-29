@@ -1122,7 +1122,8 @@ async function handleV1TodoToggle(request, DB, todo_id) {
   }
 
   if (is_fragment && new_done && body_date) {
-    const todayStr = new Date().toISOString().slice(0, 10);
+    // todayStr 使用 UTC+8（用户时区 Asia/Shanghai），避免 UTC 与本地日期跨天偏差
+    const todayStr = new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10);
     if (body_date > todayStr) {
       body_date = todayStr; // 纠正为今天，而非拒绝请求（保持幂等）
     }
