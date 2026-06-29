@@ -97,7 +97,6 @@ export const stats = `
         start = new Date(end.getFullYear(), 0, 1);
         bucket = 'month';
       } else {
-        // 兜底：本周
         var wd2 = end.getDay();
         var back2 = (wd2 === 0 ? 6 : wd2 - 1);
         start.setDate(start.getDate() - back2);
@@ -163,7 +162,6 @@ export const stats = `
         loading.classList.add('hidden');
         content.classList.remove('hidden');
         _renderRangeStats(rawData, range, b);
-        // 渲染后兜底 resize，避免任何隐藏残留导致 canvas 尺寸为 0
         _resizeAllCharts();
       } catch(e) {
         loading.innerText = '网络请求异常。';
@@ -291,7 +289,6 @@ export const stats = `
         return r;
       }
 
-      // 兜底：旧版行数组响应（兼容未升级的部署）
       if (!Array.isArray(rawData)) {
         r.trendBuckets = _buildTrendBuckets(bounds, {});
         return r;
@@ -842,7 +839,6 @@ export const stats = `
         return agg;
       }
 
-      // 兜底：旧版行数组响应
       if (!Array.isArray(rawData)) {
         _finalizeAnnualAgg(agg);
         return agg;

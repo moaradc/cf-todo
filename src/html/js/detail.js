@@ -283,7 +283,6 @@ export const detail = `
           }
         }
         // 碎时记独有：[开始计时]
-        // 完成后重新开始 = 全新 session（之前的累计已被完成动作封存），故标签为"开始计时"
         if (isFragment) {
           html += '<div class="timer-row" style="margin-top:8px;">';
           html += '<button class="btn-ghost" onclick="continueAfterDoneDetail()">开始计时</button>';
@@ -403,8 +402,6 @@ export const detail = `
     }
 
     // completeTimer 之后：实时调用 API 拉取权威 todos（含 time_records 字段）
-    // 解决背景/前台切换后 todos 数组与服务器不一致、本地缓存导致 UI 显示错误的问题
-    // 不再单独拉 /api/time-records：todos[].time_records 已含实例级记录
     function reloadDetailAfterComplete() {
       const task = todos[currentDetailIndex];
       if (!task || !task.id) return;
@@ -924,7 +921,6 @@ export const detail = `
       setTimeout(() => document.addEventListener('click', closeHandler), 0);
     }
 
-    // 详情页 action popover 边界兜底：若左右锚点导致溢出父容器则贴边并按需收窄
     function _clampActionPopoverWithinParent(popover, btn) {
       try {
         var parent = btn.parentNode;
@@ -997,11 +993,6 @@ export const detail = `
         task.category_id = tempCategoryId;
         
         // === 编辑保存前清理同系列计时器，避免 localStorage 孤儿 ===
-        // 必须在 await fetch / loadTodos 之前完成：fetch 后 todos 数组会被刷新，
-        // 同系列其他实例（siblings）就拿不到了。
-        // 必须在 scope 处理改 task.is_series 之前读原值：原 is_series 决定是否走清理分支。
-        // 不调用 completeTimer：被 DELETE 的实例在后端已不存在，TIMER_COMPLETE 会失败。
-        // 进度丢失是已知限制（与原行为一致，只是不再静默残留孤儿）。
         const _origIsSeries = task.is_series;
         const _taskId = task.id;
         const _taskParentId = task.parent_id;

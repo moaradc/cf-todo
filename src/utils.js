@@ -1,6 +1,4 @@
-/*
- * Cloudflare Worker + D1 Todo App - Utility Functions & Constants
- */
+// Cloudflare Worker + D1 Todo App - Utility Functions & Constants
 
 import versionData from '../version.json';
 
@@ -8,12 +6,7 @@ const APP_VERSION = versionData.version;
 const DB_SCHEMA = versionData.db_schema;
 const DEFAULT_CATEGORY_COLOR = '#888888';
 
-// ============================================================
-// 登录 & 显示 & 字体 限制：最多支持的浏览器 UA 数量
-// 登录会话、显示缩放 (scaleByBrowser)、字体大小 (fontSizeByBrowser)、
-// 显示大小 (displayScaleByBrowser) 共用此上限。
-// 修改这一处即可统一调整所有限制。
-// ============================================================
+// 登录会话、显示缩放、字体大小、显示大小共用此上限
 const MAX_BROWSER_UA = 10;
 
 const CHANGELOG = versionData.changelog;
@@ -22,12 +15,12 @@ function parseCookies(request) {
   const cookieHeader = request.headers.get('Cookie') || '';
   const list = {};
   cookieHeader.split(';').forEach(function(cookie) {
-    let[name, ...rest] = cookie.split('=');
+    let [name, ...rest] = cookie.split('=');
     name = name?.trim();
     if (!name) return;
     const value = rest.join('=').trim();
     if (!value) return;
-    try { list[name] = decodeURIComponent(value); } catch(e) { list[name] = value; }
+    try { list[name] = decodeURIComponent(value); } catch (e) { list[name] = value; }
   });
   return list;
 }
@@ -35,7 +28,7 @@ function parseCookies(request) {
 async function sign(data, secret) {
   const encoder = new TextEncoder();
   const key = await crypto.subtle.importKey(
-    "raw", encoder.encode(secret), { name: "HMAC", hash: "SHA-256" }, false,["sign"]
+    "raw", encoder.encode(secret), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]
   );
   const signature = await crypto.subtle.sign("HMAC", key, encoder.encode(data));
   return btoa(String.fromCharCode(...new Uint8Array(signature)));
@@ -54,6 +47,7 @@ function generateSessionToken() {
   );
 }
 
+// 恒定时间字符串比较，防时序攻击（API Key 校验）
 async function secureCompare(a, b, secret) {
   if (typeof a !== 'string' || typeof b !== 'string') return false;
   if (a.length === 0 || b.length === 0) return false;
@@ -97,8 +91,7 @@ function offsetDate(dateStr, days) {
   return formatDateStr(d);
 }
 
-// 健壮性：统一带超时的 fetch，超时或异常返回 null，调用方降级处理
-// CF Workers subrequest fetch 90s 硬超时，这里主动 5s 超时避免长时间挂起
+// CF Workers subrequest 90s 硬超时，这里 5s 主动超时降级
 const HOT_SEARCH_FETCH_TIMEOUT_MS = 5000;
 
 async function fetchJsonWithTimeout(url) {
@@ -107,13 +100,11 @@ async function fetchJsonWithTimeout(url) {
   try {
     const res = await fetch(url, { signal: ctrl.signal });
     if (!res.ok) {
-      // 释放响应体避免连接泄漏
       try { res.body && res.body.cancel(); } catch (e) {}
       return null;
     }
     return await res.json();
   } catch (e) {
-    // AbortError 或网络错误，返回 null 让调用方降级
     return null;
   } finally {
     clearTimeout(timeoutId);
@@ -145,13 +136,11 @@ async function fetchHotSearchData(providerName = 'auto') {
     providers = [fetchers[providerName]];
   } else {
     providers = Object.values(fetchers);
-    // 随机打散顺序，避免单点故障：第一个挂了快速切下一个
     providers.sort(() => Math.random() - 0.5);
   }
 
   let allWords = [];
   for (const fetcher of providers) {
-    // fetcher 内部已 try/catch（fetchJsonWithTimeout 返回 null），不会抛出
     const words = await fetcher();
     if (words.length >= 10) {
       allWords = words;
@@ -169,12 +158,7 @@ function apiError(msg, status = 500, extra = null) {
   });
 }
 
-/**
- * 解析 subtasks/search_terms JSON 字段
- * 接受：数组（原样返回）、JSON 字符串（parse）、空值/非法值（返回空数组）
- * @param {*} val
- * @returns {Array}
- */
+/** 解析 subtasks/search_terms JSON 字段（数组原样返回、字符串 parse、其他返回空数组） */
 function parseJsonField(val) {
   if (Array.isArray(val)) return val;
   if (typeof val === 'string' && val) {
@@ -184,16 +168,8 @@ function parseJsonField(val) {
 }
 
 /**
- * 规范化优先级值（前端使用 med，API 同时接受 medium 和 med）
- * 统一 V0 / V1 行为：
- *   - 'medium' → 'med'（前端历史习惯，外部调用方常误传）
- *   - 'low' / 'med' / 'high' 原样返回
- *   - 其它非法值（含 undefined / null / 空串 / 数字 / 任意字符串）→ 'low'（DB 默认）
- * 该函数纯函数无副作用，调用方应在所有 priority 写入点（CREATE / UPDATE / 模板展开）
- * 统一调用，避免 DB 出现 'medium' 等非标准值导致 stats 聚合（priCounts 仅识别 low/med/high）漏统计。
- *
- * @param {*} val - 调用方传入的原始 priority 值
- * @returns {'low'|'med'|'high'} 规范化后的 priority
+ * 规范化优先级：'medium' → 'med'，非法值 → 'low'。
+ * 所有 priority 写入点应统一调用，避免 DB 出现非标准值导致 stats 聚合漏统计。
  */
 function normalizePriority(val) {
   if (val === 'medium') return 'med';
@@ -202,20 +178,9 @@ function normalizePriority(val) {
 }
 
 /**
- * 校验 stats 日期范围参数（V0 /api/stats 和 V1 /api/v1/stats 共用）
- *
- * Free 计划依据：D1 单线程 + CPU 10ms 限制，大范围 GROUP BY 会扫描大量索引行
- * 建临时 B-tree 排序。实测 50k 行 × 5 年范围 = 304ms（远超 10ms）。
- * 前端最大调用范围是年度报告（365 天），366 天上限覆盖该场景并留 1 天余量。
- *
- * 校验规则：
- *   1. start / end 必填，格式 YYYY-MM-DD
- *   2. start <= end
- *   3. 范围 <= 366 天
- *
- * @param {string} start - 起始日期 YYYY-MM-DD
- * @param {string} end - 结束日期 YYYY-MM-DD
- * @returns {{ok: boolean, error?: string}}
+ * 校验 stats 日期范围（V0/V1 共用）。
+ * Free 计划 D1 10ms CPU 限制，大范围 GROUP BY 会超时；
+ * 366 天上限覆盖年度报告场景。
  */
 function validateStatsDateRange(start, end) {
   if (!start || !end) {
@@ -225,7 +190,6 @@ function validateStatsDateRange(start, end) {
   if (!dateRe.test(start) || !dateRe.test(end)) {
     return { ok: false, error: 'start 和 end 格式应为 YYYY-MM-DD' };
   }
-  // 解析为 UTC 日期避免时区偏差
   const sParts = start.split('-').map(Number);
   const eParts = end.split('-').map(Number);
   const sDate = Date.UTC(sParts[0], sParts[1] - 1, sParts[2]);
@@ -237,7 +201,7 @@ function validateStatsDateRange(start, end) {
     return { ok: false, error: 'start 不能晚于 end' };
   }
   const MAX_STATS_RANGE_DAYS = 366;
-  const diffDays = (eDate - sDate) / 86400000 + 1; // 含首尾
+  const diffDays = (eDate - sDate) / 86400000 + 1;
   if (diffDays > MAX_STATS_RANGE_DAYS) {
     return { ok: false, error: `日期范围不能超过 ${MAX_STATS_RANGE_DAYS} 天（当前 ${diffDays} 天）` };
   }
