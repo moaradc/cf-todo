@@ -620,7 +620,12 @@ export function computeUpdateActions({ task, date, scope, new_values, new_date }
       break;
 
     default:
-      actions.currentTodo = { ...new_values };
+      // v1.0：scope 未指定或 'none'，原地更新当前实例
+      // 保持原重复属性（is_recurring 由 new_values.type 决定）
+      actions.currentTodo = {
+        ...new_values,
+        is_recurring: new_values.type === 'recurring',
+      };
   }
 
   return actions;
