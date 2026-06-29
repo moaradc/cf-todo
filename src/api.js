@@ -33,7 +33,6 @@ import {
   sanitizeRepeatCustom,
   processRepeatCustom,
   deriveRepeatTypeFromCustom,
-  validateTimeRange,
   validateRepeatEndCompat,
   validateRepeatIntervalCompat,
   validateDateFormat,
@@ -3053,9 +3052,6 @@ self.addEventListener('fetch', (event) => {
           if (repeatEndErr) return apiError(repeatEndErr, 400);
           const intervalErr = validateRepeatIntervalCompat(effectiveRepeatInterval, rpt_type);
           if (intervalErr) return apiError(intervalErr, 400);
-          const timeErr = validateTimeRange(effectiveTime, effectiveEndTime);
-          if (timeErr) return apiError(timeErr, 400);
-          // 日期/时间格式校验
           if (date) {
             const dateErr = validateDateFormat(date);
             if (dateErr) return apiError(dateErr, 400);
@@ -3240,9 +3236,6 @@ self.addEventListener('fetch', (event) => {
           if (repeatEndErr) return apiError(repeatEndErr, 400);
           const intervalErr = validateRepeatIntervalCompat(patchInterval, patchRptType);
           if (intervalErr) return apiError(intervalErr, 400);
-          const timeErr = validateTimeRange(patchTime, patchEndTime);
-          if (timeErr) return apiError(timeErr, 400);
-          // 日期/时间格式校验
           if (patchDate) {
             const dateErr = validateDateFormat(patchDate);
             if (dateErr) return apiError(dateErr, 400);

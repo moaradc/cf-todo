@@ -10,7 +10,7 @@
  *   4. isOccurrenceOnDate：custom RRULE 实际展开行为
  *   5. computeUpdateActions：split-series 模板透传 repeat_custom + recurrence_changed 检测
  *   6. deriveRepeatTypeFromCustom：custom 反推 repeat_type
- *   7. validateTimeRange / validateRepeatEndCompat / validateRepeatIntervalCompat：原子组校验
+ *   7. validateRepeatEndCompat / validateRepeatIntervalCompat：原子组校验
  */
 
 import {
@@ -19,7 +19,6 @@ import {
   isOccurrenceOnDate,
   computeUpdateActions,
   deriveRepeatTypeFromCustom,
-  validateTimeRange,
   validateRepeatEndCompat,
   validateRepeatIntervalCompat,
   validateDateFormat,
@@ -271,19 +270,6 @@ eq(deriveRepeatTypeFromCustom('FREQ=MONTHLY;BYMONTHDAY=15'), 'monthly', 'FREQ=MO
 eq(deriveRepeatTypeFromCustom('FREQ=YEARLY;BYMONTH=2;BYMONTHDAY=29'), 'yearly', 'FREQ=YEARLY → yearly');
 eq(deriveRepeatTypeFromCustom('INVALID'), null, '非 RRULE → null');
 eq(deriveRepeatTypeFromCustom('FREQ=SECONDLY'), null, 'FREQ=SECONDLY → null（不在反推表）');
-
-// ============================================================
-// 7. validateTimeRange：time vs end_time 时序校验
-// ============================================================
-console.log('\n[7] validateTimeRange');
-
-eq(validateTimeRange('', ''), null, '都空 → 通过');
-eq(validateTimeRange('09:00', ''), null, 'end_time 空 → 通过');
-eq(validateTimeRange('', '10:00'), null, 'time 空 → 通过');
-eq(validateTimeRange('09:00', '10:00'), null, '09:00 < 10:00 → 通过');
-eq(validateTimeRange('09:00', '09:00'), null, '09:00 == 09:00 → 通过（零耗时）');
-truthy(validateTimeRange('10:00', '09:00') !== null, '10:00 > 09:00 → 拒绝');
-truthy(validateTimeRange('23:59', '00:01') !== null, '23:59 > 00:01 → 拒绝');
 
 // ============================================================
 // 8. validateRepeatEndCompat：repeat_end 与 repeat_type 兼容性

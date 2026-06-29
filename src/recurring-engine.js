@@ -171,27 +171,6 @@ export function deriveRepeatTypeFromCustom(repeatCustom) {
 }
 
 /**
- * 校验 time 与 end_time 的时序一致性
- *
- * 规则：若 time 和 end_time 都非空且在同一天，time 不能晚于 end_time。
- * 允许 end_time 为空（表示无结束时间）。
- * 允许 time == end_time（零耗时，勾选完成场景）。
- *
- * @param {string} time - HH:MM 格式
- * @param {string} endTime - HH:MM 格式
- * @returns {string|null} 错误消息，null 表示通过
- */
-export function validateTimeRange(time, endTime) {
-  if (!time || !endTime) return null;
-  const timeRe = /^\d{2}:\d{2}$/;
-  if (!timeRe.test(time) || !timeRe.test(endTime)) return null; // 格式不符交给其他校验
-  if (time > endTime) {
-    return `time (${time}) 不能晚于 end_time (${endTime})`;
-  }
-  return null;
-}
-
-/**
  * 校验 repeat_end 与 repeat_type 的兼容性（原子组）
  *
  * 规则：repeat_end 非空时，repeat_type 必须是 daily/weekly/monthly/yearly。

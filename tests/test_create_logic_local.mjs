@@ -6,7 +6,6 @@ import {
   sanitizeRepeatCustom,
   processRepeatCustom,
   deriveRepeatTypeFromCustom,
-  validateTimeRange,
   validateRepeatEndCompat,
   validateRepeatIntervalCompat,
 } from '../src/recurring-engine.js';
@@ -51,8 +50,6 @@ function simulateCreate(body) {
   if (repeatEndErr) errors.push(repeatEndErr);
   const intervalErr = validateRepeatIntervalCompat(rInterval, rpt_type);
   if (intervalErr) errors.push(intervalErr);
-  const timeErr = validateTimeRange(effectiveTime, eTime);
-  if (timeErr) errors.push(timeErr);
 
   return {
     rpt_type,
@@ -99,11 +96,11 @@ const r4 = simulateCreate({ date: '2026-06-29', text: 'test', repeat_type: 'none
 if (r4.errors.some(e => e.includes('repeat_interval'))) ok('repeat_interval=2 + none → 400');
 else ko('应报错', JSON.stringify(r4.errors));
 
-// 5. time > end_time → 400
-console.log('\n[5] time > end_time → 400');
+// 5. time/end_time 解耦——跨日/反序不再被拒
+console.log('\n[5] time=18:00, end_time=09:00（展示型字段解耦，允许）');
 const r5 = simulateCreate({ date: '2026-06-29', text: 'test', time: '18:00', end_time: '09:00' });
-if (r5.errors.some(e => e.includes('time'))) ok('time(18:00) > end_time(09:00) → 400');
-else ko('应报错', JSON.stringify(r5.errors));
+if (r5.errors.length === 0) ok('跨日/反序组合不再被拒');
+else ko('不应报错', JSON.stringify(r5.errors));
 
 // 6. repeat_type=fragment + 各种字段 → 联动清空
 console.log('\n[6] repeat_type=fragment + time/end_time/repeat_end → 联动清空');

@@ -8,7 +8,6 @@ import {
   sanitizeRepeatCustom,
   processRepeatCustom,
   deriveRepeatTypeFromCustom,
-  validateTimeRange,
   validateRepeatEndCompat,
   validateRepeatIntervalCompat,
 } from '../src/recurring-engine.js';
@@ -76,8 +75,6 @@ function simulatePatchUpdate(existing, body) {
   if (repeatEndErr) errors.push(repeatEndErr);
   const intervalErr = validateRepeatIntervalCompat(new_values.repeat_interval, new_values.repeat_type);
   if (intervalErr) errors.push(intervalErr);
-  const timeErr = validateTimeRange(new_values.time, new_values.end_time);
-  if (timeErr) errors.push(timeErr);
 
   return { new_values, errors };
 }
@@ -170,15 +167,15 @@ if (r5.errors.length === 0) {
 }
 
 // ============================================================
-// 6. 原子组冲突：time > end_time
+// 6. time/end_time 解耦——跨日/反序不再被拒
 // ============================================================
-console.log('\n[6] 原子组冲突：time > end_time');
+console.log('\n[6] time=18:00, end_time=09:00（展示型字段解耦，允许）');
 const existing6 = { text: '时间冲突', repeat_type: 'none' };
 const r6 = simulatePatchUpdate(existing6, { time: '18:00', end_time: '09:00' });
-if (r6.errors.length > 0 && r6.errors.some(e => e.includes('time'))) {
-  ok('time(18:00) > end_time(09:00) → 400');
+if (r6.errors.length === 0) {
+  ok('跨日/反序组合不再被拒');
 } else {
-  ko('应报错 time 冲突', JSON.stringify(r6.errors));
+  ko('不应报错', JSON.stringify(r6.errors));
 }
 
 // ============================================================

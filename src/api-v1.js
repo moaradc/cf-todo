@@ -51,7 +51,6 @@ import {
   sanitizeRepeatCustom,
   processRepeatCustom,
   deriveRepeatTypeFromCustom,
-  validateTimeRange,
   validateRepeatEndCompat,
   validateRepeatIntervalCompat,
   validateDateFormat,
@@ -653,16 +652,10 @@ async function handleV1Todos(request, env, url) {
     const normPriority = normalizePriority(priority || 'low');
 
     // 原子组校验（联动字段一致性，冲突返回 400 并告知原因）
-    // 1. repeat_end 与 repeat_type 兼容性
     const repeatEndErr = validateRepeatEndCompat(rEnd, rpt_type);
     if (repeatEndErr) return apiError(repeatEndErr, 400);
-    // 2. repeat_interval 与 repeat_type 兼容性
     const intervalErr = validateRepeatIntervalCompat(rInterval, rpt_type);
     if (intervalErr) return apiError(intervalErr, 400);
-    // 3. time 与 end_time 时序一致性
-    const timeErr = validateTimeRange(effectiveTime, eTime);
-    if (timeErr) return apiError(timeErr, 400);
-    // 4. 日期/时间格式校验
     if (effective_date) {
       const dateErr = validateDateFormat(effective_date);
       if (dateErr) return apiError(dateErr, 400);
@@ -837,16 +830,10 @@ async function handleV1TodoPut(request, DB, todo_id) {
   }
 
   // 原子组校验（联动字段一致性，冲突返回 400 并告知原因）
-  // 1. repeat_end 与 repeat_type 兼容性
   const repeatEndErr = validateRepeatEndCompat(new_values.repeat_end, new_values.repeat_type);
   if (repeatEndErr) return apiError(repeatEndErr, 400);
-  // 2. repeat_interval 与 repeat_type 兼容性
   const intervalErr = validateRepeatIntervalCompat(new_values.repeat_interval, new_values.repeat_type);
   if (intervalErr) return apiError(intervalErr, 400);
-  // 3. time 与 end_time 时序一致性
-  const timeErr = validateTimeRange(new_values.time, new_values.end_time);
-  if (timeErr) return apiError(timeErr, 400);
-  // 4. 日期/时间格式校验
   if (new_values.date) {
     const dateErr = validateDateFormat(new_values.date);
     if (dateErr) return apiError(dateErr, 400);
