@@ -1,4 +1,278 @@
 export const core = `
+    // ==================== RRULE → 中文标签渲染器 ====================
+    // 基于 RFC 5545 §3.3.10 (https://icalendar.org/iCalendar-RFC-5545/3-3-10-recurrence-rule.html)
+    // 与 ical.js 解析能力对齐。仅前端展示用，不影响后端展开逻辑。
+    //
+    // 设计：
+    // - 覆盖 DAILY/WEEKLY/MONTHLY/YEARLY × BYDAY/BYMONTHDAY/BYMONTH/BYSETPOS/BYWEEKNO/BYYEARDAY/INTERVAL/COUNT/UNTIL
+    // - 遇到无法精确翻译的语义（BYHOUR/BYMINUTE/BYSECOND/RSCALE 等）返回 null，
+    //   调用方回退到 todo.date 推导或显示通用的"自定义重复"
+    // - 所有 token 已被后端 sanitizeRepeatCustom 规范化为大写、剥 RRULE: 前缀
+
+    var _RRULE_WDAY_MAP = { MO:'一', TU:'二', WE:'三', TH:'四', FR:'五', SA:'六', SU:'日' };
+    var _RRULE_WDAY_ORDER = ['MO','TU','WE','TH','FR','SA','SU'];
+    var _RRULE_ZH_NUM = ['零','一','二','三','四','五','六','七','八','九','十','十一','十二'];
+    // 中文序数（仅 1-5 常用，超过用阿拉伯数字）
+    function _rruleOrdinalZh(n) {
+      var m = ['','第一','第二','第三','第四','第五'];
+      return (n >= 1 && n <= 5) ? m[n] : '第' + n + '个';
+    }
+
+    // 解析 RRULE 字符串为 token 字典。失败返回 null。
+    function _rruleParse(custom) {
+      if (!custom || typeof custom !== 'string') return null;
+      var s = custom.trim();
+      if (!s) return null;
+      if (s.startsWith('RRULE:')) s = s.slice(6).trim();
+      var parts = s.split(';').filter(function(p) { return p.length > 0; });
+      if (!parts.length) return null;
+      var tok = {};
+      for (var i = 0; i < parts.length; i++) {
+        var kv = parts[i].split('=');
+        if (kv.length !== 2) return null;
+        tok[kv[0].toUpperCase()] = kv[1];
+      }
+      if (!tok.FREQ) return null;
+      return tok;
+    }
+
+    // 解析 BYDAY=MO,WE,FR 或 BYDAY=2MO,-1FR 这类形式
+    // 返回 [{wday:'MO', ord:0}, ...]；ord=0 表示无序数（weekly），ord=N 表示第 N 个（monthly/yearly）
+    // 含未知 wday 代码返回 null
+    function _rruleParseByday(bydayStr) {
+      if (!bydayStr) return null;
+      var tokens = bydayStr.split(',');
+      var out = [];
+      for (var i = 0; i < tokens.length; i++) {
+        var t = (tokens[i] || '').trim();
+        if (!t) continue;
+        // 匹配可选 [+-]数字 + 星期代码
+        var m = t.match(/^([+-]?\d+)?(MO|TU|WE|TH|FR|SA|SU)$/);
+        if (!m) return null;
+        var ord = m[1] ? parseInt(m[1], 10) : 0;
+        out.push({ wday: m[2], ord: ord });
+      }
+      return out.length ? out : null;
+    }
+
+    // 解析数字列表（如 BYMONTHDAY=1,15）为 int 数组。失败返回 null。
+    function _rruleParseNumList(s, min, max) {
+      if (!s) return null;
+      var tokens = s.split(',');
+      var out = [];
+      for (var i = 0; i < tokens.length; i++) {
+        var n = parseInt(tokens[i], 10);
+        if (isNaN(n)) return null;
+        if (min !== undefined && n < min) return null;
+        if (max !== undefined && n > max) return null;
+        out.push(n);
+      }
+      return out.length ? out : null;
+    }
+
+    // 中文数字（用于月份/日）
+    function _zhNum(n) {
+      if (n >= 1 && n <= 12) return _RRULE_ZH_NUM[n];
+      return String(n);
+    }
+
+    // BYMONTHDAY 单值中文：1 → "1日"；-1 → "最后一天"；-3 → "倒数第3天"
+    function _zhMonthDay(n) {
+      if (n > 0) return n + '日';
+      if (n === -1) return '最后一天';
+      return '倒数第' + (-n) + '天';
+    }
+
+    // 主渲染函数：将 repeat_custom 翻译为短中文标签
+    // 项目场景：仅覆盖 DAILY/WEEKLY/MONTHLY/YEARLY 的常见重复规则（每天/每周/每月/每年）
+    // 不支持：SECONDLY/MINUTELY/HOURLY（后端已拒绝）、BYHOUR/BYMINUTE/BYSECOND（时间段语义，拒绝）、
+    //         RSCALE 等 RFC 7529 扩展
+    // 保留：COUNT（"重复N次"为合法 RFC 5545 终止条件，渲染为·共N次，供后续场景使用）
+    // 遇到不支持 token 返回 null，调用方回退到"自定义重复"或 todo.date 推导
+    function _rruleToZhLabel(custom, repeatType, dateStr, interval, repeatEnd) {
+      var tok = _rruleParse(custom);
+      if (!tok) return null;
+
+      // INTERVAL 来自 custom，优先级低于外部 interval 参数（与后端 buildRRuleString 一致）
+      var iv = (interval && interval > 1) ? interval : (tok.INTERVAL ? parseInt(tok.INTERVAL, 10) : 1);
+      // 后缀由 FREQ 决定；iv=1 时也需后缀（"每天"/"每周"/"每月"/"每年"）
+      var freqUnit = { DAILY:'天', WEEKLY:'周', MONTHLY:'月', YEARLY:'年' }[tok.FREQ];
+      if (!freqUnit) return null;
+      var ivPrefix = iv > 1 ? '每' + iv + freqUnit : '每' + freqUnit;
+      var ivSuffix = '';  // 已合并到 ivPrefix，保留参数以兼容旧代码
+
+      // 拒绝：BYHOUR/BYMINUTE/BYSECOND 是时间段语义（如"每天9点"），项目无此需求
+      // 入库了也不能误导成"每天"，直接返 null 走"自定义重复"分支
+      if (tok.BYHOUR || tok.BYMINUTE || tok.BYSECOND) return null;
+
+      var label = '';
+      var bydays = _rruleParseByday(tok.BYDAY);
+      var bymonthdays = _rruleParseNumList(tok.BYMONTHDAY, -31, 31);
+      var bymonths = _rruleParseNumList(tok.BYMONTH, 1, 12);
+      var byweeknos = _rruleParseNumList(tok.BYWEEKNO, -53, 53);
+      var byyeardays = _rruleParseNumList(tok.BYYEARDAY, -366, 366);
+      var bysetpos = _rruleParseNumList(tok.BYSETPOS, -366, 366);
+
+      // ----- DAILY -----
+      if (tok.FREQ === 'DAILY') {
+        // DAILY + 任何 BYxxx 都简化为 "每N天"（BYDAY 在 DAILY 中语义混乱，按规范仅是过滤器）
+        label = ivPrefix;
+      }
+      // ----- WEEKLY -----
+      else if (tok.FREQ === 'WEEKLY') {
+        if (bydays) {
+          // WEEKLY + BYDAY：BYDAY 不得含序数（RFC 5545 强制）
+          var hasOrd = bydays.some(function(d) { return d.ord !== 0; });
+          if (hasOrd) return null;
+          // 排序后拼接
+          var sorted = bydays.slice().sort(function(a, b) {
+            return _RRULE_WDAY_ORDER.indexOf(a.wday) - _RRULE_WDAY_ORDER.indexOf(b.wday);
+          });
+          var wdayZh = '';
+          for (var i = 0; i < sorted.length; i++) wdayZh += _RRULE_WDAY_MAP[sorted[i].wday];
+          label = ivPrefix + wdayZh;
+        } else {
+          // WEEKLY 无 BYDAY：回退到 dateStr 当日星期
+          if (dateStr) {
+            var dp = dateStr.split('-');
+            if (dp.length === 3) {
+              var dw = new Date(dp[0], dp[1]-1, dp[2]).getDay();
+              var wdayZhFallback = '日一二三四五六'[dw];
+              label = ivPrefix + wdayZhFallback;
+            } else {
+              label = ivPrefix;
+            }
+          } else {
+            label = ivPrefix;
+          }
+        }
+      }
+      // ----- MONTHLY -----
+      else if (tok.FREQ === 'MONTHLY') {
+        if (bydays && !bymonthdays) {
+          // BYDAY + BYSETPOS：取最后一个序数
+          if (bysetpos && bysetpos.length === 1) {
+            var sp = bysetpos[0];
+            // BYDAY 仅取 1 个 wday（多 wday + BYSETPOS 中文歧义大，回退）
+            if (bydays.length === 1) {
+              var d = bydays[0];
+              var ordZh = sp > 0 ? _rruleOrdinalZh(sp) : '倒数第' + (-sp);
+              label = ivPrefix + ordZh + '周' + _RRULE_WDAY_MAP[d.wday];
+            } else {
+              // 多 wday + BYSETPOS=-1：例如 "每月最后一个工作日"
+              if (sp === -1) {
+                var sorted2 = bydays.slice().sort(function(a, b) {
+                  return _RRULE_WDAY_ORDER.indexOf(a.wday) - _RRULE_WDAY_ORDER.indexOf(b.wday);
+                });
+                var wdayZh2 = '';
+                for (var j = 0; j < sorted2.length; j++) wdayZh2 += _RRULE_WDAY_MAP[sorted2[j].wday];
+                label = ivPrefix + '最后' + wdayZh2;
+              } else {
+                return null;
+              }
+            }
+          } else if (bysetpos) {
+            return null;
+          } else {
+            // BYDAY 含序数（如 2MO = 每月第2周周一）
+            if (bydays.length === 1) {
+              var dd = bydays[0];
+              if (dd.ord !== 0) {
+                var ordZh2 = dd.ord > 0 ? _rruleOrdinalZh(dd.ord) : '倒数第' + (-dd.ord);
+                label = ivPrefix + ordZh2 + '周' + _RRULE_WDAY_MAP[dd.wday];
+              } else {
+                // 无序数：每月所有周一（中文表达"每月周一"）
+                label = ivPrefix + _RRULE_WDAY_MAP[dd.wday];
+              }
+            } else {
+              return null;  // 多 wday 无 BYSETPOS，语义模糊
+            }
+          }
+        } else if (bymonthdays && !bydays) {
+          // BYMONTHDAY：如 1,15 → "每月1日和15日"
+          if (bymonthdays.length === 1) {
+            label = ivPrefix + _zhMonthDay(bymonthdays[0]);
+          } else if (bymonthdays.length === 2) {
+            label = ivPrefix + _zhMonthDay(bymonthdays[0]) + '和' + _zhMonthDay(bymonthdays[1]);
+          } else {
+            label = ivPrefix + '多日';
+          }
+        } else if (bymonthdays && bydays) {
+          return null;  // 组合过复杂，回退
+        } else {
+          // MONTHLY 无 BYxxx：用 dateStr 当日
+          if (dateStr) {
+            var mp = dateStr.split('-');
+            if (mp.length === 3) label = ivPrefix + parseInt(mp[2], 10) + '号';
+            else label = ivPrefix;
+          } else {
+            label = ivPrefix;
+          }
+        }
+      }
+      // ----- YEARLY -----
+      else if (tok.FREQ === 'YEARLY') {
+        if (bymonths && bymonthdays && bymonths.length === 1 && bymonthdays.length === 1) {
+          // BYMONTH=2;BYMONTHDAY=29 → "每年2月29日"
+          label = ivPrefix + _zhNum(bymonths[0]) + '月' + bymonthdays[0] + '日';
+        } else if (bymonths && bydays && bymonths.length === 1 && bydays.length === 1) {
+          // BYMONTH=5;BYDAY=2MO → "每年5月第2周周一"
+          var dd2 = bydays[0];
+          var ordZh3 = dd2.ord > 0 ? _rruleOrdinalZh(dd2.ord) : (dd2.ord < 0 ? '倒数第' + (-dd2.ord) : '');
+          label = ivPrefix + _zhNum(bymonths[0]) + '月' + ordZh3 + '周' + _RRULE_WDAY_MAP[dd2.wday];
+        } else if (byweeknos && bydays && byweeknos.length === 1 && bydays.length === 1) {
+          // BYWEEKNO=1;BYDAY=MO → "每年第1周周一"
+          var dd3 = bydays[0];
+          var wn = byweeknos[0];
+          var wnZh = wn > 0 ? '第' + wn + '周' : '倒数第' + (-wn) + '周';
+          label = ivPrefix + wnZh + _RRULE_WDAY_MAP[dd3.wday];
+        } else if (bymonths || bydays || bymonthdays || byweeknos || byyeardays || bysetpos) {
+          // 含未支持的 BYxxx 组合（如多 BYMONTH、BYYEARDAY 等），不回退 dateStr 避免误导
+          return null;
+        } else {
+          // YEARLY 无 BYxxx：回退到 dateStr
+          if (dateStr) {
+            var yp = dateStr.split('-');
+            if (yp.length === 3) label = ivPrefix + parseInt(yp[1], 10) + '月' + parseInt(yp[2], 10) + '日';
+            else label = ivPrefix;
+          } else {
+            label = ivPrefix;
+          }
+        }
+      } else {
+        return null;
+      }
+
+      // 追加 repeat_end / UNTIL / COUNT 终止条件
+      // COUNT 为合法 RFC 5545 终止条件，渲染为·共N次（供后续场景使用）
+      if (repeatEnd) {
+        label += '·至' + repeatEnd;
+      } else if (tok.UNTIL) {
+        // UNTIL 格式 YYYYMMDD 或 YYYYMMDDTHHMMSSZ，截取日期部分
+        var untilDate = tok.UNTIL.length >= 8 ? tok.UNTIL.slice(0, 4) + '-' + tok.UNTIL.slice(4, 6) + '-' + tok.UNTIL.slice(6, 8) : '';
+        if (untilDate) label += '·至' + untilDate;
+      } else if (tok.COUNT) {
+        label += '·共' + tok.COUNT + '次';
+      }
+
+      return label;
+    }
+
+    // 兼容旧调用名（保留 _bydayToZh 作为 weekly 专用快捷入口，但内部走新渲染器）
+    function _bydayToZh(custom) {
+      var tok = _rruleParse(custom);
+      if (!tok || tok.FREQ !== 'WEEKLY') return null;
+      var bydays = _rruleParseByday(tok.BYDAY);
+      if (!bydays) return null;
+      var hasOrd = bydays.some(function(d) { return d.ord !== 0; });
+      if (hasOrd) return null;
+      var sorted = bydays.slice().sort(function(a, b) {
+        return _RRULE_WDAY_ORDER.indexOf(a.wday) - _RRULE_WDAY_ORDER.indexOf(b.wday);
+      });
+      var zh = '';
+      for (var i = 0; i < sorted.length; i++) zh += _RRULE_WDAY_MAP[sorted[i].wday];
+      return zh;
+    }
     var _isOffline = !navigator.onLine;
     // 统一通知条：复用 preview-notice，合并预览/离线提示
     function _updateNoticeBar() {
@@ -674,22 +948,37 @@ export const core = `
         if (todo.repeat_type === 'fragment') {
           // 碎时记: 一次性浮动事项，固定显示"碎时记"标签（与"每天"样式一致）
           repeatLabel = '碎时记';
-        } else if (todo.repeat_type === 'daily') {
-          repeatLabel = n ? '每' + n + '天' : '每天';
-        } else if (todo.repeat_type === 'weekly') {
-          var days = ['日','一','二','三','四','五','六'];
-          var parts = todo.date.split('-');
-          var day = new Date(parts[0], parts[1]-1, parts[2]).getDay();
-          repeatLabel = n ? '每' + n + '周' + days[day] : '每周' + days[day];
-        } else if (todo.repeat_type === 'monthly') {
-          var parts2 = todo.date.split('-');
-          repeatLabel = n ? '每' + n + '月' + parseInt(parts2[2], 10) + '号' : '每月' + parseInt(parts2[2], 10) + '号';
-        } else if (todo.repeat_type === 'yearly') {
-          var parts3 = todo.date.split('-');
-          repeatLabel = n ? '每' + n + '年' + parseInt(parts3[1], 10) + '月' + parseInt(parts3[2], 10) + '日' : '每年' + parseInt(parts3[1], 10) + '月' + parseInt(parts3[2], 10) + '日';
+        } else {
+          // 优先使用 _rruleToZhLabel 解析 repeat_custom（支持完整 RFC 5545 RRULE）
+          // - 渲染成功：用解析后的中文标签（如 "每周一三五·共10次"，已含 repeat_end）
+          // - 渲染失败但有 custom：卡片空间有限，显示通用的"自定义重复"
+          //   （详情页会显示完整 RRULE 字符串）
+          // - 无 custom：回退到 repeat_type + todo.date 推导（兼容旧任务）
+          var rruleLabel = todo.repeat_custom ? _rruleToZhLabel(todo.repeat_custom, todo.repeat_type, todo.date, n, todo.repeat_end) : null;
+          if (rruleLabel) {
+            repeatLabel = rruleLabel;
+            // rruleLabel 已包含 repeat_end/UNTIL/COUNT 终止条件，不再追加
+          } else if (todo.repeat_custom) {
+            // custom 存在但无法精确翻译（如 BYHOUR、多 BYMONTH 等复杂组合）
+            repeatLabel = '自定义重复';
+            if (todo.repeat_end) repeatLabel += '·至' + todo.repeat_end;
+          } else if (todo.repeat_type === 'daily') {
+            repeatLabel = n ? '每' + n + '天' : '每天';
+          } else if (todo.repeat_type === 'weekly') {
+            var days = ['日','一','二','三','四','五','六'];
+            var parts = todo.date.split('-');
+            var day = new Date(parts[0], parts[1]-1, parts[2]).getDay();
+            repeatLabel = n ? '每' + n + '周' + days[day] : '每周' + days[day];
+          } else if (todo.repeat_type === 'monthly') {
+            var parts2 = todo.date.split('-');
+            repeatLabel = n ? '每' + n + '月' + parseInt(parts2[2], 10) + '号' : '每月' + parseInt(parts2[2], 10) + '号';
+          } else if (todo.repeat_type === 'yearly') {
+            var parts3 = todo.date.split('-');
+            repeatLabel = n ? '每' + n + '年' + parseInt(parts3[1], 10) + '月' + parseInt(parts3[2], 10) + '日' : '每年' + parseInt(parts3[1], 10) + '月' + parseInt(parts3[2], 10) + '日';
+          }
+          // 无 custom 时追加 repeat_end（有 custom 时已由 _rruleToZhLabel 或上面分支处理）
+          if (!todo.repeat_custom && todo.repeat_end) repeatLabel += '·至' + todo.repeat_end;
         }
-        // 碎时记不显示 repeat_end（完成时自动管理，对用户无意义）
-        if (todo.repeat_end && todo.repeat_type !== 'fragment') repeatLabel += '·至' + todo.repeat_end;
         badges += '<span class="badge" style="background:transparent;border:1px solid var(--fg);color:var(--fg);">' + escapeHtml(repeatLabel) + '</span> ';
       }
 
