@@ -53,6 +53,10 @@ import {
   validateRepeatIntervalCompat,
   validateDateFormat,
   validateTimeFormat,
+  sanitizeRRule,
+  processRRule,
+  rruleFromLegacyFields,
+  deriveLegacyFieldsFromRRule,
 } from './recurring-engine.js';
 
 // ==================== API Key 管理 ====================
@@ -362,6 +366,19 @@ function formatTodo(row) {
   let rType = row.repeat_type || 'none';
   if (rType !== 'none' && rType !== 'fragment' && !['daily', 'weekly', 'monthly', 'yearly'].includes(rType)) rType = 'daily';
 
+  // rrule 优先：DB 中 rrule 列为权威 RRULE 字符串；为空时从旧字段合成（兼容老数据）。
+  // 老数据未走 rrule 入口时 rrule 列为 ''，需用旧字段反推保证响应一致性。
+  let rrule = row.rrule || '';
+  if (!rrule && rType !== 'none' && rType !== 'fragment') {
+    rrule = rruleFromLegacyFields({
+      repeat_type: rType,
+      repeat_interval: row.repeat_interval || 1,
+      repeat_end: row.repeat_end || '',
+      repeat_custom: row.repeat_custom || '',
+      anchor_date: row.date || '',
+    });
+  }
+
   return {
     id: row.id,
     parent_id: row.parent_id,
@@ -385,6 +402,9 @@ function formatTodo(row) {
     is_exception: !!row.is_exception,
     is_series: rType !== 'none' && rType !== 'fragment',
     repeat_interval: row.repeat_interval || 1,
+    // rrule: RFC 5545 RRULE 字符串（不含 RRULE: 前缀）。非空时为权威规则，
+    // 旧字段是其派生快照。普通 todo / 碎时记始终为空字符串。
+    rrule: rrule,
     // 原始记录数组（供需要历史/预估的客户端）
     time_records: time_records,
     // 计算字段（取最新一条 record，对应 Web UI 显示）
@@ -536,12 +556,12 @@ async function handleV1Todos(request, env, url) {
           recurringResults.push(newRecord);
 
           insertStmts.push(DB.prepare(
-            'INSERT INTO todos (id, parent_id, date, text, time, priority, desc, url, copy_text, subtasks, search_terms, done, deleted, repeat_type, repeat_custom, repeat_end, end_time, category_id, repeat_interval) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+            'INSERT INTO todos (id, parent_id, date, text, time, priority, desc, url, copy_text, subtasks, search_terms, done, deleted, repeat_type, repeat_custom, repeat_end, end_time, category_id, repeat_interval, rrule) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
           ).bind(
             new_id, tpl.parent_id, date, tpl.text, tpl.time || '', tpl.priority || 'low',
             tpl.desc || '', tpl.url || '', tpl.copy_text || '',
             JSON.stringify(parsedSubtasks), '[]',
-            0, 0, tpl.repeat_type || 'none', tpl.repeat_custom || '', tpl.repeat_end || '', tpl.end_time || '', tpl.category_id || '', tpl.repeat_interval || 1
+            0, 0, tpl.repeat_type || 'none', tpl.repeat_custom || '', tpl.repeat_end || '', tpl.end_time || '', tpl.category_id || '', tpl.repeat_interval || 1, tpl.rrule || ''
           ));
         }
         if (insertStmts.length > 0) {
@@ -595,7 +615,7 @@ async function handleV1Todos(request, env, url) {
     } catch(e) {
       return apiError('请求体不是有效的 JSON', 400);
     }
-    const { date, text, time, priority, desc, url, copy_text, subtasks, search_terms, repeat_type, repeat_end, end_time, category_id, repeat_interval, repeat_custom } = body;
+    const { date, text, time, priority, desc, url, copy_text, subtasks, search_terms, repeat_type, repeat_end, end_time, category_id, repeat_interval, repeat_custom, rrule } = body;
 
     const VALID_REPEAT_TYPES_V1 = ['none', 'daily', 'weekly', 'monthly', 'yearly', 'fragment'];
     let rpt_type = repeat_type || 'none';
@@ -603,9 +623,25 @@ async function handleV1Todos(request, env, url) {
       return apiError(`无效的 repeat_type: ${rpt_type}，有效值: ${VALID_REPEAT_TYPES_V1.join(', ')}`, 400);
     }
 
+    // ====== rrule 规范字段处理（v2.8.0+）======
+    // rrule 非空时优先：sanitize 后反推 repeat_type / repeat_interval / repeat_end / repeat_custom，
+    // 覆盖 body 上的旧字段（rrule 是权威源）。rrule 为空且旧字段非空时，由后续 buildRRuleString 合成。
+    // 校验失败返回 400。fragment/none + rrule 非空时：allowDerive=true，让 deriveRepeatTypeFromCustom 反推 rpt_type。
+    let normalized_rrule = '';
+    if (rrule !== undefined && rrule !== null && ('' + rrule).trim()) {
+      const rruleResult = processRRule(rrule, rpt_type, { allowDerive: true });
+      if (rruleResult.error) return apiError(rruleResult.error, 400);
+      normalized_rrule = rruleResult.value;
+      if (normalized_rrule) {
+        const derived = deriveLegacyFieldsFromRRule(normalized_rrule);
+        rpt_type = derived.repeat_type;
+      }
+    }
+
     // CREATE 场景：allowDerive=true，repeat_type=none/fragment + custom 非空时不清空，让 deriveRepeatTypeFromCustom 反推
     // 这样用户可以只传 repeat_custom 不传 repeat_type，服务端自动推导
-    const customResult = processRepeatCustom(repeat_custom, rpt_type, { allowDerive: true });
+    const effectiveRepeatCustomInput = normalized_rrule ? normalized_rrule : repeat_custom;
+    const customResult = processRepeatCustom(effectiveRepeatCustomInput, rpt_type, { allowDerive: true });
     if (customResult.error) return apiError(customResult.error, 400);
     const effective_repeat_custom = customResult.value;
 
@@ -616,7 +652,7 @@ async function handleV1Todos(request, env, url) {
       if (derived) rpt_type = derived;
     }
 
-    const rawInterval = repeat_interval !== undefined ? repeat_interval : 1;
+    const rawInterval = (normalized_rrule ? deriveLegacyFieldsFromRRule(normalized_rrule).repeat_interval : 0) || (repeat_interval !== undefined ? repeat_interval : 1);
     if (typeof rawInterval !== 'number' || !Number.isInteger(rawInterval) || rawInterval < 1) {
       return apiError('repeat_interval 必须为正整数', 400);
     }
@@ -634,13 +670,30 @@ async function handleV1Todos(request, env, url) {
     const catId = category_id || '';
     // 碎时记强制约束：无开始/结束时间、无重复截止、间隔为1、date 可空、无 custom RRULE
     // 这是服务端联动推导——调用方无需传这些字段，服务端保证 fragment 类型不会有无效数据
-    const rEnd = is_fragment ? '' : (repeat_end || '');
+    const rEnd = is_fragment ? '' : (normalized_rrule ? deriveLegacyFieldsFromRRule(normalized_rrule).repeat_end : (repeat_end || ''));
     const eTime = is_fragment ? '' : (end_time || '');
     const rInterval = is_fragment ? 1 : rawInterval;
     const effectiveTime = is_fragment ? '' : (time || '');
     const effective_date = is_fragment ? (date || '') : date;
     const final_repeat_custom = (rpt_type === 'none' || rpt_type === 'fragment') ? '' : effective_repeat_custom;
     const normPriority = normalizePriority(priority || 'low');
+
+    // 计算 DB 写入的 rrule：若用户传入 rrule 则用它；否则从旧字段合成
+    // fragment/none 强制 rrule=''（与 final_repeat_custom 一致）
+    let final_rrule = '';
+    if (rpt_type !== 'none' && rpt_type !== 'fragment') {
+      if (normalized_rrule) {
+        final_rrule = normalized_rrule;
+      } else {
+        final_rrule = rruleFromLegacyFields({
+          repeat_type: rpt_type,
+          repeat_interval: rInterval,
+          repeat_end: rEnd,
+          repeat_custom: final_repeat_custom,
+          anchor_date: effective_date || '',
+        });
+      }
+    }
 
     // 原子组校验（联动字段一致性，冲突返回 400 并告知原因）
     const repeatEndErr = validateRepeatEndCompat(rEnd, rpt_type);
@@ -676,20 +729,20 @@ async function handleV1Todos(request, env, url) {
     // 碎时记：fragment_anchor 同步存起始日期（与 date 一致），作为取消完成时恢复的权威副本
     const effective_fragment_anchor = is_fragment ? effective_date : '';
     await DB.prepare(
-      'INSERT INTO todos (id, parent_id, date, text, time, priority, desc, url, copy_text, subtasks, search_terms, done, deleted, repeat_type, repeat_custom, repeat_end, end_time, category_id, repeat_interval, fragment_anchor) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+      'INSERT INTO todos (id, parent_id, date, text, time, priority, desc, url, copy_text, subtasks, search_terms, done, deleted, repeat_type, repeat_custom, repeat_end, end_time, category_id, repeat_interval, fragment_anchor, rrule) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
     ).bind(
       id, id, effective_date, text, effectiveTime, normPriority,
       desc || '', url || '', copy_text || '', subtasks_str, search_terms_str,
-      0, 0, rpt_type, final_repeat_custom, rEnd, eTime, catId, rInterval, effective_fragment_anchor
+      0, 0, rpt_type, final_repeat_custom, rEnd, eTime, catId, rInterval, effective_fragment_anchor, final_rrule
     ).run();
 
     // 仅 daily/weekly/monthly/yearly 才创建模板；碎时记 (fragment) 和 none 不创建
     if (rpt_type !== 'none' && rpt_type !== 'fragment') {
       await DB.prepare(
-        'INSERT INTO todo_templates (parent_id, text, time, priority, desc, url, copy_text, subtasks, search_terms, repeat_type, repeat_custom, repeat_end, end_time, anchor_date, exdates, category_id, repeat_interval) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+        'INSERT INTO todo_templates (parent_id, text, time, priority, desc, url, copy_text, subtasks, search_terms, repeat_type, repeat_custom, repeat_end, end_time, anchor_date, exdates, category_id, repeat_interval, rrule) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
       ).bind(
         id, text, effectiveTime, normPriority, desc || '', url || '', copy_text || '',
-        subtasks_str, search_terms_str, rpt_type, final_repeat_custom, rEnd, eTime, effective_date, '[]', catId, rInterval
+        subtasks_str, search_terms_str, rpt_type, final_repeat_custom, rEnd, eTime, effective_date, '[]', catId, rInterval, final_rrule
       ).run();
     }
 
@@ -734,6 +787,30 @@ async function handleV1TodoPut(request, DB, todo_id) {
       return apiError('repeat_interval 必须为正整数', 400);
     }
   }
+
+  // ====== rrule 规范字段处理（v2.8.0+）======
+  // rrule 显式传入时：sanitize 并反推 repeat_type / repeat_interval / repeat_end / repeat_custom，覆盖 body 上的旧字段。
+  // rrule 未传 (undefined) 时：保持 PATCH 语义，body.* 不被覆盖；后续从 existing 回退。
+  // rrule 显式传 '' (清空)：仅当用户想把重复任务改为单次时使用；此处将 rpt_type 同步置 none。
+  let patchRRule;
+  if (body.rrule !== undefined) {
+    if (body.rrule === null || ('' + body.rrule).trim() === '') {
+      patchRRule = '';
+      if (body.repeat_type === undefined) body.repeat_type = 'none';
+    } else {
+      const rruleResult = processRRule(body.rrule, body.repeat_type || (existing.repeat_type || 'none'), { allowDerive: true });
+      if (rruleResult.error) return apiError(rruleResult.error, 400);
+      patchRRule = rruleResult.value;
+      if (patchRRule) {
+        const derived = deriveLegacyFieldsFromRRule(patchRRule);
+        body.repeat_type = derived.repeat_type;
+        body.repeat_interval = derived.repeat_interval;
+        body.repeat_end = derived.repeat_end;
+        body.repeat_custom = derived.repeat_custom;
+      }
+    }
+  }
+
   if (body.scope !== undefined && body.scope !== 'none') {
     const VALID_SCOPES = ['this', 'thisAndFuture', 'all'];
     if (!VALID_SCOPES.includes(body.scope)) {
@@ -794,7 +871,26 @@ async function handleV1TodoPut(request, DB, todo_id) {
     category_id: body.category_id !== undefined ? body.category_id : (existing.category_id || ''),
     date: body.date !== undefined ? body.date : existing.date,
     repeat_interval: body.repeat_interval !== undefined ? body.repeat_interval : (existing.repeat_interval || 1),
+    rrule: '', // 下方计算后填充
   };
+
+  // ====== rrule 最终值计算 ======
+  let final_rrule;
+  if (patchRRule !== undefined) {
+    final_rrule = patchRRule;
+  } else if (rpt_type === 'none' || rpt_type === 'fragment') {
+    final_rrule = '';
+  } else {
+    const synthesized = rruleFromLegacyFields({
+      repeat_type: rpt_type,
+      repeat_interval: new_values.repeat_interval,
+      repeat_end: new_values.repeat_end,
+      repeat_custom: new_values.repeat_custom,
+      anchor_date: new_values.date || existing.date || '',
+    });
+    final_rrule = synthesized || (existing.rrule || '');
+  }
+  new_values.rrule = final_rrule;
 
   // 碎时记强制约束：若新值是 fragment，强制清空 time/end_time/repeat_end/repeat_interval/repeat_custom
   // 这是服务端联动推导——调用方无需传这些字段，服务端保证 fragment 类型不会有无效数据
@@ -842,11 +938,11 @@ async function handleV1TodoPut(request, DB, todo_id) {
     if (rpt_type !== 'none' && rpt_type !== 'fragment') {
       // 单次 → 重复
       await DB.prepare(
-        'UPDATE todos SET date=?, text=?, time=?, priority=?, desc=?, url=?, copy_text=?, subtasks=?, search_terms=?, repeat_type=?, repeat_custom=?, repeat_end=?, end_time=?, category_id=?, repeat_interval=? WHERE id=?'
-      ).bind(new_date, new_values.text, new_values.time, new_values.priority, new_values.desc, new_values.url, new_values.copy_text, subtasks_str, search_terms_str, rpt_type, new_values.repeat_custom, new_values.repeat_end, new_values.end_time, new_values.category_id, new_values.repeat_interval, todo_id).run();
+        'UPDATE todos SET date=?, text=?, time=?, priority=?, desc=?, url=?, copy_text=?, subtasks=?, search_terms=?, repeat_type=?, repeat_custom=?, repeat_end=?, end_time=?, category_id=?, repeat_interval=?, rrule=? WHERE id=?'
+      ).bind(new_date, new_values.text, new_values.time, new_values.priority, new_values.desc, new_values.url, new_values.copy_text, subtasks_str, search_terms_str, rpt_type, new_values.repeat_custom, new_values.repeat_end, new_values.end_time, new_values.category_id, new_values.repeat_interval, final_rrule, todo_id).run();
       await DB.prepare(
-        'INSERT OR REPLACE INTO todo_templates (parent_id, text, time, priority, desc, url, copy_text, subtasks, search_terms, repeat_type, repeat_custom, repeat_end, end_time, anchor_date, exdates, category_id, repeat_interval) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
-      ).bind(todo_id, new_values.text, new_values.time, new_values.priority, new_values.desc, new_values.url, new_values.copy_text, subtasks_str, search_terms_str, rpt_type, new_values.repeat_custom, new_values.repeat_end, new_values.end_time, new_date, '[]', new_values.category_id, new_values.repeat_interval).run();
+        'INSERT OR REPLACE INTO todo_templates (parent_id, text, time, priority, desc, url, copy_text, subtasks, search_terms, repeat_type, repeat_custom, repeat_end, end_time, anchor_date, exdates, category_id, repeat_interval, rrule) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+      ).bind(todo_id, new_values.text, new_values.time, new_values.priority, new_values.desc, new_values.url, new_values.copy_text, subtasks_str, search_terms_str, rpt_type, new_values.repeat_custom, new_values.repeat_end, new_values.end_time, new_date, '[]', new_values.category_id, new_values.repeat_interval, final_rrule).run();
     } else if (rpt_type === 'fragment' && parent_id && parent_id !== todo_id) {
       // 重复 → 碎时记：脱离旧系列，给旧模板加 exdate
       // 碎时记 (fragment): date 列即起始日期（未完成时）或完成日期（已完成时）
@@ -860,8 +956,8 @@ async function handleV1TodoPut(request, DB, todo_id) {
         effective_fragment_anchor = existing.fragment_anchor || '';
       }
       await DB.prepare(
-        'UPDATE todos SET parent_id=?, date=?, text=?, time=?, priority=?, desc=?, url=?, copy_text=?, subtasks=?, search_terms=?, repeat_type=?, repeat_custom=?, repeat_end=?, end_time=?, category_id=?, repeat_interval=?, fragment_anchor=? WHERE id=?'
-      ).bind(todo_id, effective_update_date, new_values.text, new_values.time, new_values.priority, new_values.desc, new_values.url, new_values.copy_text, subtasks_str, search_terms_str, rpt_type, new_values.repeat_custom, new_values.repeat_end, new_values.end_time, new_values.category_id, new_values.repeat_interval, effective_fragment_anchor, todo_id).run();
+        'UPDATE todos SET parent_id=?, date=?, text=?, time=?, priority=?, desc=?, url=?, copy_text=?, subtasks=?, search_terms=?, repeat_type=?, repeat_custom=?, repeat_end=?, end_time=?, category_id=?, repeat_interval=?, fragment_anchor=?, rrule=? WHERE id=?'
+      ).bind(todo_id, effective_update_date, new_values.text, new_values.time, new_values.priority, new_values.desc, new_values.url, new_values.copy_text, subtasks_str, search_terms_str, rpt_type, new_values.repeat_custom, new_values.repeat_end, new_values.end_time, new_values.category_id, new_values.repeat_interval, effective_fragment_anchor, '', todo_id).run();
       const tpl = await DB.prepare('SELECT exdates FROM todo_templates WHERE parent_id = ?').bind(parent_id).first();
       if (tpl) {
         const new_exdates = addExdate(tpl.exdates || '[]', date);
@@ -870,7 +966,7 @@ async function handleV1TodoPut(request, DB, todo_id) {
     } else if (parent_id && parent_id !== todo_id && rpt_type !== 'fragment') {
       // 重复 → 单次：脱离系列，清空 fragment_anchor
       await DB.prepare(
-        'UPDATE todos SET parent_id=?, date=?, text=?, time=?, priority=?, desc=?, url=?, copy_text=?, subtasks=?, search_terms=?, repeat_type=\'none\', repeat_custom=\'\', repeat_end=\'\', end_time=?, category_id=?, repeat_interval=1, fragment_anchor=? WHERE id=?'
+        'UPDATE todos SET parent_id=?, date=?, text=?, time=?, priority=?, desc=?, url=?, copy_text=?, subtasks=?, search_terms=?, repeat_type=\'none\', repeat_custom=\'\', repeat_end=\'\', end_time=?, category_id=?, repeat_interval=1, fragment_anchor=?, rrule=\'\' WHERE id=?'
       ).bind(todo_id, new_date, new_values.text, new_values.time, new_values.priority, new_values.desc, new_values.url, new_values.copy_text, subtasks_str, search_terms_str, new_values.end_time, new_values.category_id, '', todo_id).run();
       const tpl = await DB.prepare('SELECT exdates FROM todo_templates WHERE parent_id = ?').bind(parent_id).first();
       if (tpl) {
@@ -890,8 +986,8 @@ async function handleV1TodoPut(request, DB, todo_id) {
         effective_fragment_anchor = existing.fragment_anchor || '';
       }
       await DB.prepare(
-        'UPDATE todos SET date=?, text=?, time=?, priority=?, desc=?, url=?, copy_text=?, subtasks=?, search_terms=?, repeat_type=?, repeat_custom=?, repeat_end=?, end_time=?, category_id=?, repeat_interval=?, fragment_anchor=? WHERE id=?'
-      ).bind(effective_update_date, new_values.text, new_values.time, new_values.priority, new_values.desc, new_values.url, new_values.copy_text, subtasks_str, search_terms_str, rpt_type, new_values.repeat_custom, new_values.repeat_end, new_values.end_time, new_values.category_id, new_values.repeat_interval, effective_fragment_anchor, todo_id).run();
+        'UPDATE todos SET date=?, text=?, time=?, priority=?, desc=?, url=?, copy_text=?, subtasks=?, search_terms=?, repeat_type=?, repeat_custom=?, repeat_end=?, end_time=?, category_id=?, repeat_interval=?, fragment_anchor=?, rrule=? WHERE id=?'
+      ).bind(effective_update_date, new_values.text, new_values.time, new_values.priority, new_values.desc, new_values.url, new_values.copy_text, subtasks_str, search_terms_str, rpt_type, new_values.repeat_custom, new_values.repeat_end, new_values.end_time, new_values.category_id, new_values.repeat_interval, effective_fragment_anchor, final_rrule, todo_id).run();
       // BUG 修复：原任务是系列主实例（id === parent_id）且新类型为 fragment 时，
       // 必须删除旧模板，否则旧模板会持续按原 daily/weekly 规则生成新实例（幽灵重复事项）
       if (rpt_type === 'fragment' && existing.repeat_type
@@ -917,20 +1013,20 @@ async function handleV1TodoPut(request, DB, todo_id) {
       if (cv.split_series) {
         // Split: 脱离旧系列，加入新系列（thisAndFuture + is_recurring）
         await DB.prepare(
-          'UPDATE todos SET parent_id=?, date=?, text=?, time=?, priority=?, desc=?, url=?, copy_text=?, subtasks=?, search_terms=?, repeat_type=?, repeat_custom=?, repeat_end=?, end_time=?, category_id=?, repeat_interval=? WHERE id=?'
-        ).bind(split_new_pid, new_date, new_values.text, new_values.time, new_values.priority, new_values.desc, new_values.url, new_values.copy_text, subtasks_str, search_terms_str, rpt_type, new_values.repeat_custom, new_values.repeat_end, new_values.end_time, new_values.category_id, new_values.repeat_interval, todo_id).run();
+          'UPDATE todos SET parent_id=?, date=?, text=?, time=?, priority=?, desc=?, url=?, copy_text=?, subtasks=?, search_terms=?, repeat_type=?, repeat_custom=?, repeat_end=?, end_time=?, category_id=?, repeat_interval=?, rrule=? WHERE id=?'
+        ).bind(split_new_pid, new_date, new_values.text, new_values.time, new_values.priority, new_values.desc, new_values.url, new_values.copy_text, subtasks_str, search_terms_str, rpt_type, new_values.repeat_custom, new_values.repeat_end, new_values.end_time, new_values.category_id, new_values.repeat_interval, final_rrule, todo_id).run();
       } else if (cv.detach_from_series) {
         // 脱离系列，变为单次任务（"仅此项"或 thisAndFuture 改为不重复）
         await DB.prepare(
-          'UPDATE todos SET parent_id=?, date=?, text=?, time=?, priority=?, desc=?, url=?, copy_text=?, subtasks=?, search_terms=?, repeat_type=\'none\', repeat_custom=\'\', repeat_end=\'\', end_time=?, category_id=?, repeat_interval=1 WHERE id=?'
+          'UPDATE todos SET parent_id=?, date=?, text=?, time=?, priority=?, desc=?, url=?, copy_text=?, subtasks=?, search_terms=?, repeat_type=\'none\', repeat_custom=\'\', repeat_end=\'\', end_time=?, category_id=?, repeat_interval=1, rrule=\'\' WHERE id=?'
         ).bind(todo_id, new_date, new_values.text, new_values.time, new_values.priority, new_values.desc, new_values.url, new_values.copy_text, subtasks_str, search_terms_str, new_values.end_time, new_values.category_id, todo_id).run();
       } else if (cv.is_recurring) {
         await DB.prepare(
-          'UPDATE todos SET date=?, text=?, time=?, priority=?, desc=?, url=?, copy_text=?, subtasks=?, search_terms=?, repeat_type=?, repeat_custom=?, repeat_end=?, end_time=?, category_id=?, repeat_interval=? WHERE id=?'
-        ).bind(new_date, new_values.text, new_values.time, new_values.priority, new_values.desc, new_values.url, new_values.copy_text, subtasks_str, search_terms_str, rpt_type, new_values.repeat_custom, new_values.repeat_end, new_values.end_time, new_values.category_id, new_values.repeat_interval, todo_id).run();
+          'UPDATE todos SET date=?, text=?, time=?, priority=?, desc=?, url=?, copy_text=?, subtasks=?, search_terms=?, repeat_type=?, repeat_custom=?, repeat_end=?, end_time=?, category_id=?, repeat_interval=?, rrule=? WHERE id=?'
+        ).bind(new_date, new_values.text, new_values.time, new_values.priority, new_values.desc, new_values.url, new_values.copy_text, subtasks_str, search_terms_str, rpt_type, new_values.repeat_custom, new_values.repeat_end, new_values.end_time, new_values.category_id, new_values.repeat_interval, final_rrule, todo_id).run();
       } else {
         await DB.prepare(
-          'UPDATE todos SET date=?, text=?, time=?, priority=?, desc=?, url=?, copy_text=?, subtasks=?, search_terms=?, repeat_type=\'none\', repeat_custom=\'\', repeat_end=\'\', category_id=?, repeat_interval=1 WHERE id=?'
+          'UPDATE todos SET date=?, text=?, time=?, priority=?, desc=?, url=?, copy_text=?, subtasks=?, search_terms=?, repeat_type=\'none\', repeat_custom=\'\', repeat_end=\'\', category_id=?, repeat_interval=1, rrule=\'\' WHERE id=?'
         ).bind(new_date, new_values.text, new_values.time, new_values.priority, new_values.desc, new_values.url, new_values.copy_text, subtasks_str, search_terms_str, new_values.category_id, todo_id).run();
       }
     }
@@ -961,8 +1057,8 @@ async function handleV1TodoPut(request, DB, todo_id) {
           await DB.prepare('DELETE FROM todos WHERE parent_id=? AND id != ? AND deleted = 0').bind(parent_id, todo_id).run();
         } else {
           await DB.prepare(
-            'UPDATE todos SET text=?, time=?, priority=?, desc=?, url=?, copy_text=?, subtasks=?, search_terms=?, repeat_type=?, repeat_custom=?, repeat_end=?, end_time=?, category_id=?, repeat_interval=? WHERE parent_id=? AND id != ? AND deleted = 0'
-          ).bind(new_values.text, new_values.time, new_values.priority, new_values.desc, new_values.url, new_values.copy_text, subtasks_str, search_terms_str, rpt_type, new_values.repeat_custom, new_values.repeat_end, new_values.end_time, new_values.category_id, new_values.repeat_interval, parent_id, todo_id).run();
+            'UPDATE todos SET text=?, time=?, priority=?, desc=?, url=?, copy_text=?, subtasks=?, search_terms=?, repeat_type=?, repeat_custom=?, repeat_end=?, end_time=?, category_id=?, repeat_interval=?, rrule=? WHERE parent_id=? AND id != ? AND deleted = 0'
+          ).bind(new_values.text, new_values.time, new_values.priority, new_values.desc, new_values.url, new_values.copy_text, subtasks_str, search_terms_str, rpt_type, new_values.repeat_custom, new_values.repeat_end, new_values.end_time, new_values.category_id, new_values.repeat_interval, final_rrule, parent_id, todo_id).run();
         }
       } else {
         await DB.prepare('DELETE FROM todos WHERE parent_id=? AND id != ? AND deleted = 0').bind(parent_id, todo_id).run();
@@ -993,8 +1089,8 @@ async function handleV1TodoPut(request, DB, todo_id) {
           } catch (e) {}
           // 保留 time_records（模板级跨实例预估数据，predictDuration 中位数预估）
           await DB.prepare(
-            'INSERT OR REPLACE INTO todo_templates (parent_id, text, time, priority, desc, url, copy_text, subtasks, search_terms, repeat_type, repeat_custom, repeat_end, end_time, anchor_date, exdates, category_id, repeat_interval, time_records) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
-          ).bind(parent_id, new_values.text, new_values.time, new_values.priority, new_values.desc, new_values.url, new_values.copy_text, subtasks_str, search_terms_str, rpt_type, new_values.repeat_custom, new_values.repeat_end, new_values.end_time, new_date, existing_exdates, new_values.category_id, new_values.repeat_interval, existing_time_records).run();
+            'INSERT OR REPLACE INTO todo_templates (parent_id, text, time, priority, desc, url, copy_text, subtasks, search_terms, repeat_type, repeat_custom, repeat_end, end_time, anchor_date, exdates, category_id, repeat_interval, time_records, rrule) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+          ).bind(parent_id, new_values.text, new_values.time, new_values.priority, new_values.desc, new_values.url, new_values.copy_text, subtasks_str, search_terms_str, rpt_type, new_values.repeat_custom, new_values.repeat_end, new_values.end_time, new_date, existing_exdates, new_values.category_id, new_values.repeat_interval, existing_time_records, final_rrule).run();
         }
       } else if (tmpl.type === 'delete') {
         await DB.prepare('DELETE FROM todo_templates WHERE parent_id=?').bind(parent_id).run();
@@ -1005,11 +1101,11 @@ async function handleV1TodoPut(request, DB, todo_id) {
     if (actions.insertTemplate && split_new_pid) {
       const it = actions.insertTemplate;
       await DB.prepare(
-        'INSERT OR REPLACE INTO todo_templates (parent_id, text, time, priority, desc, url, copy_text, subtasks, search_terms, repeat_type, repeat_custom, repeat_end, end_time, anchor_date, exdates, category_id, repeat_interval) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+        'INSERT OR REPLACE INTO todo_templates (parent_id, text, time, priority, desc, url, copy_text, subtasks, search_terms, repeat_type, repeat_custom, repeat_end, end_time, anchor_date, exdates, category_id, repeat_interval, rrule) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
       ).bind(
         split_new_pid, it.text, it.time, it.priority, it.desc, it.url, it.copy_text,
         it.subtasks, it.search_terms, it.repeat_type, it.repeat_custom, it.repeat_end,
-        it.end_time, it.anchor_date, it.exdates, it.category_id, it.repeat_interval
+        it.end_time, it.anchor_date, it.exdates, it.category_id, it.repeat_interval, it.rrule || ''
       ).run();
     }
   }

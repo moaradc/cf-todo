@@ -29,6 +29,7 @@
   - [5.4 碎时记（`repeat_type: "fragment"`）](#54-碎时记repeat_type-fragment)
   - [5.5 字段一致性参考](#55-字段一致性参考)
   - [5.6 `repeat_custom` 自定义 RRULE 使用指南](#56-repeat_custom-自定义-rrule-使用指南)
+  - [5.7 `rrule` RFC 5545 一等公民字段（v2.8.0+）](#57-rrule-rfc-5545-一等公民字段v280)
 - [6. 示例代码](#6-示例代码)
 - [7. 注意事项](#7-注意事项)
 
@@ -1144,6 +1145,7 @@ V1 API 字段名与 V0 Web API 保持一致（snake_case）。`is_series` 为后
   "is_exception": false,
   "is_series": true,
   "repeat_interval": 1,
+  "rrule": "FREQ=WEEKLY;BYDAY=MO;UNTIL=20231231T235959Z",
   "time_records": [
     { "s": 1719000000000, "e": 1719000120000, "p": 0 },
     { "s": 1719000000000, "e": 1719000000000, "p": 0 }
@@ -1154,6 +1156,12 @@ V1 API 字段名与 V0 Web API 保持一致（snake_case）。`is_series` 为后
   "fragment_anchor": ""
 }
 ```
+
+> **`rrule` 字段（v2.8.0+）**：RFC 5545 RRULE 字符串（不含 `RRULE:` 前缀），是重复规则的规范字段。
+> - 非空时为权威规则，`repeat_type` / `repeat_interval` / `repeat_end` / `repeat_custom` 是其派生快照（保证旧客户端可读）
+> - 普通 todo（`repeat_type='none'`）与碎时记（`repeat_type='fragment'`）的 `rrule` 始终为空字符串
+> - 老数据 `rrule` 列为空时，响应由 `rruleFromLegacyFields` 从旧字段合成
+> - 详见 [5.7 节](#57-rrule-rfc-5545-一等公民字段v280)
 
 > **`fragment_anchor` 字段说明**：碎时记（`repeat_type: "fragment"`）起始日期的权威副本，不受完成/取消完成影响。
 > - 未完成碎时记：`fragment_anchor` 与 `date` 一致。
@@ -1995,6 +2003,162 @@ curl -X POST \
    ```
 
 4. **调试 `repeat_interval` 覆盖问题**：若发现 custom 中的 `INTERVAL=N` 未生效，检查 `repeat_interval` 字段是否被设为 > 1 的值。引擎会用 `repeat_interval` 覆盖 custom 的 INTERVAL。
+
+---
+
+### 5.7 `rrule` RFC 5545 一等公民字段（v2.8.0+）
+
+v2.8.0 起项目将 RFC 5545 RRULE 提升为顶层规范字段 `rrule`。`rrule` 是已 sanitize 的 RRULE 字符串（不含 `RRULE:` 前缀），与旧的 `repeat_type` / `repeat_interval` / `repeat_end` / `repeat_custom` 四元组等价但更直观、更标准。所有 RRULE 表达式集中在一个字符串里，调用方无需再分散传四个字段并处理联动覆盖。
+
+#### 5.7.1 设计目标
+
+| 旧字段（弃用但保持后兼容） | `rrule`（规范字段） |
+|---|---|
+| `repeat_type` | `FREQ=DAILY/WEEKLY/MONTHLY/YEARLY` |
+| `repeat_interval` | `INTERVAL=N` |
+| `repeat_end` | `UNTIL=YYYYMMDDT235959Z` |
+| `repeat_custom` | 整个 `rrule` 字符串本身（与 `rrule` 同义） |
+
+服务端在 CREATE / UPDATE 时优先识别 `rrule`：非空则按 `rrule` 反推旧字段（保证 DB 一致性与旧客户端可读）；为空则按旧字段合成 `rrule` 存库。响应中始终同时返回 `rrule` + 旧字段（旧字段是 `rrule` 的派生快照）。
+
+#### 5.7.2 允许的 RRULE token（白名单）
+
+| token | 用途 | 示例 |
+|---|---|---|
+| `FREQ` | **必填**，频率。白名单：`DAILY` / `WEEKLY` / `MONTHLY` / `YEARLY` | `FREQ=WEEKLY` |
+| `INTERVAL` | 间隔（正整数，缺省为 1） | `INTERVAL=2`（每 2 周） |
+| `UNTIL` | 截止日期，UTC 格式 `YYYYMMDDTHHMMSSZ` 或 `YYYYMMDD` | `UNTIL=20261231T235959Z` |
+| `COUNT` | 重复次数（正整数） | `COUNT=10`（共 10 次） |
+| `BYDAY` | 周日列表，与 `WEEKLY` 配合 | `BYDAY=MO,WE,FR` |
+| `BYMONTHDAY` | 月日列表，与 `MONTHLY` 配合 | `BYMONTHDAY=1,15` |
+| `BYMONTH` | 月份列表，与 `YEARLY` 配合 | `BYMONTH=1,7` |
+| `BYWEEKNO` | 周数列表（RFC 5545 标准） | `BYWEEKNO=1` |
+| `BYYEARDAY` | 年日列表（RFC 5545 标准） | `BYYEARDAY=1` |
+| `BYSETPOS` | 集合位置（如"每月最后一个周一"） | `BYSETPOS=-1` |
+| `WKST` | 周起始日（默认 MO） | `WKST=SU` |
+
+#### 5.7.3 拒绝的 RRULE token（与本项目语义不符）
+
+| 拒绝 token | 拒绝原因 |
+|---|---|
+| `FREQ=SECONDLY` / `MINUTELY` / `HOURLY` | 实例数天文级，撑爆 Worker CPU 10ms 限制 |
+| `BYHOUR` / `BYMINUTE` / `BYSECOND` | 时间段语义（如 `BYHOUR=9` 即"每天 9 点"），本项目无此场景；对齐用户限制"每天/周/月/年 9 小时这种与本项目不符" |
+| 任何非白名单 token | 收紧攻击面，拒绝 RSCALE 等扩展 |
+
+#### 5.7.4 校验流程（`sanitizeRRule`）
+
+```
+raw rrule string
+  ↓ trim / 拒绝控制字符 / 拒绝长度 > 500
+  ↓ 剥 RRULE: 前缀 / 拒绝多 RRULE 注入
+  ↓ FREQ 必须是第一个 token 且 ∈ {DAILY,WEEKLY,MONTHLY,YEARLY}
+  ↓ 拒绝 BYHOUR/BYMINUTE/BYSECOND
+  ↓ token 白名单校验（FREQ/INTERVAL/UNTIL/COUNT/BYDAY/BYMONTHDAY/BYMONTH/BYWEEKNO/BYYEARDAY/BYSETPOS/WKST）
+  ↓ 全大写规范化
+  ↓ ical.js 终极解析校验
+canonical rrule string
+```
+
+校验失败返回 400，错误消息包含完整规则约束。
+
+#### 5.7.5 入参 / 出参示例
+
+##### V1 POST 创建（只传 rrule，不传旧字段）
+
+```bash
+curl -X POST https://your-app.workers.dev/api/v1/todos \
+  -H "X-API-Key: cfk_your_key" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "date": "2026-06-29",
+    "text": "每周一三五站桩",
+    "rrule": "FREQ=WEEKLY;BYDAY=MO,WE,FR;UNTIL=20261231T235959Z"
+  }'
+```
+
+服务端响应中：
+- `rrule`: `"FREQ=WEEKLY;BYDAY=MO,WE,FR;UNTIL=20261231T235959Z"`
+- `repeat_type`: `"weekly"`（从 FREQ 反推）
+- `repeat_interval`: `1`（rrule 未含 INTERVAL）
+- `repeat_end`: `"2026-12-31"`（从 UNTIL 反推）
+- `repeat_custom`: `"FREQ=WEEKLY;BYDAY=MO,WE,FR;UNTIL=20261231T235959Z"`（与 rrule 同源）
+
+##### V1 PUT 更新（PATCH 语义：只改 rrule）
+
+```bash
+curl -X PUT https://your-app.workers.dev/api/v1/todos/17827387824347553 \
+  -H "X-API-Key: cfk_your_key" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "rrule": "FREQ=MONTHLY;BYMONTHDAY=15;COUNT=12"
+  }'
+```
+
+服务端会把 `repeat_type` 同步改为 `monthly`、`repeat_interval` 改为 `1`、`repeat_end` 改为 `''`（COUNT 不映射到 repeat_end，仅 rrule 内生效）、`repeat_custom` 改为完整 rrule 字符串。
+
+##### V0 /api/todo-action CREATE
+
+```bash
+curl -X POST https://your-app.workers.dev/api/todo-action \
+  -H "Cookie: cf_todo_session=..." \
+  -H "Content-Type: application/json" \
+  -d '{
+    "action": "CREATE",
+    "date": "2026-06-29",
+    "task": {
+      "id": "17827387824347553",
+      "parent_id": "17827387824347553",
+      "text": "每 2 周一汇报",
+      "rrule": "FREQ=WEEKLY;INTERVAL=2;BYDAY=MO"
+    }
+  }'
+```
+
+##### rrule='' 显式清空（重复任务改为单次）
+
+```bash
+curl -X PUT https://your-app.workers.dev/api/v1/todos/17827387824347553 \
+  -H "X-API-Key: cfk_your_key" \
+  -H "Content-Type: application/json" \
+  -d '{ "rrule": "" }'
+```
+
+服务端会把 `repeat_type` 同步改为 `none`、`repeat_end` 改为 `''`、`repeat_interval` 改为 `1`。
+
+#### 5.7.6 expand=false 模板响应
+
+`expand=false` 模式返回的 `templates` 数组每项包含 `rrule` 字段（v2.8.0+）。调用方可直接用 ical.js 解析 `rrule` 计算实例，无需再从 `repeat_type+interval+end+custom` 拼接。`rrule` 为空字符串表示老数据未走 rrule 入口，调用方需回退到旧字段合成（与服务端响应逻辑一致）。
+
+```js
+// 调用方代码示例
+const rrule = template.rrule || synthesizeFromLegacy(template);
+if (rrule) {
+  const recur = ICAL.Recur.fromString(rrule);
+  // ... iterate occurrences
+}
+```
+
+#### 5.7.7 DB schema 升级
+
+v2.8.0 起 `db_schema` 升至 2。`todos` / `todo_templates` 表新增 `rrule TEXT NOT NULL DEFAULT ''` 列：
+- 新部署：`CREATE TABLE` 直接建列
+- 已部署老用户：首次启动时 `ALTER TABLE ... ADD COLUMN rrule TEXT NOT NULL DEFAULT ''`（幂等，列已存在时忽略错误）
+- 老数据 rrule 列为 `''`，响应序列化时由 `rruleFromLegacyFields` 从旧字段合成（保证响应始终含 rrule）
+
+#### 5.7.8 与旧字段的优先级关系
+
+| 入参情况 | 服务端行为 |
+|---|---|
+| 只传 `rrule` | 反推旧字段覆盖 task.*，写入 DB |
+| 同时传 `rrule` 与旧字段 | `rrule` 优先，旧字段被反推值覆盖（旧字段值被丢弃） |
+| 只传旧字段 | 按旧字段处理，由 `rruleFromLegacyFields` 合成 rrule 写入 DB |
+| 都不传 | 按默认值（`repeat_type='none'`, `rrule=''`）处理 |
+
+#### 5.7.9 弃用路线图
+
+- **v2.8.0**：`rrule` 字段正式上线，旧字段标记为弃用但仍完全支持
+- **未来 major 版本**：考虑只接受 `rrule`，旧字段从 API 文档移除（DB 列保留以兼容老数据）
+- 调用方迁移建议：新代码直接用 `rrule`；旧代码可继续用旧字段，但建议在下一个迭代周期切换到 `rrule`
 
 ---
 

@@ -9,6 +9,7 @@
 - 创建子任务拆分步骤，逐个勾掉
 - 自动拉取B站/微博/知乎/百度热点共20个，当任务或灵感池用
 - 每日重复事项，勾了明天还有
+- 重复规则遵循 RFC 5545 RRULE（v2.8.0+ 顶层 `rrule` 字段为规范输入/输出，支持 DAILY/WEEKLY/MONTHLY/YEARLY + INTERVAL + UNTIL + COUNT + BYDAY/BYMONTHDAY/BYMONTH；拒绝 SECONDLY/MINUTELY/HOURLY 与 BYHOUR/BYMINUTE/BYSECOND 等时间段语义）
 - 回收站防手滑
 - 批量操作、筛选排序、导入导出
 

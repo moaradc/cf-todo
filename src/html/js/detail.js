@@ -1,4 +1,43 @@
 export const detail = `
+    // ==================== RRULE 构建器（前端 → 后端规范字段）====================
+    // 从 UI 状态（repeatType / interval / repeatEnd / anchorDate）合成 RFC 5545 RRULE 字符串。
+    // 服务端 v2.8.0+ 优先识别 rrule 字段，反推 repeat_type / repeat_interval / repeat_end / repeat_custom。
+    // RRULE 限制与后端 sanitizeRRule 一致：
+    // - FREQ ∈ {DAILY, WEEKLY, MONTHLY, YEARLY}
+    // - INTERVAL（>1 时才输出）
+    // - UNTIL=YYYYMMDDT235959Z（repeatEnd 非空时输出）
+    // - BYDAY/BYMONTHDAY/BYMONTH（按 repeatType + anchorDate 推导）
+    // - 拒绝 BYHOUR/BYMINUTE/BYSECOND（时间段语义，本项目无此场景）
+    // none / fragment → 返回 ''（与后端 final_rrule='' 对齐）
+    function _buildRRuleFromUI(repeatType, interval, repeatEnd, anchorDate) {
+      if (!repeatType || repeatType === 'none' || repeatType === 'fragment') return '';
+      var FREQ_MAP = { daily: 'DAILY', weekly: 'WEEKLY', monthly: 'MONTHLY', yearly: 'YEARLY' };
+      var freq = FREQ_MAP[repeatType];
+      if (!freq) return '';
+      var parts = ['FREQ=' + freq];
+      var iv = parseInt(interval, 10);
+      if (iv && iv > 1) parts.push('INTERVAL=' + iv);
+      // BYDAY/BYMONTHDAY/BYMONTH 按 anchorDate 推导（与后端 buildRRuleString 一致）
+      if (anchorDate && /^\\d{4}-\\d{2}-\\d{2}$/.test(anchorDate)) {
+        var yp = anchorDate.split('-');
+        var d = new Date(Date.UTC(parseInt(yp[0]), parseInt(yp[1]) - 1, parseInt(yp[2])));
+        // JS getUTCDay: 0=Sun...6=Sat；RRULE BYDAY: SU,MO,TU,WE,TH,FR,SA
+        var DAY_MAP = ['SU','MO','TU','WE','TH','FR','SA'];
+        if (repeatType === 'weekly') {
+          parts.push('BYDAY=' + DAY_MAP[d.getUTCDay()]);
+        } else if (repeatType === 'monthly') {
+          parts.push('BYMONTHDAY=' + d.getUTCDate());
+        } else if (repeatType === 'yearly') {
+          parts.push('BYMONTH=' + (d.getUTCMonth() + 1));
+          parts.push('BYMONTHDAY=' + d.getUTCDate());
+        }
+      }
+      if (repeatEnd && /^\\d{4}-\\d{2}-\\d{2}$/.test(repeatEnd)) {
+        parts.push('UNTIL=' + repeatEnd.replace(/-/g, '') + 'T235959Z');
+      }
+      return parts.join(';');
+    }
+
     function openAddModal() {
       activeMode = 'add';
       document.getElementById('modal-add').classList.add('active');
@@ -87,6 +126,15 @@ export const detail = `
       // 非碎时记: 实例日期 = tempAddDate（用户选择器挑选的日期）
       const isFragment = tempRepeatType === 'fragment';
       const instanceDate = isFragment ? (tempFragmentAnchor || '') : tempAddDate;
+      // rrule 规范字段（v2.8.0+）：从 UI 状态合成 RFC 5545 RRULE 字符串。
+      // 服务端会从 rrule 反推 repeat_type / repeat_interval / repeat_end / repeat_custom，
+      // 因此旧字段无需前端构建（仅保留为后兼容快照，服务端会覆盖）。
+      const rrule = _buildRRuleFromUI(
+        tempRepeatType,
+        isFragment ? 1 : (tempRepeatInterval || 1),
+        isFragment ? '' : tempRepeatEnd,
+        instanceDate
+      );
       const newTask = {
         id: newId, parent_id: newId, text: text, time: tempTime,
         end_time: tempEndTime,
@@ -95,6 +143,7 @@ export const detail = `
         repeat_custom: '',
         repeat_end: isFragment ? '' : tempRepeatEnd,
         repeat_interval: isFragment ? 1 : (tempRepeatInterval || 1),
+        rrule: rrule,
         category_id: tempCategoryId,
         desc: document.getElementById('add-desc').value, url: document.getElementById('add-url').value,
         copy_text: document.getElementById('add-copy').value, done: false,
@@ -167,23 +216,21 @@ export const detail = `
       _navClose('detail-view');
     }
 
-    function getRepeatDisplayText(repeatType, dateStr, repeatEnd, repeatInterval, repeatCustom) {
+    function getRepeatDisplayText(repeatType, dateStr, repeatEnd, repeatInterval, repeatCustom, rrule) {
       if (!repeatType || repeatType === 'none') return '单次任务';
       // 碎时记: 一次性浮动事项，固定显示"碎时记"
       if (repeatType === 'fragment') {
         return '碎时记';
       }
       var n = repeatInterval && repeatInterval > 1 ? repeatInterval : null;
-      // 优先使用 _rruleToZhLabel 解析 repeat_custom（支持完整 RFC 5545 RRULE）
-      // - 渲染成功：返回完整中文标签（如 "每周一三五·至2026-12-31·共10次"）
-      // - 渲染失败但有 custom：详情页空间充足，显示"自定义重复"+ 原始 RRULE 字符串
-      //   方便用户/开发者直接看到规则内容
-      // - 无 custom：回退到 repeat_type + dateStr 推导（兼容旧任务）
-      if (repeatCustom) {
-        var rruleText = _rruleToZhLabel(repeatCustom, repeatType, dateStr, n, repeatEnd);
+      // v2.8.0+ 优先使用顶层 rrule 字段（与后端 buildRRuleString 优先级一致）
+      // rrule 非空时直接走 _rruleToZhLabel 解析；为空时回退到 repeat_custom
+      var effectiveRRule = (rrule && typeof rrule === 'string' && rrule.trim()) ? rrule : (repeatCustom || '');
+      if (effectiveRRule) {
+        var rruleText = _rruleToZhLabel(effectiveRRule, repeatType, dateStr, n, repeatEnd);
         if (rruleText) return rruleText;
         // 渲染失败：显示自定义重复 + 原始 RRULE（详情页空间充足）
-        return '自定义重复 (' + repeatCustom + ')';
+        return '自定义重复 (' + effectiveRRule + ')';
       }
       var days = ['日','一','二','三','四','五','六'];
       var rText = '';
@@ -506,7 +553,7 @@ export const detail = `
           \`;
         }
 
-        let rText = getRepeatDisplayText(task.repeat_type, task.date, task.repeat_end, task.repeat_interval, task.repeat_custom);
+        let rText = getRepeatDisplayText(task.repeat_type, task.date, task.repeat_end, task.repeat_interval, task.repeat_custom, task.rrule);
         if ((!task.repeat_type || task.repeat_type === 'none') && task.is_series) {
             rText = '已停止重复';
         }
@@ -1052,6 +1099,7 @@ export const detail = `
           task.repeat_custom = '';
           task.repeat_end = '';
           task.repeat_interval = 1;
+          task.rrule = '';  // v2.8.0+ rrule 规范字段同步清空
           task.is_series = false;
         } else {
           // 此项及之后 / 所有日程：应用重复变更
@@ -1060,6 +1108,14 @@ export const detail = `
           task.repeat_custom = '';
           task.repeat_end = tempRepeatType === 'fragment' ? '' : tempRepeatEnd;
           task.repeat_interval = tempRepeatType === 'fragment' ? 1 : (tempRepeatInterval || 1);
+          // v2.8.0+ rrule 规范字段：从 UI 状态合成。服务端会反推旧字段（覆盖上面的旧字段值）。
+          // anchorDate 用 tempEditDate（此项及以后场景下新系列起始日期）
+          task.rrule = _buildRRuleFromUI(
+            tempRepeatType,
+            task.repeat_interval,
+            task.repeat_end,
+            tempEditDate || task.date || ''
+          );
           // 清空 time/end_time（碎时记无意义）
           if (tempRepeatType === 'fragment') {
             task.time = '';

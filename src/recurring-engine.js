@@ -18,10 +18,12 @@ const FREQ_MAP = {
   yearly: 'YEARLY',
 };
 
-// repeat_custom 安全约束：
+// repeat_custom / rrule 安全约束（共用）：
 // - FREQ 白名单：仅允许 DAILY/WEEKLY/MONTHLY/YEARLY（SECONDLY/MINUTELY/HOURLY 会撑爆 Worker CPU）
 // - token 黑名单：拒绝 BYHOUR/BYMINUTE/BYSECOND（时间段语义，项目无此场景；早 fail 省 ical.js 解析开销）
 // - 最大长度 500，拒绝控制字符防 CRLF 注入
+// - 允许 token：FREQ / INTERVAL / UNTIL / COUNT / BYDAY / BYMONTHDAY / BYMONTH / BYWEEKNO / BYYEARDAY / BYSETPOS / WKST
+//   （RFC 5545 子集，覆盖项目所有重复场景：每天/周/月/年 + 间隔 + 截止 + 次数 + 多周日 + 多月日 + 多月）
 const ALLOWED_FREQ_IN_CUSTOM = new Set(['DAILY', 'WEEKLY', 'MONTHLY', 'YEARLY']);
 // 单次正则匹配，比遍历 parts 快 5 倍（实测 0.02μs vs 0.10μs）
 // i flag 大小写不敏感；= 紧贴 token 名后，BYHOURS=9 不会被误匹配（BYHOUR 后面是 S 不是 =）
@@ -29,12 +31,44 @@ const FORBIDDEN_TOKEN_RE = /;(BYHOUR|BYMINUTE|BYSECOND)=/i;
 const REPEAT_CUSTOM_MAX_LEN = 500;
 // eslint-disable-next-line no-control-regex
 const CONTROL_CHAR_RE = /[\x00-\x1f\x7f]/;
+// RRULE token 白名单（FREQ 之后允许出现的 token 名）。RSCALE / BYSECOND 等不实用 token 一律拒绝。
+const ALLOWED_RRULE_TOKENS = new Set([
+  'FREQ', 'INTERVAL', 'UNTIL', 'COUNT', 'BYDAY', 'BYMONTHDAY', 'BYMONTH',
+  'BYWEEKNO', 'BYYEARDAY', 'BYSETPOS', 'WKST',
+]);
 
 /**
- * 规范化并校验 repeat_custom。无效时返回 ""。
- * 自动剥离 RRULE: 前缀，全大写规范化，最终用 ical.js 解析作为终极校验。
+ * 规范化并校验 RRULE 字符串（既适用于 rrule 字段，也适用于旧的 repeat_custom 字段）。
+ * 无效时返回 ""。
+ *
+ * 规则：
+ * - 自动剥离 RRULE: 前缀，全大写规范化
+ * - FREQ 必须是第一个 token 且 ∈ {DAILY, WEEKLY, MONTHLY, YEARLY}
+ * - 拒绝 BYHOUR/BYMINUTE/BYSECOND（早 fail 省 ical.js 解析开销）
+ * - 仅允许 RFC 5545 子集 token：FREQ/INTERVAL/UNTIL/COUNT/BYDAY/BYMONTHDAY/BYMONTH/BYWEEKNO/BYYEARDAY/BYSETPOS/WKST
+ * - 长度 ≤ 500，无控制字符
+ * - 不允许多 RRULE 注入
+ * - 最终用 ical.js 解析作为终极校验
+ *
+ * @param {string|undefined|null} raw
+ * @returns {string} 规范化后的 RRULE（不含 RRULE: 前缀）；无效时返回 ""
  */
 export function sanitizeRepeatCustom(raw) {
+  return sanitizeRRuleInternal(raw);
+}
+
+/**
+ * 规范化并校验顶层 rrule 字段。语义与 sanitizeRepeatCustom 完全一致，
+ * 单独导出以表达意图（顶层 rrule 是规范字段，repeat_custom 是弃用字段）。
+ * @param {string|undefined|null} raw
+ * @returns {string}
+ */
+export function sanitizeRRule(raw) {
+  return sanitizeRRuleInternal(raw);
+}
+
+// 内部共享实现
+function sanitizeRRuleInternal(raw) {
   if (raw == null) return '';
   if (typeof raw !== 'string') return '';
   let s = raw.trim();
@@ -56,6 +90,12 @@ export function sanitizeRepeatCustom(raw) {
   // 拒绝时间段语义 token（BYHOUR/BYMINUTE/BYSECOND）
   // 早 fail：避免 ical.js 解析 + 后续 D1 写入开销
   if (FORBIDDEN_TOKEN_RE.test(s)) return '';
+
+  // token 白名单校验：拒绝任意非白名单 token（如 RSCALE / BYHOUR / BYWEEKNO 之外的扩展）
+  for (let i = 1; i < parts.length; i++) {
+    const tokenName = parts[i].split('=')[0].toUpperCase();
+    if (!ALLOWED_RRULE_TOKENS.has(tokenName)) return '';
+  }
 
   const canonical = 'FREQ=' + freqVal + (parts.length > 1 ? ';' + parts.slice(1).join(';') : '').toUpperCase();
 
@@ -102,6 +142,40 @@ export function processRepeatCustom(raw, repeatType, opts = {}) {
   return { value: sanitized, error: null };
 }
 
+/**
+ * 处理顶层 rrule 输入：组合 sanitize + 与 repeat_type 的兼容性约束。
+ * 行为与 processRepeatCustom 一致，但错误消息使用 rrule 字段名。
+ * @param {*} raw - 用户传入的 rrule
+ * @param {string} repeatType - 有效的 repeat_type 值（fragment/none 时 rrule 应为空）
+ * @param {object} [opts]
+ * @param {boolean} [opts.allowDerive=false] - UPDATE 场景下允许反推
+ * @returns {{value: string, error: string|null}}
+ */
+export function processRRule(raw, repeatType, opts = {}) {
+  const { allowDerive = false } = opts;
+  if (raw == null || (typeof raw === 'string' && raw.trim() === '')) {
+    return { value: '', error: null };
+  }
+  if (typeof raw !== 'string') {
+    return { value: '', error: 'rrule 必须为字符串' };
+  }
+  if (repeatType === 'none' || repeatType === 'fragment') {
+    if (allowDerive) {
+      const sanitized = sanitizeRRule(raw);
+      if (!sanitized) {
+        return { value: '', error: 'rrule 格式无效：必须为合法 RFC 5545 RRULE，以 FREQ=DAILY/WEEKLY/MONTHLY/YEARLY 开头，允许 INTERVAL/UNTIL/COUNT/BYDAY/BYMONTHDAY/BYMONTH，长度 ≤ 500，不含换行/控制字符，拒绝 BYHOUR/BYMINUTE/BYSECOND' };
+      }
+      return { value: sanitized, error: null };
+    }
+    return { value: '', error: null };
+  }
+  const sanitized = sanitizeRRule(raw);
+  if (!sanitized) {
+    return { value: '', error: 'rrule 格式无效：必须为合法 RFC 5545 RRULE，以 FREQ=DAILY/WEEKLY/MONTHLY/YEARLY 开头，允许 INTERVAL/UNTIL/COUNT/BYDAY/BYMONTHDAY/BYMONTH，长度 ≤ 500，不含换行/控制字符，拒绝 BYHOUR/BYMINUTE/BYSECOND' };
+  }
+  return { value: sanitized, error: null };
+}
+
 // ==================== 联动推导与原子组校验 ====================
 
 /** 从 repeat_custom 的 FREQ 反推 repeat_type，保证 DB 中 type 与展开规则一致。 */
@@ -111,6 +185,102 @@ export function deriveRepeatTypeFromCustom(repeatCustom) {
   if (!m) return null;
   const reverseMap = { DAILY: 'daily', WEEKLY: 'weekly', MONTHLY: 'monthly', YEARLY: 'yearly' };
   return reverseMap[m[1]] || null;
+}
+
+/**
+ * 从 rrule（或 repeat_custom）反推一组兼容旧字段的派生值：
+ * repeat_type / repeat_interval / repeat_end / repeat_custom。
+ * 用于：
+ * - 顶层 rrule 入参时同步推导旧字段，让旧 SQL 过滤 / 旧客户端读取仍能工作
+ * - 响应序列化时统一字段来源
+ * @param {string} rrule - 已 sanitize 的 RRULE（不含 RRULE: 前缀）
+ * @returns {{repeat_type: string, repeat_interval: number, repeat_end: string, repeat_custom: string}}
+ *          rrule 为空时返回全默认值（repeat_type='none'）
+ */
+export function deriveLegacyFieldsFromRRule(rrule) {
+  const empty = { repeat_type: 'none', repeat_interval: 1, repeat_end: '', repeat_custom: '' };
+  if (!rrule || !rrule.trim()) return empty;
+
+  const tok = {};
+  rrule.split(';').forEach(p => {
+    const idx = p.indexOf('=');
+    if (idx > 0) tok[p.slice(0, idx).toUpperCase()] = p.slice(idx + 1);
+  });
+
+  const freqMap = { DAILY: 'daily', WEEKLY: 'weekly', MONTHLY: 'monthly', YEARLY: 'yearly' };
+  const repeat_type = freqMap[tok.FREQ] || 'none';
+  if (repeat_type === 'none') return empty;
+
+  const repeat_interval = tok.INTERVAL ? Math.max(1, parseInt(tok.INTERVAL, 10) || 1) : 1;
+
+  // UNTIL=YYYYMMDDTHHMMSSZ 或 UNTIL=YYYYMMDD → YYYY-MM-DD
+  let repeat_end = '';
+  if (tok.UNTIL) {
+    const m = tok.UNTIL.match(/^(\d{4})(\d{2})(\d{2})/);
+    if (m) repeat_end = `${m[1]}-${m[2]}-${m[3]}`;
+  }
+
+  // repeat_custom 与 rrule 同源（都是 RRULE 字符串，不含 RRULE: 前缀）
+  // 这样旧客户端读 repeat_custom 仍能拿到完整规则
+  return { repeat_type, repeat_interval, repeat_end, repeat_custom: rrule };
+}
+
+/**
+ * 从旧字段（repeat_type / repeat_interval / repeat_end / repeat_custom / anchor_date）
+ * 合成顶层 rrule 字段。用于：
+ * - 旧客户端只传旧字段时，服务端补齐 rrule 保证 DB 一致性
+ * - 响应序列化时若 DB rrule 为空（老数据），从旧字段反推
+ * @param {object} opts
+ * @param {string} opts.repeat_type
+ * @param {number} [opts.repeat_interval=1]
+ * @param {string} [opts.repeat_end='']
+ * @param {string} [opts.repeat_custom='']
+ * @param {string} [opts.anchor_date='']  YYYY-MM-DD，weekly/monthly/yearly 推导 BYDAY/BYMONTHDAY/BYMONTH 用
+ * @returns {string} sanitize 后的 rrule；不可合成时返回 ''
+ */
+export function rruleFromLegacyFields({ repeat_type, repeat_interval = 1, repeat_end = '', repeat_custom = '', anchor_date = '' }) {
+  if (!repeat_type || repeat_type === 'none' || repeat_type === 'fragment') return '';
+
+  // 优先用 repeat_custom
+  if (repeat_custom && repeat_custom.trim()) {
+    let rrule = repeat_custom.trim();
+    // 应用 interval 覆盖（与 buildRRuleString 一致）
+    if (repeat_interval && repeat_interval > 1) {
+      if (rrule.includes('INTERVAL=')) {
+        rrule = rrule.replace(/INTERVAL=\d+/, `INTERVAL=${repeat_interval}`);
+      } else {
+        rrule = rrule.replace(/(FREQ=[A-Z]+)/, `$1;INTERVAL=${repeat_interval}`);
+      }
+    }
+    // 应用 repeat_end 覆盖（custom 未含 UNTIL 时追加）
+    if (repeat_end && !rrule.includes('UNTIL')) {
+      rrule = rrule + ';UNTIL=' + repeat_end.replace(/-/g, '') + 'T235959Z';
+    }
+    return sanitizeRRule(rrule);
+  }
+
+  // 无 custom：从 repeat_type + interval + repeat_end + anchor_date 合成
+  const freq = FREQ_MAP[repeat_type];
+  if (!freq) return '';
+
+  const parts = [`FREQ=${freq}`];
+  if (repeat_interval && repeat_interval > 1) parts.push(`INTERVAL=${repeat_interval}`);
+
+  if (anchor_date && /^\d{4}-\d{2}-\d{2}$/.test(anchor_date)) {
+    const d = dateStrToICALTime(anchor_date);
+    if (repeat_type === 'weekly') parts.push(`BYDAY=${DAY_MAP[d.dayOfWeek()]}`);
+    if (repeat_type === 'monthly') parts.push(`BYMONTHDAY=${d.day}`);
+    if (repeat_type === 'yearly') {
+      parts.push(`BYMONTH=${d.month}`);
+      parts.push(`BYMONTHDAY=${d.day}`);
+    }
+  }
+
+  if (repeat_end && /^\d{4}-\d{2}-\d{2}$/.test(repeat_end)) {
+    parts.push(`UNTIL=${repeat_end.replace(/-/g, '')}T235959Z`);
+  }
+
+  return sanitizeRRule(parts.join(';'));
 }
 
 /** 校验 repeat_end 与 repeat_type 兼容性：none/fragment 无 RRULE，repeat_end 应拒绝。 */
@@ -184,27 +354,55 @@ function icalTimeToDateStr(time) {
 }
 
 /**
- * 构建 RFC 5545 RRULE 字符串。
- * repeatCustom 非空时优先使用，repeatInterval > 1 覆盖 custom 中的 INTERVAL，
- * repeat_end 在 custom 未含 UNTIL 时追加。
+ * 构建 RFC 5545 RRULE 字符串（含 RRULE: 前缀，供 ical.js 使用）。
+ *
+ * 优先级（高 → 低）：
+ * 1. rrule（顶层规范字段，已 sanitize）
+ * 2. repeat_custom（弃用字段，与 rrule 同语义；非空时优先于 type/interval/end 生效）
+ * 3. repeat_type + repeat_interval + repeat_end + anchor_date（最旧字段组合）
+ *
+ * repeat_interval > 1 会覆盖 rrule / custom 中的 INTERVAL；
+ * repeat_end 在 rrule / custom 未含 UNTIL 时追加为 UNTIL=YYYYMMDDT235959Z。
+ *
+ * 注意：调用方应优先传入已 sanitize 的 rrule 字段；repeat_custom 为兼容旧客户端保留。
  */
-function buildRRuleString(repeatType, anchorDate, repeat_end, repeatCustom, repeatInterval) {
-  if (repeatCustom && repeatCustom.trim()) {
-    let rrule = repeatCustom.trim();
-    if (!rrule.startsWith('RRULE:')) rrule = 'RRULE:' + rrule;
+function buildRRuleString(repeatType, anchorDate, repeat_end, repeatCustom, repeatInterval, rrule) {
+  // 顶层 rrule 优先（与 repeat_custom 等价的 RRULE 字符串）
+  if (rrule && rrule.trim()) {
+    let s = rrule.trim();
+    if (s.startsWith('RRULE:')) s = s.slice(6);
 
     if (repeatInterval && repeatInterval > 1) {
-      if (rrule.includes('INTERVAL=')) {
-        rrule = rrule.replace(/INTERVAL=\d+/, `INTERVAL=${repeatInterval}`);
+      if (s.includes('INTERVAL=')) {
+        s = s.replace(/INTERVAL=\d+/, `INTERVAL=${repeatInterval}`);
       } else {
-        rrule = rrule.replace(/(FREQ=[A-Z]+)/, `$1;INTERVAL=${repeatInterval}`);
+        s = s.replace(/(FREQ=[A-Z]+)/, `$1;INTERVAL=${repeatInterval}`);
       }
     }
 
-    if (repeat_end && !rrule.includes('UNTIL')) {
-      rrule = rrule + ';UNTIL=' + repeat_end.replace(/-/g, '') + 'T235959Z';
+    if (repeat_end && !s.includes('UNTIL')) {
+      s = s + ';UNTIL=' + repeat_end.replace(/-/g, '') + 'T235959Z';
     }
-    return rrule;
+    return 'RRULE:' + s;
+  }
+
+  // 弃用字段 repeat_custom 仍生效（与 rrule 同语义，RRULE 字符串）
+  if (repeatCustom && repeatCustom.trim()) {
+    let s = repeatCustom.trim();
+    if (!s.startsWith('RRULE:')) s = 'RRULE:' + s;
+
+    if (repeatInterval && repeatInterval > 1) {
+      if (s.includes('INTERVAL=')) {
+        s = s.replace(/INTERVAL=\d+/, `INTERVAL=${repeatInterval}`);
+      } else {
+        s = s.replace(/(FREQ=[A-Z]+)/, `$1;INTERVAL=${repeatInterval}`);
+      }
+    }
+
+    if (repeat_end && !s.includes('UNTIL')) {
+      s = s + ';UNTIL=' + repeat_end.replace(/-/g, '') + 'T235959Z';
+    }
+    return s;
   }
 
   if (!repeatType || repeatType === 'none' || !anchorDate) return '';
@@ -247,7 +445,7 @@ function createICALComponent(template) {
 
   const rruleStr = buildRRuleString(
     template.repeat_type, template.anchor_date, template.repeat_end,
-    template.repeat_custom, template.repeat_interval
+    template.repeat_custom, template.repeat_interval, template.rrule
   );
   if (rruleStr) {
     const rruleProp = new ICAL.Property('rrule', vevent);
@@ -282,10 +480,22 @@ function createICALComponent(template) {
 /**
  * 判断某日期是否为重复事件的发生日期。
  * 对齐 RFC 5545：DTSTART 始终是第一个实例（即使不匹配 RRULE）。
+ *
+ * 判定依据：
+ * - 若 template.rrule 非空（已 sanitize），按 rrule 展开
+ * - 否则按 repeat_type（旧字段）展开
+ * - fragment 永不在此函数判定（碎时记不走 RRULE 路径）
  */
 export function isOccurrenceOnDate(template, date_str) {
-  if (!template.repeat_type || template.repeat_type === 'none') return false;
+  // fragment 永远不参与 RRULE 判定
   if (template.repeat_type === 'fragment') return false;
+
+  // 三种"非系列"判定：
+  // 1. repeat_type 显式为 none 且无 rrule → 单次
+  // 2. 无 anchor_date → 无法展开
+  // 3. anchor_date > 目标日期 → 目标日期早于起始
+  const has_rrule = !!(template.rrule && template.rrule.trim());
+  if (!has_rrule && (!template.repeat_type || template.repeat_type === 'none')) return false;
   if (!template.anchor_date || template.anchor_date > date_str) return false;
 
   let exdates = [];
@@ -296,6 +506,8 @@ export function isOccurrenceOnDate(template, date_str) {
   }
   if (Array.isArray(exdates) && exdates.includes(date_str)) return false;
 
+  // repeat_end 仍是 DB 列；rrule 中的 UNTIL 已在 isOccurrenceOnDate 早期检查外（ical.js 内部判断）。
+  // 为兼容只填了 repeat_end 没填 rrule UNTIL 的旧数据，此处仍检查 repeat_end。
   if (template.repeat_end && date_str > template.repeat_end) return false;
 
   // RFC 5545: DTSTART 始终是第一个实例
@@ -349,10 +561,16 @@ function simpleIsOccurrence(template, date_str) {
 
 /**
  * 获取两个日期之间的所有发生日期（含 anchor_date，排除 EXDATE）。
+ *
+ * 判定依据：与 isOccurrenceOnDate 一致，优先用 template.rrule。
  */
 export function getOccurrencesBetween(template, startDate, endDate, limit = 365) {
-  if (!template.repeat_type || template.repeat_type === 'none') return [];
+  // fragment 永远不参与 RRULE 展开
   if (template.repeat_type === 'fragment') return [];
+
+  // 三种"非系列"判定
+  const has_rrule = !!(template.rrule && template.rrule.trim());
+  if (!has_rrule && (!template.repeat_type || template.repeat_type === 'none')) return [];
 
   const results = [];
 
@@ -440,6 +658,9 @@ export function computeDeleteActions({ task, date, scope }) {
  * 计算更新操作的数据库动作（含系列拆分逻辑）。
  * @param {Object} params - { task, date, scope, new_values, new_date }
  * @returns {Object} 操作描述
+ *
+ * new_values 中 rrule 字段优先；若 rrule 未传，则按 repeat_type / repeat_interval /
+ * repeat_end / repeat_custom 推导。所有路径在响应/写库前，调用方应保证 rrule 与旧字段一致。
  */
 export function computeUpdateActions({ task, date, scope, new_values, new_date }) {
   const parent_id = task.parent_id;
@@ -447,15 +668,18 @@ export function computeUpdateActions({ task, date, scope, new_values, new_date }
   const rpt_type = new_values.repeat_type || task.repeat_type || 'none';
   const is_recurring = rpt_type !== 'none' && rpt_type !== 'fragment';
 
-  // 检测重复规则变更（频率、间隔、custom）
+  // 检测重复规则变更（频率、间隔、custom、rrule）
   const original_repeat_type = task.repeat_type || 'none';
   const original_interval = task.repeat_interval || 1;
   const original_repeat_custom = task.repeat_custom || '';
+  const original_rrule = task.rrule || '';
   const new_interval = new_values.repeat_interval || 1;
   const new_repeat_custom = new_values.repeat_custom || '';
+  const new_rrule = new_values.rrule || '';
   const recurrence_changed = (original_repeat_type !== rpt_type)
     || (original_interval !== new_interval)
-    || (original_repeat_custom !== new_repeat_custom);
+    || (original_repeat_custom !== new_repeat_custom)
+    || (original_rrule !== new_rrule);
 
   const actions = {
     currentTodo: null,
@@ -480,6 +704,7 @@ export function computeUpdateActions({ task, date, scope, new_values, new_date }
         repeat_custom: '',
         repeat_end: '',
         repeat_interval: 1,
+        rrule: '',
         is_recurring: false,
         detach_from_series: true,
       };
@@ -514,10 +739,11 @@ export function computeUpdateActions({ task, date, scope, new_values, new_date }
           exdates: '[]',
           category_id: new_values.category_id || '',
           repeat_interval: new_interval,
+          rrule: new_values.rrule || '',
         };
       } else {
         // 改为不重复：当前项脱离系列变单次，未来项删除
-        actions.currentTodo = { ...new_values, repeat_type: 'none', repeat_custom: '', repeat_end: '', repeat_interval: 1, is_recurring: false, detach_from_series: true };
+        actions.currentTodo = { ...new_values, repeat_type: 'none', repeat_custom: '', repeat_end: '', repeat_interval: 1, rrule: '', is_recurring: false, detach_from_series: true };
         actions.pastTodos = { type: 'set_repeat_end', date: date, parent_id: parent_id };
         actions.template = { type: 'set_repeat_end', date: date, parent_id: parent_id };
       }
@@ -529,7 +755,7 @@ export function computeUpdateActions({ task, date, scope, new_values, new_date }
         actions.template = { type: 'update_all', parent_id: parent_id, new_values: new_values, recurrence_changed: recurrence_changed };
       } else {
         // 改为不重复：当前项脱离系列变单次，其他实例删除，模板删除
-        actions.currentTodo = { ...new_values, repeat_type: 'none', repeat_custom: '', repeat_end: '', repeat_interval: 1, is_recurring: false, detach_from_series: true };
+        actions.currentTodo = { ...new_values, repeat_type: 'none', repeat_custom: '', repeat_end: '', repeat_interval: 1, rrule: '', is_recurring: false, detach_from_series: true };
         actions.template = { type: 'delete', parent_id: parent_id };
       }
       break;
