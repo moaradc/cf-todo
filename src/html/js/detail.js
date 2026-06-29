@@ -254,6 +254,7 @@ export const detail = `
     function getRepeatDisplayText(repeatType, dateStr, repeatEnd_or_rrule, repeatInterval, repeatCustom, rrule) {
       // v1.0：3 参数模式 (type, dateStr, rrule)
       // type 是 'none'/'fragment'/'recurring'，需从 rrule 解析 FREQ 得到 daily/weekly/monthly/yearly
+      var repeatEnd, repeatCustom;
       if (arguments.length <= 3) {
         rrule = repeatEnd_or_rrule;
         repeatEnd = _extractUntilFromRRule(rrule);

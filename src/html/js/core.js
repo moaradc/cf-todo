@@ -944,42 +944,27 @@ export const core = `
 
       if (todo.type && todo.type !== 'none') {
         var repeatLabel = '';
-        var n = todo.repeat_interval && todo.repeat_interval > 1 ? todo.repeat_interval : null;
         if (todo.type === 'fragment') {
-          // 碎时记: 一次性浮动事项，固定显示"碎时记"标签（与"每天"样式一致）
+          // 碎时记: 一次性浮动事项，固定显示"碎时记"标签
           repeatLabel = '碎时记';
-        } else {
-          // 优先使用 _rruleToZhLabel 解析 repeat_custom（支持完整 RFC 5545 RRULE）
-          // - 渲染成功：用解析后的中文标签（如 "每周一三五·共10次"，已含 repeat_end）
-          // - 渲染失败但有 custom：卡片空间有限，显示通用的"自定义重复"
-          //   （详情页会显示完整 RRULE 字符串）
-          // - 无 custom：回退到 repeat_type + todo.date 推导（兼容旧任务）
-          var rruleLabel = todo.repeat_custom ? _rruleToZhLabel(todo.repeat_custom, todo.type, todo.date, n, todo.repeat_end) : null;
+        } else if (todo.type === 'recurring') {
+          // v1.0：从 rrule 解析中文标签
+          // 优先使用 _rruleToZhLabel（支持完整 RFC 5545 RRULE，含 UNTIL/COUNT/BYDAY 等）
+          // INTERVAL 从 rrule 解析（v1.0 无 repeat_interval 字段）
+          var rruleLabel = todo.rrule ? _rruleToZhLabel(todo.rrule, todo.type, todo.date, null, null) : null;
           if (rruleLabel) {
             repeatLabel = rruleLabel;
-            // rruleLabel 已包含 repeat_end/UNTIL/COUNT 终止条件，不再追加
-          } else if (todo.repeat_custom) {
-            // custom 存在但无法精确翻译（如 BYHOUR、多 BYMONTH 等复杂组合）
+          } else if (todo.rrule) {
+            // rrule 存在但无法精确翻译
             repeatLabel = '自定义重复';
-            if (todo.repeat_end) repeatLabel += '·至' + todo.repeat_end;
-          } else if (todo.type === 'daily') {
-            repeatLabel = n ? '每' + n + '天' : '每天';
-          } else if (todo.type === 'weekly') {
-            var days = ['日','一','二','三','四','五','六'];
-            var parts = todo.date.split('-');
-            var day = new Date(parts[0], parts[1]-1, parts[2]).getDay();
-            repeatLabel = n ? '每' + n + '周' + days[day] : '每周' + days[day];
-          } else if (todo.type === 'monthly') {
-            var parts2 = todo.date.split('-');
-            repeatLabel = n ? '每' + n + '月' + parseInt(parts2[2], 10) + '号' : '每月' + parseInt(parts2[2], 10) + '号';
-          } else if (todo.type === 'yearly') {
-            var parts3 = todo.date.split('-');
-            repeatLabel = n ? '每' + n + '年' + parseInt(parts3[1], 10) + '月' + parseInt(parts3[2], 10) + '日' : '每年' + parseInt(parts3[1], 10) + '月' + parseInt(parts3[2], 10) + '日';
+          } else {
+            // 无 rrule（异常数据），回退到通用的"重复"
+            repeatLabel = '重复';
           }
-          // 无 custom 时追加 repeat_end（有 custom 时已由 _rruleToZhLabel 或上面分支处理）
-          if (!todo.repeat_custom && todo.repeat_end) repeatLabel += '·至' + todo.repeat_end;
         }
-        badges += '<span class="badge" style="background:transparent;border:1px solid var(--fg);color:var(--fg);">' + escapeHtml(repeatLabel) + '</span> ';
+        if (repeatLabel) {
+          badges += '<span class="badge" style="background:transparent;border:1px solid var(--fg);color:var(--fg);">' + escapeHtml(repeatLabel) + '</span> ';
+        }
       }
 
       if (todo.subtasks && todo.subtasks.length > 0) {
