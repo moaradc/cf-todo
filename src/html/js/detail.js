@@ -248,15 +248,30 @@ export const detail = `
       _navClose('detail-view');
     }
 
-    function getRepeatDisplayText(repeatType, dateStr, repeatEnd, repeatInterval, repeatCustom, rrule) {
+    // v1.0 简化签名：(type, dateStr, rrule)
+    // 旧签名 (repeatType, dateStr, repeatEnd, repeatInterval, repeatCustom, rrule) 已废弃
+    // 兼容：若传入 6 参数，按旧逻辑处理；若传入 3 参数，从 rrule 解析 repeatEnd/repeatInterval
+    function getRepeatDisplayText(repeatType, dateStr, repeatEnd_or_rrule, repeatInterval, repeatCustom, rrule) {
+      // v1.0：3 参数模式 (type, dateStr, rrule)
+      // type 是 'none'/'fragment'/'recurring'，需从 rrule 解析 FREQ 得到 daily/weekly/monthly/yearly
+      if (arguments.length <= 3) {
+        rrule = repeatEnd_or_rrule;
+        repeatEnd = _extractUntilFromRRule(rrule);
+        repeatInterval = _extractIntervalFromRRule(rrule);
+        repeatCustom = rrule;
+        // 把 type='recurring' 映射为 UI 频率（daily/weekly/monthly/yearly）
+        if (repeatType === 'recurring') {
+          repeatType = _extractFreqFromRRule(rrule) || 'daily';
+        }
+      }
+
       if (!repeatType || repeatType === 'none') return '单次任务';
       // 碎时记: 一次性浮动事项，固定显示"碎时记"
       if (repeatType === 'fragment') {
         return '碎时记';
       }
       var n = repeatInterval && repeatInterval > 1 ? repeatInterval : null;
-      // v2.8.0+ 优先使用顶层 rrule 字段（与后端 buildRRuleString 优先级一致）
-      // rrule 非空时直接走 _rruleToZhLabel 解析；为空时回退到 repeat_custom
+      // v1.0 优先使用 rrule 字段
       var effectiveRRule = (rrule && typeof rrule === 'string' && rrule.trim()) ? rrule : (repeatCustom || '');
       if (effectiveRRule) {
         var rruleText = _rruleToZhLabel(effectiveRRule, repeatType, dateStr, n, repeatEnd);
