@@ -1356,12 +1356,12 @@ self.addEventListener('fetch', (event) => {
         return '[]';
       };
 
-      // D1 bound params/query 限制 100，单行 todos 21 列，4 行 = 84 params
-      // 单行 templates 13 列，7 行 = 91 params
-      // 性能：SQLite multi-row VALUES 比 N 个单行 INSERT 快 5-10x（减少 prepared statement 创建 + 网络往返）
-      // DB.batch 内 statement 数量也减少 4-5 倍
-      const TODO_ROWS_PER_INSERT = 4;  // 4 × 21 = 84 params
-      const TEMPLATE_ROWS_PER_INSERT = 7;  // 7 × 13 = 91 params
+      // D1 bound params/query 限制 100
+      // v3.0: TODO_COLUMNS 23 列，4 行 = 92 params < 100 ✓
+      // v3.0: TEMPLATE_COLUMNS 16 列，6 行 = 96 params < 100 ✓
+      // （v3.0 重构前 TODO 21 列、TEMPLATE 13 列，ROWS_PER_INSERT 未同步更新导致超限）
+      const TODO_ROWS_PER_INSERT = 4;  // 4 × 23 = 92 params
+      const TEMPLATE_ROWS_PER_INSERT = 6;  // 6 × 16 = 96 params
 
       const TODO_COLUMNS = '(id, parent_id, date, text, time, priority, desc, url, copy_text, subtasks, search_terms, done, deleted, type, end_time, category_id, recurrence_id, is_exception, time_records, fragment_anchor, rrule, anchor_date, exdates)';
       const TODO_ROW_PLACEHOLDER = '(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)';
