@@ -396,9 +396,13 @@
     var activeTodos = data.todos.filter(function(t) { return !t.deleted; });
     var deletedTodos = data.todos.filter(function(t) { return t.deleted; });
     var repeatingTodos = data.todos.filter(function(t) {
-      // v3.0: type === 'recurring'
-      // v2.x: repeat === 1 || repeat === -1 || (repeat_type && repeat_type !== 'none')
-      return t.type === 'recurring' || t.repeat === 1 || t.repeat === -1 || (t.repeat_type && t.repeat_type !== 'none');
+      // v3.0: type === 'recurring'（不含 is_exception 的实例）
+      // v2.x: repeat === 1（真正的重复 todo），不含 repeat === -1（例外实例，单独统计）
+      if (t.type === 'recurring') return !(t.is_exception === 1 || t.is_exception === true);
+      if (t.repeat === 1) return true;
+      // repeat_type 非空但不是 none/fragment，且不是例外
+      if (t.repeat_type && t.repeat_type !== 'none' && t.repeat_type !== 'fragment' && t.repeat !== -1) return true;
+      return false;
     });
     var exceptionTodos = data.todos.filter(function(t) {
       // v3.0: is_exception === 1 或 is_exception === true
