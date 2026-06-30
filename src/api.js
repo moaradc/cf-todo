@@ -2029,7 +2029,15 @@ self.addEventListener('fetch', (event) => {
             await env.DB.prepare(`UPDATE categories SET ${sets.join(', ')} WHERE id = ?`).bind(...vals).run();
           }
         }
-        return new Response(JSON.stringify({ success: true, id: id, name: name ? name.trim() : undefined, color: color ? color.trim() : undefined }), { headers: { 'Content-Type': 'application/json' } });
+        // 修复 Bug 6：此前响应仅返回 body 中传入的字段（name/color 之一），
+        // 与 V1 PUT /api/v1/categories/:id 返回完整 Category 对象不一致，
+        // 调用方 UPDATE 后需额外 GET 才能拿到完整对象。
+        // 现统一从 DB 读取完整对象返回 {id, name, color}。
+        const updated = await env.DB.prepare('SELECT id, name, color FROM categories WHERE id = ?').bind(id).first();
+        if (!updated) {
+          return apiError('分类不存在', 404);
+        }
+        return new Response(JSON.stringify({ success: true, id: updated.id, name: updated.name, color: updated.color }), { headers: { 'Content-Type': 'application/json' } });
       }
       else if (action === 'BATCH_DELETE') {
         if (!ids || !Array.isArray(ids) || ids.length === 0) {
@@ -2275,6 +2283,17 @@ self.addEventListener('fetch', (event) => {
     if (url.pathname === '/api/todos' && request.method === 'GET') {
       const date = url.searchParams.get('date');
       if (!date) return apiError("Date required", 400);
+      // 修复 Bug 5：此前 date 非 YYYY-MM-DD 格式时不报错，直接以原值查询返回空数组，
+      // 调用方拿不到错误反馈。现统一校验格式，与 V1 POST/PUT 日期校验一致。
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+        return apiError(`date 格式应为 YYYY-MM-DD，当前值: ${date}`, 400);
+      }
+      // 进一步校验日期真实存在（如 2026-13-45 应拒绝）
+      const [yy, mm, dd] = date.split('-').map(Number);
+      const dt = new Date(Date.UTC(yy, mm - 1, dd));
+      if (dt.getUTCFullYear() !== yy || dt.getUTCMonth() !== mm - 1 || dt.getUTCDate() !== dd) {
+        return apiError(`日期无效: ${date}`, 400);
+      }
 
       return _withTodosDateLock(date, async () => {
       // 查询当前日期的所有可见 todos（v1.0 schema 1）：
@@ -2349,13 +2368,19 @@ self.addEventListener('fetch', (event) => {
             } catch(e) {}
           }
     
+        // anchor_date 必须用模板的 anchor_date（RFC 5545 DTSTART 等价物），
+        // 而非展开日期。展开日期仅在 `date` 列上体现。
+        // 此前 bug：DB 写 date 而 in-memory 对象用 tpl.anchor_date，导致响应/DB 不一致，
+        // 且违反 RFC 5545（实例 anchor_date 应与系列首实例一致，而非展开日期）。
+        const tpl_anchor_date = tpl.anchor_date || '';
         const newRecord = { 
           ...tpl, id: new_id, date: date, parent_id: tpl.parent_id, 
           done: 0, deleted: 0,
           subtasks: parsedSubtasks,
           search_terms: parsedSearchTerms,
           // 关键修复：模板的 time_records 是跨实例预估数据（供 predictDuration），
-          time_records: '[]'
+          time_records: '[]',
+          anchor_date: tpl_anchor_date,  // 内存对象也同步，避免响应/DB 不一致
         };
         results.push(newRecord); 
       
@@ -2365,7 +2390,7 @@ self.addEventListener('fetch', (event) => {
           new_id, tpl.parent_id, date, tpl.text, tpl.time || '', normalizePriority(tpl.priority),
           tpl.desc || '', tpl.url || '', tpl.copy_text || '',
           JSON.stringify(parsedSubtasks), JSON.stringify(parsedSearchTerms),
-          0, 0, 'recurring', tpl.end_time || '', tpl.category_id || '', '[]', '', tpl.rrule || '', date, '[]'
+          0, 0, 'recurring', tpl.end_time || '', tpl.category_id || '', '[]', '', tpl.rrule || '', tpl_anchor_date, '[]'
         ));
       }
       if (insertStmts.length > 0) {
@@ -3049,12 +3074,12 @@ self.addEventListener('fetch', (event) => {
           // 旧 repeat_type (daily/weekly/monthly/yearly) 已废弃，传入返回 400
           let type = task.type || 'none';
           if (type !== 'none' && type !== 'fragment' && type !== 'recurring') {
-            return apiError(`无效的 type: ${type}，v1.0 有效值: none / fragment / recurring（旧 repeat_type 已废弃）`, 400);
+            return apiError(`无效的 type: ${type}，v3.0 有效值: none / fragment / recurring（旧 repeat_type 已废弃）`, 400);
           }
           // 拒绝旧字段（v1.0 破坏性变更，强制调用方迁移）
           if (task.repeat_type !== undefined || task.repeat_custom !== undefined ||
               task.repeat_interval !== undefined || task.repeat_end !== undefined) {
-            return apiError('v1.0 已废弃 repeat_type / repeat_custom / repeat_interval / repeat_end 字段，请改用 type + rrule + anchor_date + exdates', 400);
+            return apiError('v3.0 已废弃 repeat_type / repeat_custom / repeat_interval / repeat_end 字段，请改用 type + rrule + anchor_date + exdates', 400);
           }
 
           // ====== rrule 校验 ======
@@ -3139,11 +3164,11 @@ self.addEventListener('fetch', (event) => {
           // v1.0 拒绝旧字段（破坏性变更）
           if (task.repeat_type !== undefined || task.repeat_custom !== undefined ||
               task.repeat_interval !== undefined || task.repeat_end !== undefined) {
-            return apiError('v1.0 已废弃 repeat_type / repeat_custom / repeat_interval / repeat_end 字段，请改用 type + rrule + anchor_date + exdates', 400);
+            return apiError('v3.0 已废弃 repeat_type / repeat_custom / repeat_interval / repeat_end 字段，请改用 type + rrule + anchor_date + exdates', 400);
           }
           // type 校验（PATCH 语义：未传时从 DB 回退）
           if (task.type !== undefined && task.type !== 'none' && task.type !== 'fragment' && task.type !== 'recurring') {
-            return apiError(`无效的 type: ${task.type}，v1.0 有效值: none / fragment / recurring`, 400);
+            return apiError(`无效的 type: ${task.type}，v3.0 有效值: none / fragment / recurring`, 400);
           }
 
           // V0 调用方（含外部 API）可能省略 parent_id（V1 风格），需要服务端补全

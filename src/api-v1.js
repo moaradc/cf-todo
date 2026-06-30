@@ -526,16 +526,28 @@ async function handleV1Todos(request, env, url) {
           let templateForEngine = { ...tpl, exdates: tpl.exdates || '[]' };
           if (!isOccurrenceOnDate(templateForEngine, date)) continue;
 
+          // category_id 过滤：expand=true 时，自动展开的实例也必须满足 category_id 约束
+          // 此前 bug：SQL WHERE category_id=? 仅作用于已持久化的 todos 行，
+          // 自动展开的 recurringResults 通过 in-memory push 绕过 WHERE，导致
+          // 调用方按分类筛选时看到不属于该分类的重复实例
+          if (category_id && (tpl.category_id || '') !== category_id) continue;
+
           const new_id = crypto.randomUUID();
           let parsedSubtasks = parseJsonField(tpl.subtasks);
           parsedSubtasks.forEach(st => st.done = false);
 
+          // anchor_date 必须用模板的 anchor_date（RFC 5545 DTSTART 等价物），
+          // 而非展开日期。展开日期仅在 `date` 列上体现。
+          // 此前 bug：DB 写 date 而 in-memory 对象用 tpl.anchor_date，导致响应/DB 不一致，
+          // 且违反 RFC 5545（实例 anchor_date 应与系列首实例一致，而非展开日期）。
+          const tpl_anchor_date = tpl.anchor_date || '';
           const newRecord = {
             ...tpl, id: new_id, date, parent_id: tpl.parent_id,
             done: 0, deleted: 0,
             subtasks: parsedSubtasks,
             search_terms: [],
-            time_records: '[]'
+            time_records: '[]',
+            anchor_date: tpl_anchor_date,  // 内存对象也同步，避免响应/DB 不一致
           };
           recurringResults.push(newRecord);
 
@@ -549,7 +561,7 @@ async function handleV1Todos(request, env, url) {
             '', 0,  // recurrence_id, is_exception
             '[]',   // time_records
             '',     // fragment_anchor
-            tpl.rrule || '', date, '[]'  // rrule, anchor_date, exdates
+            tpl.rrule || '', tpl_anchor_date, '[]'  // rrule, anchor_date(=模板), exdates
           ));
         }
         if (insertStmts.length > 0) {
@@ -606,13 +618,13 @@ async function handleV1Todos(request, env, url) {
     // v1.0 拒绝旧字段
     if (body.repeat_type !== undefined || body.repeat_custom !== undefined ||
         body.repeat_interval !== undefined || body.repeat_end !== undefined) {
-      return apiError('v1.0 已废弃 repeat_type / repeat_custom / repeat_interval / repeat_end 字段，请改用 type + rrule + anchor_date + exdates', 400);
+      return apiError('v3.0 已废弃 repeat_type / repeat_custom / repeat_interval / repeat_end 字段，请改用 type + rrule + anchor_date + exdates', 400);
     }
 
     // type 校验
     let type = bodyType || 'none';
     if (type !== 'none' && type !== 'fragment' && type !== 'recurring') {
-      return apiError(`无效的 type: ${type}，v1.0 有效值: none / fragment / recurring`, 400);
+      return apiError(`无效的 type: ${type}，v3.0 有效值: none / fragment / recurring`, 400);
     }
 
     // rrule 校验
@@ -732,11 +744,11 @@ async function handleV1TodoPut(request, DB, todo_id) {
   // v1.0 拒绝旧字段
   if (body.repeat_type !== undefined || body.repeat_custom !== undefined ||
       body.repeat_interval !== undefined || body.repeat_end !== undefined) {
-    return apiError('v1.0 已废弃 repeat_type / repeat_custom / repeat_interval / repeat_end 字段，请改用 type + rrule + anchor_date + exdates', 400);
+    return apiError('v3.0 已废弃 repeat_type / repeat_custom / repeat_interval / repeat_end 字段，请改用 type + rrule + anchor_date + exdates', 400);
   }
   // type 校验
   if (body.type !== undefined && body.type !== 'none' && body.type !== 'fragment' && body.type !== 'recurring') {
-    return apiError(`无效的 type: ${body.type}，v1.0 有效值: none / fragment / recurring`, 400);
+    return apiError(`无效的 type: ${body.type}，v3.0 有效值: none / fragment / recurring`, 400);
   }
   if (body.scope !== undefined && body.scope !== 'none') {
     const VALID_SCOPES = ['this', 'thisAndFuture', 'all'];
@@ -1129,6 +1141,10 @@ async function handleV1TodoToggle(request, DB, todo_id) {
     }
   }
 
+  // record_accepted: 让调用方区分 record 是否通过校验并写入
+  // 此前 bug：非法 record 静默跳过，调用方仅从响应缺失 time_records 字段间接判断
+  let record_accepted = false;
+
   if (new_done) {
     // 勾选完成
     // 碎时记：冻结 date 为完成日期（body.date 或现有 date），fragment_anchor 不变（始终保留起始日期）
@@ -1148,7 +1164,7 @@ async function handleV1TodoToggle(request, DB, todo_id) {
       }
     }
     if (record) {
-      await writeTimerRecord(DB, todo_id, existing.parent_id, record, is_fragment);
+      record_accepted = await writeTimerRecord(DB, todo_id, existing.parent_id, record, is_fragment);
     }
   } else {
     // 取消勾选
@@ -1172,16 +1188,25 @@ async function handleV1TodoToggle(request, DB, todo_id) {
         await DB.prepare('UPDATE todos SET done = 0 WHERE id = ?').bind(todo_id).run();
       }
     }
+    // done 1→0 时无 record 概念，record_accepted 保持 false
   }
 
   const updated_todo = await DB.prepare('SELECT date, time_records FROM todos WHERE id = ?').bind(todo_id).first();
   const response_data = { id: todo_id, done: !!new_done };
   if (updated_todo) {
     if (new_done && updated_todo.date) response_data.date = updated_todo.date;
+    // 始终返回 time_records（即使为空数组），让调用方能对比 record 是否真的写入
     try {
       const tr = typeof updated_todo.time_records === 'string' ? JSON.parse(updated_todo.time_records || '[]') : (updated_todo.time_records || []);
-      if (Array.isArray(tr) && tr.length > 0) response_data.time_records = tr;
-    } catch(e) {}
+      if (Array.isArray(tr)) response_data.time_records = tr;
+      else response_data.time_records = [];
+    } catch(e) {
+      response_data.time_records = [];
+    }
+    // record_accepted: 仅在 done 0→1 时返回；done 1→0 时为 false（不写入）
+    if (new_done) {
+      response_data.record_accepted = record_accepted;
+    }
   }
   return jsonResponse({ success: true, data: response_data });
 }
@@ -1194,16 +1219,21 @@ async function handleV1TodoToggle(request, DB, todo_id) {
 // - 模板级：仅真实耗时（s<e）且非碎时记写（FIFO 10，供 predictDuration 中位数预估）
 //   碎时记无模板，零耗时跳过（避免污染中位数）
 // 与 /api/todo-action TIMER_COMPLETE 写入策略保持一致
+//
+// 返回值：
+//   true  = record 通过校验并已写入（或已尝试写入）
+//   false = record 非法（s>e、时长>7d、p>(e-s)、非对象、缺 s/e），未写入任何记录
+// 调用方应据此设置响应的 record_accepted 字段，让客户端能区分 record 是否被接受
 async function writeTimerRecord(DB, todo_id, parent_id, record, is_fragment) {
   // 校验
-  if (!record || typeof record !== 'object') return;
-  if (typeof record.s !== 'number' || typeof record.e !== 'number') return;
+  if (!record || typeof record !== 'object') return false;
+  if (typeof record.s !== 'number' || typeof record.e !== 'number') return false;
   const s = Math.floor(record.s);
   const e = Math.floor(record.e);
   const p = Math.floor(record.p || 0);
   const MAX_DURATION_MS = 7 * 24 * 60 * 60 * 1000;
   if (!(s > 0 && e >= s && (e - s) <= MAX_DURATION_MS && p >= 0 && p <= (e - s))) {
-    return;
+    return false;
   }
   const is_zero_duration = (s === e);
 
@@ -1246,6 +1276,7 @@ async function writeTimerRecord(DB, todo_id, parent_id, record, is_fragment) {
       console.error('v1 template record write failed:', e3);
     }
   }
+  return true;  // record 已通过校验并尝试写入
 }
 
 // ==================== v1 Category CRUD ====================
