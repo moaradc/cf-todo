@@ -252,6 +252,11 @@
       showAnalysis(parsedData);
     } catch (err) {
       addLog('解析文件失败: ' + err.message, 'err');
+      // 如果已部分加载，仍显示已加载状态
+      if (parsedData) {
+        dropZone.classList.add('loaded');
+        dropLabel.textContent = '已加载(含错误): ' + fileName;
+      }
       renderLogs();
     }
   }
@@ -259,36 +264,65 @@
   // ==================== 解析导出文件 ====================
 
   function parseExportFile(raw) {
+    if (!raw || typeof raw !== 'string') {
+      throw new Error('文件内容为空或非文本');
+    }
     var firstLine = raw.split('\n')[0].trim();
     var isNdjson = (firstLine === 'ndjson');
     var result = { settings: null, custom_header: '', custom_content: '', customColors: [], categories: [], todos: [], templates: [] };
 
     if (isNdjson) {
       var lines = raw.split('\n');
+      var parseErrors = 0;
       for (var i = 1; i < lines.length; i++) {
         var line = lines[i].trim();
         if (!line) continue;
-        var obj = JSON.parse(line);
-        if (obj._type === 'settings') { result.settings = obj.data; }
-        else if (obj._type === 'custom_header') { result.custom_header = obj.data; }
-        else if (obj._type === 'custom_content') { result.custom_content = obj.data; }
-        else if (obj._type === 'customColors') { result.customColors = obj.data; }
-        else if (obj._type === 'categories') { result.categories = obj.data; }
+        var obj;
+        try {
+          obj = JSON.parse(line);
+        } catch (e) {
+          parseErrors++;
+          addLog('跳过第 ' + (i + 1) + ' 行（JSON 解析失败）: ' + e.message, 'warn', 'parseError');
+          continue;
+        }
+        if (!obj || typeof obj !== 'object') continue;
+        if (obj._type === 'settings') { if (obj.data && typeof obj.data === 'object') result.settings = obj.data; }
+        else if (obj._type === 'custom_header') { result.custom_header = (typeof obj.data === 'string') ? obj.data : ''; }
+        else if (obj._type === 'custom_content') { result.custom_content = (typeof obj.data === 'string') ? obj.data : ''; }
+        else if (obj._type === 'customColors') { result.customColors = Array.isArray(obj.data) ? obj.data : []; }
+        else if (obj._type === 'categories') { result.categories = Array.isArray(obj.data) ? obj.data : []; }
         else if (obj._type === 'template') { var tpl = Object.assign({}, obj); delete tpl._type; result.templates.push(tpl); }
         else if (!obj._type) { result.todos.push(obj); }
       }
+      if (parseErrors > 0) {
+        addLog('NDJSON 解析完成，跳过 ' + parseErrors + ' 行损坏数据', 'warn', 'parseError');
+      }
     } else {
-      var data = JSON.parse(raw);
-      if (data.settings) result.settings = data.settings;
-      if (data.custom_header !== undefined) result.custom_header = data.custom_header;
-      if (data.custom_content !== undefined) result.custom_content = data.custom_content;
-      if (data.customColors) result.customColors = data.customColors;
-      if (data.categories) result.categories = data.categories;
-      var todos = data.todos || [];
-      var trash = data.trash || [];
+      var data;
+      try {
+        data = JSON.parse(raw);
+      } catch (e) {
+        throw new Error('JSON 解析失败: ' + e.message);
+      }
+      if (!data || typeof data !== 'object') {
+        throw new Error('文件内容不是有效的 JSON 对象');
+      }
+      if (data.settings && typeof data.settings === 'object') result.settings = data.settings;
+      if (typeof data.custom_header === 'string') result.custom_header = data.custom_header;
+      if (typeof data.custom_content === 'string') result.custom_content = data.custom_content;
+      if (Array.isArray(data.customColors)) result.customColors = data.customColors;
+      if (Array.isArray(data.categories)) result.categories = data.categories;
+      var todos = Array.isArray(data.todos) ? data.todos : [];
+      var trash = Array.isArray(data.trash) ? data.trash : [];
       result.todos = todos.concat(trash);
-      if (data.todo_templates) result.templates = data.todo_templates;
+      if (Array.isArray(data.todo_templates)) result.templates = data.todo_templates;
     }
+
+    // 确保所有字段都是数组（防御性）
+    if (!Array.isArray(result.todos)) result.todos = [];
+    if (!Array.isArray(result.templates)) result.templates = [];
+    if (!Array.isArray(result.categories)) result.categories = [];
+    if (!Array.isArray(result.customColors)) result.customColors = [];
 
     return result;
   }
@@ -777,17 +811,18 @@
   }
   // none/fragment → 返回 ''（与后端一致）
   function buildRRuleFromLegacy(repeatType, interval, repeatEnd, repeatCustom, anchorDate) {
-    if (!repeatType || repeatType === 'none' || repeatType === 'fragment') return '';
+    if (!repeatType || typeof repeatType !== 'string' || repeatType === 'none' || repeatType === 'fragment') return '';
     var FREQ_MAP = { daily: 'DAILY', weekly: 'WEEKLY', monthly: 'MONTHLY', yearly: 'YEARLY' };
     var freq = FREQ_MAP[repeatType];
     if (!freq) return '';
 
-    // 优先用 repeat_custom（已通过 convertRepeatCustom 转换为 FREQ=... 格式）
-    if (repeatCustom && repeatCustom.trim()) {
+    var iv = parseInt(interval, 10);
+    if (isNaN(iv)) iv = 1;
+
+    if (repeatCustom && typeof repeatCustom === 'string' && repeatCustom.trim()) {
       var rrule = repeatCustom.trim();
-      if (rrule.startsWith('RRULE:')) rrule = rrule.slice(6);
-      var iv = parseInt(interval, 10);
-      if (iv && iv > 1) {
+      if (rrule.indexOf('RRULE:') === 0) rrule = rrule.slice(6);
+      if (iv > 1) {
         if (rrule.indexOf('INTERVAL=') >= 0) {
           rrule = rrule.replace(/INTERVAL=\d+/, 'INTERVAL=' + iv);
         } else {
@@ -802,24 +837,25 @@
 
     // 无 custom：从 repeat_type + interval + repeat_end + anchor_date 合成
     var parts = ['FREQ=' + freq];
-    var iv2 = parseInt(interval, 10);
-    if (iv2 && iv2 > 1) parts.push('INTERVAL=' + iv2);
+    if (iv > 1) parts.push('INTERVAL=' + iv);
 
-    if (anchorDate && /^\d{4}-\d{2}-\d{2}$/.test(anchorDate)) {
+    if (anchorDate && typeof anchorDate === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(anchorDate)) {
       var yp = anchorDate.split('-');
-      var d = new Date(Date.UTC(parseInt(yp[0]), parseInt(yp[1]) - 1, parseInt(yp[2])));
-      var DAY_MAP = ['SU','MO','TU','WE','TH','FR','SA'];
-      if (repeatType === 'weekly') {
-        parts.push('BYDAY=' + DAY_MAP[d.getUTCDay()]);
-      } else if (repeatType === 'monthly') {
-        parts.push('BYMONTHDAY=' + d.getUTCDate());
-      } else if (repeatType === 'yearly') {
-        parts.push('BYMONTH=' + (d.getUTCMonth() + 1));
-        parts.push('BYMONTHDAY=' + d.getUTCDate());
+      var d = new Date(Date.UTC(parseInt(yp[0], 10), parseInt(yp[1], 10) - 1, parseInt(yp[2], 10)));
+      if (!isNaN(d.getTime())) {
+        var DAY_MAP = ['SU','MO','TU','WE','TH','FR','SA'];
+        if (repeatType === 'weekly') {
+          parts.push('BYDAY=' + DAY_MAP[d.getUTCDay()]);
+        } else if (repeatType === 'monthly') {
+          parts.push('BYMONTHDAY=' + d.getUTCDate());
+        } else if (repeatType === 'yearly') {
+          parts.push('BYMONTH=' + (d.getUTCMonth() + 1));
+          parts.push('BYMONTHDAY=' + d.getUTCDate());
+        }
       }
     }
 
-    if (repeatEnd && /^\d{4}-\d{2}-\d{2}$/.test(repeatEnd)) {
+    if (repeatEnd && typeof repeatEnd === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(repeatEnd)) {
       parts.push('UNTIL=' + repeatEnd.replace(/-/g, '') + 'T235959Z');
     }
 
@@ -842,199 +878,203 @@
     var fixCount = 0;
 
     // 迁移 todos
+    var todoErrors = 0;
     for (var ti = 0; ti < data.todos.length; ti++) {
       var t = data.todos[ti];
-      var m = Object.assign({}, t);
+      var m;
+      try {
+        m = Object.assign({}, t);
 
-      if (m.repeat === -1) {
-        m.is_exception = 1;
-        if (!m.repeat_type || m.repeat_type === 'none' || m.repeat_type === '') {
-          var tpl = templateMap[m.parent_id];
-          m.repeat_type = (tpl && tpl.repeat_type && tpl.repeat_type !== 'none') ? tpl.repeat_type : 'daily';
-          addLog('修复 id:' + m.id + ' repeat=-1 → is_exception=1, repeat_type=' + m.repeat_type, 'warn', 'exception');
-        } else {
-          addLog('修复 id:' + m.id + ' repeat=-1 → is_exception=1', 'warn', 'exception');
-        }
-        fixCount++;
-      }
-      if (m.repeat === 0 && m.repeat_type && m.repeat_type !== 'none') {
-        m.repeat_type = 'none';
-        addLog('修复 id:' + m.id + ' repeat=0 → repeat_type=none', 'warn', 'repeatZero');
-        fixCount++;
-      }
-      if (m.repeat === 1 && (!m.repeat_type || m.repeat_type === 'none' || m.repeat_type === '')) {
-        m.repeat_type = 'daily';
-        addLog('修复 id:' + m.id + ' repeat=1 → repeat_type=daily', 'warn', 'repeatOne');
-        fixCount++;
-      }
-
-      if (m.repeat_custom) {
-        var converted = convertRepeatCustom(m.repeat_custom, m.repeat_type);
-        if (converted !== m.repeat_custom) {
-          addLog('转换 id:' + m.id + ' repeat_custom: ' + m.repeat_custom + ' → ' + converted, 'warn', 'customConvert');
-          m.repeat_custom = converted;
+        if (m.repeat === -1) {
+          m.is_exception = 1;
+          if (!m.repeat_type || m.repeat_type === 'none' || m.repeat_type === '') {
+            var tpl = templateMap[m.parent_id];
+            m.repeat_type = (tpl && tpl.repeat_type && tpl.repeat_type !== 'none') ? tpl.repeat_type : 'daily';
+            addLog('修复 id:' + m.id + ' repeat=-1 → is_exception=1, repeat_type=' + m.repeat_type, 'warn', 'exception');
+          } else {
+            addLog('修复 id:' + m.id + ' repeat=-1 → is_exception=1', 'warn', 'exception');
+          }
           fixCount++;
         }
-      }
-
-      delete m.repeat;
-      delete m.deleted_at;
-      if (!m.recurrence_id) {
-        m.recurrence_id = '';
-        addLog('新增 id:' + m.id + ' recurrence_id', 'info', 'newFields');
-      }
-      if (m.is_exception === undefined) {
-        m.is_exception = 0;
-        addLog('新增 id:' + m.id + ' is_exception=0', 'info', 'newFields');
-      }
-      if (m.repeat_end === undefined) {
-        m.repeat_end = '';
-      }
-      if (m.end_time === undefined) {
-        m.end_time = '';
-      }
-      if (m.repeat_interval === undefined) {
-        m.repeat_interval = 1;
-        addLog('新增 id:' + m.id + ' repeat_interval=1', 'info', 'newFields');
-      }
-      // time_records 补全 / 修复（schema 7）
-      // 必须是 JSON 数组字符串，默认 '[]'；与 api.js 中 safeTimeRecords 校验逻辑一致
-      if (m.time_records === undefined || m.time_records === null) {
-        m.time_records = '[]';
-        addLog('新增 id:' + m.id + ' time_records="[]"', 'info', 'newFields');
-      } else if (!isValidTimeRecords(m.time_records)) {
-        addLog('修复 id:' + m.id + ' time_records 格式不规范，重置为 \"[]\"', 'warn', 'timeRecordsFix');
-        m.time_records = '[]';
-        fixCount++;
-      }
-      if (!m.repeat_custom) m.repeat_custom = '';
-
-      // fragment_anchor 补全：碎时记起始日期，默认 ''
-      // 老导出文件没有此字段，补全为 '' 便于导出文件自洽
-      if (m.fragment_anchor === undefined || m.fragment_anchor === null) {
-        m.fragment_anchor = '';
-      }
-
-      // rrule 字段补全。从旧字段合成 RFC 5545 RRULE 字符串。
-      // none/fragment → ''；其他类型按 repeat_type + interval + repeat_end + custom + date 合成
-      if (m.rrule === undefined || m.rrule === null) {
-        m.rrule = buildRRuleFromLegacy(
-          m.repeat_type,
-          m.repeat_interval,
-          m.repeat_end,
-          m.repeat_custom,
-          m.date
-        );
-        if (m.rrule) {
-          addLog('合成 id:' + m.id + ' rrule: ' + m.rrule, 'info', 'rrule');
+        if (m.repeat === 0 && m.repeat_type && m.repeat_type !== 'none') {
+          m.repeat_type = 'none';
+          addLog('修复 id:' + m.id + ' repeat=0 → repeat_type=none', 'warn', 'repeatZero');
+          fixCount++;
         }
+        if (m.repeat === 1 && (!m.repeat_type || m.repeat_type === 'none' || m.repeat_type === '')) {
+          m.repeat_type = 'daily';
+          addLog('修复 id:' + m.id + ' repeat=1 → repeat_type=daily', 'warn', 'repeatOne');
+          fixCount++;
+        }
+
+        if (m.repeat_custom) {
+          var converted = convertRepeatCustom(m.repeat_custom, m.repeat_type);
+          if (converted !== m.repeat_custom) {
+            addLog('转换 id:' + m.id + ' repeat_custom: ' + m.repeat_custom + ' → ' + converted, 'warn', 'customConvert');
+            m.repeat_custom = converted;
+            fixCount++;
+          }
+        }
+
+        delete m.repeat;
+        delete m.deleted_at;
+        if (!m.recurrence_id) {
+          m.recurrence_id = '';
+          addLog('新增 id:' + m.id + ' recurrence_id', 'info', 'newFields');
+        }
+        if (m.is_exception === undefined) {
+          m.is_exception = 0;
+          addLog('新增 id:' + m.id + ' is_exception=0', 'info', 'newFields');
+        }
+        if (m.repeat_end === undefined) {
+          m.repeat_end = '';
+        }
+        if (m.end_time === undefined) {
+          m.end_time = '';
+        }
+        if (m.repeat_interval === undefined) {
+          m.repeat_interval = 1;
+          addLog('新增 id:' + m.id + ' repeat_interval=1', 'info', 'newFields');
+        }
+        if (m.time_records === undefined || m.time_records === null) {
+          m.time_records = '[]';
+          addLog('新增 id:' + m.id + ' time_records="[]"', 'info', 'newFields');
+        } else if (!isValidTimeRecords(m.time_records)) {
+          addLog('修复 id:' + m.id + ' time_records 格式不规范，重置为 \"[]\"', 'warn', 'timeRecordsFix');
+          m.time_records = '[]';
+          fixCount++;
+        }
+        if (!m.repeat_custom) m.repeat_custom = '';
+
+        if (m.fragment_anchor === undefined || m.fragment_anchor === null) {
+          m.fragment_anchor = '';
+        }
+
+        if (m.rrule === undefined || m.rrule === null) {
+          m.rrule = buildRRuleFromLegacy(
+            m.repeat_type,
+            m.repeat_interval,
+            m.repeat_end,
+            m.repeat_custom,
+            m.date
+          );
+          if (m.rrule) {
+            addLog('合成 id:' + m.id + ' rrule: ' + m.rrule, 'info', 'rrule');
+          }
+        }
+        if (m.type === undefined || m.type === null) {
+          var rpt = m.repeat_type;
+          if (rpt === 'fragment') m.type = 'fragment';
+          else if (rpt && typeof rpt === 'string' && ['daily','weekly','monthly','yearly'].indexOf(rpt) !== -1) m.type = 'recurring';
+          else m.type = 'none';
+        }
+        if (!m.anchor_date) {
+          m.anchor_date = (m.type === 'recurring') ? (m.date || '') : '';
+        }
+        if (m.exdates === undefined || m.exdates === null) {
+          m.exdates = '[]';
+        }
+        delete m.repeat_type;
+        delete m.repeat_custom;
+        delete m.repeat_interval;
+        delete m.repeat_end;
+      } catch (e) {
+        todoErrors++;
+        addLog('迁移 todo id:' + (t && t.id ? t.id : '(unknown)') + ' 失败: ' + e.message + '，跳过此条', 'err', 'migrateError');
+        continue;
       }
-      // v3.0：type 字段从 repeat_type 映射
-      if (m.type === undefined || m.type === null) {
-        var rpt = m.repeat_type;
-        if (rpt === 'fragment') m.type = 'fragment';
-        else if (rpt && ['daily','weekly','monthly','yearly'].includes(rpt)) m.type = 'recurring';
-        else m.type = 'none';
-      }
-      // anchor_date 字段（recurring 用 date，fragment/none 用 ''）
-      // 与后端一致：空字符串也触发兜底（t.anchor_date || t.date || ''）
-      if (!m.anchor_date) {
-        m.anchor_date = (m.type === 'recurring') ? (m.date || '') : '';
-      }
-      // v3.0：exdates 字段
-      if (m.exdates === undefined || m.exdates === null) {
-        m.exdates = '[]';
-      }
-      // 删除旧字段（v3.0 schema 不再存储）
-      delete m.repeat_type;
-      delete m.repeat_custom;
-      delete m.repeat_interval;
-      delete m.repeat_end;
 
       migratedTodos.push(m);
     }
 
     // 迁移 templates
+    var tplErrors = 0;
     for (var tpi = 0; tpi < data.templates.length; tpi++) {
       var tpl = data.templates[tpi];
-      var mt = Object.assign({}, tpl);
+      var mt;
+      try {
+        mt = Object.assign({}, tpl);
 
-      if (mt.blacklist !== undefined && mt.blacklist !== null) {
-        mt.exdates = mt.blacklist;
-        delete mt.blacklist;
-        addLog('模板 parent_id:' + mt.parent_id + ' blacklist → exdates: ' + mt.exdates, 'info', 'blacklist');
-      } else if (!mt.exdates) {
-        mt.exdates = '[]';
-        addLog('新增 模板 parent_id:' + mt.parent_id + ' exdates=[]', 'info', 'newFields');
-      }
-      if (mt.repeat_end === undefined) {
-        mt.repeat_end = '';
-      }
-      if (mt.end_time === undefined) {
-        mt.end_time = '';
-      }
-      if (mt.repeat_interval === undefined) {
-        mt.repeat_interval = 1;
-        addLog('新增 模板 parent_id:' + mt.parent_id + ' repeat_interval=1', 'info', 'newFields');
-      }
-      // time_records 补全 / 修复（schema 6）
-      // 必须是 JSON 数组字符串，默认 '[]'；与 api.js 中 safeTimeRecords 校验逻辑一致
-      if (mt.time_records === undefined || mt.time_records === null) {
-        mt.time_records = '[]';
-        addLog('新增 模板 parent_id:' + mt.parent_id + ' time_records="[]"', 'info', 'newFields');
-      } else if (!isValidTimeRecords(mt.time_records)) {
-        addLog('修复 模板 parent_id:' + mt.parent_id + ' time_records 格式不规范，重置为 \"[]\"', 'warn', 'timeRecordsFix');
-        mt.time_records = '[]';
-        fixCount++;
-      }
-
-      var rootTodo = rootTodoMap[mt.parent_id];
-      if (rootTodo && rootTodo.repeat_custom) {
-        var convertedTpl = convertRepeatCustom(rootTodo.repeat_custom, mt.repeat_type || rootTodo.repeat_type);
-        if (convertedTpl && (!mt.repeat_custom || mt.repeat_custom === '')) {
-          mt.repeat_custom = convertedTpl;
-          addLog('模板 parent_id:' + mt.parent_id + ' 从根 todo 同步 repeat_custom: ' + convertedTpl, 'warn', 'customSync');
-          fixCount++;
-        } else if (convertedTpl && mt.repeat_custom !== convertedTpl) {
-          addLog('模板 parent_id:' + mt.parent_id + ' repeat_custom 不一致，覆盖为: ' + convertedTpl, 'warn', 'customSync');
-          mt.repeat_custom = convertedTpl;
+        if (mt.blacklist !== undefined && mt.blacklist !== null) {
+          mt.exdates = mt.blacklist;
+          delete mt.blacklist;
+          addLog('模板 parent_id:' + mt.parent_id + ' blacklist → exdates: ' + mt.exdates, 'info', 'blacklist');
+        } else if (!mt.exdates) {
+          mt.exdates = '[]';
+          addLog('新增 模板 parent_id:' + mt.parent_id + ' exdates=[]', 'info', 'newFields');
+        }
+        if (mt.repeat_end === undefined) {
+          mt.repeat_end = '';
+        }
+        if (mt.end_time === undefined) {
+          mt.end_time = '';
+        }
+        if (mt.repeat_interval === undefined) {
+          mt.repeat_interval = 1;
+          addLog('新增 模板 parent_id:' + mt.parent_id + ' repeat_interval=1', 'info', 'newFields');
+        }
+        if (mt.time_records === undefined || mt.time_records === null) {
+          mt.time_records = '[]';
+          addLog('新增 模板 parent_id:' + mt.parent_id + ' time_records="[]"', 'info', 'newFields');
+        } else if (!isValidTimeRecords(mt.time_records)) {
+          addLog('修复 模板 parent_id:' + mt.parent_id + ' time_records 格式不规范，重置为 \"[]\"', 'warn', 'timeRecordsFix');
+          mt.time_records = '[]';
           fixCount++;
         }
-      }
 
-      if (mt.repeat_custom) {
-        var convertedSelf = convertRepeatCustom(mt.repeat_custom, mt.repeat_type);
-        if (convertedSelf !== mt.repeat_custom) {
-          addLog('模板 parent_id:' + mt.parent_id + ' repeat_custom 格式转换: ' + mt.repeat_custom + ' → ' + convertedSelf, 'warn', 'tplCustomConvert');
-          mt.repeat_custom = convertedSelf;
-          fixCount++;
+        var rootTodo = rootTodoMap[mt.parent_id];
+        if (rootTodo && rootTodo.repeat_custom) {
+          var convertedTpl = convertRepeatCustom(rootTodo.repeat_custom, mt.repeat_type || rootTodo.repeat_type);
+          if (convertedTpl && (!mt.repeat_custom || mt.repeat_custom === '')) {
+            mt.repeat_custom = convertedTpl;
+            addLog('模板 parent_id:' + mt.parent_id + ' 从根 todo 同步 repeat_custom: ' + convertedTpl, 'warn', 'customSync');
+            fixCount++;
+          } else if (convertedTpl && mt.repeat_custom !== convertedTpl) {
+            addLog('模板 parent_id:' + mt.parent_id + ' repeat_custom 不一致，覆盖为: ' + convertedTpl, 'warn', 'customSync');
+            mt.repeat_custom = convertedTpl;
+            fixCount++;
+          }
         }
-      }
 
-      // rrule 字段补全。模板的 anchor_date 是 RRULE 起始日期。
-      if (mt.rrule === undefined || mt.rrule === null) {
-        mt.rrule = buildRRuleFromLegacy(
-          mt.repeat_type,
-          mt.repeat_interval,
-          mt.repeat_end,
-          mt.repeat_custom,
-          mt.anchor_date
-        );
-        if (mt.rrule) {
-          addLog('合成 模板 parent_id:' + mt.parent_id + ' rrule: ' + mt.rrule, 'info', 'rrule');
+        if (mt.repeat_custom) {
+          var convertedSelf = convertRepeatCustom(mt.repeat_custom, mt.repeat_type);
+          if (convertedSelf !== mt.repeat_custom) {
+            addLog('模板 parent_id:' + mt.parent_id + ' repeat_custom 格式转换: ' + mt.repeat_custom + ' → ' + convertedSelf, 'warn', 'tplCustomConvert');
+            mt.repeat_custom = convertedSelf;
+            fixCount++;
+          }
         }
+
+        if (mt.rrule === undefined || mt.rrule === null) {
+          mt.rrule = buildRRuleFromLegacy(
+            mt.repeat_type,
+            mt.repeat_interval,
+            mt.repeat_end,
+            mt.repeat_custom,
+            mt.anchor_date
+          );
+          if (mt.rrule) {
+            addLog('合成 模板 parent_id:' + mt.parent_id + ' rrule: ' + mt.rrule, 'info', 'rrule');
+          }
+        }
+        if (mt.type === undefined || mt.type === null) {
+          mt.type = 'recurring';
+        }
+        delete mt.repeat_type;
+        delete mt.repeat_custom;
+        delete mt.repeat_interval;
+        delete mt.repeat_end;
+      } catch (e) {
+        tplErrors++;
+        addLog('迁移 template parent_id:' + (tpl && tpl.parent_id ? tpl.parent_id : '(unknown)') + ' 失败: ' + e.message + '，跳过此条', 'err', 'migrateError');
+        continue;
       }
-      // v3.0：type 字段固定为 recurring（模板只有 recurring 类型）
-      if (mt.type === undefined || mt.type === null) {
-        mt.type = 'recurring';
-      }
-      // 删除旧字段
-      delete mt.repeat_type;
-      delete mt.repeat_custom;
-      delete mt.repeat_interval;
-      delete mt.repeat_end;
 
       migratedTemplates.push(mt);
+    }
+
+    if (todoErrors > 0 || tplErrors > 0) {
+      addLog('迁移完成（含错误）: todos 跳过 ' + todoErrors + ' 条, templates 跳过 ' + tplErrors + ' 条', 'warn', 'migrateError');
     }
 
     progressFill.style.width = '100%';
@@ -1092,7 +1132,7 @@
     lines.push(JSON.stringify({ _type: 'custom_header', data: data.custom_header || '' }));
     lines.push(JSON.stringify({ _type: 'custom_content', data: data.custom_content || '' }));
     lines.push(JSON.stringify({ _type: 'customColors', data: data.customColors || [] }));
-    if (data.categories && data.categories.length > 0) {
+    if (data.categories && Array.isArray(data.categories) && data.categories.length > 0) {
       lines.push(JSON.stringify({ _type: 'categories', data: data.categories }));
     }
     for (var i = 0; i < data.todos.length; i++) {
