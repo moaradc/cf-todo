@@ -469,7 +469,8 @@
       statCard(deletedTodos.length, '已删除') +
       statCard(data.templates.length, '重复模板') +
       statCard(repeatingTodos.length, '重复事项') +
-      statCard(exceptionTodos.length, '例外事项(repeat=-1)') +
+      statCard(data.todos.filter(function(t) { return t.type === 'fragment' || t.repeat_type === 'fragment'; }).length, '碎时记') +
+      statCard(exceptionTodos.length, '例外事项') +
       statCard(dirtyRepeat.length, '脏数据修复') +
       statCard(oldFormatCustomTodos.length + oldFormatCustomTpls.length + unsyncedCustom.length, 'repeat_custom 迁移') +
       statCard(missingIntervalTodos.length + missingIntervalTpls.length, 'repeat_interval 补全') +
