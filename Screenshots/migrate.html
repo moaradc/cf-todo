@@ -190,6 +190,7 @@
   // ==================== 文件读取 ====================
 
   // 点击拖拽区：优先使用 File System API，降级到 input[type=file]
+  // 安卓 Chrome/Edge/Firefox：FSAPI 路径有效；iOS Safari 不支持 FSAPI，走 input[type=file]
   dropZone.addEventListener('click', function() {
     if (hasFileSystemAPI) {
       openFileWithFSAPI();
@@ -218,7 +219,8 @@
       var text = await file.text();
       parseAndShow(file.name, text);
     } catch (err) {
-      if (err.name === 'AbortError') return;
+      // AbortError 可能是用户主动取消，也可能是浏览器安全策略拒绝（如 file:// 协议）
+      // 无法区分时统一 fallback 到 input[type=file]，确保至少有一种方式能弹选择器
       fileInput.click();
     }
   }
@@ -805,12 +807,11 @@
       if (m.exdates === undefined || m.exdates === null) {
         m.exdates = '[]';
       }
-      // v3.0：删除旧字段（v3.0 schema 3 不再存储）
+      // 删除旧字段（v3.0 schema 不再存储）
       delete m.repeat_type;
       delete m.repeat_custom;
       delete m.repeat_interval;
       delete m.repeat_end;
-      }
 
       migratedTodos.push(m);
     }
@@ -889,12 +890,11 @@
       if (mt.type === undefined || mt.type === null) {
         mt.type = 'recurring';
       }
-      // v3.0：删除旧字段
+      // 删除旧字段
       delete mt.repeat_type;
       delete mt.repeat_custom;
       delete mt.repeat_interval;
       delete mt.repeat_end;
-      }
 
       migratedTemplates.push(mt);
     }
