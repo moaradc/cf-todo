@@ -720,6 +720,58 @@
 
   // 从旧字段（repeat_type / repeat_interval / repeat_end / repeat_custom / anchor_date）
   // 合成 RFC 5545 RRULE 字符串，写入 rrule 列。逻辑与后端 rruleFromLegacyFields 一致。
+  // 末尾经过 sanitizeRRule 规范化，确保输出与后端一致。
+
+  // sanitizeRRule：复刻后端 recurring-engine.js 的 sanitizeRRule 逻辑
+  // 规范化并校验 RRULE 字符串，无效时返回 ''
+  function sanitizeRRule(raw) {
+    if (raw == null || typeof raw !== 'string') return '';
+    var s = raw.trim();
+    if (!s) return '';
+    if (s.length > 500) return '';
+    if (/[\x00-\x1f\x7f]/.test(s)) return '';
+    if (s.indexOf('RRULE:') === 0) s = s.slice(6).trim();
+    if (!s) return '';
+    if (s.indexOf('RRULE:') !== -1) return '';  // 防多 RRULE 注入
+
+    var parts = s.split(';').filter(function(p) { return p.length > 0; });
+    if (parts.length === 0) return '';
+    if (parts[0].toUpperCase().indexOf('FREQ=') !== 0) return '';
+    var freqVal = (parts[0].split('=')[1] || '').toUpperCase();
+    var ALLOWED_FREQ = ['DAILY', 'WEEKLY', 'MONTHLY', 'YEARLY'];
+    if (ALLOWED_FREQ.indexOf(freqVal) === -1) return '';
+
+    if (/;(BYHOUR|BYMINUTE|BYSECOND)=/i.test(s)) return '';
+
+    var ALLOWED_TOKENS = ['FREQ','INTERVAL','UNTIL','COUNT','BYDAY','BYMONTHDAY','BYMONTH','BYWEEKNO','BYYEARDAY','BYSETPOS','WKST'];
+    for (var i = 1; i < parts.length; i++) {
+      var tokenName = (parts[i].split('=')[0] || '').toUpperCase();
+      if (ALLOWED_TOKENS.indexOf(tokenName) === -1) return '';
+    }
+
+    // UNTIL 与 COUNT 互斥
+    var hasUntil = parts.some(function(p) { return p.toUpperCase().indexOf('UNTIL=') === 0; });
+    var hasCount = parts.some(function(p) { return p.toUpperCase().indexOf('COUNT=') === 0; });
+    if (hasUntil && hasCount) return '';
+
+    // INTERVAL 必须为正整数
+    var intervalPart = parts.find(function(p) { return p.toUpperCase().indexOf('INTERVAL=') === 0; });
+    if (intervalPart) {
+      var iv = parseInt(intervalPart.split('=')[1], 10);
+      if (!Number.isInteger(iv) || iv < 1) return '';
+    }
+
+    // COUNT 必须为正整数
+    var countPart = parts.find(function(p) { return p.toUpperCase().indexOf('COUNT=') === 0; });
+    if (countPart) {
+      var cv = parseInt(countPart.split('=')[1], 10);
+      if (!Number.isInteger(cv) || cv < 1) return '';
+    }
+
+    // 全大写规范化
+    var canonical = 'FREQ=' + freqVal + (parts.length > 1 ? ';' + parts.slice(1).join(';') : '').toUpperCase();
+    return canonical;
+  }
   // none/fragment → 返回 ''（与后端一致）
   function buildRRuleFromLegacy(repeatType, interval, repeatEnd, repeatCustom, anchorDate) {
     if (!repeatType || repeatType === 'none' || repeatType === 'fragment') return '';
@@ -742,7 +794,7 @@
       if (repeatEnd && /^\d{4}-\d{2}-\d{2}$/.test(repeatEnd) && rrule.indexOf('UNTIL=') < 0) {
         rrule = rrule + ';UNTIL=' + repeatEnd.replace(/-/g, '') + 'T235959Z';
       }
-      return rrule;
+      return sanitizeRRule(rrule);
     }
 
     // 无 custom：从 repeat_type + interval + repeat_end + anchor_date 合成
@@ -768,7 +820,7 @@
       parts.push('UNTIL=' + repeatEnd.replace(/-/g, '') + 'T235959Z');
     }
 
-    return parts.join(';');
+    return sanitizeRRule(parts.join(';'));
   }
 
   function migrate(data) {
@@ -881,8 +933,9 @@
         else if (rpt && ['daily','weekly','monthly','yearly'].includes(rpt)) m.type = 'recurring';
         else m.type = 'none';
       }
-      // v3.0：anchor_date 字段（recurring 用 date，fragment/none 用 ''）
-      if (m.anchor_date === undefined || m.anchor_date === null) {
+      // anchor_date 字段（recurring 用 date，fragment/none 用 ''）
+      // 与后端一致：空字符串也触发兜底（t.anchor_date || t.date || ''）
+      if (!m.anchor_date) {
         m.anchor_date = (m.type === 'recurring') ? (m.date || '') : '';
       }
       // v3.0：exdates 字段
