@@ -626,9 +626,8 @@
   // ==================== 日志系统 ====================
 
   // addLog 受 showAll 控制：默认模式最多记录 DEFAULT_LOG_LIMIT 条，全部模式无限制
-  // force=true 时强制记录（用于迁移完成后的汇总日志，确保用户能看到）
-  function addLog(msg, type, category, force) {
-    if (!force && !showAll && allLogs.length >= DEFAULT_LOG_LIMIT) {
+  function addLog(msg, type, category) {
+    if (!showAll && allLogs.length >= DEFAULT_LOG_LIMIT) {
       droppedCount++;
       return;
     }
@@ -1035,16 +1034,16 @@
     }
 
     progressFill.style.width = '100%';
-    addLog('迁移完成: 处理 ' + migratedTodos.length + ' 条事项 + ' + migratedTemplates.length + ' 个模板，修复 ' + fixCount + ' 条数据', 'ok', null, true);
-    // v3.0 字段迁移汇总（force=true 确保即默认模式也能看到）
+    addLog('迁移完成: 处理 ' + migratedTodos.length + ' 条事项 + ' + migratedTemplates.length + ' 个模板，修复 ' + fixCount + ' 条数据', 'ok');
+    // v3.0 字段迁移汇总
     var v3TypeTodos = migratedTodos.filter(function(t) { return t.type === 'recurring'; }).length;
     var v3TypeFragment = migratedTodos.filter(function(t) { return t.type === 'fragment'; }).length;
     var v3TypeNone = migratedTodos.filter(function(t) { return t.type === 'none'; }).length;
     var v3RruleTodos = migratedTodos.filter(function(t) { return t.rrule && t.rrule !== ''; }).length;
     var v3RruleTpls = migratedTemplates.filter(function(t) { return t.rrule && t.rrule !== ''; }).length;
-    addLog('v3.0 字段: todos type 分布 recurring=' + v3TypeTodos + ' / fragment=' + v3TypeFragment + ' / none=' + v3TypeNone, 'info', 'v3summary', true);
-    addLog('v3.0 字段: rrule 非空 todos=' + v3RruleTodos + ' / templates=' + v3RruleTpls, 'info', 'v3summary', true);
-    addLog('v3.0 字段: anchor_date / exdates / fragment_anchor 已补全；repeat_type / repeat_custom / repeat_interval / repeat_end 已删除', 'info', 'v3summary', true);
+    addLog('v3.0 字段: todos type 分布 recurring=' + v3TypeTodos + ' / fragment=' + v3TypeFragment + ' / none=' + v3TypeNone, 'info', 'v3summary');
+    addLog('v3.0 字段: rrule 非空 todos=' + v3RruleTodos + ' / templates=' + v3RruleTpls, 'info', 'v3summary');
+    addLog('v3.0 字段: anchor_date / exdates / fragment_anchor 已补全；repeat_type / repeat_custom / repeat_interval / repeat_end 已删除', 'info', 'v3summary');
 
     // 字段顺序规范化：按后端 DB 列顺序重建对象，确保与原生导出一致
     // JSON 对象理论上无序，但保持顺序一致便于用户 diff 对比新旧导出文件
