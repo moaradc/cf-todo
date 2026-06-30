@@ -327,7 +327,12 @@
     });
     var hasOldCustom = hasOldCustomTodo || hasOldCustomTpl;
 
-    var needMigration = hasRepeat || hasDeletedAt || hasBlacklist || hasOldCustom;
+    var needMigration = hasRepeat || hasDeletedAt || hasBlacklist || hasOldCustom || hasV3LegacyFields ||
+      missingTypeTodos.length > 0 || missingTypeTpls.length > 0 ||
+      missingRRuleTodos.length > 0 || missingRRuleTpls.length > 0 ||
+      missingAnchorDateTodos.length > 0 || missingAnchorDateTpls.length > 0 ||
+      missingExdatesTodos.length > 0 || missingExdatesTpls.length > 0 ||
+      missingFragmentAnchor.length > 0;
 
     var activeTodos = data.todos.filter(function(t) { return !t.deleted; });
     var deletedTodos = data.todos.filter(function(t) { return t.deleted; });
@@ -385,6 +390,32 @@
     var invalidTimeRecordsTodos = data.todos.filter(function(t) { return t.time_records !== undefined && t.time_records !== null && !isValidTimeRecords(t.time_records); });
     var invalidTimeRecordsTpls = data.templates.filter(function(t) { return t.time_records !== undefined && t.time_records !== null && !isValidTimeRecords(t.time_records); });
 
+    // v3.0 规范字段检测（type / rrule / anchor_date / exdates / fragment_anchor）
+    // 这些字段在 v3.0 schema 才引入，旧版导出文件全部缺失
+    var missingTypeTodos = data.todos.filter(function(t) { return t.type === undefined || t.type === null; });
+    var missingTypeTpls = data.templates.filter(function(t) { return t.type === undefined || t.type === null; });
+    var missingRRuleTodos = data.todos.filter(function(t) { return t.rrule === undefined || t.rrule === null; });
+    var missingRRuleTpls = data.templates.filter(function(t) { return t.rrule === undefined || t.rrule === null; });
+    var missingAnchorDateTodos = data.todos.filter(function(t) { return t.anchor_date === undefined || t.anchor_date === null; });
+    var missingAnchorDateTpls = data.templates.filter(function(t) { return t.anchor_date === undefined || t.anchor_date === null; });
+    var missingExdatesTodos = data.todos.filter(function(t) { return t.exdates === undefined || t.exdates === null; });
+    var missingExdatesTpls = data.templates.filter(function(t) { return t.exdates === undefined || t.exdates === null; });
+    var missingFragmentAnchor = data.todos.filter(function(t) { return t.fragment_anchor === undefined || t.fragment_anchor === null; });
+    // v3.0 删除的旧字段（repeat_type / repeat_custom / repeat_interval / repeat_end）
+    var hasLegacyRepeatTypeTodos = data.todos.some(function(t) { return t.repeat_type !== undefined; });
+    var hasLegacyRepeatTypeTpls = data.templates.some(function(t) { return t.repeat_type !== undefined; });
+    var hasLegacyRepeatCustomTodos = data.todos.some(function(t) { return t.repeat_custom !== undefined && t.repeat_custom !== ''; });
+    var hasLegacyRepeatCustomTpls = data.templates.some(function(t) { return t.repeat_custom !== undefined && t.repeat_custom !== ''; });
+    var hasLegacyRepeatIntervalTodos = data.todos.some(function(t) { return t.repeat_interval !== undefined; });
+    var hasLegacyRepeatIntervalTpls = data.templates.some(function(t) { return t.repeat_interval !== undefined; });
+    var hasLegacyRepeatEndTodos = data.todos.some(function(t) { return t.repeat_end !== undefined; });
+    var hasLegacyRepeatEndTpls = data.templates.some(function(t) { return t.repeat_end !== undefined; });
+    // v3.0 schema 删除的字段（any indicates旧版）
+    var hasV3LegacyFields = hasLegacyRepeatTypeTodos || hasLegacyRepeatTypeTpls ||
+      hasLegacyRepeatCustomTodos || hasLegacyRepeatCustomTpls ||
+      hasLegacyRepeatIntervalTodos || hasLegacyRepeatIntervalTpls ||
+      hasLegacyRepeatEndTodos || hasLegacyRepeatEndTpls;
+
     // 数据概览
     statsGrid.innerHTML =
       statCard(data.todos.length, '待办事项') +
@@ -396,13 +427,20 @@
       statCard(dirtyRepeat.length, '脏数据修复') +
       statCard(oldFormatCustomTodos.length + oldFormatCustomTpls.length + unsyncedCustom.length, 'repeat_custom 迁移') +
       statCard(missingIntervalTodos.length + missingIntervalTpls.length, 'repeat_interval 补全') +
-      statCard(missingTimeRecordsTodos.length + missingTimeRecordsTpls.length + invalidTimeRecordsTodos.length + invalidTimeRecordsTpls.length, 'time_records 补全/修复');
+      statCard(missingTimeRecordsTodos.length + missingTimeRecordsTpls.length + invalidTimeRecordsTodos.length + invalidTimeRecordsTpls.length, 'time_records 补全/修复') +
+      statCard(missingTypeTodos.length + missingTypeTpls.length, 'v3.0 type 补全') +
+      statCard(missingRRuleTodos.length + missingRRuleTpls.length, 'v3.0 rrule 合成') +
+      statCard(missingAnchorDateTodos.length + missingAnchorDateTpls.length, 'v3.0 anchor_date 补全') +
+      statCard(missingExdatesTodos.length + missingExdatesTpls.length, 'v3.0 exdates 补全') +
+      statCard(missingFragmentAnchor.length, 'v3.0 fragment_anchor 补全') +
+      statCard((hasLegacyRepeatTypeTodos ? data.todos.filter(function(t){return t.repeat_type!==undefined}).length : 0) + (hasLegacyRepeatTypeTpls ? data.templates.filter(function(t){return t.repeat_type!==undefined}).length : 0), 'v3.0 删除 repeat_type') +
+      statCard((hasLegacyRepeatIntervalTodos ? data.todos.filter(function(t){return t.repeat_interval!==undefined}).length : 0) + (hasLegacyRepeatIntervalTpls ? data.templates.filter(function(t){return t.repeat_interval!==undefined}).length : 0), 'v3.0 删除 repeat_interval');
 
     // 动态生成迁移差异（完整覆盖所有迁移操作）
     var diffList = document.getElementById('diffList');
     diffList.innerHTML = '';
 
-    if (!needMigration && dirtyRepeat.length === 0 && exceptionTodos.length === 0 && unsyncedCustom.length === 0 && missingRecurrenceId.length === 0 && missingIsException.length === 0 && missingExdates.length === 0 && missingIntervalTodos.length === 0 && missingIntervalTpls.length === 0 && missingRepeatEndTodos.length === 0 && missingEndTimeTodos.length === 0 && missingRepeatEndTpls.length === 0 && missingEndTimeTpls.length === 0 && missingTimeRecordsTodos.length === 0 && missingTimeRecordsTpls.length === 0 && invalidTimeRecordsTodos.length === 0 && invalidTimeRecordsTpls.length === 0) {
+    if (!needMigration && dirtyRepeat.length === 0 && exceptionTodos.length === 0 && unsyncedCustom.length === 0 && missingRecurrenceId.length === 0 && missingIsException.length === 0 && missingExdates.length === 0 && missingIntervalTodos.length === 0 && missingIntervalTpls.length === 0 && missingRepeatEndTodos.length === 0 && missingEndTimeTodos.length === 0 && missingRepeatEndTpls.length === 0 && missingEndTimeTpls.length === 0 && missingTimeRecordsTodos.length === 0 && missingTimeRecordsTpls.length === 0 && invalidTimeRecordsTodos.length === 0 && invalidTimeRecordsTpls.length === 0 && missingTypeTodos.length === 0 && missingTypeTpls.length === 0 && missingRRuleTodos.length === 0 && missingRRuleTpls.length === 0 && missingAnchorDateTodos.length === 0 && missingAnchorDateTpls.length === 0 && missingExdatesTodos.length === 0 && missingExdatesTpls.length === 0 && missingFragmentAnchor.length === 0 && !hasV3LegacyFields) {
       diffList.innerHTML = '<div class="diff-item" style="border-color:#1a3a1a;"><div class="diff-desc" style="color:var(--crt);">此文件已是新版格式，无需迁移</div></div>';
       migrateBtn.disabled = true;
       addLog('此文件已是 v3.0 格式，无需迁移', 'ok');
@@ -462,18 +500,61 @@
       diffList.innerHTML += diffItem('templates', '<span class="renamed">time_records 修复</span>', '格式不规范（非字符串/非合法 JSON 数组），重置为 \"[]\"', invalidTimeRecordsTpls.length);
     }
 
-    // rrule 字段补全（schema 2 新增）
-    var missingRRuleTodos = data.todos.filter(function(t) {
-      return t.rrule === undefined || t.rrule === null;
-    });
-    var missingRRuleTpls = data.templates.filter(function(t) {
-      return t.rrule === undefined || t.rrule === null;
-    });
+    // v3.0 规范字段新增（type / rrule / anchor_date / exdates / fragment_anchor）
+    // 这些是 v3.0 schema 的核心字段，旧版导出文件全部缺失
+    if (missingTypeTodos.length > 0) {
+      diffList.innerHTML += diffItem('todos', '<span class="added">type</span> 新增', 'v3.0 规范字段：none / fragment / recurring，从旧 repeat_type 映射（daily/weekly/monthly/yearly → recurring）', missingTypeTodos.length);
+    }
+    if (missingTypeTpls.length > 0) {
+      diffList.innerHTML += diffItem('templates', '<span class="added">type</span> 新增', 'v3.0 规范字段：模板固定为 recurring', missingTypeTpls.length);
+    }
     if (missingRRuleTodos.length > 0) {
-      diffList.innerHTML += diffItem('todos', '<span class="added">rrule</span> 新增', 'RFC 5545 RRULE 字符串（规范字段），从 repeat_type/interval/end/custom 合成', missingRRuleTodos.length);
+      diffList.innerHTML += diffItem('todos', '<span class="added">rrule</span> 新增', 'v3.0 规范字段：RFC 5545 RRULE 字符串，从 repeat_type/interval/end/custom 合成', missingRRuleTodos.length);
     }
     if (missingRRuleTpls.length > 0) {
-      diffList.innerHTML += diffItem('templates', '<span class="added">rrule</span> 新增', 'RFC 5545 RRULE 字符串（规范字段），从 repeat_type/interval/end/custom 合成', missingRRuleTpls.length);
+      diffList.innerHTML += diffItem('templates', '<span class="added">rrule</span> 新增', 'v3.0 规范字段：RFC 5545 RRULE 字符串，从 repeat_type/interval/end/custom 合成', missingRRuleTpls.length);
+    }
+    if (missingAnchorDateTodos.length > 0) {
+      diffList.innerHTML += diffItem('todos', '<span class="added">anchor_date</span> 新增', 'v3.0 规范字段：RRULE 起始日期（recurring 用 date，其他为空）', missingAnchorDateTodos.length);
+    }
+    if (missingAnchorDateTpls.length > 0) {
+      diffList.innerHTML += diffItem('templates', '<span class="added">anchor_date</span> 新增', 'v3.0 规范字段：RRULE 起始日期', missingAnchorDateTpls.length);
+    }
+    if (missingExdatesTodos.length > 0) {
+      diffList.innerHTML += diffItem('todos', '<span class="added">exdates</span> 新增', 'v3.0 规范字段：排除日期数组，默认 "[]"', missingExdatesTodos.length);
+    }
+    if (missingExdatesTpls.length > 0) {
+      diffList.innerHTML += diffItem('templates', '<span class="added">exdates</span> 新增', 'v3.0 规范字段：排除日期数组，默认 "[]"', missingExdatesTpls.length);
+    }
+    if (missingFragmentAnchor.length > 0) {
+      diffList.innerHTML += diffItem('todos', '<span class="added">fragment_anchor</span> 新增', 'v3.0 规范字段：碎时记起始日期权威副本，默认空字符串', missingFragmentAnchor.length);
+    }
+
+    // v3.0 删除的旧字段（repeat_type / repeat_custom / repeat_interval / repeat_end）
+    // v3.0 schema 不再存储这些字段，迁移时删除
+    if (hasLegacyRepeatTypeTodos) {
+      diffList.innerHTML += diffItem('todos', '<span class="removed">repeat_type</span> 移除', 'v3.0 已由 type + rrule 替代，旧字段删除', data.todos.filter(function(t) { return t.repeat_type !== undefined; }).length);
+    }
+    if (hasLegacyRepeatTypeTpls) {
+      diffList.innerHTML += diffItem('templates', '<span class="removed">repeat_type</span> 移除', 'v3.0 已由 type + rrule 替代，旧字段删除', data.templates.filter(function(t) { return t.repeat_type !== undefined; }).length);
+    }
+    if (hasLegacyRepeatCustomTodos) {
+      diffList.innerHTML += diffItem('todos', '<span class="removed">repeat_custom</span> 移除', 'v3.0 已合并到 rrule，旧字段删除', data.todos.filter(function(t) { return t.repeat_custom !== undefined && t.repeat_custom !== ''; }).length);
+    }
+    if (hasLegacyRepeatCustomTpls) {
+      diffList.innerHTML += diffItem('templates', '<span class="removed">repeat_custom</span> 移除', 'v3.0 已合并到 rrule，旧字段删除', data.templates.filter(function(t) { return t.repeat_custom !== undefined && t.repeat_custom !== ''; }).length);
+    }
+    if (hasLegacyRepeatIntervalTodos) {
+      diffList.innerHTML += diffItem('todos', '<span class="removed">repeat_interval</span> 移除', 'v3.0 已合并到 rrule 的 INTERVAL token，旧字段删除', data.todos.filter(function(t) { return t.repeat_interval !== undefined; }).length);
+    }
+    if (hasLegacyRepeatIntervalTpls) {
+      diffList.innerHTML += diffItem('templates', '<span class="removed">repeat_interval</span> 移除', 'v3.0 已合并到 rrule 的 INTERVAL token，旧字段删除', data.templates.filter(function(t) { return t.repeat_interval !== undefined; }).length);
+    }
+    if (hasLegacyRepeatEndTodos) {
+      diffList.innerHTML += diffItem('todos', '<span class="removed">repeat_end</span> 移除', 'v3.0 已合并到 rrule 的 UNTIL token，旧字段删除', data.todos.filter(function(t) { return t.repeat_end !== undefined; }).length);
+    }
+    if (hasLegacyRepeatEndTpls) {
+      diffList.innerHTML += diffItem('templates', '<span class="removed">repeat_end</span> 移除', 'v3.0 已合并到 rrule 的 UNTIL token，旧字段删除', data.templates.filter(function(t) { return t.repeat_end !== undefined; }).length);
     }
 
     // 数据修复
@@ -545,8 +626,9 @@
   // ==================== 日志系统 ====================
 
   // addLog 受 showAll 控制：默认模式最多记录 DEFAULT_LOG_LIMIT 条，全部模式无限制
-  function addLog(msg, type, category) {
-    if (!showAll && allLogs.length >= DEFAULT_LOG_LIMIT) {
+  // force=true 时强制记录（用于迁移完成后的汇总日志，确保用户能看到）
+  function addLog(msg, type, category, force) {
+    if (!force && !showAll && allLogs.length >= DEFAULT_LOG_LIMIT) {
       droppedCount++;
       return;
     }
@@ -900,7 +982,16 @@
     }
 
     progressFill.style.width = '100%';
-    addLog('迁移完成: 处理 ' + migratedTodos.length + ' 条事项 + ' + migratedTemplates.length + ' 个模板，修复 ' + fixCount + ' 条数据', 'ok');
+    addLog('迁移完成: 处理 ' + migratedTodos.length + ' 条事项 + ' + migratedTemplates.length + ' 个模板，修复 ' + fixCount + ' 条数据', 'ok', null, true);
+    // v3.0 字段迁移汇总（force=true 确保即默认模式也能看到）
+    var v3TypeTodos = migratedTodos.filter(function(t) { return t.type === 'recurring'; }).length;
+    var v3TypeFragment = migratedTodos.filter(function(t) { return t.type === 'fragment'; }).length;
+    var v3TypeNone = migratedTodos.filter(function(t) { return t.type === 'none'; }).length;
+    var v3RruleTodos = migratedTodos.filter(function(t) { return t.rrule && t.rrule !== ''; }).length;
+    var v3RruleTpls = migratedTemplates.filter(function(t) { return t.rrule && t.rrule !== ''; }).length;
+    addLog('v3.0 字段: todos type 分布 recurring=' + v3TypeTodos + ' / fragment=' + v3TypeFragment + ' / none=' + v3TypeNone, 'info', 'v3summary', true);
+    addLog('v3.0 字段: rrule 非空 todos=' + v3RruleTodos + ' / templates=' + v3RruleTpls, 'info', 'v3summary', true);
+    addLog('v3.0 字段: anchor_date / exdates / fragment_anchor 已补全；repeat_type / repeat_custom / repeat_interval / repeat_end 已删除', 'info', 'v3summary', true);
 
     return {
       settings: data.settings,
