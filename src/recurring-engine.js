@@ -1,13 +1,11 @@
 /**
- * Recurring Event Engine - RFC 5545 Compliant (v1.0)
+ * Recurring Event Engine - RFC 5545 Compliant
  *
- * v1.0 破坏性变更：
- * - 删除所有旧字段处理（repeat_type / repeat_custom / repeat_interval / repeat_end）
- * - 唯一规范字段：rrule + anchor_date + exdates
- * - type 三态：none / fragment / recurring（仅作分类，不参与 RRULE 展开）
- * - fragment 类型永不参与 RRULE 展开（碎时记有独立生命周期）
+ * 重复规则唯一规范字段：rrule + anchor_date + exdates
+ * type 三态：none / fragment / recurring（仅作分类，不参与 RRULE 展开）
+ * fragment 永不参与 RRULE 展开（碎时记有独立生命周期）
  *
- * scope 三种操作范围（对齐 Google Calendar / Nylas / DHTMLX Scheduler）:
+ * scope 三种操作范围：
  * - "this": 仅此实例（创建例外或添加 EXDATE）
  * - "thisAndFuture": 此实例及以后（拆分系列）
  * - "all": 所有实例（修改模板）
@@ -17,17 +15,13 @@ import ICAL from 'ical.js';
 
 // ==================== RRULE 校验 ====================
 
-// FREQ 白名单：仅允许 DAILY/WEEKLY/MONTHLY/YEARLY
-// - SECONDLY/MINUTELY/HOURLY 会撑爆 Worker CPU（10ms 限制）
-// - 与项目"每天/周/月/年"语义对齐，拒绝"每 9 小时"等时间段语义
+// SECONDLY/MINUTELY/HOURLY 会撑爆 Worker CPU（10ms 限制），仅允许 DAILY/WEEKLY/MONTHLY/YEARLY
 const ALLOWED_FREQ = new Set(['DAILY', 'WEEKLY', 'MONTHLY', 'YEARLY']);
 
-// 拒绝的时间段语义 token（早 fail 省 ical.js 解析开销）
-// BYHOUR=9 这种"每天 9 点"语义本项目无此场景
+// 拒绝 BYHOUR/BYMINUTE/BYSECOND（时间段语义，项目无此场景）
 const FORBIDDEN_TOKEN_RE = /;(BYHOUR|BYMINUTE|BYSECOND)=/i;
 
-// RRULE token 白名单（FREQ 之后允许出现的 token 名）
-// 收紧攻击面，拒绝 RSCALE 等扩展；覆盖项目所有重复场景
+// RRULE token 白名单，拒绝 RSCALE 等扩展
 const ALLOWED_RRULE_TOKENS = new Set([
   'FREQ', 'INTERVAL', 'UNTIL', 'COUNT', 'BYDAY', 'BYMONTHDAY', 'BYMONTH',
   'BYWEEKNO', 'BYYEARDAY', 'BYSETPOS', 'WKST',
@@ -43,11 +37,12 @@ const CONTROL_CHAR_RE = /[\x00-\x1f\x7f]/;
  * 校验规则：
  * 1. 自动剥离 RRULE: 前缀，全大写规范化
  * 2. FREQ 必须是第一个 token 且 ∈ {DAILY, WEEKLY, MONTHLY, YEARLY}
- * 3. 拒绝 BYHOUR/BYMINUTE/BYSECOND（时间段语义，项目无此场景）
+ * 3. 拒绝 BYHOUR/BYMINUTE/BYSECOND
  * 4. token 白名单：FREQ/INTERVAL/UNTIL/COUNT/BYDAY/BYMONTHDAY/BYMONTH/BYWEEKNO/BYYEARDAY/BYSETPOS/WKST
  * 5. 长度 ≤ 500，无控制字符
  * 6. 不允许多 RRULE 注入
- * 7. 最终用 ical.js 解析作为终极校验
+ * 7. UNTIL 与 COUNT 互斥；INTERVAL/COUNT 必须为正整数
+ * 8. 最终用 ical.js 解析作为终极校验
  *
  * @param {string|undefined|null} raw
  * @returns {string} 规范化后的 RRULE（不含 RRULE: 前缀）；无效时返回 ""
@@ -145,9 +140,9 @@ export function processRRule(raw, type, opts = {}) {
   return { value: sanitized, error: null };
 }
 
-// ==================== 迁移工具（v1.0 内部使用，不再导出）====================
+// ==================== 迁移工具（内部使用，不再导出）====================
 
-// v1.0 数据迁移：从旧字段（repeat_type / repeat_interval / repeat_end / repeat_custom / anchor_date）
+// 数据迁移：从旧字段（repeat_type / repeat_interval / repeat_end / repeat_custom / anchor_date）
 // 合成 rrule。仅在迁移工具/导入旧导出文件时使用，业务代码不应调用。
 const FREQ_MAP = {
   daily: 'DAILY',
@@ -207,8 +202,7 @@ export function rruleFromLegacyFields({ repeat_type, repeat_interval = 1, repeat
 }
 
 /**
- * 从 rrule 反推旧字段（仅用于响应序列化时旧客户端兼容，v1.0 已不推荐使用）。
- * v1.0 响应不再返回旧字段，此函数仅保留供迁移工具/调试使用。
+ * 从 rrule 反推旧字段（仅供迁移工具/调试使用，业务代码不应调用）。
  */
 export function deriveLegacyFieldsFromRRule(rrule) {
   const empty = { repeat_type: 'none', repeat_interval: 1, repeat_end: '', repeat_custom: '' };
@@ -259,7 +253,7 @@ function icalTimeToDateStr(time) {
 /**
  * 构建 ical.js VCALENDAR/VEVENT 组件用于 RRULE 展开。
  *
- * v1.0 简化设计：仅依赖 rrule + anchor_date + exdates 三个字段。
+ * 简化设计：仅依赖 rrule + anchor_date + exdates 三个字段。
  * - rrule：RFC 5545 RRULE 字符串（已 sanitize，不含 RRULE: 前缀）
  * - anchor_date：DTSTART 等价物（YYYY-MM-DD）
  * - exdates：JSON 数组字符串或数组，如 ["2026-07-04"]
@@ -273,7 +267,7 @@ function createICALComponent(template) {
   vevent.addPropertyWithValue('uid', template.parent_id || 'temp');
   vevent.addPropertyWithValue('dtstart', dateStrToICALTime(template.anchor_date));
 
-  // rrule 属性（v1.0 唯一规范字段）
+  // rrule 属性（唯一规范字段）
   if (template.rrule && template.rrule.trim()) {
     try {
       const rruleProp = new ICAL.Property('rrule', vevent);
@@ -313,7 +307,7 @@ function createICALComponent(template) {
  * 判断某日期是否为重复事件的发生日期。
  * 对齐 RFC 5545：DTSTART 始终是第一个实例（即使不匹配 RRULE）。
  *
- * v1.0 判定依据：
+ * 判定依据：
  * - fragment 永不参与 RRULE 判定
  * - rrule 非空 → 按 rrule 展开
  * - rrule 为空 → 非系列（单次），仅 anchor_date 当天匹配
@@ -392,7 +386,7 @@ function simpleIsOccurrence(template, date_str) {
 /**
  * 获取两个日期之间的所有发生日期（含 anchor_date，排除 EXDATE）。
  *
- * v1.0 判定依据：与 isOccurrenceOnDate 一致，按 rrule 展开。
+ * 判定依据：与 isOccurrenceOnDate 一致，按 rrule 展开。
  */
 export function getOccurrencesBetween(template, startDate, endDate, limit = 365) {
   // fragment 永远不参与 RRULE 展开
@@ -534,7 +528,7 @@ export function computeDeleteActions({ task, date, scope }) {
  * @param {Object} params - { task, date, scope, new_values, new_date }
  * @returns {Object} 操作描述
  *
- * v1.0 简化：recurrence_changed 仅对比 rrule 字符串是否变化。
+ * 简化：recurrence_changed 仅对比 rrule 字符串是否变化。
  */
 export function computeUpdateActions({ task, date, scope, new_values, new_date }) {
   const parent_id = task.parent_id;
@@ -542,7 +536,7 @@ export function computeUpdateActions({ task, date, scope, new_values, new_date }
   const new_type = new_values.type || task.type || 'none';
   const is_recurring = new_type === 'recurring';
 
-  // 检测重复规则变更：v1.0 仅对比 rrule 字符串
+  // 检测重复规则变更：仅对比 rrule 字符串
   const original_rrule = task.rrule || '';
   const new_rrule = new_values.rrule || '';
   const recurrence_changed = original_rrule !== new_rrule;
@@ -563,7 +557,7 @@ export function computeUpdateActions({ task, date, scope, new_values, new_date }
 
   switch (scope) {
     case 'this':
-      // "仅此项"忽略所有重复属性变更，实例脱离系列变为单次（对齐 Google Calendar / RFC 5545）
+      // "仅此项"忽略所有重复属性变更，实例脱离系列变为单次（RFC 5545 语义）
       actions.currentTodo = {
         ...new_values,
         type: 'none',
@@ -639,7 +633,7 @@ export function computeUpdateActions({ task, date, scope, new_values, new_date }
       break;
 
     default:
-      // v1.0：scope 未指定或 'none'，原地更新当前实例
+      // scope 未指定或 'none'，原地更新当前实例
       // 保持原重复属性（is_recurring 由 new_values.type 决定）
       actions.currentTodo = {
         ...new_values,
@@ -709,7 +703,7 @@ export function offsetDate(date_str, days) {
 // ==================== 重复类型标签 ====================
 
 /**
- * 获取重复类型的中文标签（v1.0 简化版，按 type 分流）。
+ * 获取重复类型的中文标签（按 type 分流）。
  * 详细 RRULE 中文翻译由前端 _rruleToZhLabel 处理，此函数仅作 fallback。
  */
 export function getRepeatLabel(type, date_str, rrule) {
@@ -730,7 +724,7 @@ export function getScopeLabel(action) {
   return { this: '仅此日程', thisAndFuture: '此日程及之后', all: '所有日程' };
 }
 
-// ==================== v1.0 校验工具 ====================
+// ==================== 校验工具 ====================
 
 /**
  * 校验 type 字段合法性。

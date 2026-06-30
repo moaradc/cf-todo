@@ -58,8 +58,8 @@ function sqlPlaceholders(count) {
   return Array.from({ length: count }, () => '?').join(',');
 }
 
-// v1.0 统一命名：所有 task 对象属性一律使用 snake_case `copy_text`（与 DB 列名 / API_Wiki §4.2 / V1 API 一致）。
-// 历史 camelCase `copyText` 已废弃，不再兼容读取（v1.0 破坏性变更）。
+// 统一命名：所有 task 对象属性一律使用 snake_case `copy_text`（与 DB 列名 / V1 API 一致）。
+// 历史 camelCase `copyText` 已废弃，不再兼容读取。
 function readCopyText(task) {
   if (!task) return '';
   return task.copy_text !== undefined ? task.copy_text : '';
@@ -129,7 +129,7 @@ async function handleRequest(request, env, ctx) {
           return;
         }
 
-        // ==================== 基础表结构（首次部署，v1.0 schema 1）====================
+        // ==================== 基础表结构（首次部署，schema 1）====================
         // RFC 5545 RRULE 为重复规则唯一规范字段：
         // - type（none/fragment/recurring）+ rrule + anchor_date + exdates
         // - 无旧字段（repeat_type/repeat_custom/repeat_interval/repeat_end）残留
@@ -1370,16 +1370,16 @@ self.addEventListener('fetch', (event) => {
       const TEMPLATE_ROW_PLACEHOLDER = '(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)';
 
       const TODO_BIND_EXTRACTOR = (t) => {
-        // v1.0 type 兜底：旧导出文件可能用 repeat_type；导入时映射
+        // type 兜底：旧导出文件可能用 repeat_type；导入时映射
         let type = t.type;
         if (!type) {
-          // 兼容 v2.x 导出：从 repeat_type 推导
+          // 兼容旧版导出：从 repeat_type 推导
           const rpt = t.repeat_type;
           if (rpt === 'fragment') type = 'fragment';
           else if (rpt && ['daily','weekly','monthly','yearly'].includes(rpt)) type = 'recurring';
           else type = 'none';
         }
-        // v1.0 rrule 兜底：旧导出文件可能 rrule 为空但有旧字段；导入时合成
+        // rrule 兜底：旧导出文件可能 rrule 为空但有旧字段；导入时合成
         let rrule = t.rrule || '';
         if (!rrule && type === 'recurring') {
           rrule = rruleFromLegacyFields({
@@ -1400,7 +1400,7 @@ self.addEventListener('fetch', (event) => {
           safeTimeRecords(t.time_records),
           // fragment_anchor: 碎时记起始日期，导入时保留；非碎时记或旧数据为 ''
           t.fragment_anchor || '',
-          // v1.0 规范字段
+          // 规范字段
           rrule,
           // anchor_date: 优先用导出值，否则用 date 兜底
           t.anchor_date || t.date || '',
@@ -1411,14 +1411,14 @@ self.addEventListener('fetch', (event) => {
 
       const TEMPLATE_BIND_EXTRACTOR = (t) => {
         const exdates = t.exdates || '[]';
-        // v1.0 type 兜底
+        // type 兜底
         let type = t.type;
         if (!type) {
           const rpt = t.repeat_type;
           if (rpt && ['daily','weekly','monthly','yearly'].includes(rpt)) type = 'recurring';
           else type = 'recurring';  // 模板默认 recurring
         }
-        // v1.0 rrule 兜底
+        // rrule 兜底
         let rrule = t.rrule || '';
         if (!rrule) {
           rrule = rruleFromLegacyFields({
@@ -2029,10 +2029,7 @@ self.addEventListener('fetch', (event) => {
             await env.DB.prepare(`UPDATE categories SET ${sets.join(', ')} WHERE id = ?`).bind(...vals).run();
           }
         }
-        // 修复 Bug 6：此前响应仅返回 body 中传入的字段（name/color 之一），
-        // 与 V1 PUT /api/v1/categories/:id 返回完整 Category 对象不一致，
-        // 调用方 UPDATE 后需额外 GET 才能拿到完整对象。
-        // 现统一从 DB 读取完整对象返回 {id, name, color}。
+        // 返回 DB 中的完整 Category 对象（与 V1 PUT 一致）
         const updated = await env.DB.prepare('SELECT id, name, color FROM categories WHERE id = ?').bind(id).first();
         if (!updated) {
           return apiError('分类不存在', 404);
@@ -2096,7 +2093,7 @@ self.addEventListener('fetch', (event) => {
         // 仅当回收站行仍携带循环属性时才需判定 (this-scope 删除, 或旧版未脱钩的 thisAndFuture/all 行)
         // 新版 thisAndFuture/all 删除已在删除时脱钩为单次快照 (type='none', parent_id=id)，此处直接跳过。
         // 碎时记 (fragment) 无模板，直接恢复即可。
-        // 对齐 RFC 5545 + Google Tasks 标准：停止/删除系列后恢复，实例为单次任务，不再重新激活循环。
+        // 停止/删除系列后恢复，实例为单次任务，不再重新激活循环（RFC 5545 语义）
         if (t && t.type === 'recurring' && t.parent_id && t.parent_id !== id) {
           // 检查同日期是否已有活跃实例（避免恢复后出现重复）
           const existing = await env.DB.prepare(
@@ -2109,7 +2106,7 @@ self.addEventListener('fetch', (event) => {
             ).bind(id, 'none', '', '', '[]', id).run();
           } else {
             const tpl = await env.DB.prepare('SELECT rrule, exdates FROM todo_templates WHERE parent_id = ?').bind(t.parent_id).first();
-            // v1.0：检查模板的 rrule 是否仍覆盖此日期（用 isOccurrenceOnDate 判断）
+            // 检查模板的 rrule 是否仍覆盖此日期（用 isOccurrenceOnDate 判断）
             // 替代旧版 tpl.repeat_end >= t.date 的简单比较
             let tplCoversDate = false;
             if (tpl && tpl.rrule) {
@@ -2163,7 +2160,7 @@ self.addEventListener('fetch', (event) => {
 
           // 仅回收站行仍携带循环属性的 (this-scope 删除或旧版未脱钩行) 需要判定
           // 新版 thisAndFuture/all 删除时已脱钩为单次 (type='none', parent_id=id)，跳过
-          // 对齐 RFC 5545 + Google Tasks: 模板已删除/截断的，恢复为单次任务，不重建系列
+          // 模板已删除/截断的，恢复为单次任务，不重建系列（RFC 5545 语义）
           const candidateTasks = tasks.filter(t =>
             t.type === 'recurring' && t.parent_id && t.parent_id !== t.id
           );
@@ -2217,7 +2214,7 @@ self.addEventListener('fetch', (event) => {
               continue;
             }
             const tpl = tplMap.get(t.parent_id);
-            // v1.0：检查模板 rrule 非空即视为覆盖（严格判断需 isOccurrenceOnDate）
+            // 检查模板 rrule 非空即视为覆盖
             if (tpl && tpl.rrule) {
               if (!exdateUpdates[t.parent_id]) exdateUpdates[t.parent_id] = [];
               exdateUpdates[t.parent_id].push(t.date);
@@ -2283,12 +2280,10 @@ self.addEventListener('fetch', (event) => {
     if (url.pathname === '/api/todos' && request.method === 'GET') {
       const date = url.searchParams.get('date');
       if (!date) return apiError("Date required", 400);
-      // 修复 Bug 5：此前 date 非 YYYY-MM-DD 格式时不报错，直接以原值查询返回空数组，
-      // 调用方拿不到错误反馈。现统一校验格式，与 V1 POST/PUT 日期校验一致。
+      // 校验 YYYY-MM-DD 格式与日期真实性（如 2026-13-45、2025-02-29 拒绝）
       if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
         return apiError(`date 格式应为 YYYY-MM-DD，当前值: ${date}`, 400);
       }
-      // 进一步校验日期真实存在（如 2026-13-45 应拒绝）
       const [yy, mm, dd] = date.split('-').map(Number);
       const dt = new Date(Date.UTC(yy, mm - 1, dd));
       if (dt.getUTCFullYear() !== yy || dt.getUTCMonth() !== mm - 1 || dt.getUTCDate() !== dd) {
@@ -2296,7 +2291,7 @@ self.addEventListener('fetch', (event) => {
       }
 
       return _withTodosDateLock(date, async () => {
-      // 查询当前日期的所有可见 todos（v1.0 schema 1）：
+      // 查询当前日期的所有可见 todos（schema 1）：
       // - 普通 todo (type='none' 或 'recurring')：date = ?
       //   注：recurring 实例的 date = 当前实例日期；模板展开时会 INSERT 实例
       // - 碎时记 (type='fragment')：
@@ -2312,7 +2307,7 @@ self.addEventListener('fetch', (event) => {
       ).bind(date, date, date).all();
       results = r.results || [];
 
-      // v1.0 模板展开：仅 type='recurring' 模板参与
+      // 模板展开：仅 type='recurring' 模板参与
       // rrule 内的 UNTIL 由 ical.js 在 isOccurrenceOnDate 中判断，无需 SQL 过滤
       const templatesReq = await env.DB.prepare(`
         SELECT * FROM todo_templates t
@@ -2368,19 +2363,17 @@ self.addEventListener('fetch', (event) => {
             } catch(e) {}
           }
     
-        // anchor_date 必须用模板的 anchor_date（RFC 5545 DTSTART 等价物），
-        // 而非展开日期。展开日期仅在 `date` 列上体现。
-        // 此前 bug：DB 写 date 而 in-memory 对象用 tpl.anchor_date，导致响应/DB 不一致，
-        // 且违反 RFC 5545（实例 anchor_date 应与系列首实例一致，而非展开日期）。
+        // anchor_date 用模板的 anchor_date（RFC 5545 DTSTART 等价物），而非展开日期。
+        // 展开日期仅在 `date` 列上体现；实例 anchor_date 应与系列首实例一致。
         const tpl_anchor_date = tpl.anchor_date || '';
         const newRecord = { 
           ...tpl, id: new_id, date: date, parent_id: tpl.parent_id, 
           done: 0, deleted: 0,
           subtasks: parsedSubtasks,
           search_terms: parsedSearchTerms,
-          // 关键修复：模板的 time_records 是跨实例预估数据（供 predictDuration），
+          // 模板的 time_records 是跨实例预估数据（供 predictDuration），实例级清空
           time_records: '[]',
-          anchor_date: tpl_anchor_date,  // 内存对象也同步，避免响应/DB 不一致
+          anchor_date: tpl_anchor_date,  // 内存对象与 DB 一致
         };
         results.push(newRecord); 
       
@@ -2427,14 +2420,14 @@ self.addEventListener('fetch', (event) => {
             return null;
         }).filter(Boolean);
 
-        // v1.0 响应序列化：type 三态 + rrule + anchor_date + exdates
+        // 响应序列化：type 三态 + rrule + anchor_date + exdates
         // type 兜底（防 DB 脏数据）：none/fragment/recurring 之外的值统一为 'none'
         let type = row.type || 'none';
         if (type !== 'none' && type !== 'fragment' && type !== 'recurring') type = 'none';
 
         return {
           ...row,
-          // v1.0 规范字段（替代旧 repeat_type / repeat_custom / repeat_interval / repeat_end）
+          // 规范字段（替代旧 repeat_type / repeat_custom / repeat_interval / repeat_end）
           type: type,
           rrule: row.rrule || '',
           anchor_date: row.anchor_date || '',
@@ -2632,7 +2625,7 @@ self.addEventListener('fetch', (event) => {
             try {
               if (record && typeof record.s === 'number' && typeof record.e === 'number'
                   && record.s === record.e && record.s > 0) {
-                // 写入实例级 time_records（FIFO 5，复刻 bd3f88d）
+                // 写入实例级 time_records（FIFO 5）
                 const cur = await env.DB.prepare(
                   'SELECT time_records FROM todos WHERE id = ?'
                 ).bind(task.id).first();
@@ -2646,7 +2639,7 @@ self.addEventListener('fetch', (event) => {
                 }
                 if (!Array.isArray(inst_arr)) inst_arr = [];
                 inst_arr.push({ s: record.s, e: record.e, p: 0 });
-                // 普通重复 todo：FIFO 5 截断（复刻 bd3f88d）
+                // 普通重复 todo：FIFO 5 截断
                 // 碎时记分支不走到这里（已在上面的 is_fragment 分支处理）
                 if (inst_arr.length > 5) inst_arr = inst_arr.slice(inst_arr.length - 5);
                 await env.DB.prepare(
@@ -3069,14 +3062,14 @@ self.addEventListener('fetch', (event) => {
             return apiError('task.text 为必填字段', 400);
           }
 
-          // ====== v1.0 type 字段校验 ======
+          // ====== type 字段校验 ======
           // type 三态：none / fragment / recurring
           // 旧 repeat_type (daily/weekly/monthly/yearly) 已废弃，传入返回 400
           let type = task.type || 'none';
           if (type !== 'none' && type !== 'fragment' && type !== 'recurring') {
             return apiError(`无效的 type: ${type}，v3.0 有效值: none / fragment / recurring（旧 repeat_type 已废弃）`, 400);
           }
-          // 拒绝旧字段（v1.0 破坏性变更，强制调用方迁移）
+          // 拒绝旧字段，强制调用方迁移
           if (task.repeat_type !== undefined || task.repeat_custom !== undefined ||
               task.repeat_interval !== undefined || task.repeat_end !== undefined) {
             return apiError('v3.0 已废弃 repeat_type / repeat_custom / repeat_interval / repeat_end 字段，请改用 type + rrule + anchor_date + exdates', 400);
@@ -3161,7 +3154,7 @@ self.addEventListener('fetch', (event) => {
           if (!task || !task.id || typeof task.id !== 'string' || !task.id.trim()) {
             return apiError('task.id 为必填字段', 400);
           }
-          // v1.0 拒绝旧字段（破坏性变更）
+          // 拒绝旧字段（破坏性变更）
           if (task.repeat_type !== undefined || task.repeat_custom !== undefined ||
               task.repeat_interval !== undefined || task.repeat_end !== undefined) {
             return apiError('v3.0 已废弃 repeat_type / repeat_custom / repeat_interval / repeat_end 字段，请改用 type + rrule + anchor_date + exdates', 400);
@@ -3327,7 +3320,7 @@ self.addEventListener('fetch', (event) => {
             return apiError(`无效的 scope: ${scope}，有效值: this, thisAndFuture, all`, 400);
           }
           // 重复 todo 未指定 scope（undefined）时，默认 scope=this（仅此实例）
-          // 对齐 Google Calendar / Apple Calendar / Outlook：编辑重复任务默认只改当前实例
+          // 编辑重复任务默认只改当前实例（与主流日历应用一致）
           // 显式传 scope=none 时尊重调用方意图：原地更新当前实例，不脱离系列
           const effective_scope = is_series && scope === undefined ? 'this' : (scope || 'none');
 
@@ -3446,7 +3439,7 @@ self.addEventListener('fetch', (event) => {
             }
 
             // Execute pastTodos action (set repeat_end on past instances)
-            // v1.0：pastTodos 的 set_repeat_end 语义改为给过去实例的 rrule 追加 UNTIL
+            // pastTodos 的 set_repeat_end 语义改为给过去实例的 rrule 追加 UNTIL
             // 但这需要读出来逐条改 rrule，开销大；当前简化为不做（依赖模板截断实现"此日程及之后"语义）
             // 模板的 set_repeat_end 已通过删除未来实例 + 模板 rrule 不变实现
 
@@ -3493,7 +3486,7 @@ self.addEventListener('fetch', (event) => {
                   await env.DB.prepare('UPDATE todo_templates SET exdates = ? WHERE parent_id = ?').bind(new_exdates, parent_id).run();
                 }
               } else if (tmpl.type === 'set_repeat_end') {
-                // v1.0：旧模板截断 = 给旧模板的 rrule 追加 UNTIL=前一天T235959Z
+                // 旧模板截断 = 给旧模板的 rrule 追加 UNTIL=前一天T235959Z
                 // 需读出 rrule，解析/修改/写回
                 const prev_date = getPreviousDate(date);
                 try {
@@ -3559,7 +3552,7 @@ self.addEventListener('fetch', (event) => {
               if (pid_row) parent_id = pid_row.parent_id;
             } catch (e) {}
           }
-          // v1.0：从 DB 读取 type，确保 is_series 判断正确
+          // 从 DB 读取 type，确保 is_series 判断正确
           let delete_is_series = false;
           try {
             const orig = await env.DB.prepare('SELECT type FROM todos WHERE id = ?').bind(task.id).first();

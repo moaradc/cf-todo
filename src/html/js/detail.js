@@ -1,7 +1,7 @@
 export const detail = `
     // ==================== RRULE 构建器（前端 → 后端规范字段）====================
     // 从 UI 状态（repeatType / interval / repeatEnd / anchorDate）合成 RFC 5545 RRULE 字符串。
-    // 服务端 v1.0 仅识别 type + rrule + anchor_date + exdates 字段。
+    // 服务端仅识别 type + rrule + anchor_date + exdates 字段。
     // RRULE 限制与后端 sanitizeRRule 一致：
     // - FREQ ∈ {DAILY, WEEKLY, MONTHLY, YEARLY}
     // - INTERVAL（>1 时才输出）
@@ -11,8 +11,8 @@ export const detail = `
     // none / fragment → 返回 ''（与后端 final_rrule='' 对齐）
     function _buildRRuleFromUI(repeatType, interval, repeatEnd, anchorDate) {
       if (!repeatType || repeatType === 'none' || repeatType === 'fragment') return '';
-      // v1.0：UI 状态用 daily/weekly/monthly/yearly（兼容旧 tempRepeatType）
-      // 服务端 v1.0 期望 type=recurring + rrule，但前端 UI 状态仍保留细分频率用于 rrule 合成
+      // UI 状态用 daily/weekly/monthly/yearly（兼容旧 tempRepeatType）
+      // 服务端期望 type=recurring + rrule，但前端 UI 状态仍保留细分频率用于 rrule 合成
       // 注：tempRepeatType 在 UI 中仍为 daily/weekly/monthly/yearly/fragment/none 6 值
       // 提交时由 confirmAddTask/confirmAction 把 type 映射为 none/fragment/recurring 三态
       var FREQ_MAP = { daily: 'DAILY', weekly: 'WEEKLY', monthly: 'MONTHLY', yearly: 'YEARLY' };
@@ -42,7 +42,7 @@ export const detail = `
       return parts.join(';');
     }
 
-    // v1.0：从 rrule 解析 UNTIL（YYYYMMDDTHHMMSSZ 或 YYYYMMDD）→ YYYY-MM-DD
+    // 从 rrule 解析 UNTIL（YYYYMMDDTHHMMSSZ 或 YYYYMMDD）→ YYYY-MM-DD
     function _extractUntilFromRRule(rrule) {
       if (!rrule || typeof rrule !== 'string') return '';
       var m = rrule.match(/UNTIL=(\\d{4})(\\d{2})(\\d{2})/);
@@ -50,7 +50,7 @@ export const detail = `
       return '';
     }
 
-    // v1.0：从 rrule 解析 INTERVAL → 数字
+    // 从 rrule 解析 INTERVAL → 数字
     function _extractIntervalFromRRule(rrule) {
       if (!rrule || typeof rrule !== 'string') return 1;
       var m = rrule.match(/INTERVAL=(\\d+)/);
@@ -58,7 +58,7 @@ export const detail = `
       return 1;
     }
 
-    // v1.0：从 rrule 解析 FREQ → daily/weekly/monthly/yearly（UI 状态用）
+    // 从 rrule 解析 FREQ → daily/weekly/monthly/yearly（UI 状态用）
     function _extractFreqFromRRule(rrule) {
       if (!rrule || typeof rrule !== 'string') return 'none';
       var m = rrule.match(/FREQ=(DAILY|WEEKLY|MONTHLY|YEARLY)/);
@@ -157,14 +157,14 @@ export const detail = `
       // 非碎时记: 实例日期 = tempAddDate（用户选择器挑选的日期）
       const isFragment = tempRepeatType === 'fragment';
       const instanceDate = isFragment ? (tempFragmentAnchor || '') : tempAddDate;
-      // v1.0 rrule 规范字段：从 UI 状态合成 RFC 5545 RRULE 字符串
+      // rrule 规范字段：从 UI 状态合成 RFC 5545 RRULE 字符串
       const rrule = _buildRRuleFromUI(
         tempRepeatType,
         isFragment ? 1 : (tempRepeatInterval || 1),
         isFragment ? '' : tempRepeatEnd,
         instanceDate
       );
-      // v1.0：tempRepeatType (daily/weekly/monthly/yearly) 映射为 type (none/fragment/recurring)
+      // tempRepeatType (daily/weekly/monthly/yearly) 映射为 type (none/fragment/recurring)
       var v3Type = 'none';
       if (tempRepeatType === 'fragment') v3Type = 'fragment';
       else if (tempRepeatType && tempRepeatType !== 'none') v3Type = 'recurring';
@@ -248,11 +248,11 @@ export const detail = `
       _navClose('detail-view');
     }
 
-    // v1.0 简化签名：(type, dateStr, rrule)
+    // 简化签名：(type, dateStr, rrule)
     // 旧签名 (repeatType, dateStr, repeatEnd, repeatInterval, repeatCustom, rrule) 已废弃
     // 兼容：若传入 6 参数，按旧逻辑处理；若传入 3 参数，从 rrule 解析 repeatEnd/repeatInterval
     function getRepeatDisplayText(repeatType, dateStr, repeatEnd_or_rrule, repeatInterval, repeatCustom, rrule) {
-      // v1.0：3 参数模式 (type, dateStr, rrule)
+      // 3 参数模式 (type, dateStr, rrule)
       // type 是 'none'/'fragment'/'recurring'，需从 rrule 解析 FREQ 得到 daily/weekly/monthly/yearly
       var repeatEnd, repeatCustom;
       if (arguments.length <= 3) {
@@ -272,7 +272,7 @@ export const detail = `
         return '碎时记';
       }
       var n = repeatInterval && repeatInterval > 1 ? repeatInterval : null;
-      // v1.0 优先使用 rrule 字段
+      // 优先使用 rrule 字段
       var effectiveRRule = (rrule && typeof rrule === 'string' && rrule.trim()) ? rrule : (repeatCustom || '');
       if (effectiveRRule) {
         var rruleText = _rruleToZhLabel(effectiveRRule, repeatType, dateStr, n, repeatEnd);
@@ -743,8 +743,8 @@ export const detail = `
         tempEditDate = task.date || '';
         tempTime = task.time || ''; tempPriority = task.priority || 'low';
         tempEndTime = task.end_time || '';
-        // v1.0：task.type 为 none/fragment/recurring；UI tempRepeatType 需从 rrule 解析 FREQ
-        // 兼容旧 task.repeat_type 字段（从 v2.x 升级但前端缓存未刷新的边缘场景）
+        // task.type 为 none/fragment/recurring；UI tempRepeatType 需从 rrule 解析 FREQ
+        // 兼容旧 task.repeat_type 字段（升级但前端缓存未刷新的边缘场景）
         if (task.type === 'fragment') {
           tempRepeatType = 'fragment';
         } else if (task.type === 'recurring') {
@@ -1148,7 +1148,7 @@ export const detail = `
         // 根据scope处理重复属性
         // 碎时记 (fragment): 即使原任务是系列（如 daily），编辑为碎时记后应保留 fragment 类型
         // 不能走 "仅此项 → type=none" 分支，否则会把 fragment 误改为 none
-        // v1.0：tempRepeatType (daily/weekly/monthly/yearly) 映射为 type (none/fragment/recurring)
+        // tempRepeatType (daily/weekly/monthly/yearly) 映射为 type (none/fragment/recurring)
         var v3TypeEdit = 'none';
         if (tempRepeatType === 'fragment') v3TypeEdit = 'fragment';
         else if (tempRepeatType && tempRepeatType !== 'none') v3TypeEdit = 'recurring';
@@ -1166,7 +1166,7 @@ export const detail = `
           task.type = v3TypeEdit;
           task.anchor_date = v3TypeEdit === 'recurring' ? (tempEditDate || task.date || '') : '';
           task.exdates = '[]';
-          // v1.0 rrule 规范字段：从 UI 状态合成。anchorDate 用 tempEditDate（此项及以后场景下新系列起始日期）
+          // rrule 规范字段：从 UI 状态合成。anchorDate 用 tempEditDate（此项及以后场景下新系列起始日期）
           task.rrule = _buildRRuleFromUI(
             tempRepeatType,
             tempRepeatInterval,

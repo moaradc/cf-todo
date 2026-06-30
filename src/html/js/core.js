@@ -164,7 +164,7 @@ export const core = `
                 var sorted2 = bydays.slice().sort(function(a, b) {
                   return _RRULE_WDAY_ORDER.indexOf(a.wday) - _RRULE_WDAY_ORDER.indexOf(b.wday);
                 });
-                // v1.0：检测 MO-FR 组合 → "工作日"；SA,SU 组合 → "周末"
+                // 检测 MO-FR 组合 → "工作日"；SA,SU 组合 → "周末"
                 var wdaySet = sorted2.map(function(d) { return d.wday; }).join(',');
                 if (wdaySet === 'MO,TU,WE,TH,FR') {
                   label = ivPrefix + '最后工作日';
@@ -956,9 +956,9 @@ export const core = `
           // 碎时记: 一次性浮动事项，固定显示"碎时记"标签
           repeatLabel = '碎时记';
         } else if (todo.type === 'recurring') {
-          // v1.0：从 rrule 解析中文标签
+          // 从 rrule 解析中文标签
           // 优先使用 _rruleToZhLabel（支持完整 RFC 5545 RRULE，含 UNTIL/COUNT/BYDAY 等）
-          // INTERVAL 从 rrule 解析（v1.0 无 repeat_interval 字段）
+          // INTERVAL 从 rrule 解析（无 repeat_interval 字段）
           var rruleLabel = todo.rrule ? _rruleToZhLabel(todo.rrule, todo.type, todo.date, null, null) : null;
           if (rruleLabel) {
             repeatLabel = rruleLabel;

@@ -361,7 +361,7 @@ function formatTodo(row) {
     last_duration_ms = Math.max(0, e - s - p);
   }
 
-  // v1.0 响应序列化：type 三态 + rrule + anchor_date + exdates
+  // 响应序列化：type 三态 + rrule + anchor_date + exdates
   let type = row.type || 'none';
   if (type !== 'none' && type !== 'fragment' && type !== 'recurring') type = 'none';
 
@@ -379,7 +379,7 @@ function formatTodo(row) {
     search_terms: searchTerms,
     done: !!row.done,
     deleted: !!row.deleted,
-    // v1.0 规范字段
+    // 规范字段
     type: type,
     rrule: row.rrule || '',
     anchor_date: row.anchor_date || '',
@@ -507,7 +507,7 @@ async function handleV1Todos(request, env, url) {
     if (date) {
       if (expand) {
         // 默认行为：服务端展开 RRULE（向后兼容）
-        // v1.0：模板展开，仅查 type='recurring' 模板
+        // 模板展开，仅查 type='recurring' 模板
         // rrule 内的 UNTIL 由 ical.js 在 isOccurrenceOnDate 中判断，无需 SQL 过滤
         const templatesReq = await DB.prepare(`
           SELECT * FROM todo_templates t
@@ -526,20 +526,16 @@ async function handleV1Todos(request, env, url) {
           let templateForEngine = { ...tpl, exdates: tpl.exdates || '[]' };
           if (!isOccurrenceOnDate(templateForEngine, date)) continue;
 
-          // category_id 过滤：expand=true 时，自动展开的实例也必须满足 category_id 约束
-          // 此前 bug：SQL WHERE category_id=? 仅作用于已持久化的 todos 行，
-          // 自动展开的 recurringResults 通过 in-memory push 绕过 WHERE，导致
-          // 调用方按分类筛选时看到不属于该分类的重复实例
+          // category_id 过滤：expand=true 时自动展开的实例也必须满足 category_id 约束，
+          // 不能仅依赖 SQL WHERE（仅作用于已持久化的 todos 行）
           if (category_id && (tpl.category_id || '') !== category_id) continue;
 
           const new_id = crypto.randomUUID();
           let parsedSubtasks = parseJsonField(tpl.subtasks);
           parsedSubtasks.forEach(st => st.done = false);
 
-          // anchor_date 必须用模板的 anchor_date（RFC 5545 DTSTART 等价物），
-          // 而非展开日期。展开日期仅在 `date` 列上体现。
-          // 此前 bug：DB 写 date 而 in-memory 对象用 tpl.anchor_date，导致响应/DB 不一致，
-          // 且违反 RFC 5545（实例 anchor_date 应与系列首实例一致，而非展开日期）。
+          // anchor_date 用模板的 anchor_date（RFC 5545 DTSTART 等价物），而非展开日期。
+          // 展开日期仅在 `date` 列上体现；实例 anchor_date 应与系列首实例一致。
           const tpl_anchor_date = tpl.anchor_date || '';
           const newRecord = {
             ...tpl, id: new_id, date, parent_id: tpl.parent_id,
@@ -547,7 +543,7 @@ async function handleV1Todos(request, env, url) {
             subtasks: parsedSubtasks,
             search_terms: [],
             time_records: '[]',
-            anchor_date: tpl_anchor_date,  // 内存对象也同步，避免响应/DB 不一致
+            anchor_date: tpl_anchor_date,  // 内存对象与 DB 一致
           };
           recurringResults.push(newRecord);
 
@@ -604,7 +600,7 @@ async function handleV1Todos(request, env, url) {
     return execGet();
   }
 
-  // POST /api/v1/todos - 创建 todo（v1.0）
+  // POST /api/v1/todos - 创建 todo
   // 请求体字段：type + rrule + anchor_date + exdates（替代旧 repeat_type/repeat_custom/repeat_interval/repeat_end）
   if (request.method === 'POST') {
     let body;
@@ -615,7 +611,7 @@ async function handleV1Todos(request, env, url) {
     }
     const { date, text, time, priority, desc, url, copy_text, subtasks, search_terms, type: bodyType, end_time, category_id, rrule: bodyRRule, anchor_date: bodyAnchorDate, exdates: bodyExdates } = body;
 
-    // v1.0 拒绝旧字段
+    // 拒绝旧字段
     if (body.repeat_type !== undefined || body.repeat_custom !== undefined ||
         body.repeat_interval !== undefined || body.repeat_end !== undefined) {
       return apiError('v3.0 已废弃 repeat_type / repeat_custom / repeat_interval / repeat_end 字段，请改用 type + rrule + anchor_date + exdates', 400);
@@ -727,7 +723,7 @@ async function handleV1TodoGet(DB, todo_id) {
   return jsonResponse({ success: true, data: formatTodo(row) });
 }
 
-// PUT /api/v1/todos/:id - 更新 todo（v1.0）
+// PUT /api/v1/todos/:id - 更新 todo
 // 请求体字段：type + rrule + anchor_date + exdates（替代旧 repeat_type/repeat_custom/repeat_interval/repeat_end）
 async function handleV1TodoPut(request, DB, todo_id) {
   const existing = await DB.prepare('SELECT * FROM todos WHERE id = ?').bind(todo_id).first();
@@ -741,7 +737,7 @@ async function handleV1TodoPut(request, DB, todo_id) {
   }
   const parent_id = existing.parent_id; // 始终使用数据库中的 parent_id，不可被用户篡改
 
-  // v1.0 拒绝旧字段
+  // 拒绝旧字段
   if (body.repeat_type !== undefined || body.repeat_custom !== undefined ||
       body.repeat_interval !== undefined || body.repeat_end !== undefined) {
     return apiError('v3.0 已废弃 repeat_type / repeat_custom / repeat_interval / repeat_end 字段，请改用 type + rrule + anchor_date + exdates', 400);
@@ -812,7 +808,7 @@ async function handleV1TodoPut(request, DB, todo_id) {
   const is_series = existing.type === 'recurring' && patchType !== 'fragment';
 
   // 重复 todo 未指定 scope（undefined）时，默认 scope=this（仅此实例）
-  // 对齐 Google Calendar / Apple Calendar / Outlook：编辑重复任务默认只改当前实例
+  // 编辑重复任务默认只改当前实例（与主流日历应用一致）
   // 显式传 scope=none 时尊重调用方意图：原地更新当前实例，不脱离系列
   // 显式传 scope=all 时改全系列，scope=thisAndFuture 时截断系列
   const scope = is_series && body.scope === undefined ? 'this' : (body.scope || 'none');
@@ -954,7 +950,7 @@ async function handleV1TodoPut(request, DB, todo_id) {
       }
     }
 
-    // v1.0：pastTodos 的 set_repeat_end 不再设置 repeat_end 列（已删除），简化为不做
+    // pastTodos 的 set_repeat_end 不再设置 repeat_end 列（已删除），简化为不做
 
     if (scope === 'thisAndFuture') {
       if (type === 'recurring') {
@@ -986,7 +982,7 @@ async function handleV1TodoPut(request, DB, todo_id) {
           await DB.prepare('UPDATE todo_templates SET exdates = ? WHERE parent_id = ?').bind(new_exdates, parent_id).run();
         }
       } else if (tmpl.type === 'set_repeat_end') {
-        // v1.0：给模板 rrule 追加 UNTIL
+        // 给模板 rrule 追加 UNTIL
         const prev_date = getPreviousDate(date);
         try {
           const tpl_row = await DB.prepare('SELECT rrule FROM todo_templates WHERE parent_id = ?').bind(parent_id).first();
@@ -1034,13 +1030,13 @@ async function handleV1TodoPut(request, DB, todo_id) {
   return jsonResponse({ success: true, data: formatTodo(updated) });
 }
 
-// DELETE /api/v1/todos/:id - 删除 todo（v1.0）
+// DELETE /api/v1/todos/:id - 删除 todo
 async function handleV1TodoDelete(DB, todo_id, scope) {
   const existing = await DB.prepare('SELECT * FROM todos WHERE id = ?').bind(todo_id).first();
   if (!existing) return apiError('Todo 不存在', 404);
 
   const parent_id = existing.parent_id;
-  // v1.0：从 type 判断 is_series
+  // 从 type 判断 is_series
   const is_series = existing.type === 'recurring';
   const date = existing.date;
 
@@ -1141,8 +1137,7 @@ async function handleV1TodoToggle(request, DB, todo_id) {
     }
   }
 
-  // record_accepted: 让调用方区分 record 是否通过校验并写入
-  // 此前 bug：非法 record 静默跳过，调用方仅从响应缺失 time_records 字段间接判断
+  // record_accepted 标记 record 是否通过校验并写入，让调用方区分
   let record_accepted = false;
 
   if (new_done) {
@@ -1203,7 +1198,7 @@ async function handleV1TodoToggle(request, DB, todo_id) {
     } catch(e) {
       response_data.time_records = [];
     }
-    // record_accepted: 仅在 done 0→1 时返回；done 1→0 时为 false（不写入）
+    // record_accepted 仅在 done 0→1 时返回；done 1→0 时无 record 概念
     if (new_done) {
       response_data.record_accepted = record_accepted;
     }
@@ -1215,15 +1210,13 @@ async function handleV1TodoToggle(request, DB, todo_id) {
 // 校验并写入 time_records（实例级 + 模板级）
 // - 实例级：
 //   - 碎时记：保留全部 session（不 FIFO），用于多 session 累计统计
-//   - 普通 todo：FIFO 5（复刻 v0 bd3f88d 行为，避免无限增长）
+//   - 普通 todo：FIFO 5（避免无限增长）
 // - 模板级：仅真实耗时（s<e）且非碎时记写（FIFO 10，供 predictDuration 中位数预估）
 //   碎时记无模板，零耗时跳过（避免污染中位数）
-// 与 /api/todo-action TIMER_COMPLETE 写入策略保持一致
 //
 // 返回值：
 //   true  = record 通过校验并已写入（或已尝试写入）
 //   false = record 非法（s>e、时长>7d、p>(e-s)、非对象、缺 s/e），未写入任何记录
-// 调用方应据此设置响应的 record_accepted 字段，让客户端能区分 record 是否被接受
 async function writeTimerRecord(DB, todo_id, parent_id, record, is_fragment) {
   // 校验
   if (!record || typeof record !== 'object') return false;
@@ -1631,7 +1624,7 @@ async function handleV1TodoBatch(request, DB) {
     }
 
     // 为重复任务添加 exdate（碎时记无模板，跳过）
-    // v1.0：从 type 判断 recurring
+    // 从 type 判断 recurring
     const exdateUpdates = {};
     for (const t of tasks) {
       if (t.type === 'recurring' && t.parent_id) {
@@ -1706,9 +1699,9 @@ async function handleV1TrashAction(request, DB) {
     if (!t) return apiError('待办不存在', 404);
     await DB.prepare('UPDATE todos SET deleted = 0 WHERE id = ?').bind(id).run();
     // 仅当回收站行仍携带循环属性时才需判定 (this-scope 删除, 或旧版未脱钩的 thisAndFuture/all 行)
-    // 新版 thisAndFuture/all 删除已在删除时脱钩为单次快照 (repeat_type='none', parent_id=id)，此处直接跳过。
+    // 新版 thisAndFuture/all 删除已在删除时脱钩为单次快照（type='none', parent_id=id），此处直接跳过。
     // 碎时记 (fragment) 无模板，直接恢复即可。
-    // 对齐 RFC 5545 + Google Tasks 标准：停止/删除系列后恢复，实例为单次任务，不再重新激活循环。
+    // 停止/删除系列后恢复，实例为单次任务，不再重新激活循环（RFC 5545 语义）
     if (t.type === 'recurring' && t.parent_id && t.parent_id !== id) {
       // 检查同日期是否已有活跃实例（避免恢复后出现重复）
       const existing = await DB.prepare(
@@ -1721,7 +1714,7 @@ async function handleV1TrashAction(request, DB) {
         ).bind(id, 'none', '', '', '[]', id).run();
       } else {
         const tpl = await DB.prepare('SELECT rrule, exdates FROM todo_templates WHERE parent_id = ?').bind(t.parent_id).first();
-        // v1.0：检查模板 rrule 非空即视为覆盖
+        // 检查模板 rrule 非空即视为覆盖
         if (tpl && tpl.rrule) {
           // 模板仍覆盖此日期: 视为"仅此日程"删除的恢复，从EXDATE移除此日期，重新并入系列
           const currentExdates = tpl.exdates || '[]';
@@ -1787,7 +1780,7 @@ async function handleV1TrashAction(request, DB) {
     }
 
     // 仅回收站行仍携带循环属性的 (this-scope 删除或旧版未脱钩行) 需要判定
-    // v1.0：从 type 判断 recurring
+    // 从 type 判断 recurring
     const candidateTasks = tasks.filter(t =>
       t.type === 'recurring' && t.parent_id && t.parent_id !== t.id
     );
@@ -1847,7 +1840,7 @@ async function handleV1TrashAction(request, DB) {
         detachIds.push(t.id);
         continue;
       }
-      // v1.0：以模板 rrule 非空为准判定系列是否仍覆盖此日期
+      // 以模板 rrule 非空为准判定系列是否仍覆盖此日期
       const tpl = tplMap.get(t.parent_id);
       if (tpl && tpl.rrule) {
         // 模板仍覆盖此日期: 并入系列，记录需移除的EXDATE
