@@ -393,19 +393,24 @@
       return rootTodoMap[t.parent_id] && (!t.repeat_custom || t.repeat_custom === '');
     });
 
+    // 判断文件是否已是 v3.0 格式（有 type 字段 = v3.0 标志字段）
+    // v3.0 文件不应再检测 v2.x 字段缺失（repeat_end/repeat_interval 等 v3.0 已删除）
+    var isV3Format = data.todos.some(function(t) { return t.type !== undefined && t.type !== null; }) ||
+                     data.templates.some(function(t) { return t.type !== undefined && t.type !== null; });
+
     // 检测缺少 recurrence_id / is_exception 的 todos
-    var missingRecurrenceId = data.todos.filter(function(t) { return t.recurrence_id === undefined; });
-    var missingIsException = data.todos.filter(function(t) { return t.is_exception === undefined; });
-    // 检测缺少 exdates 的 templates
-    var missingExdates = data.templates.filter(function(t) { return t.exdates === undefined; });
-    // 检测缺少 repeat_interval 的 todos / templates（schema 4）
-    var missingIntervalTodos = data.todos.filter(function(t) { return t.repeat_interval === undefined; });
-    var missingIntervalTpls = data.templates.filter(function(t) { return t.repeat_interval === undefined; });
-    // 检测缺少 repeat_end / end_time 的 todos / templates（schema 1 引入）
-    var missingRepeatEndTodos = data.todos.filter(function(t) { return t.repeat_end === undefined; });
-    var missingEndTimeTodos = data.todos.filter(function(t) { return t.end_time === undefined; });
-    var missingRepeatEndTpls = data.templates.filter(function(t) { return t.repeat_end === undefined; });
-    var missingEndTimeTpls = data.templates.filter(function(t) { return t.end_time === undefined; });
+    var missingRecurrenceId = isV3Format ? [] : data.todos.filter(function(t) { return t.recurrence_id === undefined; });
+    var missingIsException = isV3Format ? [] : data.todos.filter(function(t) { return t.is_exception === undefined; });
+    // 检测缺少 exdates 的 templates（v3.0 用 exdates 替代 blacklist，已迁移的文件有 exdates）
+    var missingExdates = isV3Format ? [] : data.templates.filter(function(t) { return t.exdates === undefined; });
+    // 检测缺少 repeat_interval 的 todos / templates（v2.x schema 4 字段，v3.0 已删除）
+    var missingIntervalTodos = isV3Format ? [] : data.todos.filter(function(t) { return t.repeat_interval === undefined; });
+    var missingIntervalTpls = isV3Format ? [] : data.templates.filter(function(t) { return t.repeat_interval === undefined; });
+    // 检测缺少 repeat_end / end_time 的 todos / templates（v2.x schema 1 字段，v3.0 已删除）
+    var missingRepeatEndTodos = isV3Format ? [] : data.todos.filter(function(t) { return t.repeat_end === undefined; });
+    var missingEndTimeTodos = isV3Format ? [] : data.todos.filter(function(t) { return t.end_time === undefined; });
+    var missingRepeatEndTpls = isV3Format ? [] : data.templates.filter(function(t) { return t.repeat_end === undefined; });
+    var missingEndTimeTpls = isV3Format ? [] : data.templates.filter(function(t) { return t.end_time === undefined; });
     // 检测缺少 time_records 的 todos / templates（schema 6 引入 templates，schema 7 引入 todos）
     // time_records 是计时历史，迁移补全为 '[]'（空数组字符串），与 D1 DEFAULT 一致
     var missingTimeRecordsTodos = data.todos.filter(function(t) { return t.time_records === undefined || t.time_records === null; });
