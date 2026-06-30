@@ -386,8 +386,6 @@ function formatTodo(row) {
     exdates: row.exdates || '[]',
     end_time: row.end_time || '',
     category_id: row.category_id || '',
-    recurrence_id: row.recurrence_id || '',
-    is_exception: !!row.is_exception,
     // is_series: 派生字段（type === 'recurring'）
     is_series: type === 'recurring',
     // 原始记录数组（供需要历史/预估的客户端）
@@ -548,13 +546,12 @@ async function handleV1Todos(request, env, url) {
           recurringResults.push(newRecord);
 
           insertStmts.push(DB.prepare(
-            'INSERT INTO todos (id, parent_id, date, text, time, priority, desc, url, copy_text, subtasks, search_terms, done, deleted, type, end_time, category_id, recurrence_id, is_exception, time_records, fragment_anchor, rrule, anchor_date, exdates) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+            'INSERT INTO todos (id, parent_id, date, text, time, priority, desc, url, copy_text, subtasks, search_terms, done, deleted, type, end_time, category_id, time_records, fragment_anchor, rrule, anchor_date, exdates) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
           ).bind(
             new_id, tpl.parent_id, date, tpl.text, tpl.time || '', tpl.priority || 'low',
             tpl.desc || '', tpl.url || '', tpl.copy_text || '',
             JSON.stringify(parsedSubtasks), '[]',
             0, 0, 'recurring', tpl.end_time || '', tpl.category_id || '',
-            '', 0,  // recurrence_id, is_exception
             '[]',   // time_records
             '',     // fragment_anchor
             tpl.rrule || '', tpl_anchor_date, '[]'  // rrule, anchor_date(=模板), exdates
@@ -687,12 +684,12 @@ async function handleV1Todos(request, env, url) {
     const anchor_date = (type === 'recurring') ? (bodyAnchorDate || effective_date) : '';
 
     await DB.prepare(
-      'INSERT INTO todos (id, parent_id, date, text, time, priority, desc, url, copy_text, subtasks, search_terms, done, deleted, type, end_time, category_id, recurrence_id, is_exception, time_records, fragment_anchor, rrule, anchor_date, exdates) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+      'INSERT INTO todos (id, parent_id, date, text, time, priority, desc, url, copy_text, subtasks, search_terms, done, deleted, type, end_time, category_id, time_records, fragment_anchor, rrule, anchor_date, exdates) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
     ).bind(
       id, id, effective_date, text, effectiveTime, normPriority,
       desc || '', url || '', copy_text || '', subtasks_str, search_terms_str,
       0, 0, type, eTime, catId,
-      '', 0, '[]', effective_fragment_anchor,
+      '[]', effective_fragment_anchor,
       final_rrule, anchor_date, final_exdates
     ).run();
 

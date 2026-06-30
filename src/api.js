@@ -152,8 +152,7 @@ async function handleRequest(request, env, ctx) {
               type TEXT NOT NULL DEFAULT 'none',
               end_time TEXT DEFAULT '',
               category_id TEXT DEFAULT '',
-              recurrence_id TEXT DEFAULT '',
-              is_exception INTEGER NOT NULL DEFAULT 0,
+
               time_records TEXT NOT NULL DEFAULT '[]',
               fragment_anchor TEXT NOT NULL DEFAULT '',
               rrule TEXT NOT NULL DEFAULT '',
@@ -1357,14 +1356,13 @@ self.addEventListener('fetch', (event) => {
       };
 
       // D1 bound params/query 限制 100
-      // v3.0: TODO_COLUMNS 23 列，4 行 = 92 params < 100 ✓
-      // v3.0: TEMPLATE_COLUMNS 16 列，6 行 = 96 params < 100 ✓
-      // （v3.0 重构前 TODO 21 列、TEMPLATE 13 列，ROWS_PER_INSERT 未同步更新导致超限）
-      const TODO_ROWS_PER_INSERT = 4;  // 4 × 23 = 92 params
+      // TODO_COLUMNS 21 列，4 行 = 84 params < 100 ✓
+      // TEMPLATE_COLUMNS 16 列，6 行 = 96 params < 100 ✓
+      const TODO_ROWS_PER_INSERT = 4;  // 4 × 21 = 84 params
       const TEMPLATE_ROWS_PER_INSERT = 6;  // 6 × 16 = 96 params
 
-      const TODO_COLUMNS = '(id, parent_id, date, text, time, priority, desc, url, copy_text, subtasks, search_terms, done, deleted, type, end_time, category_id, recurrence_id, is_exception, time_records, fragment_anchor, rrule, anchor_date, exdates)';
-      const TODO_ROW_PLACEHOLDER = '(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)';
+      const TODO_COLUMNS = '(id, parent_id, date, text, time, priority, desc, url, copy_text, subtasks, search_terms, done, deleted, type, end_time, category_id, time_records, fragment_anchor, rrule, anchor_date, exdates)';
+      const TODO_ROW_PLACEHOLDER = '(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)';
 
       const TEMPLATE_COLUMNS = '(parent_id, text, time, priority, desc, url, copy_text, subtasks, search_terms, type, end_time, anchor_date, exdates, category_id, time_records, rrule)';
       const TEMPLATE_ROW_PLACEHOLDER = '(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)';
@@ -1396,7 +1394,7 @@ self.addEventListener('fetch', (event) => {
           safeStringify(t.subtasks), safeStringify(t.search_terms), t.done || 0, t.deleted || 0,
           type,
           t.end_time || '', t.category_id || '',
-          t.recurrence_id || '', t.is_exception || 0,
+
           safeTimeRecords(t.time_records),
           // fragment_anchor: 碎时记起始日期，导入时保留；非碎时记或旧数据为 ''
           t.fragment_anchor || '',
@@ -1705,8 +1703,6 @@ self.addEventListener('fetch', (event) => {
                     type TEXT NOT NULL DEFAULT 'none',
                     end_time TEXT DEFAULT '',
                     category_id TEXT DEFAULT '',
-                    recurrence_id TEXT DEFAULT '',
-                    is_exception INTEGER NOT NULL DEFAULT 0,
                     time_records TEXT NOT NULL DEFAULT '[]',
                     fragment_anchor TEXT NOT NULL DEFAULT '',
                     rrule TEXT NOT NULL DEFAULT '',
@@ -3134,12 +3130,11 @@ self.addEventListener('fetch', (event) => {
           const category_id = task.category_id || '';
 
           await env.DB.prepare(
-            'INSERT INTO todos (id, parent_id, date, text, time, priority, desc, url, copy_text, subtasks, search_terms, done, deleted, type, end_time, category_id, recurrence_id, is_exception, time_records, fragment_anchor, rrule, anchor_date, exdates) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+            'INSERT INTO todos (id, parent_id, date, text, time, priority, desc, url, copy_text, subtasks, search_terms, done, deleted, type, end_time, category_id, time_records, fragment_anchor, rrule, anchor_date, exdates) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
           ).bind(
             task.id, task.id, effective_date, task.text, effectiveTime, normalizePriority(task.priority),
             task.desc || '', task.url || '', readCopyText(task), JSON.stringify(task.subtasks||[]), JSON.stringify(task.search_terms||[]),
             0, 0, type, effectiveEndTime, category_id,
-            '', 0,  // recurrence_id, is_exception
             '[]',   // time_records
             effective_fragment_anchor,
             final_rrule, anchor_date, final_exdates

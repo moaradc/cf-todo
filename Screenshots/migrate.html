@@ -396,18 +396,18 @@
     var activeTodos = data.todos.filter(function(t) { return !t.deleted; });
     var deletedTodos = data.todos.filter(function(t) { return t.deleted; });
     var repeatingTodos = data.todos.filter(function(t) {
-      // v3.0: type === 'recurring'（不含 is_exception 的实例）
+      // v3.0: type === 'recurring'
       // v2.x: repeat === 1（真正的重复 todo），不含 repeat === -1（例外实例，单独统计）
-      if (t.type === 'recurring') return !(t.is_exception === 1 || t.is_exception === true);
+      if (t.type === 'recurring') return true;
       if (t.repeat === 1) return true;
       // repeat_type 非空但不是 none/fragment，且不是例外
       if (t.repeat_type && t.repeat_type !== 'none' && t.repeat_type !== 'fragment' && t.repeat !== -1) return true;
       return false;
     });
     var exceptionTodos = data.todos.filter(function(t) {
-      // v3.0: is_exception === 1 或 is_exception === true
-      // v2.x: repeat === -1
-      return t.is_exception === 1 || t.is_exception === true || t.repeat === -1;
+      // v2.x: repeat === -1（旧版例外实例标记）
+      // v3.0 已删除 is_exception 字段，例外实例通过 parent_id !== id 判断
+      return t.repeat === -1;
     });
     var dirtyRepeatNeg1 = data.todos.filter(function(t) {
       return t.repeat === -1 && (!t.repeat_type || t.repeat_type === 'none' || t.repeat_type === '');
@@ -444,9 +444,9 @@
     var isV3Format = data.todos.some(function(t) { return t.type !== undefined && t.type !== null; }) ||
                      data.templates.some(function(t) { return t.type !== undefined && t.type !== null; });
 
-    // 检测缺少 recurrence_id / is_exception 的 todos
-    var missingRecurrenceId = isV3Format ? [] : data.todos.filter(function(t) { return t.recurrence_id === undefined; });
-    var missingIsException = isV3Format ? [] : data.todos.filter(function(t) { return t.is_exception === undefined; });
+    // v2.x 字段缺失检测（v3.0 文件跳过）
+    var missingRecurrenceId = [];
+    var missingIsException = [];
     // 检测缺少 exdates 的 templates（v3.0 用 exdates 替代 blacklist，已迁移的文件有 exdates）
     var missingExdates = isV3Format ? [] : data.templates.filter(function(t) { return t.exdates === undefined; });
     // 检测缺少 repeat_interval 的 todos / templates（v2.x schema 4 字段，v3.0 已删除）
@@ -511,12 +511,7 @@
     }
 
     // 字段新增
-    if (missingRecurrenceId.length > 0) {
-      diffList.innerHTML += diffItem('todos', '<span class="added">recurrence_id</span> 新增', 'RFC 5545 例外实例标识', missingRecurrenceId.length);
-    }
-    if (missingIsException.length > 0) {
-      diffList.innerHTML += diffItem('todos', '<span class="added">is_exception</span> 新增', '是否为脱离系列的例外实例', missingIsException.length);
-    }
+    // recurrence_id / is_exception 字段已在 v3.0 删除，不再检测
     if (missingExdates.length > 0) {
       diffList.innerHTML += diffItem('templates', '<span class="added">exdates</span> 新增', '排除日期字段，默认空数组', missingExdates.length);
     }
@@ -610,7 +605,7 @@
 
     // 数据修复
     if (exceptionTodos.length > 0) {
-      diffList.innerHTML += diffItem('todos', '<span class="renamed">repeat=-1 → is_exception=1</span>', '旧版 repeat=-1 表示已脱离重复系列，映射为新版例外标记', exceptionTodos.length);
+      diffList.innerHTML += diffItem('todos', '<span class="renamed">repeat=-1 → 例外标记</span>', '旧版 repeat=-1 表示已脱离重复系列，迁移后 type 改为 none', exceptionTodos.length);
     }
     if (dirtyRepeatNeg1.length > 0) {
       diffList.innerHTML += diffItem('todos', '<span class="renamed">repeat_type 修复</span>', 'repeat=-1 且 repeat_type=none → 从模板恢复或默认 daily', dirtyRepeatNeg1.length);
@@ -636,7 +631,7 @@
     // 分析日志（仅旧版文件需要，v3.0 文件已在上方"已是新版格式"拦截）
     if (!isV3Format) {
       if (exceptionTodos.length > 0) {
-        addLog('发现 ' + exceptionTodos.length + ' 条 repeat=-1 的例外事项，将标记 is_exception=1', 'warn');
+        addLog('发现 ' + exceptionTodos.length + ' 条 repeat=-1 的例外事项，迁移后 type 改为 none', 'warn');
       }
       if (dirtyRepeat.length > 0) {
         addLog('发现 ' + dirtyRepeat.length + ' 条 repeat/repeat_type 不一致的脏数据，迁移时将自动修复', 'warn');
@@ -901,13 +896,14 @@
         m = Object.assign({}, t);
 
         if (m.repeat === -1) {
-          m.is_exception = 1;
+          // 旧版 repeat=-1：已脱离系列的例外实例
+          // v3.0 不再用 is_exception 字段，仅修复 repeat_type 供 rrule 合成使用
           if (!m.repeat_type || m.repeat_type === 'none' || m.repeat_type === '') {
             var tpl = templateMap[m.parent_id];
             m.repeat_type = (tpl && tpl.repeat_type && tpl.repeat_type !== 'none') ? tpl.repeat_type : 'daily';
-            addLog('修复 id:' + m.id + ' repeat=-1 → is_exception=1, repeat_type=' + m.repeat_type, 'warn', 'exception');
+            addLog('修复 id:' + m.id + ' repeat=-1, repeat_type=' + m.repeat_type, 'warn', 'exception');
           } else {
-            addLog('修复 id:' + m.id + ' repeat=-1 → is_exception=1', 'warn', 'exception');
+            addLog('修复 id:' + m.id + ' repeat=-1', 'warn', 'exception');
           }
           fixCount++;
         }
@@ -933,14 +929,9 @@
 
         delete m.repeat;
         delete m.deleted_at;
-        if (!m.recurrence_id) {
-          m.recurrence_id = '';
-          addLog('新增 id:' + m.id + ' recurrence_id', 'info', 'newFields');
-        }
-        if (m.is_exception === undefined) {
-          m.is_exception = 0;
-          addLog('新增 id:' + m.id + ' is_exception=0', 'info', 'newFields');
-        }
+        // v3.0 已删除 recurrence_id / is_exception 字段，不再补全
+        delete m.recurrence_id;
+        delete m.is_exception;
         if (m.repeat_end === undefined) {
           m.repeat_end = '';
         }
@@ -1106,7 +1097,7 @@
 
     // 字段顺序规范化：按后端 DB 列顺序重建对象，确保与原生导出一致
     // JSON 对象理论上无序，但保持顺序一致便于用户 diff 对比新旧导出文件
-    var TODO_FIELD_ORDER = ['id', 'parent_id', 'date', 'text', 'time', 'priority', 'desc', 'url', 'copy_text', 'subtasks', 'search_terms', 'done', 'deleted', 'type', 'end_time', 'category_id', 'recurrence_id', 'is_exception', 'time_records', 'fragment_anchor', 'rrule', 'anchor_date', 'exdates'];
+    var TODO_FIELD_ORDER = ['id', 'parent_id', 'date', 'text', 'time', 'priority', 'desc', 'url', 'copy_text', 'subtasks', 'search_terms', 'done', 'deleted', 'type', 'end_time', 'category_id', 'time_records', 'fragment_anchor', 'rrule', 'anchor_date', 'exdates'];
     var TEMPLATE_FIELD_ORDER = ['parent_id', 'text', 'time', 'priority', 'desc', 'url', 'copy_text', 'subtasks', 'search_terms', 'type', 'end_time', 'anchor_date', 'exdates', 'category_id', 'time_records', 'rrule'];
 
     function reorderFields(obj, fieldOrder) {
