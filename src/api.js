@@ -1500,6 +1500,7 @@ self.addEventListener('fetch', (event) => {
           const decoder = new TextDecoder();
           let todoBatch = [];
           let tplBatch = [];
+          let ndjsonPrefixSkipped = false;  // 跳过导出流的 'ndjson' 首行字面量
 
           const processBuffer = async () => {
             const lines = buffer.split('\n');
@@ -1507,6 +1508,11 @@ self.addEventListener('fetch', (event) => {
             for (const line of lines) {
               const trimmed = line.trim();
               if (!trimmed) continue;
+              // 跳过导出流的 'ndjson' 首行字面量（非 JSON，是流类型标识）
+              if (!ndjsonPrefixSkipped) {
+                ndjsonPrefixSkipped = true;
+                if (trimmed === 'ndjson') continue;
+              }
               const obj = JSON.parse(trimmed);
 
               if (obj._type === 'template') {

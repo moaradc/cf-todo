@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>数据迁移工具 - v2.6.x → v2.8.0</title>
+  <title>数据迁移工具 - 旧版 → v3.0</title>
   <style>
     :root {
       --bg: #0a0a0a;
@@ -122,7 +122,7 @@
 <body>
   <div class="container">
     <h1>数据迁移工具</h1>
-    <p class="sub">v2.6.x → v2.8.0</p>
+    <p class="sub">旧版 → v3.0</p>
 
     <div class="drop-zone" id="dropZone">
       <div class="icon">📁</div>
@@ -403,7 +403,7 @@
     if (!needMigration && dirtyRepeat.length === 0 && exceptionTodos.length === 0 && unsyncedCustom.length === 0 && missingRecurrenceId.length === 0 && missingIsException.length === 0 && missingExdates.length === 0 && missingIntervalTodos.length === 0 && missingIntervalTpls.length === 0 && missingRepeatEndTodos.length === 0 && missingEndTimeTodos.length === 0 && missingRepeatEndTpls.length === 0 && missingEndTimeTpls.length === 0 && missingTimeRecordsTodos.length === 0 && missingTimeRecordsTpls.length === 0 && invalidTimeRecordsTodos.length === 0 && invalidTimeRecordsTpls.length === 0) {
       diffList.innerHTML = '<div class="diff-item" style="border-color:#1a3a1a;"><div class="diff-desc" style="color:var(--crt);">此文件已是新版格式，无需迁移</div></div>';
       migrateBtn.disabled = true;
-      addLog('此文件已是 v2.8.0 格式，无需迁移', 'ok');
+      addLog('此文件已是 v3.0 格式，无需迁移', 'ok');
       renderLogs();
       return;
     }
@@ -460,7 +460,7 @@
       diffList.innerHTML += diffItem('templates', '<span class="renamed">time_records 修复</span>', '格式不规范（非字符串/非合法 JSON 数组），重置为 \"[]\"', invalidTimeRecordsTpls.length);
     }
 
-    // v2.8.0+: rrule 字段补全（schema 2 新增）
+    // rrule 字段补全（schema 2 新增）
     var missingRRuleTodos = data.todos.filter(function(t) {
       return t.rrule === undefined || t.rrule === null;
     });
@@ -468,10 +468,10 @@
       return t.rrule === undefined || t.rrule === null;
     });
     if (missingRRuleTodos.length > 0) {
-      diffList.innerHTML += diffItem('todos', '<span class="added">rrule</span> 新增', 'RFC 5545 RRULE 字符串（v2.8.0+ 规范字段），从 repeat_type/interval/end/custom 合成', missingRRuleTodos.length);
+      diffList.innerHTML += diffItem('todos', '<span class="added">rrule</span> 新增', 'RFC 5545 RRULE 字符串（规范字段），从 repeat_type/interval/end/custom 合成', missingRRuleTodos.length);
     }
     if (missingRRuleTpls.length > 0) {
-      diffList.innerHTML += diffItem('templates', '<span class="added">rrule</span> 新增', 'RFC 5545 RRULE 字符串（v2.8.0+ 规范字段），从 repeat_type/interval/end/custom 合成', missingRRuleTpls.length);
+      diffList.innerHTML += diffItem('templates', '<span class="added">rrule</span> 新增', 'RFC 5545 RRULE 字符串（规范字段），从 repeat_type/interval/end/custom 合成', missingRRuleTpls.length);
     }
 
     // 数据修复
@@ -634,7 +634,7 @@
     return oldCustom;
   }
 
-  // v2.8.0+: 从旧字段（repeat_type / repeat_interval / repeat_end / repeat_custom / anchor_date）
+  // 从旧字段（repeat_type / repeat_interval / repeat_end / repeat_custom / anchor_date）
   // 合成 RFC 5545 RRULE 字符串，写入 rrule 列。逻辑与后端 rruleFromLegacyFields 一致。
   // none/fragment → 返回 ''（与后端一致）
   function buildRRuleFromLegacy(repeatType, interval, repeatEnd, repeatCustom, anchorDate) {
@@ -776,7 +776,7 @@
         m.fragment_anchor = '';
       }
 
-      // v2.8.0+: rrule 字段补全。从旧字段合成 RFC 5545 RRULE 字符串。
+      // rrule 字段补全。从旧字段合成 RFC 5545 RRULE 字符串。
       // none/fragment → ''；其他类型按 repeat_type + interval + repeat_end + custom + date 合成
       if (m.rrule === undefined || m.rrule === null) {
         m.rrule = buildRRuleFromLegacy(
@@ -872,7 +872,7 @@
         }
       }
 
-      // v2.8.0+: rrule 字段补全。模板的 anchor_date 是 RRULE 起始日期。
+      // rrule 字段补全。模板的 anchor_date 是 RRULE 起始日期。
       if (mt.rrule === undefined || mt.rrule === null) {
         mt.rrule = buildRRuleFromLegacy(
           mt.repeat_type,
@@ -989,7 +989,7 @@
       var writable = await handle.createWritable();
       await writable.write(content);
       await writable.close();
-      addLog('文件已保存，请在 v2.8.0 的导入功能中使用【覆盖模式】导入', 'ok');
+      addLog('文件已保存，请在 v3.0 的导入功能中使用【覆盖模式】导入', 'ok');
       renderLogs();
     } catch (err) {
       if (err.name === 'AbortError') return; // 用户取消
