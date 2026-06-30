@@ -395,8 +395,16 @@
 
     var activeTodos = data.todos.filter(function(t) { return !t.deleted; });
     var deletedTodos = data.todos.filter(function(t) { return t.deleted; });
-    var repeatingTodos = data.todos.filter(function(t) { return t.repeat === 1 || t.repeat === -1 || (t.repeat_type && t.repeat_type !== 'none'); });
-    var exceptionTodos = data.todos.filter(function(t) { return t.repeat === -1; });
+    var repeatingTodos = data.todos.filter(function(t) {
+      // v3.0: type === 'recurring'
+      // v2.x: repeat === 1 || repeat === -1 || (repeat_type && repeat_type !== 'none')
+      return t.type === 'recurring' || t.repeat === 1 || t.repeat === -1 || (t.repeat_type && t.repeat_type !== 'none');
+    });
+    var exceptionTodos = data.todos.filter(function(t) {
+      // v3.0: is_exception === 1 或 is_exception === true
+      // v2.x: repeat === -1
+      return t.is_exception === 1 || t.is_exception === true || t.repeat === -1;
+    });
     var dirtyRepeatNeg1 = data.todos.filter(function(t) {
       return t.repeat === -1 && (!t.repeat_type || t.repeat_type === 'none' || t.repeat_type === '');
     });
