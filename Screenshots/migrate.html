@@ -491,7 +491,7 @@
     var diffList = document.getElementById('diffList');
     diffList.innerHTML = '';
 
-    if (!needMigration && dirtyRepeat.length === 0 && exceptionTodos.length === 0 && unsyncedCustom.length === 0 && missingRecurrenceId.length === 0 && missingIsException.length === 0 && missingExdates.length === 0 && missingIntervalTodos.length === 0 && missingIntervalTpls.length === 0 && missingRepeatEndTodos.length === 0 && missingEndTimeTodos.length === 0 && missingRepeatEndTpls.length === 0 && missingEndTimeTpls.length === 0 && missingTimeRecordsTodos.length === 0 && missingTimeRecordsTpls.length === 0 && invalidTimeRecordsTodos.length === 0 && invalidTimeRecordsTpls.length === 0 && missingTypeTodos.length === 0 && missingTypeTpls.length === 0 && missingRRuleTodos.length === 0 && missingRRuleTpls.length === 0 && missingAnchorDateTodos.length === 0 && missingAnchorDateTpls.length === 0 && missingExdatesTodos.length === 0 && missingExdatesTpls.length === 0 && missingFragmentAnchor.length === 0 && !hasV3LegacyFields) {
+    if (!needMigration && (isV3Format || dirtyRepeat.length === 0) && (isV3Format || exceptionTodos.length === 0) && unsyncedCustom.length === 0 && missingRecurrenceId.length === 0 && missingIsException.length === 0 && missingExdates.length === 0 && missingIntervalTodos.length === 0 && missingIntervalTpls.length === 0 && missingRepeatEndTodos.length === 0 && missingEndTimeTodos.length === 0 && missingRepeatEndTpls.length === 0 && missingEndTimeTpls.length === 0 && missingTimeRecordsTodos.length === 0 && missingTimeRecordsTpls.length === 0 && invalidTimeRecordsTodos.length === 0 && invalidTimeRecordsTpls.length === 0 && missingTypeTodos.length === 0 && missingTypeTpls.length === 0 && missingRRuleTodos.length === 0 && missingRRuleTpls.length === 0 && missingAnchorDateTodos.length === 0 && missingAnchorDateTpls.length === 0 && missingExdatesTodos.length === 0 && missingExdatesTpls.length === 0 && missingFragmentAnchor.length === 0 && !hasV3LegacyFields) {
       diffList.innerHTML = '<div class="diff-item" style="border-color:#1a3a1a;"><div class="diff-desc" style="color:var(--crt);">此文件已是新版格式，无需迁移</div></div>';
       migrateBtn.disabled = true;
       addLog('此文件已是 v3.0 格式，无需迁移', 'ok');
@@ -633,36 +633,38 @@
       diffList.innerHTML += diffItem('templates', '<span class="renamed">repeat_custom 同步</span>', '旧版 repeat_custom 存在 todo 上，新版需同步到模板', unsyncedCustom.length);
     }
 
-    // 分析日志
-    if (exceptionTodos.length > 0) {
-      addLog('发现 ' + exceptionTodos.length + ' 条 repeat=-1 的例外事项，将标记 is_exception=1', 'warn');
-    }
-    if (dirtyRepeat.length > 0) {
-      addLog('发现 ' + dirtyRepeat.length + ' 条 repeat/repeat_type 不一致的脏数据，迁移时将自动修复', 'warn');
-    }
-    if (templatesWithBlacklist.length > 0) {
-      addLog('发现 ' + templatesWithBlacklist.length + ' 个模板含 blacklist 字段，将迁移为 exdates', 'warn');
-    }
-    if (oldFormatCustomTodos.length > 0) {
-      addLog('发现 ' + oldFormatCustomTodos.length + ' 条 todo 旧版 repeat_custom 格式，将转换为 RRULE', 'warn');
-    }
-    if (oldFormatCustomTpls.length > 0) {
-      addLog('发现 ' + oldFormatCustomTpls.length + ' 个模板旧版 repeat_custom 格式，将转换为 RRULE', 'warn');
-    }
-    if (unsyncedCustom.length > 0) {
-      addLog('发现 ' + unsyncedCustom.length + ' 个模板缺少 repeat_custom，将从根 todo 同步', 'warn');
-    }
-    if (hasRepeat) {
-      addLog('数据包含旧版 repeat 字段，迁移后将移除', 'info');
-    }
-    if (missingIntervalTodos.length > 0 || missingIntervalTpls.length > 0) {
-      addLog('发现缺少 repeat_interval 字段，将补全为默认值 1（schema 4）', 'info');
-    }
-    if (missingTimeRecordsTodos.length > 0 || missingTimeRecordsTpls.length > 0) {
-      addLog('发现缺少 time_records 字段，将补全为 \"[]\"（schema 6/7）', 'info');
-    }
-    if (invalidTimeRecordsTodos.length > 0 || invalidTimeRecordsTpls.length > 0) {
-      addLog('发现 ' + (invalidTimeRecordsTodos.length + invalidTimeRecordsTpls.length) + ' 项 time_records 格式不规范，将重置为 \"[]\"', 'warn');
+    // 分析日志（仅旧版文件需要，v3.0 文件已在上方"已是新版格式"拦截）
+    if (!isV3Format) {
+      if (exceptionTodos.length > 0) {
+        addLog('发现 ' + exceptionTodos.length + ' 条 repeat=-1 的例外事项，将标记 is_exception=1', 'warn');
+      }
+      if (dirtyRepeat.length > 0) {
+        addLog('发现 ' + dirtyRepeat.length + ' 条 repeat/repeat_type 不一致的脏数据，迁移时将自动修复', 'warn');
+      }
+      if (templatesWithBlacklist.length > 0) {
+        addLog('发现 ' + templatesWithBlacklist.length + ' 个模板含 blacklist 字段，将迁移为 exdates', 'warn');
+      }
+      if (oldFormatCustomTodos.length > 0) {
+        addLog('发现 ' + oldFormatCustomTodos.length + ' 条 todo 旧版 repeat_custom 格式，将转换为 RRULE', 'warn');
+      }
+      if (oldFormatCustomTpls.length > 0) {
+        addLog('发现 ' + oldFormatCustomTpls.length + ' 个模板旧版 repeat_custom 格式，将转换为 RRULE', 'warn');
+      }
+      if (unsyncedCustom.length > 0) {
+        addLog('发现 ' + unsyncedCustom.length + ' 个模板缺少 repeat_custom，将从根 todo 同步', 'warn');
+      }
+      if (hasRepeat) {
+        addLog('数据包含旧版 repeat 字段，迁移后将移除', 'info');
+      }
+      if (missingIntervalTodos.length > 0 || missingIntervalTpls.length > 0) {
+        addLog('发现缺少 repeat_interval 字段，将补全为默认值 1（schema 4）', 'info');
+      }
+      if (missingTimeRecordsTodos.length > 0 || missingTimeRecordsTpls.length > 0) {
+        addLog('发现缺少 time_records 字段，将补全为 \"[]\"（schema 6/7）', 'info');
+      }
+      if (invalidTimeRecordsTodos.length > 0 || invalidTimeRecordsTpls.length > 0) {
+        addLog('发现 ' + (invalidTimeRecordsTodos.length + invalidTimeRecordsTpls.length) + ' 项 time_records 格式不规范，将重置为 \"[]\"', 'warn');
+      }
     }
 
     addLog('数据解析完成，可以执行迁移', 'ok');
