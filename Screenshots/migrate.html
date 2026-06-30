@@ -1046,14 +1046,36 @@
     addLog('v3.0 字段: rrule 非空 todos=' + v3RruleTodos + ' / templates=' + v3RruleTpls, 'info', 'v3summary', true);
     addLog('v3.0 字段: anchor_date / exdates / fragment_anchor 已补全；repeat_type / repeat_custom / repeat_interval / repeat_end 已删除', 'info', 'v3summary', true);
 
+    // 字段顺序规范化：按后端 DB 列顺序重建对象，确保与原生导出一致
+    // JSON 对象理论上无序，但保持顺序一致便于用户 diff 对比新旧导出文件
+    var TODO_FIELD_ORDER = ['id', 'parent_id', 'date', 'text', 'time', 'priority', 'desc', 'url', 'copy_text', 'subtasks', 'search_terms', 'done', 'deleted', 'type', 'end_time', 'category_id', 'recurrence_id', 'is_exception', 'time_records', 'fragment_anchor', 'rrule', 'anchor_date', 'exdates'];
+    var TEMPLATE_FIELD_ORDER = ['parent_id', 'text', 'time', 'priority', 'desc', 'url', 'copy_text', 'subtasks', 'search_terms', 'type', 'end_time', 'anchor_date', 'exdates', 'category_id', 'time_records', 'rrule'];
+
+    function reorderFields(obj, fieldOrder) {
+      var result = {};
+      for (var i = 0; i < fieldOrder.length; i++) {
+        if (fieldOrder[i] in obj) {
+          result[fieldOrder[i]] = obj[fieldOrder[i]];
+        }
+      }
+      // 保留未在 fieldOrder 中的额外字段（防御性，避免丢数据）
+      for (var k in obj) {
+        if (!(k in result)) result[k] = obj[k];
+      }
+      return result;
+    }
+
+    var orderedTodos = migratedTodos.map(function(t) { return reorderFields(t, TODO_FIELD_ORDER); });
+    var orderedTemplates = migratedTemplates.map(function(t) { return reorderFields(t, TEMPLATE_FIELD_ORDER); });
+
     return {
       settings: data.settings,
       custom_header: data.custom_header,
       custom_content: data.custom_content,
       customColors: data.customColors,
       categories: data.categories,
-      todos: migratedTodos,
-      templates: migratedTemplates
+      todos: orderedTodos,
+      templates: orderedTemplates
     };
   }
 
