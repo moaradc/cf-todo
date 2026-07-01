@@ -42,7 +42,10 @@
 
     /* Paths */
     "baseUrl": ".",
-    "rootDir": "."
+    "rootDir": ".",
+
+    /* Types — Cloudflare Workers 运行时类型（D1Database / Fetcher / KV 等） */
+    "types": ["@cloudflare/workers-types"]
   },
   "include": [
     "src/**/*.ts",

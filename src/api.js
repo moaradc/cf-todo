@@ -42,7 +42,11 @@ import {
 } from './recurring-engine.js';
 import { handleV1Request, verifyApiKey, extractApiKey, getApiKeyScope } from './api-v1.js';
 
-let isDbInitialized = false;
+// 阶段 2 起：旧 initDb 不再执行。
+// - 真正的迁移交给 wrangler d1 migrations apply（部署时）。
+// - 运行时由 src/middleware/init-db.ts 的 ensureMigrated 做诊断检查。
+// - 此处 isDbInitialized=true 让 initDb 函数体在第一行就 early return（dead code，阶段 8 删）。
+let isDbInitialized = true;
 
 // D1 Free 限制 bound parameters/query = 100，部分 SQL 含额外参数（date/time_records），
 // 留 1 个余量，chunk size 设为 99 防止 100+1=101 溢出。

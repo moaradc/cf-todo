@@ -4,7 +4,7 @@
   "version": "1.0.0",
   "scripts": {
     "build": "esbuild src/index.ts --bundle --format=esm --platform=browser --outfile=dist/worker.mjs --banner:js=\"/* eslint-disable */\"",
-    "dev": "wrangler dev",
+    "dev": "npm run db:migrate:local && wrangler dev",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "db:generate": "drizzle-kit generate",
@@ -17,6 +17,7 @@
   },
   "devDependencies": {
     "@cloudflare/vitest-pool-workers": "^0.8.0",
+    "@cloudflare/workers-types": "^4.20241218.0",
     "@types/node": "^22.10.5",
     "drizzle-kit": "^0.30.4",
     "esbuild": "^0.24.0",

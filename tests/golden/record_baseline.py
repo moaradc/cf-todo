@@ -201,6 +201,24 @@ def start_wrangler():
     """启动 wrangler dev，等待就绪。返回 Popen。"""
     if WRANGLER_LOG.exists():
         WRANGLER_LOG.unlink()
+
+    # 阶段 2 起：wrangler dev 前必须先跑 d1 migrations apply，否则表不存在。
+    # 本地 D1 state 在 main() 开头已被清理，这里跑 migrate 建表。
+    print("  running d1 migrations apply (local)...")
+    migrate = subprocess.run(
+        ["npx", "wrangler", "d1", "migrations", "apply", "todo-db", "--local"],
+        cwd=str(ROOT),
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+    if migrate.returncode != 0:
+        print("  ❌ d1 migrations apply failed:")
+        print(migrate.stdout[-1000:])
+        print(migrate.stderr[-1000:])
+        sys.exit(1)
+    print("  ✓ migrations applied")
+
     log_fd = open(WRANGLER_LOG, "w")
     proc = subprocess.Popen(
         ["npx", "wrangler", "dev", "--local", "--port", "8787", "--ip", "127.0.0.1"],
