@@ -1,6 +1,13 @@
 name = "cf-todo"
-main = "src/index.js"
+main = "dist/worker.mjs"
 compatibility_date = "2026-05-14"
+
+# 阶段 1 / Commit 1.2：接入构建链。
+# wrangler 在本地/远程部署前会先执行 [build].command，把 src/index.ts 通过 esbuild
+# 打包成 dist/worker.mjs（ESM），main 指向该产物。
+# 这样 TypeScript 源码 → esbuild bundle → Worker 运行时这条链路完整闭环。
+[build]
+command = "npm run build"
 
 [[d1_databases]]
 binding = "DB"
