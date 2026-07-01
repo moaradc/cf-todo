@@ -17,4 +17,9 @@ database_name = "todo-db"
 # 本地开发：`npx wrangler d1 execute todo-db --local` 会基于此 ID 在 .wrangler/state/v3/d1 下建本地 SQLite 文件。
 database_id = "af077718-dfdd-476b-8e5c-136a776a97a7"
 read_replication = false
+# 阶段 2 起：迁移目录指向 drizzle/（drizzle-kit generate 输出位置）。
+# wrangler d1 migrations apply todo-db --local/--remote 会读取此目录下所有 .sql 文件，
+# 按文件名字典序应用，并在 d1_migrations 表记录已应用文件名，不重复执行。
+# 注意：d1_migrations 表由 wrangler 管理，与 drizzle-orm/d1/migrator 的 __drizzle_migrations 表是两套机制。
+migrations_dir = "drizzle"
 # D1 读副本：启用后，配合代码里的 env.DB.withSession('first-primary') 可路由读查询到就近副本。如需启用：将read_replication改为 true 并在 CF Dashboard → D1 → Settings → 读取复制 中启用。
