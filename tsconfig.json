@@ -1,0 +1,59 @@
+{
+  // cf-todo TypeScript 配置
+  //
+  // 设计原则：
+  //   - allowJs + checkJs=false：旧 .js 巨石（api.js / api-v1.js / utils.js / recurring-engine.js）
+  //     允许被 TS 项目接受，但不强制类型检查，避免一次性数千个 warning 阻塞迁移。
+  //   - 新写的 .ts 文件强制 strict 模式，享受完整类型推断。
+  //   - tsc 仅做类型检查（noEmit），实际产物由 esbuild 通过 wrangler build 生成。
+  //   - src/html/** 为前端字符串模块（不含类型），完全排除在 TS 视野外，零侵入。
+  //   - 兼容 Cloudflare Workers 运行时：lib 选 ES2022 + DOM（crypto.subtle / btoa / fetch 等 Web API）。
+
+  "compilerOptions": {
+    /* Language and Module */
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "lib": ["ES2022", "DOM", "DOM.Iterable", "WebWorker"],
+    "resolveJsonModule": true,
+    "esModuleInterop": true,
+    "allowSyntheticDefaultImports": true,
+    "isolatedModules": true,
+
+    /* JS interop */
+    "allowJs": true,
+    "checkJs": false,
+
+    /* Type checking — strict 仅对新 .ts 生效，.js 文件由 checkJs=false 豁免 */
+    "strict": true,
+    "noImplicitAny": true,
+    "strictNullChecks": true,
+    "noUnusedLocals": false,
+    "noUnusedParameters": false,
+    "noFallthroughCasesInSwitch": true,
+    "noImplicitReturns": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+
+    /* Emit — tsc 仅做类型检查，产物由 esbuild 负责 */
+    "noEmit": true,
+    "sourceMap": true,
+    "inlineSources": false,
+
+    /* Paths */
+    "baseUrl": ".",
+    "rootDir": "."
+  },
+  "include": [
+    "src/**/*.ts",
+    "src/**/*.js",
+    "src/**/*.d.ts"
+  ],
+  "exclude": [
+    "node_modules",
+    "dist",
+    ".wrangler",
+    "src/html/**",
+    "src/html.js"
+  ]
+}

@@ -2,7 +2,16 @@
   "name": "cf-todo",
   "private": true,
   "version": "1.0.0",
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
   "dependencies": {
     "ical.js": "^2.2.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.5",
+    "esbuild": "^0.24.0",
+    "typescript": "^5.6.3",
+    "wrangler": "^4.106.0"
   }
 }
