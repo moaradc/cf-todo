@@ -1,0 +1,25 @@
+{
+  "case_id": 41,
+  "name": "v1_todos_create",
+  "request": {
+    "method": "POST",
+    "path": "/api/v1/todos",
+    "headers": {},
+    "body_summary": {
+      "json_preview": "{\"date\": \"2026-07-01\", \"text\": \"baseline-v1-test-todo\", \"priority\": \"high\", \"type\": \"none\"}",
+      "size": 91
+    }
+  },
+  "response": {
+    "status": 201,
+    "headers": {
+      "Content-Length": "475",
+      "Content-Type": "application/json",
+      "Cache-Control": "no-store"
+    },
+    "timing_ms": 4,
+    "body_size": 475,
+    "body_sha256": "9be1bd47067bdc3a2cc53f45a04de0d1f98af76fd9490f231f234b25231c06e9",
+    "body_ext": "json"
+  }
+}

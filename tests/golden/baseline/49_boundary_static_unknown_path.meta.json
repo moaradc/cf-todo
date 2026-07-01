@@ -1,0 +1,21 @@
+{
+  "case_id": 49,
+  "name": "boundary_static_unknown_path",
+  "request": {
+    "method": "GET",
+    "path": "/some-unknown-spa-route-xyz",
+    "headers": {},
+    "body_summary": null
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "Transfer-Encoding": "chunked",
+      "Content-Type": "text/html;charset=UTF-8"
+    },
+    "timing_ms": 12,
+    "body_size": 462213,
+    "body_sha256": "13d097d8ae9b30e7d46437a7dfced892837b89ea47b01c4861c841c2754a6bc6",
+    "body_ext": "html"
+  }
+}

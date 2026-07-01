@@ -1,0 +1,22 @@
+{
+  "case_id": 34,
+  "name": "export_stream",
+  "request": {
+    "method": "GET",
+    "path": "/api/export?mode=stream",
+    "headers": {},
+    "body_summary": null
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "Transfer-Encoding": "chunked",
+      "Content-Type": "application/x-ndjson",
+      "Content-Disposition": "attachment; filename=\"todo_export.json\""
+    },
+    "timing_ms": 7,
+    "body_size": 7,
+    "body_sha256": "70830284256cb05cdeef790ccb893409c1e2052194fdb47ad76f00407244991b",
+    "body_ext": "json"
+  }
+}

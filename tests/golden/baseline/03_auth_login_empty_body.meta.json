@@ -1,0 +1,24 @@
+{
+  "case_id": 3,
+  "name": "auth_login_empty_body",
+  "request": {
+    "method": "POST",
+    "path": "/api/login",
+    "headers": {},
+    "body_summary": {
+      "json_preview": "{}",
+      "size": 2
+    }
+  },
+  "response": {
+    "status": 401,
+    "headers": {
+      "Content-Length": "25",
+      "Content-Type": "application/json"
+    },
+    "timing_ms": 4,
+    "body_size": 25,
+    "body_sha256": "34cbdfe6682da0cd7c15c151c6849cd9c6d87420fe8e0a90e531a7b53059fd98",
+    "body_ext": "json"
+  }
+}

@@ -1,0 +1,25 @@
+{
+  "case_id": 1,
+  "name": "auth_login_success",
+  "request": {
+    "method": "POST",
+    "path": "/api/login",
+    "headers": {},
+    "body_summary": {
+      "json_preview": "{\"password\": \"baseline-test-123\"}",
+      "size": 33
+    }
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "Content-Length": "16",
+      "Content-Type": "text/plain;charset=UTF-8",
+      "Set-Cookie": "auth_sig=<MASKED_LEN_44>; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=2592000"
+    },
+    "timing_ms": 7,
+    "body_size": 16,
+    "body_sha256": "c955e57777ec0d73639dca6748560d00aa5eb8e12f13ebb2ed9656add3908f97",
+    "body_ext": "txt"
+  }
+}

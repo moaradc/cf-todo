@@ -1,0 +1,24 @@
+{
+  "case_id": 13,
+  "name": "categories_create",
+  "request": {
+    "method": "POST",
+    "path": "/api/category-action",
+    "headers": {},
+    "body_summary": {
+      "json_preview": "{\"action\": \"CREATE\", \"name\": \"baseline-test-cat\", \"color\": \"#FF5722\"}",
+      "size": 69
+    }
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "Content-Length": "86",
+      "Content-Type": "application/json"
+    },
+    "timing_ms": 4,
+    "body_size": 86,
+    "body_sha256": "58bc523472cb6b0a131afc1dc735d0b9b0207e2c3acd37fb01d8d3510e002485",
+    "body_ext": "json"
+  }
+}

@@ -1,0 +1,22 @@
+{
+  "case_id": 39,
+  "name": "v1_todos_get_range",
+  "request": {
+    "method": "GET",
+    "path": "/api/v1/todos?start_date=2026-03-08&end_date=2026-03-10",
+    "headers": {},
+    "body_summary": null
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "Content-Length": "15562",
+      "Content-Type": "application/json",
+      "Cache-Control": "no-store"
+    },
+    "timing_ms": 6,
+    "body_size": 15562,
+    "body_sha256": "b303d5e4a75d1bb9a29ae6f51b3163e84e4069d0245377783a3e4f780f2d3a75",
+    "body_ext": "json"
+  }
+}

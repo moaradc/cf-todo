@@ -1,0 +1,21 @@
+{
+  "case_id": 30,
+  "name": "stats_week",
+  "request": {
+    "method": "GET",
+    "path": "/api/stats?start=2026-06-25&end=2026-07-01",
+    "headers": {},
+    "body_summary": null
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "Content-Length": "629",
+      "Content-Type": "application/json"
+    },
+    "timing_ms": 7,
+    "body_size": 629,
+    "body_sha256": "f04745f5e9d63d0112d35d226d5424519de7bec61469b7e7400efd48918a61d8",
+    "body_ext": "json"
+  }
+}

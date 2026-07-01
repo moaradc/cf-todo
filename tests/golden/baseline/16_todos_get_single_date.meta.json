@@ -1,0 +1,21 @@
+{
+  "case_id": 16,
+  "name": "todos_get_single_date",
+  "request": {
+    "method": "GET",
+    "path": "/api/todos?date=2026-03-08",
+    "headers": {},
+    "body_summary": null
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "Content-Length": "4633",
+      "Content-Type": "application/json"
+    },
+    "timing_ms": 7,
+    "body_size": 4633,
+    "body_sha256": "d6f2574e58ddfe39252fbea472acbf29e82bc18312ff1d8ec5ae98428a94cba8",
+    "body_ext": "json"
+  }
+}

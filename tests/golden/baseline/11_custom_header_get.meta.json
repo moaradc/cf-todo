@@ -1,0 +1,21 @@
+{
+  "case_id": 11,
+  "name": "custom_header_get",
+  "request": {
+    "method": "GET",
+    "path": "/api/custom-header",
+    "headers": {},
+    "body_summary": null
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "Content-Length": "47511",
+      "Content-Type": "text/plain"
+    },
+    "timing_ms": 4,
+    "body_size": 47511,
+    "body_sha256": "5559f7f1def8d3f681fd180de9c70c3fd36cd3770b78d4b1470cd70a07b5a878",
+    "body_ext": "txt"
+  }
+}

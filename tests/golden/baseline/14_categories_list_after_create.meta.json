@@ -1,0 +1,21 @@
+{
+  "case_id": 14,
+  "name": "categories_list_after_create",
+  "request": {
+    "method": "GET",
+    "path": "/api/categories",
+    "headers": {},
+    "body_summary": null
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "Content-Length": "134",
+      "Content-Type": "application/json"
+    },
+    "timing_ms": 3,
+    "body_size": 134,
+    "body_sha256": "cc6da4416c43460fd8c12e816a8811f457372c9869cabf0747ca354b418e0c2f",
+    "body_ext": "json"
+  }
+}

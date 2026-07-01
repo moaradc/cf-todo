@@ -1,0 +1,24 @@
+{
+  "case_id": 28,
+  "name": "trash_action_restore_nonexistent",
+  "request": {
+    "method": "POST",
+    "path": "/api/trash-action",
+    "headers": {},
+    "body_summary": {
+      "json_preview": "{\"action\": \"RESTORE\", \"id\": \"nonexistent-trash-id-baseline\"}",
+      "size": 60
+    }
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "Content-Length": "16",
+      "Content-Type": "application/json"
+    },
+    "timing_ms": 6,
+    "body_size": 16,
+    "body_sha256": "c955e57777ec0d73639dca6748560d00aa5eb8e12f13ebb2ed9656add3908f97",
+    "body_ext": "json"
+  }
+}

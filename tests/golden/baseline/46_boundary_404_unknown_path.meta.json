@@ -1,0 +1,21 @@
+{
+  "case_id": 46,
+  "name": "boundary_404_unknown_path",
+  "request": {
+    "method": "GET",
+    "path": "/api/nonexistent-endpoint",
+    "headers": {},
+    "body_summary": null
+  },
+  "response": {
+    "status": 404,
+    "headers": {
+      "Content-Length": "21",
+      "Content-Type": "application/json"
+    },
+    "timing_ms": 2,
+    "body_size": 21,
+    "body_sha256": "e28bf7d9fcc22cdfde0c7c8f31e3648a4847e7bda9cb69f309f24257eee3dd41",
+    "body_ext": "json"
+  }
+}

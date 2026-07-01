@@ -1,0 +1,21 @@
+{
+  "case_id": 19,
+  "name": "todos_get_missing_date",
+  "request": {
+    "method": "GET",
+    "path": "/api/todos",
+    "headers": {},
+    "body_summary": null
+  },
+  "response": {
+    "status": 400,
+    "headers": {
+      "Content-Length": "25",
+      "Content-Type": "application/json"
+    },
+    "timing_ms": 3,
+    "body_size": 25,
+    "body_sha256": "6f7977d67d006e5f5cc42b059481f87a1e9af340085168dd11048fb625918d8e",
+    "body_ext": "json"
+  }
+}

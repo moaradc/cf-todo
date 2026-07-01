@@ -1,0 +1,21 @@
+{
+  "case_id": 4,
+  "name": "auth_sessions_list",
+  "request": {
+    "method": "GET",
+    "path": "/api/sessions",
+    "headers": {},
+    "body_summary": null
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "Content-Length": "63",
+      "Content-Type": "application/json"
+    },
+    "timing_ms": 3,
+    "body_size": 63,
+    "body_sha256": "6599e426c294cf1aed888a8ec96504d05d83cc220741885db105f5f11f29d014",
+    "body_ext": "json"
+  }
+}

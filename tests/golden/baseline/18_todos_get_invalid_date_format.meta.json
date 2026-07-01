@@ -1,0 +1,21 @@
+{
+  "case_id": 18,
+  "name": "todos_get_invalid_date_format",
+  "request": {
+    "method": "GET",
+    "path": "/api/todos?date=2026-13-45",
+    "headers": {},
+    "body_summary": null
+  },
+  "response": {
+    "status": 400,
+    "headers": {
+      "Content-Length": "36",
+      "Content-Type": "application/json"
+    },
+    "timing_ms": 3,
+    "body_size": 36,
+    "body_sha256": "22fa8a0e8efb3a20f93d72e02ec746cd1b983f0f95e746503788b12915eb12a6",
+    "body_ext": "json"
+  }
+}

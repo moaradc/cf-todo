@@ -1,0 +1,21 @@
+{
+  "case_id": 6,
+  "name": "static_manifest_json",
+  "request": {
+    "method": "GET",
+    "path": "/manifest.json",
+    "headers": {},
+    "body_summary": null
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "Content-Length": "1547",
+      "Content-Type": "application/manifest+json"
+    },
+    "timing_ms": 2,
+    "body_size": 1547,
+    "body_sha256": "4a391550e3d5e1836c2703274e0a2f41e5e1af086c5ca4da19ab2557f2236cb5",
+    "body_ext": "json"
+  }
+}

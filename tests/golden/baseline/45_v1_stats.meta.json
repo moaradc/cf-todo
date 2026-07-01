@@ -1,0 +1,22 @@
+{
+  "case_id": 45,
+  "name": "v1_stats",
+  "request": {
+    "method": "GET",
+    "path": "/api/v1/stats?start=2026-06-25&end=2026-07-01",
+    "headers": {},
+    "body_summary": null
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "Content-Length": "571",
+      "Content-Type": "application/json",
+      "Cache-Control": "no-store"
+    },
+    "timing_ms": 5,
+    "body_size": 571,
+    "body_sha256": "c79c84f0c08cc45a5fe53eccfa79fbdd7fdc9de0a45c3f2866241a5753a4ade6",
+    "body_ext": "json"
+  }
+}

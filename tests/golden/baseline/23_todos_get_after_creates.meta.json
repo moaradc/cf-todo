@@ -1,0 +1,21 @@
+{
+  "case_id": 23,
+  "name": "todos_get_after_creates",
+  "request": {
+    "method": "GET",
+    "path": "/api/todos?date=2026-07-01",
+    "headers": {},
+    "body_summary": null
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "Content-Length": "5403",
+      "Content-Type": "application/json"
+    },
+    "timing_ms": 8,
+    "body_size": 5403,
+    "body_sha256": "bd5f35e17aa1daecbceef66915e3bc4754a7d79305a27e4b8f7c203999e4494b",
+    "body_ext": "json"
+  }
+}

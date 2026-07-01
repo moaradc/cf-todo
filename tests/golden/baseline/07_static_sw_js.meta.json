@@ -1,0 +1,22 @@
+{
+  "case_id": 7,
+  "name": "static_sw_js",
+  "request": {
+    "method": "GET",
+    "path": "/sw.js",
+    "headers": {},
+    "body_summary": null
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "Content-Length": "3568",
+      "Content-Type": "application/javascript",
+      "Cache-Control": "no-cache, no-store, must-revalidate"
+    },
+    "timing_ms": 2,
+    "body_size": 3568,
+    "body_sha256": "9f0f68d121a6a8a4e85c63af6fe4ddd06c4706bd5bba3d08bde62f53de970930",
+    "body_ext": "js"
+  }
+}

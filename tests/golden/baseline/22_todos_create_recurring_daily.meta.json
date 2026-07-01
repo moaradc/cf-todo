@@ -1,0 +1,24 @@
+{
+  "case_id": 22,
+  "name": "todos_create_recurring_daily",
+  "request": {
+    "method": "POST",
+    "path": "/api/todo-action",
+    "headers": {},
+    "body_summary": {
+      "json_preview": "{\"action\": \"CREATE\", \"task\": {\"id\": \"baseline-create-recurring-001\", \"date\": \"2026-07-01\", \"text\": \"baseline-recurring-daily\", \"type\": \"recurring\", \"rrule\": \"FREQ=DAILY\", \"anchor_date\": \"2026-07-01\"}}",
+      "size": 200
+    }
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "Content-Length": "16",
+      "Content-Type": "application/json"
+    },
+    "timing_ms": 8,
+    "body_size": 16,
+    "body_sha256": "c955e57777ec0d73639dca6748560d00aa5eb8e12f13ebb2ed9656add3908f97",
+    "body_ext": "json"
+  }
+}

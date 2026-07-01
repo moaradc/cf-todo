@@ -1,0 +1,21 @@
+{
+  "case_id": 8,
+  "name": "settings_get",
+  "request": {
+    "method": "GET",
+    "path": "/api/settings",
+    "headers": {},
+    "body_summary": null
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "Content-Length": "193",
+      "Content-Type": "application/json"
+    },
+    "timing_ms": 5,
+    "body_size": 193,
+    "body_sha256": "afe499eee45a5a1940e04f1fb2a70ff6f74b996e82481fa404df48853c562545",
+    "body_ext": "json"
+  }
+}

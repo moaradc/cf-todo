@@ -1,0 +1,24 @@
+{
+  "case_id": 36,
+  "name": "v1_keys_create",
+  "request": {
+    "method": "POST",
+    "path": "/api/v1/keys",
+    "headers": {},
+    "body_summary": {
+      "json_preview": "{\"action\": \"CREATE\", \"name\": \"baseline-test-key\", \"scope\": \"v1\"}",
+      "size": 64
+    }
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "Content-Length": "124",
+      "Content-Type": "application/json"
+    },
+    "timing_ms": 8,
+    "body_size": 124,
+    "body_sha256": "c34b2fc60d40c86ddf40fb8dc94a224f70a400ed2b8ff3392f0ce3158e8a4f16",
+    "body_ext": "json"
+  }
+}

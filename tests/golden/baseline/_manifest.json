@@ -1,0 +1,17 @@
+{
+  "recorded_at": "2026-07-01T13:05:35+0000",
+  "wrangler_version": "4.106.0",
+  "worker_commit": "1fc5dbd5eb58f364e4e7643420fa46850b0fb97f",
+  "seed_file_sha256": "f0eb0de7c053367edba419bc762bd66b6abba6f3d4393050fa932a1f11ee24c8",
+  "seed_file_records": 1272,
+  "case_count": 50,
+  "notes": "Set-Cookie 中的 auth_token/auth_sig 已掩码（保持长度便于对比）。响应体原样保存。后续阶段回归测试时，新版本对相同用例的响应应 byte-for-byte 一致（除掩码字段 + 时间戳相关字段如 Last-Modified）。录制脚本本身在 tests/golden/record_baseline.py，可重复执行。",
+  "known_nondeterministic_fields": [
+    "Set-Cookie: auth_token / auth_sig 值（已掩码）",
+    "Set-Cookie: Max-Age 内的随机 token（已掩码）",
+    "/api/v1/keys POST 返回的 key 明文（每次生成都不同）",
+    "/api/category-action create 返回的 id（时间戳 + 随机数）",
+    "/api/todo-action CREATE 返回的 id（时间戳 + 随机数）",
+    "/api/stats range=year 包含年度报告叙事文本，可能含日期"
+  ]
+}

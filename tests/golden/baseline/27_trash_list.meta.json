@@ -1,0 +1,21 @@
+{
+  "case_id": 27,
+  "name": "trash_list",
+  "request": {
+    "method": "GET",
+    "path": "/api/trash",
+    "headers": {},
+    "body_summary": null
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "Content-Length": "2",
+      "Content-Type": "application/json"
+    },
+    "timing_ms": 5,
+    "body_size": 2,
+    "body_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "body_ext": "json"
+  }
+}

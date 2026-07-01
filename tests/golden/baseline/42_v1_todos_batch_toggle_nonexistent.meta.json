@@ -1,0 +1,25 @@
+{
+  "case_id": 42,
+  "name": "v1_todos_batch_toggle_nonexistent",
+  "request": {
+    "method": "POST",
+    "path": "/api/v1/todos/batch",
+    "headers": {},
+    "body_summary": {
+      "json_preview": "{\"action\": \"BATCH_TOGGLE_DONE\", \"ids\": [\"nonexistent-1\", \"nonexistent-2\"]}",
+      "size": 74
+    }
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "Content-Length": "82",
+      "Content-Type": "application/json",
+      "Cache-Control": "no-store"
+    },
+    "timing_ms": 4,
+    "body_size": 82,
+    "body_sha256": "df0fef945616718aa2326a1cbb1ddb9e80848196ccb99510ad153b34be304c79",
+    "body_ext": "json"
+  }
+}

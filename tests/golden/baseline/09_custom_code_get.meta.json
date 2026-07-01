@@ -1,0 +1,21 @@
+{
+  "case_id": 9,
+  "name": "custom_code_get",
+  "request": {
+    "method": "GET",
+    "path": "/api/custom-code",
+    "headers": {},
+    "body_summary": null
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "Content-Length": "59387",
+      "Content-Type": "application/json"
+    },
+    "timing_ms": 4,
+    "body_size": 59387,
+    "body_sha256": "d2f25a9c78d6731d2d46fb27db049326366cb1ead6628a7c9243c6a1ea7e5766",
+    "body_ext": "json"
+  }
+}

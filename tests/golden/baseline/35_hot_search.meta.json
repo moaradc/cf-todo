@@ -1,0 +1,21 @@
+{
+  "case_id": 35,
+  "name": "hot_search",
+  "request": {
+    "method": "GET",
+    "path": "/api/hot-search",
+    "headers": {},
+    "body_summary": null
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "Content-Length": "6559",
+      "Content-Type": "application/json"
+    },
+    "timing_ms": 251,
+    "body_size": 6559,
+    "body_sha256": "45a2778ce0852adab889f5c71a2597bef6d2ccb537309c67b185badfb3b4ea11",
+    "body_ext": "json"
+  }
+}

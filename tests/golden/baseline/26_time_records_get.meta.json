@@ -1,0 +1,21 @@
+{
+  "case_id": 26,
+  "name": "time_records_get",
+  "request": {
+    "method": "GET",
+    "path": "/api/time-records?parent_id=baseline-test-todo",
+    "headers": {},
+    "body_summary": null
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "Content-Length": "36",
+      "Content-Type": "application/json"
+    },
+    "timing_ms": 5,
+    "body_size": 36,
+    "body_sha256": "c36ce81eb750a062e251de76fdf2aba22bf3a1f4fc749c013a2ed6af5b5ae139",
+    "body_ext": "json"
+  }
+}

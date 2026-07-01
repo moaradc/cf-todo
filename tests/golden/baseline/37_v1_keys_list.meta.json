@@ -1,0 +1,21 @@
+{
+  "case_id": 37,
+  "name": "v1_keys_list",
+  "request": {
+    "method": "GET",
+    "path": "/api/v1/keys",
+    "headers": {},
+    "body_summary": null
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "Content-Length": "146",
+      "Content-Type": "application/json"
+    },
+    "timing_ms": 4,
+    "body_size": 146,
+    "body_sha256": "70ec909a1de2cb529144ada6483d0dec4a3d1ce8da32db01943836c6af5d4e03",
+    "body_ext": "json"
+  }
+}

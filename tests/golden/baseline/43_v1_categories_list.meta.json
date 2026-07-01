@@ -1,0 +1,22 @@
+{
+  "case_id": 43,
+  "name": "v1_categories_list",
+  "request": {
+    "method": "GET",
+    "path": "/api/v1/categories",
+    "headers": {},
+    "body_summary": null
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "Content-Length": "158",
+      "Content-Type": "application/json",
+      "Cache-Control": "no-store"
+    },
+    "timing_ms": 3,
+    "body_size": 158,
+    "body_sha256": "3b66b11ecce533ecf0837ae705c974acfc6606755e42e85863a693f882f26197",
+    "body_ext": "json"
+  }
+}

@@ -1,0 +1,24 @@
+{
+  "case_id": 24,
+  "name": "todos_update_nonexistent",
+  "request": {
+    "method": "POST",
+    "path": "/api/todo-action",
+    "headers": {},
+    "body_summary": {
+      "json_preview": "{\"action\": \"UPDATE\", \"task\": {\"id\": \"nonexistent-id-baseline-test\", \"text\": \"should-fail\"}}",
+      "size": 91
+    }
+  },
+  "response": {
+    "status": 400,
+    "headers": {
+      "Content-Length": "74",
+      "Content-Type": "application/json"
+    },
+    "timing_ms": 5,
+    "body_size": 74,
+    "body_sha256": "10500154ee8d5117b3ae91697d0b987fbd757edf53a0a6a696b27eac051f13af",
+    "body_ext": "json"
+  }
+}

@@ -1,0 +1,23 @@
+{
+  "case_id": 48,
+  "name": "boundary_v1_no_auth",
+  "request": {
+    "method": "GET",
+    "path": "/api/v1/todos?date=2026-03-08",
+    "headers": {
+      "Cookie": ""
+    },
+    "body_summary": null
+  },
+  "response": {
+    "status": 401,
+    "headers": {
+      "Content-Length": "42",
+      "Content-Type": "application/json"
+    },
+    "timing_ms": 2,
+    "body_size": 42,
+    "body_sha256": "922904c7da28affc2e446a8a711b78e7a60bc05e174952691fc81ad767d5627c",
+    "body_ext": "json"
+  }
+}

@@ -1,0 +1,21 @@
+{
+  "case_id": 33,
+  "name": "stats_year",
+  "request": {
+    "method": "GET",
+    "path": "/api/stats?start=2026-01-01&end=2026-12-31",
+    "headers": {},
+    "body_summary": null
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "Content-Length": "4548",
+      "Content-Type": "application/json"
+    },
+    "timing_ms": 9,
+    "body_size": 4548,
+    "body_sha256": "c1f2168b981b1bd501f0b32e68b2e79e451f31efd9f73b742bff5eb82eda5933",
+    "body_ext": "json"
+  }
+}
