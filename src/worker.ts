@@ -1,28 +1,28 @@
 /**
- * cf-todo Worker 入口 —— Hono app 骨架
+ * cf-todo Worker 入口 —— Hono app
  *
- * 阶段 3 / Commit 3.5：引入 Hono app，但所有业务路由仍走旧 handleRequest。
+ * 阶段 4：Hono 路由树成型，首批简单路由切到 Hono。
  *
- * 当前架构（阶段 3 完成态）：
- *   request → ensureMigrated → Hono app → all('*') → legacy.handleRequest
+ * 当前架构（阶段 4 完成态）：
+ *   request → ensureMigrated → 路由匹配
+ *     ├ /api/v1/*  → v1App（阶段 6 填充）
+ *     ├ /api/*     → v0App（阶段 4.2-4.4 填充：static / auth / hot-search）
+ *     ├ /          → staticApp（manifest / sw / SPA fallback）← 阶段 4.2
+ *     └ *          → legacy.handleRequest（未迁移的业务路由）
  *
- * 阶段 4+ 演进：
- *   - 阶段 4：在 Hono app 加 V0 静态路由（/ / manifest.json / sw.js）
- *   - 阶段 5：V0 业务路由迁移，逐步替换 legacy
- *   - 阶段 6：V1 业务路由迁移
- *   - 阶段 8：删除 index.legacy.js，Hono app 成为唯一入口
+ * 挂载顺序至关重要：
+ *   1. /api/v1 必须在 /api 之前（否则 V1 路由被 /api/* 吞掉）
+ *   2. 具体路由必须在 catch-all 之前（否则被 catch-all 吞掉）
  *
- * 中间件预热（已就位但未生效）：
- *   - src/middleware/init-db.ts ensureMigrated（已生效，诊断检查）
- *   - src/middleware/auth.ts cookieAuth / apiKeyAuth / v0Auth / v1Auth（阶段 4+ 用）
- *   - src/middleware/per-date-lock.ts withTodosDateLock（阶段 5/6 用）
- *   - src/db/client.ts createDb / createReadDb（阶段 5/6 用）
+ * 阶段 8：删除 index.legacy.js + catch-all，Hono app 成为唯一入口。
  */
 
 import { Hono } from 'hono';
 import type { Env } from './env';
 import { ensureMigrated } from './middleware/init-db';
 import legacy from './index.legacy.js';
+import { v0App } from './routes/v0';
+import { v1App } from './routes/v1';
 
 /** Hono app 类型（Bindings=Env，Variables 含 session）。 */
 export type AppEnv = {
@@ -33,12 +33,7 @@ export type AppEnv = {
   };
 };
 
-/**
- * Hono app 实例。
- *
- * 当前阶段：只有一个 catch-all 路由，把所有请求转发给 legacy handleRequest。
- * 阶段 4+ 会在此 app 上注册具体路由，逐步替换 legacy。
- */
+/** 主 Hono app。 */
 const app = new Hono<AppEnv>();
 
 /**
@@ -56,14 +51,28 @@ app.use('*', async (c, next) => {
 });
 
 /**
- * Catch-all：所有请求转发给 legacy handleRequest。
+ * 挂载子路由。
+ *
+ * 顺序约束（Hono 按注册顺序匹配）：
+ *   1. /api/v1/* → v1App（V1 优先，避免被 /api/* 吞掉）
+ *   2. /api/*    → v0App（V0 业务路由）
+ *   3. 具体静态路由（/manifest.json / /sw.js / SPA）在 4.2 添加
+ *   4. catch-all → legacy（未迁移的路由 fall through）
+ *
+ * 当前阶段（4.1）：v0App / v1App 都是空骨架，所有请求仍走 catch-all → legacy。
+ * 阶段 4.2-4.4 逐步在 v0App 注册路由，匹配到的走新逻辑，未匹配的 fall through。
+ */
+app.route('/api/v1', v1App);
+app.route('/api', v0App);
+
+/**
+ * Catch-all：未匹配的请求转发给 legacy handleRequest。
  *
  * legacy 的 default export 是 { fetch: handleRequest }（见 index.legacy.js）。
- * 阶段 4+ 会在此 catch-all 之前注册具体路由，匹配到的走新路由，
- * 未匹配的 fall through 到 legacy。
+ * 阶段 4+ 随着路由迁移，catch-all 覆盖的路径越来越少。
+ * 阶段 8 删除 legacy + catch-all。
  */
 app.all('*', async (c) => {
-  // legacy.fetch 等价于原 handleRequest(request, env, ctx)
   const response = await legacy.fetch(c.req.raw, c.env, c.executionCtx);
   return response;
 });
