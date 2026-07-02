@@ -6,6 +6,7 @@ import { hotSearchApp } from './hot-search';
 import { categoriesApp } from './categories';
 import { trashApp } from './trash';
 import { settingsApp } from './settings';
+import { statsApp } from './stats';
 
 /** V0 路由的 Hono app 类型。 */
 export type V0AppEnv = {
@@ -19,3 +20,4 @@ v0App.route('/', hotSearchApp);
 v0App.route('/', categoriesApp);
 v0App.route('/', trashApp);
 v0App.route('/', settingsApp);
+v0App.route('/', statsApp);
