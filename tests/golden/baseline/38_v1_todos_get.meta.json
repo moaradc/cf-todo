@@ -14,7 +14,7 @@
       "Content-Type": "application/json",
       "Cache-Control": "no-store"
     },
-    "timing_ms": 14,
+    "timing_ms": 7,
     "body_size": 5542,
     "body_sha256": "4083c3df807c00ab2a72da4de62cdf1cb3ce63fcfe6a07f4609a233241d98d28",
     "body_ext": "json"

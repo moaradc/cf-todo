@@ -13,7 +13,7 @@
       "Content-Length": "36",
       "Content-Type": "application/json"
     },
-    "timing_ms": 5,
+    "timing_ms": 3,
     "body_size": 36,
     "body_sha256": "c36ce81eb750a062e251de76fdf2aba22bf3a1f4fc749c013a2ed6af5b5ae139",
     "body_ext": "json"

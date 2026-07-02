@@ -1,6 +1,6 @@
 
 'use strict';
-const CACHE_NAME = 'moara-todo-v3.0.0';
+const CACHE_NAME = 'moara-todo-v3.1.0';
 
 // App Shell: install阶段预缓存根页面，确保离线可加载
 self.addEventListener('install', (event) => {

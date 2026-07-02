@@ -10,12 +10,12 @@
   "response": {
     "status": 200,
     "headers": {
-      "Content-Length": "6559",
+      "Content-Length": "6218",
       "Content-Type": "application/json"
     },
-    "timing_ms": 251,
-    "body_size": 6559,
-    "body_sha256": "45a2778ce0852adab889f5c71a2597bef6d2ccb537309c67b185badfb3b4ea11",
+    "timing_ms": 570,
+    "body_size": 6218,
+    "body_sha256": "5cfe4800b661ac33064f0c229d2a0958538f72c69512cc94800db51238ebb365",
     "body_ext": "json"
   }
 }

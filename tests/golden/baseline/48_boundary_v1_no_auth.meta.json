@@ -13,9 +13,10 @@
     "status": 401,
     "headers": {
       "Content-Length": "42",
-      "Content-Type": "application/json"
+      "Content-Type": "application/json",
+      "Cache-Control": "no-store"
     },
-    "timing_ms": 2,
+    "timing_ms": 3,
     "body_size": 42,
     "body_sha256": "922904c7da28affc2e446a8a711b78e7a60bc05e174952691fc81ad767d5627c",
     "body_ext": "json"
