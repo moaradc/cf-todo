@@ -40,13 +40,35 @@ const app = new Hono<AppEnv>();
  * 全局中间件：迁移就绪检查。
  * 第一次请求时查 d1_migrations 表，后续请求零开销。
  * 仅新路由模式需要（legacy 有自己的 initDb）。
+ *
+ * 如果 D1 表不存在（未跑 migrate），返回 503 引导用户跑 migrate，
+ * 而非让请求继续到业务路由然后 500。
  */
+let migrationFailed = false;
 app.use('*', async (c, next) => {
   if (c.env.USE_NEW_ROUTER !== 'false') {
+    if (migrationFailed) {
+      return c.html(
+        '<html><body><h1>Database not initialized</h1><p>Run <code>wrangler d1 migrations apply todo-db --remote</code> first.</p></body></html>',
+        503,
+      );
+    }
     try {
       await ensureMigrated(c.env);
     } catch {
-      // ensureMigrated 内部已 console.warn，不阻断请求
+      // ensureMigrated 内部已 console.warn
+    }
+    // 检查表是否真的存在（ensureMigrated 只 warn 不 throw）
+    // 用一个轻量查询探测
+    try {
+      await c.env.DB.prepare('SELECT 1 FROM settings LIMIT 1').first();
+    } catch {
+      migrationFailed = true;
+      console.error('[cf-todo] D1 tables missing — run: wrangler d1 migrations apply todo-db --remote');
+      return c.html(
+        '<html><body><h1>Database not initialized</h1><p>Run <code>wrangler d1 migrations apply todo-db --remote</code> first.</p></body></html>',
+        503,
+      );
     }
   }
   await next();
