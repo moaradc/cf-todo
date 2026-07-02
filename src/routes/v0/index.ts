@@ -9,6 +9,7 @@ import { settingsApp } from './settings';
 import { statsApp } from './stats';
 import { timeRecordsApp } from './time-records';
 import { todoActionApp } from './todo-action';
+import { todosGetApp } from './todos';
 
 /** V0 路由的 Hono app 类型。 */
 export type V0AppEnv = {
@@ -25,3 +26,4 @@ v0App.route('/', settingsApp);
 v0App.route('/', statsApp);
 v0App.route('/', timeRecordsApp);
 v0App.route('/', todoActionApp);
+v0App.route('/', todosGetApp);
