@@ -19,7 +19,6 @@
 import { Hono } from 'hono';
 import { normalizePriority, parseJsonField } from '../../utils.js';
 import { createDb } from '../../db/client';
-import { checkCookieAuth, extractApiKey, verifyApiKey, getApiKeyScope, touchApiKeyLastUsed } from '../../middleware/auth';
 import { v1Ok, v1OkNoData, v1Err, formatTodo } from '../../services/v1-response';
 import { withTodosDateLock } from '../../middleware/per-date-lock';
 import {
@@ -39,22 +38,6 @@ function chunkArray<T>(arr: T[], size: number): T[][] {
 function sqlPlaceholders(n: number): string { return Array.from({ length: n }, () => '?').join(','); }
 
 /** V1 鉴权。 */
-async function v1Auth(c: import('hono').Context<V1AppEnv>): Promise<Response | null> {
-  const url = new URL(c.req.url);
-  const apiKey = extractApiKey(c.req.raw, url);
-  if (apiKey) {
-    const valid = await verifyApiKey(c.env.DB, apiKey, c.env.JWT_SECRET);
-    if (!valid) return v1Err('Invalid API Key', 401);
-    const scope = await getApiKeyScope(c.env.DB);
-    if (scope === 'disabled') return v1Err('API Key 已被禁用', 403);
-    if (scope === 'v0') return v1Err('API Key 仅允许访问 v0 接口', 403);
-    c.executionCtx.waitUntil(touchApiKeyLastUsed(c.env.DB, apiKey));
-    return null;
-  }
-  const authResult = await checkCookieAuth(c.req.raw, c.env);
-  if (!authResult.ok) return v1Err('Cookie authentication required', 401);
-  return null;
-}
 
 /** writeTimerRecord（V1 toggle 用）。与 api-v1.js:1217-1270 一致。 */
 async function writeTimerRecord(DB: D1Database, todo_id: string, parent_id: string, record: { s: number; e: number; p?: number }, is_fragment: boolean): Promise<boolean> {
@@ -96,7 +79,6 @@ export const v1TodosApp = new Hono<V1AppEnv>();
 // ==================== GET /api/v1/todos ====================
 
 v1TodosApp.get('/todos', async (c) => {
-  const err = await v1Auth(c); if (err) return err;
   const d = d1(createDb(c.env.DB));
   const url = new URL(c.req.url);
   const date = url.searchParams.get('date');
@@ -166,7 +148,6 @@ v1TodosApp.get('/todos', async (c) => {
 // ==================== POST /api/v1/todos ====================
 
 v1TodosApp.post('/todos', async (c) => {
-  const err = await v1Auth(c); if (err) return err;
   const d = d1(createDb(c.env.DB));
   let body: Record<string, unknown>;
   try { body = await c.req.raw.json(); } catch { return v1Err('请求体不是有效的 JSON'); }
@@ -211,7 +192,6 @@ v1TodosApp.post('/todos', async (c) => {
 // ==================== GET /api/v1/todos/:id ====================
 
 v1TodosApp.get('/todos/:id', async (c) => {
-  const err = await v1Auth(c); if (err) return err;
   const d = d1(createDb(c.env.DB));
   const todo_id = c.req.param('id');
   const row = await d.prepare('SELECT * FROM todos WHERE id = ?').bind(todo_id).first<Record<string, unknown>>();
@@ -222,7 +202,6 @@ v1TodosApp.get('/todos/:id', async (c) => {
 // ==================== PUT /api/v1/todos/:id ====================
 
 v1TodosApp.put('/todos/:id', async (c) => {
-  const err = await v1Auth(c); if (err) return err;
   const d = d1(createDb(c.env.DB));
   const todo_id = c.req.param('id');
   const existing = await d.prepare('SELECT * FROM todos WHERE id = ?').bind(todo_id).first<Record<string, unknown>>();
@@ -334,7 +313,6 @@ v1TodosApp.put('/todos/:id', async (c) => {
 // ==================== DELETE /api/v1/todos/:id ====================
 
 v1TodosApp.delete('/todos/:id', async (c) => {
-  const err = await v1Auth(c); if (err) return err;
   const d = d1(createDb(c.env.DB));
   const todo_id = c.req.param('id');
   const url = new URL(c.req.url);
@@ -365,7 +343,6 @@ v1TodosApp.delete('/todos/:id', async (c) => {
 // ==================== PATCH /api/v1/todos/:id/toggle ====================
 
 v1TodosApp.patch('/todos/:id/toggle', async (c) => {
-  const err = await v1Auth(c); if (err) return err;
   const d = d1(createDb(c.env.DB));
   const todo_id = c.req.param('id');
   const existing = await d.prepare('SELECT done, parent_id, type, date, fragment_anchor FROM todos WHERE id = ?').bind(todo_id).first<Record<string, unknown>>();
@@ -394,7 +371,6 @@ v1TodosApp.patch('/todos/:id/toggle', async (c) => {
 // ==================== PATCH /api/v1/todos/:id/subtasks ====================
 
 v1TodosApp.patch('/todos/:id/subtasks', async (c) => {
-  const err = await v1Auth(c); if (err) return err;
   const d = d1(createDb(c.env.DB));
   const todo_id = c.req.param('id');
   let body: { subtasks?: unknown[] };
@@ -409,7 +385,6 @@ v1TodosApp.patch('/todos/:id/subtasks', async (c) => {
 // ==================== PATCH /api/v1/todos/:id/search-terms ====================
 
 v1TodosApp.patch('/todos/:id/search-terms', async (c) => {
-  const err = await v1Auth(c); if (err) return err;
   const d = d1(createDb(c.env.DB));
   const todo_id = c.req.param('id');
   let body: { search_terms?: unknown[] };
@@ -424,7 +399,6 @@ v1TodosApp.patch('/todos/:id/search-terms', async (c) => {
 // ==================== POST /api/v1/todos/batch ====================
 
 v1TodosApp.post('/todos/batch', async (c) => {
-  const err = await v1Auth(c); if (err) return err;
   const d = d1(createDb(c.env.DB));
   let body: { action?: string; ids?: string[]; done_status?: boolean; timer_records?: Array<{ id: string; parent_id: string; record: { s: number; e: number; p?: number } }>; date?: string };
   try { body = await c.req.raw.json(); } catch { return v1Err('请求体不是有效的 JSON'); }

@@ -11,7 +11,6 @@
 import { Hono } from 'hono';
 import { apiError } from '../../utils.js';
 import { createDb } from '../../db/client';
-import { checkCookieAuth } from '../../middleware/auth';
 import { getTimeRecords } from '../../services/time-records-service';
 import type { V0AppEnv } from './index';
 
@@ -19,10 +18,6 @@ import type { V0AppEnv } from './index';
 export const timeRecordsApp = new Hono<V0AppEnv>();
 
 timeRecordsApp.get('/time-records', async (c) => {
-  const authResult = await checkCookieAuth(c.req.raw, c.env);
-  if (!authResult.ok) {
-    return apiError('UNAUTHORIZED', 401);
-  }
 
   const url = new URL(c.req.url);
   const todo_id = url.searchParams.get('todo_id');

@@ -12,7 +12,6 @@
 import { Hono } from 'hono';
 import { apiError } from '../../utils.js';
 import { createDb } from '../../db/client';
-import { checkCookieAuth } from '../../middleware/auth';
 import { exportPage, exportSession, exportStream, importNdjson, importPhase, importBackup } from '../../services/io-service';
 import type { V0AppEnv } from './index';
 
@@ -20,15 +19,9 @@ import type { V0AppEnv } from './index';
 export const ioApp = new Hono<V0AppEnv>();
 
 /** cookie 鉴权辅助。 */
-function unauthorized() {
-  return apiError('UNAUTHORIZED', 401);
-}
-
 // ==================== GET /api/export ====================
 
 ioApp.get('/export', async (c) => {
-  const authResult = await checkCookieAuth(c.req.raw, c.env);
-  if (!authResult.ok) return unauthorized();
 
   const url = new URL(c.req.url);
   const mode = url.searchParams.get('mode');
@@ -81,8 +74,6 @@ ioApp.get('/export', async (c) => {
 // ==================== POST /api/import ====================
 
 ioApp.post('/import', async (c) => {
-  const authResult = await checkCookieAuth(c.req.raw, c.env);
-  if (!authResult.ok) return unauthorized();
 
   const url = new URL(c.req.url);
   const contentType = c.req.raw.headers.get('Content-Type') || '';
@@ -106,8 +97,6 @@ ioApp.post('/import', async (c) => {
 
 
 ioApp.all('/import-backup', async (c) => {
-  const authResult = await checkCookieAuth(c.req.raw, c.env);
-  if (!authResult.ok) return unauthorized();
 
   const url = new URL(c.req.url);
   const action = url.searchParams.get('action') || 'query';

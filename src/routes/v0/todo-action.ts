@@ -15,7 +15,6 @@
 import { Hono } from 'hono';
 import { apiError } from '../../utils.js';
 import { createDb } from '../../db/client';
-import { checkCookieAuth } from '../../middleware/auth';
 import {
   createTodo,
   updateTodo,
@@ -34,10 +33,6 @@ import type { V0AppEnv } from './index';
 export const todoActionApp = new Hono<V0AppEnv>();
 
 todoActionApp.post('/todo-action', async (c) => {
-  const authResult = await checkCookieAuth(c.req.raw, c.env);
-  if (!authResult.ok) {
-    return apiError('UNAUTHORIZED', 401);
-  }
 
   let parsedBody: Record<string, unknown>;
   try {

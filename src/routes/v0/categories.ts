@@ -14,7 +14,6 @@
 import { Hono } from 'hono';
 import { apiError } from '../../utils.js';
 import { createDb } from '../../db/client';
-import { checkCookieAuth } from '../../middleware/auth';
 import {
   listCategories,
   createCategory,
@@ -32,10 +31,6 @@ export const categoriesApp = new Hono<V0AppEnv>();
  */
 categoriesApp.get('/categories', async (c) => {
   // cookie 鉴权
-  const authResult = await checkCookieAuth(c.req.raw, c.env);
-  if (!authResult.ok) {
-    return apiError('UNAUTHORIZED', 401);
-  }
 
   const db = createDb(c.env.DB);
   const rows = await listCategories(db);
@@ -50,10 +45,6 @@ categoriesApp.get('/categories', async (c) => {
  */
 categoriesApp.post('/category-action', async (c) => {
   // cookie 鉴权
-  const authResult = await checkCookieAuth(c.req.raw, c.env);
-  if (!authResult.ok) {
-    return apiError('UNAUTHORIZED', 401);
-  }
 
   // 解析 body
   let body: { action?: string; id?: string; ids?: string[]; name?: string; color?: string };

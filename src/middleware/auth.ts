@@ -347,9 +347,8 @@ export const v1Auth: MiddlewareHandler<{ Bindings: Env; Variables: AuthVariables
     await next();
     return;
   }
-  // 回退到 cookie 鉴权（与 verifyCookieAuth 一致，但复用 checkCookieAuth）
   const result = await checkCookieAuth(c.req.raw, c.env);
-  if (!result.ok) return c.json({ error: 'UNAUTHORIZED' }, 401);
+  if (!result.ok) return c.json({ error: 'Cookie authentication required' }, 401);
   c.set('session', { matched: result.matched, sessions: result.sessions });
   await next();
   return;

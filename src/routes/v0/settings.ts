@@ -18,7 +18,6 @@
 import { Hono } from 'hono';
 import { apiError } from '../../utils.js';
 import { createDb } from '../../db/client';
-import { checkCookieAuth } from '../../middleware/auth';
 import {
   getAppSettings,
   setAppSettings,
@@ -34,19 +33,10 @@ import type { V0AppEnv } from './index';
 export const settingsApp = new Hono<V0AppEnv>();
 
 /** cookie 鉴权辅助。 */
-async function requireAuth(c: import('hono').Context<V0AppEnv>): Promise<Response | null> {
-  const authResult = await checkCookieAuth(c.req.raw, c.env);
-  if (!authResult.ok) {
-    return apiError('UNAUTHORIZED', 401);
-  }
-  return null;
-}
 
 // ==================== /api/settings ====================
 
 settingsApp.get('/settings', async (c) => {
-  const err = await requireAuth(c);
-  if (err) return err;
   const db = createDb(c.env.DB);
   const settingsObj = await getAppSettings(db);
   return new Response(JSON.stringify(settingsObj), {
@@ -55,8 +45,6 @@ settingsApp.get('/settings', async (c) => {
 });
 
 settingsApp.post('/settings', async (c) => {
-  const err = await requireAuth(c);
-  if (err) return err;
   let settingsData: unknown;
   try {
     settingsData = await c.req.raw.json();
@@ -76,8 +64,6 @@ settingsApp.post('/settings', async (c) => {
 // ==================== /api/custom-code ====================
 
 settingsApp.get('/custom-code', async (c) => {
-  const err = await requireAuth(c);
-  if (err) return err;
   const db = createDb(c.env.DB);
   const { customHeader, customContent } = await getCustomCode(db);
   return new Response(JSON.stringify({ customHeader, customContent }), {
@@ -86,8 +72,6 @@ settingsApp.get('/custom-code', async (c) => {
 });
 
 settingsApp.post('/custom-code', async (c) => {
-  const err = await requireAuth(c);
-  if (err) return err;
   let ccBody: { customHeader?: string; customContent?: string };
   try {
     ccBody = await c.req.raw.json();
@@ -104,8 +88,6 @@ settingsApp.post('/custom-code', async (c) => {
 // ==================== /api/custom-colors ====================
 
 settingsApp.get('/custom-colors', async (c) => {
-  const err = await requireAuth(c);
-  if (err) return err;
   const db = createDb(c.env.DB);
   const customColors = await getCustomColors(db);
   return new Response(JSON.stringify(customColors), {
@@ -114,8 +96,6 @@ settingsApp.get('/custom-colors', async (c) => {
 });
 
 settingsApp.post('/custom-colors', async (c) => {
-  const err = await requireAuth(c);
-  if (err) return err;
   let clrBody: { colors?: unknown };
   try {
     clrBody = await c.req.raw.json();
@@ -135,8 +115,6 @@ settingsApp.post('/custom-colors', async (c) => {
 // ==================== /api/custom-header ====================
 
 settingsApp.get('/custom-header', async (c) => {
-  const err = await requireAuth(c);
-  if (err) return err;
   const db = createDb(c.env.DB);
   const value = await getSettingRaw(db, 'custom_header');
   return new Response(value, {
@@ -147,8 +125,6 @@ settingsApp.get('/custom-header', async (c) => {
 // ==================== /api/custom-content ====================
 
 settingsApp.get('/custom-content', async (c) => {
-  const err = await requireAuth(c);
-  if (err) return err;
   const db = createDb(c.env.DB);
   const value = await getSettingRaw(db, 'custom_content');
   return new Response(value, {

@@ -14,7 +14,6 @@ import {
   DEFAULT_CATEGORY_COLOR,
 } from '../../utils.js';
 import { createDb } from '../../db/client';
-import { checkCookieAuth, extractApiKey, verifyApiKey, getApiKeyScope, touchApiKeyLastUsed, type SessionEntry } from '../../middleware/auth';
 import { v1Ok, v1OkNoData, v1Err, formatTodo, formatCategory } from '../../services/v1-response';
 import { removeExdate } from '../../recurring-engine.js';
 import type { V1AppEnv } from './index';
@@ -25,23 +24,7 @@ function d1(db: ReturnType<typeof createDb>): D1Database {
 }
 
 /** V1 鉴权（API Key 优先，回退 cookie）。返回 null=通过，Response=错误响应。 */
-async function v1Auth(c: import('hono').Context<V1AppEnv>): Promise<Response | null> {
-  const url = new URL(c.req.url);
-  const apiKey = extractApiKey(c.req.raw, url);
-  if (apiKey) {
-    const valid = await verifyApiKey(c.env.DB, apiKey, c.env.JWT_SECRET);
-    if (!valid) return v1Err('Invalid API Key', 401);
-    const scope = await getApiKeyScope(c.env.DB);
-    if (scope === 'disabled') return v1Err('API Key 已被禁用', 403);
-    if (scope === 'v0') return v1Err('API Key 仅允许访问 v0 接口', 403);
-    c.executionCtx.waitUntil(touchApiKeyLastUsed(c.env.DB, apiKey));
-    return null;
-  }
   // 回退 cookie 鉴权
-  const authResult = await checkCookieAuth(c.req.raw, c.env);
-  if (!authResult.ok) return v1Err('Cookie authentication required', 401);
-  return null;
-}
 
 const BATCH_CHUNK_SIZE = 99;
 function chunkArray<T>(arr: T[], size: number): T[][] {
@@ -59,16 +42,12 @@ export const v1SimpleApp = new Hono<V1AppEnv>();
 // ==================== Categories ====================
 
 v1SimpleApp.get('/categories', async (c) => {
-  const err = await v1Auth(c);
-  if (err) return err;
   const d = d1(createDb(c.env.DB));
   const { results } = await d.prepare('SELECT id, name, color FROM categories ORDER BY id').all();
   return v1Ok((results || []).map(formatCategory));
 });
 
 v1SimpleApp.post('/categories', async (c) => {
-  const err = await v1Auth(c);
-  if (err) return err;
   const d = d1(createDb(c.env.DB));
   let body: { name?: string; color?: string };
   try { body = await c.req.raw.json(); } catch { return v1Err('请求体不是有效的 JSON'); }
@@ -83,8 +62,6 @@ v1SimpleApp.post('/categories', async (c) => {
 });
 
 v1SimpleApp.get('/categories/:id', async (c) => {
-  const err = await v1Auth(c);
-  if (err) return err;
   const d = d1(createDb(c.env.DB));
   const catId = c.req.param('id');
   const row = await d.prepare('SELECT id, name, color FROM categories WHERE id = ?').bind(catId).first<Record<string, unknown>>();
@@ -93,8 +70,6 @@ v1SimpleApp.get('/categories/:id', async (c) => {
 });
 
 v1SimpleApp.put('/categories/:id', async (c) => {
-  const err = await v1Auth(c);
-  if (err) return err;
   const d = d1(createDb(c.env.DB));
   const catId = c.req.param('id');
   const existing = await d.prepare('SELECT id FROM categories WHERE id = ?').bind(catId).first();
@@ -115,8 +90,6 @@ v1SimpleApp.put('/categories/:id', async (c) => {
 });
 
 v1SimpleApp.delete('/categories/:id', async (c) => {
-  const err = await v1Auth(c);
-  if (err) return err;
   const d = d1(createDb(c.env.DB));
   const catId = c.req.param('id');
   const existing = await d.prepare('SELECT id FROM categories WHERE id = ?').bind(catId).first();
@@ -131,8 +104,6 @@ v1SimpleApp.delete('/categories/:id', async (c) => {
 
 // POST /api/v1/categories/batch
 v1SimpleApp.post('/categories/batch', async (c) => {
-  const err = await v1Auth(c);
-  if (err) return err;
   const d = d1(createDb(c.env.DB));
   let body: { action?: string; ids?: string[] };
   try { body = await c.req.raw.json(); } catch { return v1Err('请求体不是有效的 JSON'); }
@@ -155,8 +126,6 @@ v1SimpleApp.post('/categories/batch', async (c) => {
 // ==================== Trash ====================
 
 v1SimpleApp.get('/trash', async (c) => {
-  const err = await v1Auth(c);
-  if (err) return err;
   const d = d1(createDb(c.env.DB));
   const url = new URL(c.req.url);
   const limit = Math.min(Math.max(parseInt(url.searchParams.get('limit') || '100', 10) || 100, 1), 500);
@@ -167,8 +136,6 @@ v1SimpleApp.get('/trash', async (c) => {
 });
 
 v1SimpleApp.post('/trash-action', async (c) => {
-  const err = await v1Auth(c);
-  if (err) return err;
   const d = d1(createDb(c.env.DB));
   let body: { action?: string; id?: string; ids?: string[] };
   try { body = await c.req.raw.json(); } catch { return v1Err('请求体不是有效的 JSON'); }
@@ -235,8 +202,6 @@ v1SimpleApp.post('/trash-action', async (c) => {
 // ==================== Stats ====================
 
 v1SimpleApp.get('/stats', async (c) => {
-  const err = await v1Auth(c);
-  if (err) return err;
   const d = d1(createDb(c.env.DB));
   const url = new URL(c.req.url);
   const start = url.searchParams.get('start');
@@ -283,7 +248,6 @@ v1SimpleApp.get('/stats', async (c) => {
 // ==================== Settings + Custom-* ====================
 
 v1SimpleApp.get('/settings', async (c) => {
-  const err = await v1Auth(c); if (err) return err;
   const d = d1(createDb(c.env.DB));
   const record = await d.prepare("SELECT value FROM settings WHERE key = 'app_settings'").first<{ value: string }>();
   let settingsObj: unknown = {};
@@ -292,7 +256,6 @@ v1SimpleApp.get('/settings', async (c) => {
 });
 
 v1SimpleApp.post('/settings', async (c) => {
-  const err = await v1Auth(c); if (err) return err;
   const d = d1(createDb(c.env.DB));
   let data: unknown;
   try { data = await c.req.raw.json(); } catch { return v1Err('请求体不是有效的 JSON'); }
@@ -302,7 +265,6 @@ v1SimpleApp.post('/settings', async (c) => {
 });
 
 v1SimpleApp.get('/custom-code', async (c) => {
-  const err = await v1Auth(c); if (err) return err;
   const d = d1(createDb(c.env.DB));
   const [headerRecord, contentRecord] = await Promise.all([
     d.prepare("SELECT value FROM settings WHERE key = 'custom_header'").first<{ value: string }>(),
@@ -312,7 +274,6 @@ v1SimpleApp.get('/custom-code', async (c) => {
 });
 
 v1SimpleApp.post('/custom-code', async (c) => {
-  const err = await v1Auth(c); if (err) return err;
   const d = d1(createDb(c.env.DB));
   let body: { customHeader?: string; customContent?: string };
   try { body = await c.req.raw.json(); } catch { return v1Err('请求体不是有效的 JSON'); }
@@ -324,21 +285,18 @@ v1SimpleApp.post('/custom-code', async (c) => {
 });
 
 v1SimpleApp.get('/custom-header', async (c) => {
-  const err = await v1Auth(c); if (err) return err;
   const d = d1(createDb(c.env.DB));
   const record = await d.prepare("SELECT value FROM settings WHERE key = 'custom_header'").first<{ value: string }>();
   return new Response(record?.value || '', { headers: { 'Content-Type': 'text/plain', 'Cache-Control': 'no-store' } });
 });
 
 v1SimpleApp.get('/custom-content', async (c) => {
-  const err = await v1Auth(c); if (err) return err;
   const d = d1(createDb(c.env.DB));
   const record = await d.prepare("SELECT value FROM settings WHERE key = 'custom_content'").first<{ value: string }>();
   return new Response(record?.value || '', { headers: { 'Content-Type': 'text/plain', 'Cache-Control': 'no-store' } });
 });
 
 v1SimpleApp.get('/custom-colors', async (c) => {
-  const err = await v1Auth(c); if (err) return err;
   const d = d1(createDb(c.env.DB));
   const record = await d.prepare("SELECT value FROM settings WHERE key = 'customColors'").first<{ value: string }>();
   let customColors: unknown[] = [];
@@ -347,7 +305,6 @@ v1SimpleApp.get('/custom-colors', async (c) => {
 });
 
 v1SimpleApp.post('/custom-colors', async (c) => {
-  const err = await v1Auth(c); if (err) return err;
   const d = d1(createDb(c.env.DB));
   let body: { colors?: unknown[] };
   try { body = await c.req.raw.json(); } catch { return v1Err('请求体不是有效的 JSON'); }

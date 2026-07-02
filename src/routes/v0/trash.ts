@@ -17,7 +17,6 @@
 import { Hono } from 'hono';
 import { apiError } from '../../utils.js';
 import { createDb } from '../../db/client';
-import { checkCookieAuth } from '../../middleware/auth';
 import {
   listTrash,
   restoreTrash,
@@ -37,10 +36,6 @@ export const trashApp = new Hono<V0AppEnv>();
  * 返回回收站列表（自动分页，最多 1000 条）。
  */
 trashApp.get('/trash', async (c) => {
-  const authResult = await checkCookieAuth(c.req.raw, c.env);
-  if (!authResult.ok) {
-    return apiError('UNAUTHORIZED', 401);
-  }
 
   const db = createDb(c.env.DB);
   const rows = await listTrash(db);
@@ -55,10 +50,6 @@ trashApp.get('/trash', async (c) => {
  *         BATCH_DELETE_PERMANENT | CLEAR_ALL_DATA
  */
 trashApp.post('/trash-action', async (c) => {
-  const authResult = await checkCookieAuth(c.req.raw, c.env);
-  if (!authResult.ok) {
-    return apiError('UNAUTHORIZED', 401);
-  }
 
   let body: { action?: string; id?: string; ids?: string[]; confirm?: string };
   try {

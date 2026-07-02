@@ -10,7 +10,6 @@
 import { Hono } from 'hono';
 import { apiError } from '../../utils.js';
 import { createDb } from '../../db/client';
-import { checkCookieAuth } from '../../middleware/auth';
 import { getTodos } from '../../services/todos-get-service';
 import type { V0AppEnv } from './index';
 
@@ -18,10 +17,6 @@ import type { V0AppEnv } from './index';
 export const todosGetApp = new Hono<V0AppEnv>();
 
 todosGetApp.get('/todos', async (c) => {
-  const authResult = await checkCookieAuth(c.req.raw, c.env);
-  if (!authResult.ok) {
-    return apiError('UNAUTHORIZED', 401);
-  }
 
   const url = new URL(c.req.url);
   const date = url.searchParams.get('date');

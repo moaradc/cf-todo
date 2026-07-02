@@ -10,20 +10,10 @@
  */
 
 import { Hono } from 'hono';
-import { createDb } from '../../db/client';
-import { checkCookieAuth, getApiKeys, saveApiKeys, type ApiKeyRecord } from '../../middleware/auth';
+import { getApiKeys, saveApiKeys, type ApiKeyRecord } from '../../middleware/auth';
 import type { V1AppEnv } from './index';
 
-/** Keys Hono app。 */
 export const keysApp = new Hono<V1AppEnv>();
-
-/** cookie 鉴权辅助。 */
-function unauthorized() {
-  return new Response(JSON.stringify({ error: 'Cookie authentication required' }), {
-    status: 401,
-    headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' },
-  });
-}
 
 /** 生成 API Key（cfk_ 前缀 + 32 字节随机 base64url）。 */
 function generateApiKey(): string {
@@ -35,13 +25,6 @@ function generateApiKey(): string {
 }
 
 keysApp.all('/keys', async (c) => {
-  // cookie 鉴权（不走 API Key）
-  const authResult = await checkCookieAuth(c.req.raw, c.env);
-  if (!authResult.ok) return unauthorized();
-
-  const db = createDb(c.env.DB);
-  const d1 = (db as unknown as { $client: D1Database }).$client;
-
   if (c.req.method === 'GET') {
     const keys = await getApiKeys(c.env.DB);
     // 返回时隐藏完整 key，只显示前8位 + 掩码
