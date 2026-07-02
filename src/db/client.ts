@@ -1,9 +1,7 @@
 /**
  * cf-todo Drizzle D1 客户端工厂
  *
- * 阶段 3 起，所有新写的 service / route 通过本工厂拿 Drizzle 客户端，
  * 而不是直接用 env.DB.prepare()。旧 api.js / api-v1.js 仍走 env.DB 直连，
- * 阶段 5/6 迁移业务路由时逐步切换到 createDb。
  *
  * 读副本策略（与原代码一致）：
  *   - createDb(env.DB)：写操作 + 强一致读（默认）

@@ -1,7 +1,6 @@
 /**
  * V0 Trash 路由
  *
- * 阶段 5.2：从 api.js 搬迁 trash 路由到 Hono + Drizzle。
  *
  * 路由：
  *   - GET  /api/trash         ← api.js:2068-2090
@@ -95,7 +94,6 @@ trashApp.post('/trash-action', async (c) => {
     await clearAllData(db);
   } else {
     // 保留旧行为：未知 action 也返回 success: true（旧代码的 bug，但需 byte-for-byte 兼容）
-    // 阶段 8 清理时改为返回 400
   }
 
   return new Response(JSON.stringify({ success: true }), {

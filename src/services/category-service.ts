@@ -1,7 +1,6 @@
 /**
  * Category Service —— V0 categories 业务逻辑
  *
- * 阶段 5.1：从 api.js:1994-2066 搬迁，用 Drizzle 替换 env.DB.prepare()。
  *
  * 业务逻辑：
  *   - list：SELECT id, name, color FROM categories ORDER BY id
@@ -10,9 +9,7 @@
  *   - BATCH_DELETE：分片删除 categories + 级联清空 todos/todo_templates 的 category_id
  *
  * 审计警告保留：
- *   - §3f：V0 用 camelCase customColors 作为 settings key（本 service 不涉及，但
  *     categories 路由不读 customColors，所以无需特殊处理）
- *   - §9a #1：BATCH_CHUNK_SIZE = 99 必须保留，Drizzle 不会自动分块
  */
 
 import { eq, inArray, sql } from 'drizzle-orm';

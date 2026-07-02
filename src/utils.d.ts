@@ -3,7 +3,6 @@
  *
  * utils.js 是纯 JS（allowJs=true，checkJs=false），TS 推断其函数签名为 any。
  * 本声明文件提供精确类型，让中间件层有类型推断。
- * 阶段 5+ 迁移 utils.js 到 TS 时本文件可删除。
  */
 
 /** cookie 解析结果：name → value 映射。 */

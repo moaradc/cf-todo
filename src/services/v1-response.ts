@@ -1,9 +1,7 @@
 /**
  * V1 Response Helpers —— 响应信封 + DTO 格式化
  *
- * 阶段 6.0：抽取 V1 的响应格式化逻辑，供后续 V1 路由复用。
  *
- * V1 与 V0 的差异（审计 §9f #10）：
  *   - V0 返回裸 array/object
  *   - V1 返回 { success, data, pagination? } 信封 + Cache-Control: no-store
  *   - V1 用 formatTodo() 格式化（含 last_completed_at / last_duration_ms / is_zero_duration 计算字段）

@@ -1,7 +1,6 @@
 /**
  * V0 Time Records 路由
  *
- * 阶段 5.5e：从 api.js:1979-2028 搬迁到 Hono + Drizzle。
  *
  * 路由：
  *   - GET /api/time-records?todo_id=&parent_id=

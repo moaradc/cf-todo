@@ -1,7 +1,6 @@
 /**
  * V0 Stats 路由
  *
- * 阶段 5.4：从 api.js:836-957 搬迁到 Hono + Drizzle。
  *
  * 路由：
  *   - GET /api/stats?start=YYYY-MM-DD&end=YYYY-MM-DD

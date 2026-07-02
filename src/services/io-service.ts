@@ -1,7 +1,6 @@
 /**
  * IO Service —— V0 Export / Import / Import-backup
  *
- * 阶段 5.6：从 api.js:838-1798 搬迁全部 IO 路由。
  *
  * 三个路由：
  *   - GET  /api/export          ← api.js:838-1183（page/session/stream）
@@ -11,10 +10,6 @@
  * 用 raw D1 API 保持与原代码字节级一致。
  *
  * 审计保留：
- *   §9a #5：stream 模式 45-query 自节流 + _type:'continuation'
- *   §9f #17：sqlite_master 查询检查 _backup 表
- *   §3e：BATCH_ROWS=100 / BATCH_STMTS=25 / TODO_ROWS_PER_INSERT=4 / TEMPLATE_ROWS_PER_INSERT=6
- *   §2f：import-backup 无 method 检查（app.all）
  *   import_backup_time 10 分钟 TTL
  */
 
@@ -184,7 +179,6 @@ export async function exportSession(
   return new Response(JSON.stringify({ error: 'Invalid session action' }), { status: 400, headers: { 'Content-Type': 'application/json' } });
 }
 
-/** 导出 stream 模式。与 api.js:999-1180 一致。审计 §9a #5：45-query 自节流。 */
 export function exportStream(
   db: Db,
   params: {
@@ -349,7 +343,6 @@ export function exportStream(
 
 // ==================== Import ====================
 
-/** 审计 §3e：四个常量原样保留。 */
 const BATCH_ROWS = 100;
 const BATCH_STMTS = 25;
 const TODO_ROWS_PER_INSERT = 4;

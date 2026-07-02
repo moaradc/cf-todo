@@ -1,7 +1,6 @@
 /**
  * Time Records Service —— V0 time-records 查询
  *
- * 阶段 5.5e：从 api.js:1979-2028 搬迁。
  *
  * 业务逻辑：
  *   - todo_id 查询（推荐）：实例级 records + 模板级 template_records

@@ -1,7 +1,6 @@
 /**
  * V1 Keys 路由 —— API Key 管理（cookie-only，不走 API Key 鉴权）
  *
- * 阶段 6.1：从 api-v1.js:190-282 搬迁。
  *
  * 路由：/api/v1/keys
  *   - GET：列出所有 key（隐藏完整 key，只显示前8位 + 掩码）

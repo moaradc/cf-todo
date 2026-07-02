@@ -1,7 +1,6 @@
 /**
  * V1 简单路由：categories / trash / stats / settings / custom-*
  *
- * 阶段 6.2-6.7：从 api-v1.js 搬迁 V1 非todos 路由。
  * 这些路由业务逻辑与 V0 高度重复，差异仅在响应壳（v1Ok + formatTodo/formatCategory）。
  *
  * 用 raw D1 API 保持与原代码字节级一致。

@@ -1,7 +1,6 @@
 /**
  * V0 静态路由：manifest / sw / SPA fallback
  *
- * 阶段 4 / Commit 4.2：从 api.js 搬迁 3 个静态路由到 Hono。
  *
  * 搬迁来源：
  *   - GET /manifest.json  ← api.js:419-437
@@ -9,8 +8,6 @@
  *   - GET /*（SPA）       ← api.js:563-717
  *
  * 关键保留（审计警告）：
- *   - §6d：SPA fallback 的 UA 自动更新逻辑（line 590-707）完整保留
- *   - §9f #5：?preview=1 的 custom-code 注入旁路必须保留
  *
  * 挂载：在 v0App 注册（实际是根路径，不挂在 /api 下）。
  * 顺序：manifest / sw 精确匹配优先，SPA fallback 兜底。
@@ -197,7 +194,6 @@ self.addEventListener('fetch', (event) => {
 /**
  * UA 自动更新辅助：把 oldUA 在三个 per-UA 数组里替换为 currentUA。
  *
- * 与 api.js:594-712 的逻辑完全一致（审计 §6d：UA 变更时同步更新 settings）。
  *
  * 三个数组各自的更新逻辑：
  *   1. 找 oldUA，找到则替换 ua 字段为 currentUA（replaced=true）
@@ -323,9 +319,7 @@ function updateUaInArrays(
  * 与 api.js:563-717 完全一致，包括：
  *   - 排除 /api/ 路径 + 含 . 的路径（静态资源）
  *   - 并行查 isAuthorized + app_settings
- *   - ?preview=1 时跳过 custom-code 注入（审计 §9f #5）
  *   - customCodeEnabled=true 时查 custom_header / custom_content
- *   - authorized + UA 变更时同步更新 session + 三个 per-UA 数组（审计 §6d）
  *   - renderHTML(authorized, customHeader, customContent)
  */
 staticApp.get('*', async (c) => {
@@ -341,7 +335,6 @@ staticApp.get('*', async (c) => {
 });
 
 /**
- * 实际的 SPA fallback 处理（从 api.js:565-717 搬迁）。
  */
 async function handleSpaFallback(c: import('hono').Context<V0AppEnv>): Promise<Response> {
   const env = c.env;
@@ -371,7 +364,6 @@ async function handleSpaFallback(c: import('hono').Context<V0AppEnv>): Promise<R
     }
   }
 
-  // §9f #5：?preview=1 时跳过 custom-code 注入（预览模式显示原始 HTML）
   if (url.searchParams.get('preview') !== '1' && appSettingsObj && appSettingsObj.customCodeEnabled === true) {
     try {
       const customRecords = await env.DB.prepare(
@@ -388,7 +380,6 @@ async function handleSpaFallback(c: import('hono').Context<V0AppEnv>): Promise<R
     }
   }
 
-  // §6d：UA 自动更新——authorized 且 UA 变更时同步 session + per-UA 数组
   if (authorized && matchedSession) {
     const currentUA = request.headers.get('User-Agent') || '';
     if (currentUA && matchedSession.ua !== currentUA) {

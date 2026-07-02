@@ -1,7 +1,6 @@
 /**
  * Settings Service —— V0 settings / custom-code / custom-* 业务逻辑
  *
- * 阶段 5.3：从 api.js 搬迁，用 Drizzle 替换 env.DB.prepare()。
  *
  * 搬迁来源：
  *   - GET  /api/settings        ← api.js:1947-1954
@@ -13,7 +12,6 @@
  *   - GET  /api/custom-header   ← api.js:1973-1976
  *   - GET  /api/custom-content  ← api.js:1978-1981
  *
- * 审计 §3f：V0 用 camelCase customColors 作为 settings key，必须保留。
  * 所有 settings 值存 D1 settings 表（key-value），JSON 字符串序列化。
  */
 
@@ -132,7 +130,6 @@ export async function setCustomCode(
 
 /** GET /api/custom-colors：返回 customColors JSON 数组。 */
 export async function getCustomColors(db: Db): Promise<unknown[]> {
-  // §3f：V0 用 camelCase customColors 作为 settings key
   return getSettingJson(db, 'customColors', []);
 }
 

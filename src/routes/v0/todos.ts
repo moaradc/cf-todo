@@ -1,7 +1,6 @@
 /**
  * V0 Todos GET 路由
  *
- * 阶段 5.5c：从 api.js:1809-1977 搬迁到 Hono + Drizzle。
  * 含 RRULE 展开 + per-date lock + fragment 浮动可见 + search_terms 热词替换。
  *
  * 路由：GET /api/todos?date=YYYY-MM-DD

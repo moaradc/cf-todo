@@ -1,12 +1,10 @@
 /**
  * V0 IO 路由：export / import / import-backup
  *
- * 阶段 5.6：从 api.js 搬迁全部 IO 路由到 Hono。
  *
  * 路由：
  *   - GET  /api/export          ← api.js:838-1183（page/session/stream）
  *   - POST /api/import          ← api.js:1185-1687（init/finalize/status/abort + NDJSON）
- *   - ALL  /api/import-backup   ← api.js:1689-1798（query/restore/clear，无 method 检查 §2f）
  *
  * 鉴权：cookie 鉴权
  */
@@ -106,7 +104,6 @@ ioApp.post('/import', async (c) => {
   return importPhase(db, impBody);
 });
 
-// ==================== ALL /api/import-backup（§2f：无 method 检查）====================
 
 ioApp.all('/import-backup', async (c) => {
   const authResult = await checkCookieAuth(c.req.raw, c.env);

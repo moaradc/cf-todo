@@ -1,7 +1,6 @@
 /**
  * V1 路由 Hono app（/api/v1/*）
  *
- * 阶段 6：V1 业务路由从 api-v1.js 搬到这里。
  *
  * 鉴权策略：
  *   - /api/v1/keys：cookie-only（不走 API Key 中间件）

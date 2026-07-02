@@ -1,10 +1,8 @@
 /**
  * Trash Service —— V0 回收站业务逻辑
  *
- * 阶段 5.2：从 api.js:2068-2284 搬迁。
  *
  * 审计警告保留：
- *   - §9a #1：BATCH_CHUNK_SIZE = 99 必须保留，Drizzle 不会自动分块
  *   - CLEAR_ALL_DATA 路径单独审计，路由层加二次确认
  *
  * 实现策略：

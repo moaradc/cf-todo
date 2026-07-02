@@ -12,12 +12,8 @@
  *     如果不存在，console.warn 提醒开发者/运维「请先跑迁移」，但不阻断请求
  *     （让后续 SQL 错误自然暴露，错误信息更明确）。
  *
- *   旧 src/api.js 的 initDb() 函数保留为 dead code，通过 isDbInitialized=true
- *   让其 short-circuit（见 src/api.js 第 45 行）。阶段 8 删除 initDb 与本检查。
  *
  * Env 类型：
- *   阶段 3 起统一在 src/env.ts 定义，本文件 re-export 保持向后兼容
- *   （index.ts / 阶段 2 代码仍从 init-db 导入 Env）。
  */
 
 // Env 类型从 src/env.ts 统一导出，避免重复定义。

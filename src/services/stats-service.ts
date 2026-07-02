@@ -1,7 +1,6 @@
 /**
  * Stats Service —— V0 统计聚合
  *
- * 阶段 5.4：从 api.js:836-957 搬迁。
  *
  * 核心逻辑：D1 batch 一次往返跑 6 条 GROUP BY，把数万行原始数据压缩为几十行聚合结果。
  * 索引依赖：idx_todos_stats(date, deleted, priority, done, category_id, time) covering index。

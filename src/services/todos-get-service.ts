@@ -1,11 +1,9 @@
 /**
  * Todos Get Service —— V0 GET /api/todos
  *
- * 阶段 5.5c：从 api.js:1809-1977 搬迁。
  *
  * 核心逻辑：
  *   1. 日期校验（YYYY-MM-DD + 真实性）
- *   2. per-date lock 包裹整个 expansion（审计 §9d）
  *   3. 查当天可见 todos：
  *      - 普通 todo (none/recurring)：date = ?
  *      - fragment 已完成：date = ?（冻结到完成日期）
@@ -13,7 +11,6 @@
  *   4. 模板展开：
  *      - 查 type=recurring 模板，anchor_date <= date，NOT EXISTS 同日期实例
  *      - isOccurrenceOnDate 判断是否在此日期生成实例
- *      - INSERT OR IGNORE 新实例（5.5d 的 unique index 兜底）
  *      - search_terms 热词替换（fetchHotSearchData，5s 超时 + 失败降级）
  *   5. 格式化响应：解析 subtasks/search_terms JSON + type 兜底 + is_series 派生
  */
@@ -27,7 +24,6 @@ function d1(db: Db): D1Database {
   return (db as unknown as { $client: D1Database }).$client;
 }
 
-/** per-date lock（从 middleware 复用，阶段 3 已实现）。 */
 import { withTodosDateLock } from '../middleware/per-date-lock';
 
 /** 格式化后的 todo 行类型。 */
@@ -76,7 +72,6 @@ export async function getTodos(
     return { ok: false, error: `日期无效: ${date}`, status: 400 };
   }
 
-  // per-date lock 包裹整个 expansion（审计 §9d）
   const todos = await withTodosDateLock(date, async () => {
     const d = d1(db);
 
@@ -173,7 +168,6 @@ export async function getTodos(
         };
         results.push(newRecord);
 
-        // INSERT OR IGNORE（5.5d 的 unique index 兜底，防跨 isolate 竞态）
         insertStmts.push(
           d
             .prepare(

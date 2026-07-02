@@ -1,7 +1,6 @@
 /**
  * V0 公开路由：hot-search
  *
- * 阶段 4 / Commit 4.4：把 hot-search 从 api.js 搬到 Hono。
  * 这是最简单的路由，验证 Hono 路由 + 外部 fetch 的基本通路。
  *
  * 搬迁来源：api.js:852-860

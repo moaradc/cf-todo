@@ -1,7 +1,6 @@
 /**
  * V0 Settings 路由：settings / custom-code / custom-colors / custom-header / custom-content
  *
- * 阶段 5.3：从 api.js 搬迁到 Hono + Drizzle。
  *
  * 路由：
  *   - GET  /api/settings        ← api.js:1947-1954
@@ -14,7 +13,6 @@
  *   - GET  /api/custom-content  ← api.js:1978-1981
  *
  * 鉴权：cookie 鉴权
- * §3f：customColors 用 camelCase 作为 settings key，保留。
  */
 
 import { Hono } from 'hono';

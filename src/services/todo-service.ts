@@ -1,7 +1,6 @@
 /**
  * Todo Service —— V0 todo-action 业务逻辑
  *
- * 阶段 5.5a + 5.5b：从 api.js:2031-3150 搬迁全部 10 个 action。
  *
  * 用 raw D1 API（db.$client）保持与原代码字节级一致。
  * Drizzle query builder 对这些复杂动态 SQL 支持不佳（类型断言地狱）。

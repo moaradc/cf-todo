@@ -1,7 +1,6 @@
 /**
  * V0 Categories 路由
  *
- * 阶段 5.1：从 api.js 搬迁 categories 路由到 Hono + Drizzle。
  *
  * 路由：
  *   - GET  /api/categories        ← api.js:1994-1997

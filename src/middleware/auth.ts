@@ -1,18 +1,14 @@
 /**
  * cf-todo 鉴权中间件
  *
- * 阶段 3 把 api.js:88-118 的 isAuthorized + api-v1.js:147-158 的 extractApiKey +
  * api-v1.js:82-142 的 verifyApiKey/getApiKeyScope + api-v1.js:297-310 的 touchApiKeyLastUsed
  * 整体搬到 Hono 中间件。
  *
  * 设计原则：
  *   - cookie 鉴权用 verify()（非恒定时间）——cookie token 是高熵随机串，时序攻击无意义。
  *   - 密码 + API Key 用 secureCompare()（恒定时间）——低熵输入需防时序攻击。
- *   - line 100 的 legacy single-string session 兼容分支必须保留（审计 §9b 警告）。
  *   - scope 规则：disabled → 403，v1 → V0 路由 403，v0 → V1 路由 403，all → 放行，默认 v1。
  *
- * 阶段 3 行为：本中间件仅作为「预热」存在，不被任何路由实际调用
- * （业务路由仍走旧 handleRequest）。阶段 4+ 切换到 Hono 路由时才生效。
  */
 
 import type { Context, MiddlewareHandler } from 'hono';
@@ -38,7 +34,6 @@ export type AuthVariables = {
   session: SessionState;
 };
 
-// ==================== Cookie 鉴权（Commit 3.2）====================
 
 /**
  * 校验 cookie 鉴权。
@@ -73,7 +68,6 @@ export async function checkCookieAuth(
 
   let sessions: SessionEntry[];
   // line 100 legacy 兼容：旧版存单个 token 字符串（不以 [ 开头），新版存 JSON 数组。
-  // 审计 §9b 警告：这个分支不能删，否则旧部署用户升级后立即失效。
   if (!record.value.startsWith('[')) {
     if (record.value !== cookies.auth_token) return { ok: false };
     sessions = [{ token: record.value, ua: '' }];
@@ -96,7 +90,6 @@ export async function checkCookieAuth(
 /**
  * Hono 中间件：cookie 鉴权。
  *
- * 用法（阶段 4+）：
  *   app.use('/api/*', cookieAuth);
  *   app.get('/api/todos', (c) => {
  *     const { matched } = c.get('session');
@@ -115,7 +108,6 @@ export const cookieAuth: MiddlewareHandler<{ Bindings: Env; Variables: AuthVaria
   return;
 };
 
-// ==================== API Key 鉴权（Commit 3.3）====================
 
 /** API Key 作用域。 */
 export type ApiKeyScope = 'v1' | 'v0' | 'all' | 'disabled';
@@ -254,7 +246,6 @@ export async function touchApiKeyLastUsed(db: D1Database, apiKey: string): Promi
 /**
  * Hono 中间件：API Key 鉴权 + scope 校验。
  *
- * 用法（阶段 6+）：
  *   // V1 路由
  *   app.use('/api/v1/*', apiKeyAuth('v1'));
  *   // V0 路由

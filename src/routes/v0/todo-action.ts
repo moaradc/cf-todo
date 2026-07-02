@@ -1,7 +1,6 @@
 /**
  * V0 Todo Action 路由
  *
- * 阶段 5.5a + 5.5b：全部 10 个 action 迁移到 Hono。
  *
  * 路由：POST /api/todo-action
  * 鉴权：cookie 鉴权

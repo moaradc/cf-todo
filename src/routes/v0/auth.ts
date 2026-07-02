@@ -1,7 +1,6 @@
 /**
  * V0 鉴权路由：login / logout / sessions / session-action
  *
- * 阶段 4 / Commit 4.3：从 api.js 搬迁 4 个鉴权路由到 Hono。
  *
  * 搬迁来源：
  *   - POST /api/login          ← api.js:270-383
@@ -10,7 +9,6 @@
  *   - POST /api/session-action ← api.js:740-822
  *
  * 关键保留（审计警告）：
- *   - §9f #12：session-action DELETE/DELETE_ALL 必须同步更新三个 per-UA 数组
  *     （scaleByBrowser / fontSizeByBrowser / displayScaleByBrowser）
  *   - login 的 5 次锁定 + 15 分钟封禁逻辑
  *   - login 成功时同步初始化三个 per-UA 数组（与 api.js:311-367 一致）
@@ -294,7 +292,6 @@ authApp.get('/sessions', async (c) => {
  * 会话操作：DELETE（踢指定 UA）/ DELETE_ALL（踢全部）。
  * 与 api.js:740-822 一致。
  *
- * §9f #12：必须同步清理三个 per-UA 数组中被删除的 UA。
  * 需要 cookie 鉴权。
  */
 authApp.post('/session-action', async (c) => {
@@ -354,7 +351,6 @@ authApp.post('/session-action', async (c) => {
     await env.DB.prepare("DELETE FROM settings WHERE key = 'active_session_token'").run();
   }
 
-  // §9f #12：同步清理三个 per-UA 数组中被删除的 UA
   if (action === 'DELETE' || action === 'DELETE_ALL') {
     try {
       const appSettingsRecord = await env.DB.prepare(

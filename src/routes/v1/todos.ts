@@ -1,7 +1,6 @@
 /**
  * V1 Todos 路由 —— 最复杂的 V1 路由块
  *
- * 阶段 6.8：从 api-v1.js 搬迁全部 V1 todos 路由。
  *
  * 路由：
  *   GET    /api/v1/todos           — 列表查询（pagination + date/range + category_id + done + expand）
