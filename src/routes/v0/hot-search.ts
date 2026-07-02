@@ -27,7 +27,7 @@ export const hotSearchApp = new Hono<V0AppEnv>();
  * 创建带热搜的 todo 都需要最新数据）。fetchHotSearchData 内部已有
  * 5s 超时 + 失败降级，足够健壮。
  */
-hotSearchApp.get('/api/hot-search', async (c) => {
+hotSearchApp.get('/hot-search', async (c) => {
   const url = new URL(c.req.url);
   const provider = url.searchParams.get('provider') || 'auto';
   const all_words = await fetchHotSearchData(provider);

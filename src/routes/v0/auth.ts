@@ -46,7 +46,7 @@ export const authApp = new Hono<V0AppEnv>();
  * 登录：5 次锁定 + 15 分钟封禁 + session 创建 + per-UA 数组初始化。
  * 与 api.js:270-383 完全一致。
  */
-authApp.post('/api/login', async (c) => {
+authApp.post('/login', async (c) => {
   const env = c.env;
   const request = c.req.raw;
   const clientIp = request.headers.get('cf-connecting-ip') || 'unknown';
@@ -208,7 +208,7 @@ authApp.post('/api/login', async (c) => {
  * 与 api.js:385-416 一致。
  * 公开路由（即使 cookie 失效也要能清 cookie）。
  */
-authApp.post('/api/logout', async (c) => {
+authApp.post('/logout', async (c) => {
   const env = c.env;
   const cookies = parseCookies(c.req.raw);
 
@@ -255,7 +255,7 @@ authApp.post('/api/logout', async (c) => {
  * 与 api.js:720-738 一致。
  * 需要 cookie 鉴权。
  */
-authApp.get('/api/sessions', async (c) => {
+authApp.get('/sessions', async (c) => {
   const env = c.env;
   const request = c.req.raw;
 
@@ -297,7 +297,7 @@ authApp.get('/api/sessions', async (c) => {
  * §9f #12：必须同步清理三个 per-UA 数组中被删除的 UA。
  * 需要 cookie 鉴权。
  */
-authApp.post('/api/session-action', async (c) => {
+authApp.post('/session-action', async (c) => {
   const env = c.env;
   const request = c.req.raw;
 
