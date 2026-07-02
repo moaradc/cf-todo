@@ -1976,57 +1976,7 @@ self.addEventListener('fetch', (event) => {
       }); // end _withTodosDateLock
     }
 
-    if (url.pathname === '/api/time-records' && request.method === 'GET') {
-      const todo_id = url.searchParams.get('todo_id');
-      const parent_id = url.searchParams.get('parent_id');
-      let records = [];
-      let template_records = [];
-
-      if (todo_id) {
-        // 实例级查询（推荐）：修复同一模板不同实例串台的问题
-        const todo_row = await env.DB.prepare(
-          'SELECT time_records, parent_id FROM todos WHERE id = ?'
-        ).bind(todo_id).first();
-        if (todo_row) {
-          try {
-            const p = typeof todo_row.time_records === 'string'
-              ? JSON.parse(todo_row.time_records || '[]')
-              : todo_row.time_records;
-            if (Array.isArray(p)) records = p;
-          } catch (e) {}
-          // 同时取模板级记录，用于 predictDuration（基于该模板最近 10 次完成时长中位数）
-          // 模板级与实例级记录解耦：实例级用于"完成于"显示，模板级用于预估
-          const pidForTpl = todo_row.parent_id;
-          if (pidForTpl) {
-            const tplRow = await env.DB.prepare(
-              'SELECT time_records FROM todo_templates WHERE parent_id = ?'
-            ).bind(pidForTpl).first();
-            if (tplRow) {
-              try {
-                const tp = typeof tplRow.time_records === 'string'
-                  ? JSON.parse(tplRow.time_records || '[]')
-                  : tplRow.time_records;
-                if (Array.isArray(tp)) template_records = tp;
-              } catch (e) {}
-            }
-          }
-        }
-      } else if (parent_id) {
-        // 兼容旧客户端：仅返回模板级记录
-        const row = await env.DB.prepare(
-          'SELECT time_records FROM todo_templates WHERE parent_id = ?'
-        ).bind(parent_id).first();
-        if (row && row.time_records) {
-          try {
-            const parsed = typeof row.time_records === 'string' ? JSON.parse(row.time_records) : row.time_records;
-            if (Array.isArray(parsed)) records = parsed;
-          } catch (e) {}
-        }
-      } else {
-        return apiError("todo_id or parent_id required", 400);
-      }
-      return new Response(JSON.stringify({ records, template_records }), { headers: { 'Content-Type': 'application/json' } });
-    }
+    // /api/time-records 已迁移到 src/routes/v0/time-records.ts（阶段 5.5e）
 
     if (url.pathname === '/api/todo-action' && request.method === 'POST') {
       let parsedBody;

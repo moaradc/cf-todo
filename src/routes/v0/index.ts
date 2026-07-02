@@ -7,6 +7,7 @@ import { categoriesApp } from './categories';
 import { trashApp } from './trash';
 import { settingsApp } from './settings';
 import { statsApp } from './stats';
+import { timeRecordsApp } from './time-records';
 
 /** V0 路由的 Hono app 类型。 */
 export type V0AppEnv = {
@@ -21,3 +22,4 @@ v0App.route('/', categoriesApp);
 v0App.route('/', trashApp);
 v0App.route('/', settingsApp);
 v0App.route('/', statsApp);
+v0App.route('/', timeRecordsApp);
