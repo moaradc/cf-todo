@@ -40,7 +40,7 @@ import {
   deriveLegacyFieldsFromRRule,
   previewOccurrences,
 } from './recurring-engine.js';
-import { handleV1Request, verifyApiKey, extractApiKey, getApiKeyScope } from './api-v1.js';
+// api-v1.js 已删除（阶段 6.8），V1 路由全部在 src/routes/v1/
 
 // 阶段 2 起：旧 initDb 不再执行。
 // - 真正的迁移交给 wrangler d1 migrations apply（部署时）。
@@ -239,33 +239,9 @@ async function handleRequest(request, env, ctx) {
 
     await initDb();
 
-    //  统一 API 鉴权拦截（支持 API Key 或 Cookie）
-    const publicApiPaths = ['/api/login', '/api/logout', '/api/hot-search'];
-    const isApiRequest = url.pathname.startsWith('/api/');
-    const isV1Request = url.pathname.startsWith('/api/v1/');
-    if (isApiRequest && !publicApiPaths.includes(url.pathname) && !isV1Request) {
-      // 优先检查 API Key
-      const apiKey = extractApiKey(request, url);
-      if (apiKey) {
-        const valid = await verifyApiKey(env.DB, apiKey, env.JWT_SECRET);
-        if (!valid) return apiError("UNAUTHORIZED", 401);
-        // 检查 API Key 作用域
-        const scope = await getApiKeyScope(env.DB);
-        if (scope === 'disabled') return apiError("API Key 已被禁用", 403);
-        if (scope === 'v1') return apiError("API Key 仅允许访问 v1 接口", 403);
-      } else {
-        // 无 API Key，回退到 Cookie 鉴权
-        const { ok: apiAuthed } = await isAuthorized();
-        if (!apiAuthed) return apiError("UNAUTHORIZED", 401);
-      }
-    }
-
-    // v1 RESTful API（自带鉴权：API Key 或 Cookie）
-    if (isV1Request) {
-      const v1Result = await handleV1Request(request, env, ctx);
-      if (v1Result) return v1Result;
-      return apiError('Not Found', 404);
-    }
+    // V0/V1 路由鉴权已迁移到 Hono 路由层（阶段 4-6）
+    // legacy 仅处理未被 Hono 匹配的请求（SPA fallback + manifest + sw 已迁移）
+    // 这些路由在 Hono staticApp 里已处理，legacy 实际只返回 404
     
     // /api/login 已迁移到 src/routes/v0/auth.ts（阶段 4.3）
 

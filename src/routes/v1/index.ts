@@ -16,6 +16,7 @@ import type { Env } from '../../env';
 import type { AuthVariables } from '../../middleware/auth';
 import { keysApp } from './keys';
 import { v1SimpleApp } from './simple';
+import { v1TodosApp } from './todos';
 
 /** V1 路由的 Hono app 类型。 */
 export type V1AppEnv = {
@@ -23,13 +24,9 @@ export type V1AppEnv = {
   Variables: AuthVariables;
 };
 
-/** V1 Hono app。 */
+/** V1 Hono app。全部 V1 路由已迁移。 */
 export const v1App = new Hono<V1AppEnv>();
 
-// keys 路由（cookie-only，内部自行鉴权）
 v1App.route('/', keysApp);
-
-// categories / trash / stats / settings / custom-* 路由
+v1App.route('/', v1TodosApp);
 v1App.route('/', v1SimpleApp);
-
-// todos 路由在后续 commit 添加，未匹配的 fall through 到 legacy

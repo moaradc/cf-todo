@@ -40,7 +40,7 @@ async function v1Auth(c: import('hono').Context<V1AppEnv>): Promise<Response | n
   }
   // 回退 cookie 鉴权
   const authResult = await checkCookieAuth(c.req.raw, c.env);
-  if (!authResult.ok) return v1Err('UNAUTHORIZED', 401);
+  if (!authResult.ok) return v1Err('Cookie authentication required', 401);
   return null;
 }
 
