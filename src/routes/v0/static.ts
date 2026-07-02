@@ -17,11 +17,9 @@
  */
 
 import { Hono } from 'hono';
-import type { Env } from '../../env';
 import { APP_VERSION, MAX_BROWSER_UA } from '../../utils.js';
 import { renderHTML } from '../../html.js';
 import { checkCookieAuth, type SessionEntry } from '../../middleware/auth';
-import legacy from '../../index.legacy.js';
 import type { V0AppEnv } from './index';
 
 /** 静态路由 Hono app。挂在根路径（不在 /api 下）。 */
@@ -334,9 +332,9 @@ staticApp.get('*', async (c) => {
   const url = new URL(c.req.url);
 
   // 排除 /api/ 路径 + 含 . 的路径（静态资源如 .js .css .png）
-  // 这些路径 fall through 到 legacy.handleRequest
+  // 这些路径返回 404（不再 fall through 到 legacy）
   if (url.pathname.startsWith('/api/') || url.pathname.includes('.')) {
-    return legacy.fetch(c.req.raw, c.env, c.executionCtx);
+    return c.json({ error: 'Not Found' }, 404);
   }
 
   return handleSpaFallback(c);
