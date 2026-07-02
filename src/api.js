@@ -821,33 +821,7 @@ self.addEventListener('fetch', (event) => {
       return new Response(JSON.stringify({ success: true }), { headers: { 'Content-Type': 'application/json' } });
     }
     
-    if (url.pathname === '/api/custom-code' && request.method === 'GET') {
-      const headerRecord = await env.DB.prepare("SELECT value FROM settings WHERE key = 'custom_header'").first();
-      const contentRecord = await env.DB.prepare("SELECT value FROM settings WHERE key = 'custom_content'").first();
-      return new Response(JSON.stringify({
-        customHeader: headerRecord?.value || '',
-        customContent: contentRecord?.value || ''
-      }), { headers: { 'Content-Type': 'application/json' } });
-    }
-    
-    if (url.pathname === '/api/custom-code' && request.method === 'POST') {
-      let ccBody;
-      try { ccBody = await request.json(); } catch(e) { return apiError('请求体不是有效的 JSON', 400); }
-      const { customHeader, customContent } = ccBody;
-      const stmts = [];
-      if (customHeader !== undefined) {
-        stmts.push(env.DB.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('custom_header', ?)").bind(customHeader));
-      }
-      if (customContent !== undefined) {
-        stmts.push(env.DB.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('custom_content', ?)").bind(customContent));
-      }
-      if (stmts.length > 0) {
-        await env.DB.batch(stmts);
-      }
-      return new Response(JSON.stringify({ success: true }), {
-        headers: { 'Content-Type': 'application/json' }
-      });
-    }
+    // /api/custom-code 已迁移到 src/routes/v0/settings.ts（阶段 5.3）
 
     if (url.pathname === '/api/hot-search' && request.method === 'GET') {
       const provider = url.searchParams.get('provider') || 'auto';
@@ -1944,52 +1918,8 @@ self.addEventListener('fetch', (event) => {
       }
     }
 
-    if (url.pathname === '/api/settings' && request.method === 'GET') {
-      const record = await env.DB.prepare("SELECT value FROM settings WHERE key = 'app_settings'").first();
-      let settingsObj = {};
-      if (record && record.value) {
-        try { settingsObj = JSON.parse(record.value); } catch(e){}
-      }
-      return new Response(JSON.stringify(settingsObj), { headers: { 'Content-Type': 'application/json' } });
-    }
+    // /api/settings + /api/custom-* 已迁移到 src/routes/v0/settings.ts（阶段 5.3）
 
-    if (url.pathname === '/api/settings' && request.method === 'POST') {
-      let settingsData;
-      try { settingsData = await request.json(); } catch(e) { return apiError('请求体不是有效的 JSON', 400); }
-      if (!settingsData || typeof settingsData !== 'object') return apiError('设置必须为 JSON 对象', 400);
-      await env.DB.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('app_settings', ?)").bind(JSON.stringify(settingsData)).run();
-      return new Response(JSON.stringify({ success: true }), { headers: { 'Content-Type': 'application/json' } });
-    }
-
-    if (url.pathname === '/api/custom-colors' && request.method === 'GET') {
-      const record = await env.DB.prepare("SELECT value FROM settings WHERE key = 'customColors'").first();
-      let customColors = [];
-      if (record && record.value) {
-        try { customColors = JSON.parse(record.value); } catch(e) {}
-      }
-      return new Response(JSON.stringify(customColors), { headers: { 'Content-Type': 'application/json' } });
-    }
-
-    if (url.pathname === '/api/custom-header' && request.method === 'GET') {
-      const record = await env.DB.prepare("SELECT value FROM settings WHERE key = 'custom_header'").first();
-      return new Response(record?.value || '', { headers: { 'Content-Type': 'text/plain' } });
-    }
-
-    if (url.pathname === '/api/custom-content' && request.method === 'GET') {
-      const record = await env.DB.prepare("SELECT value FROM settings WHERE key = 'custom_content'").first();
-      return new Response(record?.value || '', { headers: { 'Content-Type': 'text/plain' } });
-    }
-
-    if (url.pathname === '/api/custom-colors' && request.method === 'POST') {
-      let clrBody;
-      try { clrBody = await request.json(); } catch(e) { return apiError('请求体不是有效的 JSON', 400); }
-      const { colors } = clrBody;
-      if (!Array.isArray(colors)) {
-        return apiError('colors must be an array', 400);
-      }
-      await env.DB.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('customColors', ?)").bind(JSON.stringify(colors)).run();
-      return new Response(JSON.stringify({ success: true, colors: colors }), { headers: { 'Content-Type': 'application/json' } });
-    }
 
     // /api/categories + /api/category-action 已迁移到 src/routes/v0/categories.ts（阶段 5.1）
 
