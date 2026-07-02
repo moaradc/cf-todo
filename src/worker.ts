@@ -23,6 +23,7 @@ import { ensureMigrated } from './middleware/init-db';
 import legacy from './index.legacy.js';
 import { v0App } from './routes/v0';
 import { v1App } from './routes/v1';
+import { staticApp } from './routes/v0/static';
 
 /** Hono app 类型（Bindings=Env，Variables 含 session）。 */
 export type AppEnv = {
@@ -55,15 +56,17 @@ app.use('*', async (c, next) => {
  *
  * 顺序约束（Hono 按注册顺序匹配）：
  *   1. /api/v1/* → v1App（V1 优先，避免被 /api/* 吞掉）
- *   2. /api/*    → v0App（V0 业务路由）
- *   3. 具体静态路由（/manifest.json / /sw.js / SPA）在 4.2 添加
- *   4. catch-all → legacy（未迁移的路由 fall through）
+ *   2. /api/*    → v0App（V0 业务路由：auth / hot-search 等，4.3-4.4 添加）
+ *   3. /         → staticApp（manifest / sw / SPA fallback，4.2 添加）
+ *   4. *         → legacy（未迁移的路由 fall through）
  *
- * 当前阶段（4.1）：v0App / v1App 都是空骨架，所有请求仍走 catch-all → legacy。
- * 阶段 4.2-4.4 逐步在 v0App 注册路由，匹配到的走新逻辑，未匹配的 fall through。
+ * staticApp 挂在根路径，注册了 /manifest.json / /sw.js / /*（SPA）。
+ * staticApp 的 /* 会捕获所有非 /api、非含 . 的 GET 请求。
+ * 未匹配的（如 /api/todo-action）fall through 到 catch-all → legacy。
  */
 app.route('/api/v1', v1App);
 app.route('/api', v0App);
+app.route('/', staticApp);
 
 /**
  * Catch-all：未匹配的请求转发给 legacy handleRequest。
