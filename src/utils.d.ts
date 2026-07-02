@@ -27,7 +27,7 @@ export declare function secureCompare(a: string, b: string, secret: string): Pro
 export declare function getDayOfWeek(date: string): number;
 export declare function formatDateStr(date: Date | string): string;
 export declare function offsetDate(date: string, days: number): string;
-export declare function fetchHotSearchData(): Promise<unknown>;
+export declare function fetchHotSearchData(providerName?: string): Promise<unknown>;
 /** 统一错误响应。 */
 export declare function apiError(message: string, status?: number): Response;
 export declare function normalizePriority(p: string | undefined): string;

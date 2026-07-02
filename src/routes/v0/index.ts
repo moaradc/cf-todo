@@ -17,6 +17,7 @@ import { Hono } from 'hono';
 import type { Env } from '../../env';
 import type { AuthVariables } from '../../middleware/auth';
 import { authApp } from './auth';
+import { hotSearchApp } from './hot-search';
 
 /** V0 路由的 Hono app 类型。 */
 export type V0AppEnv = {
@@ -29,8 +30,10 @@ export type V0AppEnv = {
  *
  * 挂载子路由：
  *   - authApp：/api/login / /api/logout / /api/sessions / /api/session-action
+ *   - hotSearchApp：/api/hot-search（公开路由）
  *
  * 未匹配的请求 fall through 到 worker.ts 的 catch-all → legacy。
  */
 export const v0App = new Hono<V0AppEnv>();
 v0App.route('/', authApp);
+v0App.route('/', hotSearchApp);
