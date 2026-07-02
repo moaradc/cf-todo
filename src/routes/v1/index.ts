@@ -15,6 +15,7 @@ import { Hono } from 'hono';
 import type { Env } from '../../env';
 import type { AuthVariables } from '../../middleware/auth';
 import { keysApp } from './keys';
+import { v1SimpleApp } from './simple';
 
 /** V1 路由的 Hono app 类型。 */
 export type V1AppEnv = {
@@ -28,5 +29,7 @@ export const v1App = new Hono<V1AppEnv>();
 // keys 路由（cookie-only，内部自行鉴权）
 v1App.route('/', keysApp);
 
-// 其他 V1 路由在后续 commit 添加（todos / categories / trash / stats / settings / custom-*）
-// 未匹配的 V1 请求 fall through 到 worker.ts catch-all → legacy.handleV1Request
+// categories / trash / stats / settings / custom-* 路由
+v1App.route('/', v1SimpleApp);
+
+// todos 路由在后续 commit 添加，未匹配的 fall through 到 legacy
