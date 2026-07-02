@@ -15,20 +15,14 @@
  *   旧 src/api.js 的 initDb() 函数保留为 dead code，通过 isDbInitialized=true
  *   让其 short-circuit（见 src/api.js 第 45 行）。阶段 8 删除 initDb 与本检查。
  *
- * Env 类型定义：
- *   阶段 3 起所有中间件/路由共用此类型。当前只声明 DB / JWT_SECRET / ADMIN_PASSWORD，
- *   后续阶段按需扩展（如自定义环境变量）。
+ * Env 类型：
+ *   阶段 3 起统一在 src/env.ts 定义，本文件 re-export 保持向后兼容
+ *   （index.ts / 阶段 2 代码仍从 init-db 导入 Env）。
  */
 
-/** Cloudflare Workers 环境变量绑定。 */
-export interface Env {
-  /** D1 数据库绑定（wrangler.toml 中 binding = "DB"）。 */
-  DB: D1Database;
-  /** HMAC 签名密钥，用于 cookie + API Key 校验。来自 .dev.vars / Workers Secrets。 */
-  JWT_SECRET: string;
-  /** 管理员登录密码。来自 .dev.vars / Workers Secrets。 */
-  ADMIN_PASSWORD: string;
-}
+// Env 类型从 src/env.ts 统一导出，避免重复定义。
+export type { Env } from '../env';
+import type { Env } from '../env';
 
 let migrationChecked = false;
 
