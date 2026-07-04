@@ -20,7 +20,7 @@ jobs:
       - name: Verify migration integrity
         run: |
           npx drizzle-kit check
-          python3 scripts/migration-check.py
+          python3 tools/migration-check.py
 
       - name: Typecheck
         run: npm run typecheck
