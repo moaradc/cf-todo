@@ -161,8 +161,13 @@ export async function getApiKeyScope(db: D1Database): Promise<ApiKeyScope> {
       .prepare("SELECT value FROM settings WHERE key = 'app_settings'")
       .first<{ value: string }>();
     if (row && row.value) {
-      const obj = JSON.parse(row.value);
-      return (obj.apiKeyScope as ApiKeyScope) || 'v1';
+      let obj = JSON.parse(row.value);
+      // 防御性：如果历史数据被错误存为 {success, data} 包装格式，自动解包
+      if (obj && typeof obj === 'object' && 'success' in obj && 'data' in obj && typeof obj.data === 'object') {
+        obj = obj.data;
+      }
+      const scope = (obj as { apiKeyScope?: unknown }).apiKeyScope;
+      if (scope === 'v1' || scope === 'v0' || scope === 'all' || scope === 'disabled') return scope;
     }
   } catch {
     // 静默吞掉，返回默认值

@@ -4,17 +4,6 @@
 
 > **v3.0 / db_schema 1（破坏性变更）**：API 字段 `repeat_type` / `repeat_custom` / `repeat_interval` / `repeat_end` 已彻底删除，不再后兼容。唯一规范字段为 `type`（none/fragment/recurring）+ `rrule` + `anchor_date` + `exdates`。外部 API 客户端必须迁移，否则返回 400 + 明确错误消息。详见 [§5 Todo 类型专章](#5-todo-类型专章)。
 
-> **本文档已对照 https://test.945426.xyz 部署实例端到端实测校准**（2026-07-04）。修订过程中修复了以下 7 个生产 bug，wiki 描述对应实际部署行为：
-> - **V1 `/api/v1/keys` 鉴权绕过**（严重）：因 Hono 中间件注册顺序错误，`cookieAuth` 注册在 `.all('/keys')` 路由处理器之后，导致 `/api/v1/keys` 完全无鉴权可访问。修复：将 `cookieAuth` 移至 keys.ts 顶部，在 `.all` 之前注册。
-> - **V0 端点不接受 API Key**：V0 路由使用 `cookieAuth` 而非 `v0Auth`，导致 API Key 调用 V0 端点全部 401。修复：将 V0 鉴权中间件替换为 `v0Auth`（API Key 优先，回退 Cookie）。
-> - **V1 `GET /api/v1/todos` 缺日期格式校验**：`date` / `start_date` / `end_date` 不校验格式，`?date=invalid` 返回 200。修复：补齐 `validateDateFormat` 校验，与 V0 一致返回 400。
-> - **V1 `POST/PUT /api/v1/todos` 与 V0 `CREATE/UPDATE` 不拒绝旧字段**：传入 `repeat_type` 等旧字段不会返回 400，违反 v3.0 强制迁移承诺。修复：在四个写入入口增加 `detectLegacyRepeatFields` 检测。
-> - **V1 `/api/v1/categories/batch` 响应缺字段**：仅返回 `{deleted: N}`，缺 `chunked` / `chunkCount`，与 wiki 文档及其他批量端点不一致。修复：返回完整 `{deleted, chunked, chunkCount}` 三字段，并修正 `deleted` 为实际删除行数（原为 `ids.length`）。
-> - **V1 `/api/v1/todos/:id/toggle` `record_accepted` 字段语义偏差**：未传 `record` 时也返回 `record_accepted: false`，与 wiki "未传 record 时不返回此字段" 描述不符。修复：仅在调用方传入 `record` 字段时才返回 `record_accepted`。
-> - **V1 `/api/v1/trash-action` BATCH_RESTORE 计数偏差**：`restored` 字段统计恢复后所有非删除 todos，包含调用前已活跃的项。修复：改为恢复前统计 `deleted=1` 的项数。
->
-> 详见 [§7 注意事项](#7-注意事项) 第 23 / 28–32 条。
-
 ## 目录
 
 - [1. 架构概览](#1-架构概览)
@@ -697,11 +686,23 @@ API Key 格式为 `cfk_` 前缀 + 32 字节随机 Base64URL 编码。验证使�
       "data": { "provider": "auto", "sortMethod": "time", "sortAsc": true }
     }
     ```
+  - **常见字段**（`data` 内层对象，全部 camelCase）:
+    | 字段 | 类型 | 默认值 | 说明 |
+    |------|------|--------|------|
+    | `provider` | string | `"auto"` | 热搜数据源 |
+    | `sortMethod` | string | `"time"` | 排序方式 |
+    | `sortAsc` | boolean | `true` | 是否升序 |
+    | `customCodeEnabled` | boolean | `false` | 是否启用自定义代码 |
+    | `apiKeyScope` | string | `"v1"` | API Key 作用域，可选 `v1` / `v0` / `all` / `disabled` |
+    | `scaleByBrowser` | array | `[]` | 按 UA 配置的页面缩放（元素 `{ua, scale}`） |
+    | `fontSizeByBrowser` | array | `[]` | 按 UA 配置的字号（元素 `{ua, fontSize}`） |
+    | `displayScaleByBrowser` | array | `[]` | 按 UA 配置的显示缩放（元素 `{ua, displayScale}`） |
 
 - **POST /api/v1/settings**
   - **描述**: 保存应用配置（整体覆盖）。
-  - **Body**: JSON 对象
+  - **Body**: JSON 对象（应直接传配置对象，**不要**包裹在 `{success, data}` 内）
   - **响应**: `{"success": true}`
+  - **防御性自动解包**: 如果调用方误传 `{"success":true,"data":{...}}` 包装格式（例如把 GET 响应原样回传），服务端会自动解包到 `data` 内层再存储，避免污染 DB。这是为了兼容历史误操作，新调用方仍应直接传配置对象。
 
 ---
 

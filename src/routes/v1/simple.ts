@@ -256,7 +256,15 @@ v1SimpleApp.get('/settings', async (c) => {
   const d = d1(createDb(c.env.DB));
   const record = await d.prepare("SELECT value FROM settings WHERE key = 'app_settings'").first<{ value: string }>();
   let settingsObj: unknown = {};
-  if (record && record.value) { try { settingsObj = JSON.parse(record.value); } catch { /* 静默 */ } }
+  if (record && record.value) {
+    try {
+      const parsed = JSON.parse(record.value);
+      // 防御性：如果历史数据被错误存为 {success, data} 包装格式（旧 POST 误存），自动解包
+      settingsObj = (parsed && typeof parsed === 'object' && 'success' in parsed && 'data' in parsed && typeof (parsed as Record<string, unknown>).data === 'object')
+        ? (parsed as { data: unknown }).data
+        : parsed;
+    } catch { /* 静默 */ }
+  }
   return v1Ok(settingsObj);
 });
 
@@ -265,6 +273,11 @@ v1SimpleApp.post('/settings', async (c) => {
   let data: unknown;
   try { data = await c.req.raw.json(); } catch { return v1Err('请求体不是有效的 JSON'); }
   if (!data || typeof data !== 'object') return v1Err('请求体不是有效的 JSON 对象');
+  // 防御性：如果调用方误传了 {success, data} 包装格式（例如把 GET 响应原样回传），
+  // 自动解包到 data 内层，避免 DB 存储被污染导致 getApiKeyScope 等读取方拿不到字段
+  if ('success' in (data as Record<string, unknown>) && 'data' in (data as Record<string, unknown>) && typeof (data as Record<string, unknown>).data === 'object') {
+    data = (data as { data: unknown }).data;
+  }
   await d.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('app_settings', ?)").bind(JSON.stringify(data)).run();
   return v1OkNoData();
 });

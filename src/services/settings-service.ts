@@ -74,14 +74,29 @@ export async function setSettingRaw(db: Db, key: string, value: string): Promise
 
 // ==================== app_settings ====================
 
-/** GET /api/settings：返回 app_settings JSON 对象。 */
-export async function getAppSettings(db: Db): Promise<Record<string, unknown>> {
-  return getSettingJson(db, 'app_settings', {} as Record<string, unknown>);
+/**
+ * 防御性解包：如果误存为 {success, data} 包装格式（旧 POST 误存），自动解包到 data 内层。
+ * 否则原样返回。
+ */
+function unwrapAppSettings(obj: unknown): Record<string, unknown> {
+  if (!obj || typeof obj !== 'object') return {} as Record<string, unknown>;
+  const rec = obj as Record<string, unknown>;
+  if ('success' in rec && 'data' in rec && typeof rec.data === 'object' && rec.data !== null) {
+    return rec.data as Record<string, unknown>;
+  }
+  return rec;
 }
 
-/** POST /api/settings：写入 app_settings。 */
+/** GET /api/settings：返回 app_settings JSON 对象。 */
+export async function getAppSettings(db: Db): Promise<Record<string, unknown>> {
+  const raw = await getSettingJson<unknown>(db, 'app_settings', {});
+  return unwrapAppSettings(raw);
+}
+
+/** POST /api/settings：写入 app_settings（防御性解包 {success,data} 包装）。 */
 export async function setAppSettings(db: Db, data: Record<string, unknown>): Promise<void> {
-  await setSettingJson(db, 'app_settings', data);
+  const clean = unwrapAppSettings(data);
+  await setSettingJson(db, 'app_settings', clean);
 }
 
 // ==================== custom-code ====================
