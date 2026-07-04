@@ -602,7 +602,7 @@ API Key 格式为 `cfk_` 前缀 + 32 字节随机 Base64URL 编码。验证使�
 ### 2.6 Todo 子任务与搜索词
 
 - **PATCH /api/v1/todos/:id/subtasks**
-  - **描述**: 独立更新子任务。
+  - **描述**: 独立更新子任务。直接 `JSON.stringify(body.subtasks)` 写入 DB，**不自动转换**字符串为 `{text, done}` 对象（与 POST/PUT 不同）。但后续 GET 响应通过 `formatTodo` 输出时会自动把字符串元素转为 `{text, done: false}` 对象，所以调用方通常无感知。建议调用方仍传 `{text, done}` 对象格式以保持一致。
   - **Body**:
     ```json
     {
@@ -615,7 +615,7 @@ API Key 格式为 `cfk_` 前缀 + 32 字节随机 Base64URL 编码。验证使�
   - **响应**: `{"success": true}`
 
 - **PATCH /api/v1/todos/:id/search-terms**
-  - **描述**: 独立更新搜索词。
+  - **描述**: 独立更新搜索词。同上，直接 `JSON.stringify` 写入，不自动转换；GET 响应时 `formatTodo` 会归一化。
   - **Body**:
     ```json
     {
