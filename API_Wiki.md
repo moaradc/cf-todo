@@ -591,7 +591,7 @@ API Key 格式为 `cfk_` 前缀 + 32 字节随机 Base64URL 编码。验证使�
     | `CLEAR_ALL` | 清空回收站。**不可恢复** |
     | `BATCH_RESTORE` | 批量恢复。自动分片。逻辑同 `RESTORE`：同日期已有实例或模板 `rrule` 为空时自动脱钩为单次任务，否则从 EXDATE 移除并入系列 |
     | `BATCH_DELETE_PERMANENT` | 批量永久删除。自动分片。**不可恢复** |
-    | `CLEAR_ALL_DATA` | **危险** 清空所有数据（todos、templates、settings、categories），**不可恢复** |
+    | `CLEAR_ALL_DATA` | **危险** 清空所有数据（todos、templates、settings、categories），**不可恢复**。注意：`settings` 表被清空意味着 `api_keys` 也会被删除——调用此端点后，**所有现有 API Key 立即失效**，必须重新通过 Cookie 鉴权 `POST /api/v1/keys` 创建新 Key。`app_settings`（含 `apiKeyScope`）也会被清空，恢复后需重新配置。调用前务必备份数据（`GET /api/export?mode=stream`）|
   - **响应**:
     - `RESTORE` / `DELETE_PERMANENT` / `CLEAR_ALL`: `{"success": true}`
     - `BATCH_RESTORE`: `{"success": true, "data": {"restored": 2, "chunked": false, "chunkCount": 1}}`（`restored` 为实际恢复行数，附 `chunked`/`chunkCount`）
