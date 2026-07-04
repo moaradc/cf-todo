@@ -17,6 +17,17 @@ jobs:
 
       - run: npm install
 
+      - name: Verify migration integrity
+        run: |
+          npx drizzle-kit check
+          python3 scripts/migration-check.py
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Build
+        run: npm run build
+
       - name: Create D1 Database
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
