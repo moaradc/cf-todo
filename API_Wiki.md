@@ -882,6 +882,7 @@ V0 端点的响应格式与 V1 略有差异，调用方需注意：
 
 - **GET /api/sessions**
   - **描述**: 获取当前登录的设备列表。
+  - **鉴权**: API Key 或 Cookie（API Key 作用域须为 `all` 或 `v0`）。
   - **响应**:
     ```json
     [
@@ -892,6 +893,7 @@ V0 端点的响应格式与 V1 略有差异，调用方需注意：
 
 - **POST /api/session-action**
   - **描述**: 管理会话。
+  - **鉴权**: API Key 或 Cookie（API Key 作用域须为 `all` 或 `v0`）。
   - **Body**:
     ```json
     { "action": "DELETE", "ua": "User-Agent String" }
@@ -900,7 +902,11 @@ V0 端点的响应格式与 V1 略有差异，调用方需注意：
     ```json
     { "action": "DELETE_ALL" }
     ```
-  - **说明**: 删除会话时会同步清理 `app_settings.scaleByBrowser` 中对应 UA 的缩放配置。
+  - **说明**: 删除会话时会同步清理 `app_settings.scaleByBrowser` / `fontSizeByBrowser` / `displayScaleByBrowser` 中对应 UA 的配置。
+  - **错误响应**:
+    - 缺 `action` 或非 `DELETE`/`DELETE_ALL` → 400 `{"error":"action 必须为 DELETE 或 DELETE_ALL"}`
+    - `DELETE` 缺 `ua` → 400 `{"error":"DELETE 操作需要 ua 参数"}`
+    - 请求体非 JSON → 400 `{"error":"请求体不是有效的 JSON"}`
 
 ---
 
