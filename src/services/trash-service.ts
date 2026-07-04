@@ -322,15 +322,16 @@ export async function batchDeletePermanent(db: Db, ids: string[]): Promise<void>
 }
 
 /**
- * 清空所有数据（todos + todo_templates + settings + categories）。
+ * 清空所有用户数据（todos + todo_templates + settings 中除 db_schema_version 外的行 + categories）。
  *
  * 注意：这是危险操作，路由层应加二次确认。
+ * 保留 db_schema_version 行，否则 ensureMigrated 会返回 'missing' 导致 503 锁死整个应用。
  */
 export async function clearAllData(db: Db): Promise<void> {
   await db.batch([
     db.delete(todos),
     db.delete(todo_templates),
-    db.run(sql`DELETE FROM settings`),
+    db.run(sql`DELETE FROM settings WHERE key != 'db_schema_version'`),
     db.run(sql`DELETE FROM categories`),
   ] as unknown as Parameters<Db['batch']>[0]);
 }

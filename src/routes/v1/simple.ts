@@ -176,7 +176,15 @@ v1SimpleApp.post('/trash-action', async (c) => {
     return v1OkNoData();
   }
   if (action === 'CLEAR_ALL_DATA') {
-    await d.batch([d.prepare('DELETE FROM todos'), d.prepare('DELETE FROM todo_templates'), d.prepare('DELETE FROM settings'), d.prepare('DELETE FROM categories')]);
+    // 清空所有用户数据，但保留 db_schema_version（否则 ensureMigrated 会返回 'missing' 导致 503）
+    // 同时保留 api_keys 让调用方能继续鉴权（用户可选择是否删除 key）
+    // 实际策略：删除 todos / todo_templates / categories，settings 仅删除用户配置（app_settings / custom_* / customColors / active_session_token）
+    await d.batch([
+      d.prepare('DELETE FROM todos'),
+      d.prepare('DELETE FROM todo_templates'),
+      d.prepare('DELETE FROM categories'),
+      d.prepare("DELETE FROM settings WHERE key != 'db_schema_version'"),
+    ]);
     return v1OkNoData();
   }
   if (action === 'BATCH_RESTORE') {
