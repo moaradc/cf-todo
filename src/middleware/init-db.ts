@@ -24,16 +24,18 @@ let schemaCheckResult: SchemaCheckResult | null = null;
 /**
  * 检查 D1 schema 版本是否与 version.json 一致。
  *
- * 一次性检查 settings.db_schema_version 行。检查通过后缓存结果，
- * 同一 isolate 内后续请求直接返回，零开销。
+ * 检查 settings.db_schema_version 行。
+ * - 'ok' 时缓存结果，同一 isolate 内后续请求直接返回，零开销。
+ * - 'missing' / 'mismatch' 时不缓存，每次请求都重新检查，确保修复后能自动恢复。
  *
  * 返回值：
  *   - 'ok'      → schema 版本匹配，可正常服务
- *   - 'missing' → settings 表缺失或 db_schema_version 行不存在（未跑迁移）
+ *   - 'missing' → settings 表缺失或 db_schema_version 行不存在（未跑迁移，或被 CLEAR_ALL_DATA 误删）
  *   - 'mismatch' → db_schema_version 与 version.json DB_SCHEMA 不一致（迁移版本落后/超前）
  */
 export async function ensureMigrated(env: Env): Promise<SchemaCheckResult> {
-  if (schemaCheckResult !== null) return schemaCheckResult;
+  // 只缓存 'ok' 状态；'missing' / 'mismatch' 每次重新检查，确保修复后能自动恢复
+  if (schemaCheckResult === 'ok') return schemaCheckResult;
 
   try {
     const row = await env.DB.prepare(
@@ -41,21 +43,18 @@ export async function ensureMigrated(env: Env): Promise<SchemaCheckResult> {
     ).first<{ value: string }>();
 
     if (!row || !row.value) {
-      schemaCheckResult = 'missing';
-      return schemaCheckResult;
+      return 'missing';
     }
 
     const dbVersion = parseInt(row.value, 10);
     if (isNaN(dbVersion) || dbVersion !== DB_SCHEMA) {
-      schemaCheckResult = 'mismatch';
-      return schemaCheckResult;
+      return 'mismatch';
     }
 
     schemaCheckResult = 'ok';
     return schemaCheckResult;
   } catch {
     // settings 表不存在或其他异常 → 未初始化
-    schemaCheckResult = 'missing';
-    return schemaCheckResult;
+    return 'missing';
   }
 }
