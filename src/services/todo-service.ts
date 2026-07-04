@@ -73,7 +73,7 @@ export type ActionResult =
 
 // ==================== 5.5a: CREATE / UPDATE / DELETE ====================
 
-/** CREATE：创建 todo + 可选模板。与 api.js:2586-2680 一致。 */
+/** CREATE：创建 todo + 可选模板 */
 export async function createTodo(db: Db, body: TodoActionBody): Promise<ActionResult> {
   const d = d1(db);
   const { task, date } = body;
@@ -87,12 +87,7 @@ export async function createTodo(db: Db, body: TodoActionBody): Promise<ActionRe
   let type = (task.type as string) || 'none';
   // validateType 返回 type string（合法）或 null（非法），不是错误消息
   if (validateType(type) === null) {
-    return { ok: false, error: `无效的 type: ${type}，v3.0 有效值: none / fragment / recurring（旧 repeat_type 已废弃）`, status: 400 };
-  }
-
-  if (task.repeat_type !== undefined || task.repeat_custom !== undefined ||
-      task.repeat_interval !== undefined || task.repeat_end !== undefined) {
-    return { ok: false, error: 'v3.0 已废弃 repeat_type / repeat_custom / repeat_interval / repeat_end 字段，请改用 type + rrule + anchor_date + exdates', status: 400 };
+    return { ok: false, error: `无效的 type: ${type}，v3.0 有效值: none / fragment / recurring`, status: 400 };
   }
 
   const rruleResult = processRRule((task.rrule as string) || '', type, { allowDerive: true });
@@ -155,16 +150,12 @@ export async function createTodo(db: Db, body: TodoActionBody): Promise<ActionRe
   return { ok: true };
 }
 
-/** UPDATE：scope=this/thisAndFuture/all，含 computeUpdateActions。与 api.js:2681-3073 一致。 */
+/** UPDATE：scope=this/thisAndFuture/all，含 computeUpdateActions */
 export async function updateTodo(db: Db, body: TodoActionBody): Promise<ActionResult> {
   const d = d1(db);
   const { task, date, scope } = body;
   if (!task || !task.id || typeof task.id !== 'string' || !String(task.id).trim()) {
     return { ok: false, error: 'task.id 为必填字段', status: 400 };
-  }
-  if (task.repeat_type !== undefined || task.repeat_custom !== undefined ||
-      task.repeat_interval !== undefined || task.repeat_end !== undefined) {
-    return { ok: false, error: 'v3.0 已废弃 repeat_type / repeat_custom / repeat_interval / repeat_end 字段，请改用 type + rrule + anchor_date + exdates', status: 400 };
   }
   if (task.type !== undefined && task.type !== 'none' && task.type !== 'fragment' && task.type !== 'recurring') {
     return { ok: false, error: `无效的 type: ${task.type}，v3.0 有效值: none / fragment / recurring`, status: 400 };
@@ -427,7 +418,7 @@ export async function updateTodo(db: Db, body: TodoActionBody): Promise<ActionRe
   return { ok: true };
 }
 
-/** DELETE：scope=this/thisAndFuture/all，含 computeDeleteActions。与 api.js:3075-3148 一致。 */
+/** DELETE：scope=this/thisAndFuture/all，含 computeDeleteActions */
 export async function deleteTodo(db: Db, body: TodoActionBody): Promise<ActionResult> {
   const d = d1(db);
   const { task, date, scope } = body;
@@ -499,7 +490,7 @@ export async function deleteTodo(db: Db, body: TodoActionBody): Promise<ActionRe
 
 // ==================== 5.5b: TOGGLE_DONE / TIMER / BATCH / SUBTASKS ====================
 
-/** TOGGLE_DONE：fragment/普通 todo 的完成/取消切换。与 api.js:2059-2184 一致。 */
+/** TOGGLE_DONE：fragment/普通 todo 的完成/取消切换 */
 export async function toggleDone(db: Db, body: TodoActionBody, effective_date?: string): Promise<ActionResult> {
   const d = d1(db);
   const { task, record, keep_records } = body;
@@ -576,7 +567,7 @@ export async function toggleDone(db: Db, body: TodoActionBody, effective_date?: 
   return { ok: true };
 }
 
-/** TIMER_COMPLETE：计时完成。与 api.js:2185-2270 一致。 */
+/** TIMER_COMPLETE：计时完成 */
 export async function timerComplete(db: Db, body: TodoActionBody, effective_date?: string): Promise<ActionResult> {
   const d = d1(db);
   const { task, record, parent_id } = body;
@@ -631,7 +622,7 @@ export async function timerComplete(db: Db, body: TodoActionBody, effective_date
   return { ok: true };
 }
 
-/** TIMER_RECORD：碎时记计时记录。与 api.js:2271-2314 一致。 */
+/** TIMER_RECORD：碎时记计时记录 */
 export async function timerRecord(db: Db, body: TodoActionBody): Promise<ActionResult> {
   const d = d1(db);
   const { task, record } = body;
@@ -666,7 +657,7 @@ export async function timerRecord(db: Db, body: TodoActionBody): Promise<ActionR
   return { ok: true };
 }
 
-/** UPDATE_SUBTASKS。与 api.js:2315-2318 一致。 */
+/** UPDATE_SUBTASKS */
 export async function updateSubtasks(db: Db, body: TodoActionBody): Promise<ActionResult> {
   const d = d1(db);
   const { task } = body;
@@ -674,7 +665,7 @@ export async function updateSubtasks(db: Db, body: TodoActionBody): Promise<Acti
   return { ok: true };
 }
 
-/** UPDATE_SEARCH_TERMS。与 api.js:2319-2322 一致。 */
+/** UPDATE_SEARCH_TERMS */
 export async function updateSearchTerms(db: Db, body: TodoActionBody): Promise<ActionResult> {
   const d = d1(db);
   const { task } = body;
@@ -682,7 +673,7 @@ export async function updateSearchTerms(db: Db, body: TodoActionBody): Promise<A
   return { ok: true };
 }
 
-/** BATCH_TOGGLE_DONE。与 api.js:2323-2523 一致。 */
+/** BATCH_TOGGLE_DONE */
 export async function batchToggleDone(db: Db, body: TodoActionBody, effective_date?: string): Promise<ActionResult> {
   const d = d1(db);
   const { ids, done_status, timer_records } = body;
@@ -815,7 +806,7 @@ export async function batchToggleDone(db: Db, body: TodoActionBody, effective_da
   return { ok: true };
 }
 
-/** BATCH_DELETE。与 api.js:2524-2585 一致。 */
+/** BATCH_DELETE */
 export async function batchDelete(db: Db, body: TodoActionBody): Promise<ActionResult> {
   const d = d1(db);
   const { ids } = body;

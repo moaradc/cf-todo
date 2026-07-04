@@ -39,7 +39,7 @@ function sqlPlaceholders(n: number): string { return Array.from({ length: n }, (
 
 /** V1 鉴权。 */
 
-/** writeTimerRecord（V1 toggle 用）。与 api-v1.js:1217-1270 一致。 */
+/** writeTimerRecord（V1 toggle 用） */
 async function writeTimerRecord(DB: D1Database, todo_id: string, parent_id: string, record: { s: number; e: number; p?: number }, is_fragment: boolean): Promise<boolean> {
   if (!record || typeof record !== 'object') return false;
   if (typeof record.s !== 'number' || typeof record.e !== 'number') return false;
@@ -152,7 +152,6 @@ v1TodosApp.post('/todos', async (c) => {
   let body: Record<string, unknown>;
   try { body = await c.req.raw.json(); } catch { return v1Err('请求体不是有效的 JSON'); }
   const { date, text, time, priority, desc, url, copy_text, subtasks, search_terms, type: bodyType, end_time, category_id, rrule: bodyRRule, anchor_date: bodyAnchorDate, exdates: bodyExdates } = body as Record<string, unknown>;
-  if (body.repeat_type !== undefined || body.repeat_custom !== undefined || body.repeat_interval !== undefined || body.repeat_end !== undefined) return v1Err('v3.0 已废弃 repeat_type / repeat_custom / repeat_interval / repeat_end 字段，请改用 type + rrule + anchor_date + exdates');
   let type = (bodyType as string) || 'none';
   if (type !== 'none' && type !== 'fragment' && type !== 'recurring') return v1Err(`无效的 type: ${type}，v3.0 有效值: none / fragment / recurring`);
   const rruleResult = processRRule((bodyRRule as string) || '', type, { allowDerive: true });
@@ -209,7 +208,6 @@ v1TodosApp.put('/todos/:id', async (c) => {
   let body: Record<string, unknown>;
   try { body = await c.req.raw.json(); } catch { return v1Err('请求体不是有效的 JSON'); }
   const parent_id = existing.parent_id as string;
-  if (body.repeat_type !== undefined || body.repeat_custom !== undefined || body.repeat_interval !== undefined || body.repeat_end !== undefined) return v1Err('v3.0 已废弃 repeat_type / repeat_custom / repeat_interval / repeat_end 字段，请改用 type + rrule + anchor_date + exdates');
   if (body.type !== undefined && body.type !== 'none' && body.type !== 'fragment' && body.type !== 'recurring') return v1Err(`无效的 type: ${body.type}，v3.0 有效值: none / fragment / recurring`);
   if (body.scope !== undefined && body.scope !== 'none' && !['this', 'thisAndFuture', 'all'].includes(body.scope as string)) return v1Err(`无效的 scope: ${body.scope}，有效值: this, thisAndFuture, all`);
   let patchType = body.type !== undefined ? (body.type as string) : ((existing.type as string) || 'none');

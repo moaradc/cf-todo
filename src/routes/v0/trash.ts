@@ -3,8 +3,8 @@
  *
  *
  * 路由：
- *   - GET  /api/trash         ← api.js:2068-2090
- *   - POST /api/trash-action  ← api.js:2092-2284
+ *   - GET  /api/trash
+ *   - POST /api/trash-action
  *
  * 鉴权：cookie 鉴权
  *

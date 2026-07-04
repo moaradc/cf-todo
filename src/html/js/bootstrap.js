@@ -88,6 +88,8 @@ export const bootstrap = `
       login: login,
       logout: async function() {
         localStorage.removeItem('moara_authed');
+        // 登出时清理 >> 视图状态缓存，避免下一个登录用户继承上一个用户的视图偏好
+        localStorage.removeItem(VIEW_STATE_KEY);
         await fetch('/api/logout', { method: 'POST' });
         // 刷新到 / 会落到登录界面
         await refreshToHome();

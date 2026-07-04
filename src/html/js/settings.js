@@ -126,9 +126,11 @@ export const settings = `
     }
 
     async function clearAppCache() {
-      // 清理前端定制预览状态（保留 moara_authed 登录态与 themeMode 主题偏好）
+      // 清理前端定制预览状态与 >> 视图状态缓存
+      // （保留 moara_authed 登录态与 themeMode 主题偏好）
       localStorage.removeItem('preview_custom_header');
       localStorage.removeItem('preview_custom_content');
+      localStorage.removeItem(VIEW_STATE_KEY);
       try {
         if ('caches' in window) {
           var names = await caches.keys();
@@ -242,7 +244,11 @@ export const settings = `
       sortMethod = appSettings.sortMethod;
       sortAsc = appSettings.sortAsc;
       tempSearchProvider = appSettings.provider;
-    
+
+      // 设置面板里的"排序 / 顺序"默认值与 >> 视图共享同一组变量；
+      // 同步写入视图状态缓存，避免下次进入时缓存覆盖刚刚保存的新默认值
+      saveViewStateCache();
+
       updateViewBtnLabel();
       
       renderTodos();

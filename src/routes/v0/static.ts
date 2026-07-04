@@ -3,9 +3,9 @@
  *
  *
  * 搬迁来源：
- *   - GET /manifest.json  ← api.js:419-437
- *   - GET /sw.js          ← api.js:440-561
- *   - GET /*（SPA）       ← api.js:563-717
+ *   - GET /manifest.json
+ *   - GET /sw.js
+ *   - GET /*（SPA）
  *
  * 关键保留（审计警告）：
  *
@@ -26,7 +26,7 @@ export const staticApp = new Hono<V0AppEnv>();
 
 /**
  * GET /manifest.json
- * 与 api.js:419-437 一致。
+ *
  */
 staticApp.get('/manifest.json', (c) => {
   const manifest = {
@@ -62,7 +62,7 @@ staticApp.get('/manifest.json', (c) => {
 
 /**
  * GET /sw.js
- * 与 api.js:440-561 一致。
+ *
  *
  * CACHE_NAME 跟随 APP_VERSION：版本升级 → 新 SW activate 时自动清理旧缓存。
  * sw.js 不缓存，确保浏览器每次注册都拿到最新版本（触发 update）。
@@ -316,7 +316,7 @@ function updateUaInArrays(
 /**
  * GET /* SPA fallback
  *
- * 与 api.js:563-717 完全一致，包括：
+ *，包括：
  *   - 排除 /api/ 路径 + 含 . 的路径（静态资源）
  *   - 并行查 isAuthorized + app_settings
  *   - customCodeEnabled=true 时查 custom_header / custom_content
@@ -399,7 +399,7 @@ async function handleSpaFallback(c: import('hono').Context<V0AppEnv>): Promise<R
 
       if (!appSettingsObj) appSettingsObj = {};
 
-      // 复用提取的 UA 更新函数（逻辑与 api.js:610-703 完全一致）
+      // 复用提取的 UA 更新函数（逻辑）
       updateUaInArrays(appSettingsObj, oldUA, currentUA);
 
       batchStmts.push(

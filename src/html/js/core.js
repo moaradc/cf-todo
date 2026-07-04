@@ -83,7 +83,7 @@ export const core = `
       return '倒数第' + (-n) + '天';
     }
 
-    // 主渲染函数：将 repeat_custom 翻译为短中文标签
+    // 主渲染函数：将 rrule 翻译为短中文标签
     // 项目场景：仅覆盖 DAILY/WEEKLY/MONTHLY/YEARLY 的常见重复规则（每天/每周/每月/每年）
     // 不支持：SECONDLY/MINUTELY/HOURLY（后端已拒绝）、BYHOUR/BYMINUTE/BYSECOND（时间段语义，拒绝）、
     //         RSCALE 等 RFC 7529 扩展
@@ -251,7 +251,7 @@ export const core = `
         return null;
       }
 
-      // 追加 repeat_end / UNTIL / COUNT 终止条件
+      // 追加 UNTIL / COUNT 终止条件
       // COUNT 为合法 RFC 5545 终止条件，渲染为·共N次（供后续场景使用）
       if (repeatEnd) {
         label += '·至' + repeatEnd;
@@ -493,8 +493,61 @@ export const core = `
     let tempSetSortAsc = true;
     let tempSetApiKeyScope = 'v1';
     let customCodeEnabled = false;
-    
+
     let sessionsList = [];
+
+    // ==================== >> 视图状态缓存 ====================
+    // 将"筛选 / 分类 / 排序 / 顺序"四项视图状态持久化到 localStorage，
+    // 使得每次打开页面时无需手动重新调整。
+    // 设计取舍：
+    //   - 服务端 appSettings.sortMethod / sortAsc 是"默认值"（设置面板里配的），
+    //     缓存视为"最近一次在 >> 视图里的选择"，优先级高于默认值。
+    //   - 设置面板保存时也会同步写入缓存，避免二者互相覆盖。
+    //   - 分类是多选 Set，序列化为数组；加载时剔除已被删除的分类 ID。
+    var VIEW_STATE_KEY = 'moara_view_state';
+    function loadViewStateCache() {
+      try {
+        var raw = localStorage.getItem(VIEW_STATE_KEY);
+        if (!raw) return null;
+        var parsed = JSON.parse(raw);
+        if (!parsed || typeof parsed !== 'object') return null;
+        return parsed;
+      } catch (e) { return null; }
+    }
+    function saveViewStateCache() {
+      try {
+        localStorage.setItem(VIEW_STATE_KEY, JSON.stringify({
+          filterMethod: filterMethod,
+          filterCategoryIds: Array.from(filterCategoryIds),
+          sortMethod: sortMethod,
+          sortAsc: sortAsc
+        }));
+      } catch (e) { /* localStorage 不可用时静默降级为无缓存 */ }
+    }
+    function applyCachedViewState() {
+      var cached = loadViewStateCache();
+      if (!cached) return;
+      // 筛选
+      if (cached.filterMethod === 'all' || cached.filterMethod === 'todo' || cached.filterMethod === 'done') {
+        filterMethod = cached.filterMethod;
+      }
+      // 分类（多选）：先原样还原，loadCategories 完成后会剔除已删除的孤儿 ID
+      if (Array.isArray(cached.filterCategoryIds)) {
+        filterCategoryIds = new Set();
+        for (var i = 0; i < cached.filterCategoryIds.length; i++) {
+          var cid = cached.filterCategoryIds[i];
+          if (cid) filterCategoryIds.add(cid);
+        }
+      }
+      // 排序
+      if (cached.sortMethod === 'time' || cached.sortMethod === 'priority') {
+        sortMethod = cached.sortMethod;
+      }
+      // 顺序
+      if (cached.sortAsc === true || cached.sortAsc === false) {
+        sortAsc = cached.sortAsc;
+      }
+    }
     
     var CURRENT_VERSION = 'v\${APP_VERSION}';
     var remoteLatestVersion = null;  // 远端最新版本号（仅用于 checkUpdate 提示）
@@ -958,7 +1011,7 @@ export const core = `
         } else if (todo.type === 'recurring') {
           // 从 rrule 解析中文标签
           // 优先使用 _rruleToZhLabel（支持完整 RFC 5545 RRULE，含 UNTIL/COUNT/BYDAY 等）
-          // INTERVAL 从 rrule 解析（无 repeat_interval 字段）
+          // INTERVAL 从 rrule 解析
           var rruleLabel = todo.rrule ? _rruleToZhLabel(todo.rrule, todo.type, todo.date, null, null) : null;
           if (rruleLabel) {
             repeatLabel = rruleLabel;
@@ -1225,6 +1278,9 @@ export const core = `
       sortMethod = appSettings.sortMethod;
       sortAsc = appSettings.sortAsc;
       tempSearchProvider = appSettings.provider;
+
+      // 应用 >> 视图状态缓存（覆盖 appSettings 默认值，保留用户最近一次的视图选择）
+      applyCachedViewState();
 
       updateViewBtnLabel();
       applyAppScale(tempAppScale);

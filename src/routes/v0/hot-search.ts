@@ -3,7 +3,6 @@
  *
  * 这是最简单的路由，验证 Hono 路由 + 外部 fetch 的基本通路。
  *
- * 搬迁来源：api.js:852-860
  *
  * 设计：
  *   - 公开路由（不加 auth 中间件）
@@ -21,7 +20,7 @@ export const hotSearchApp = new Hono<V0AppEnv>();
 /**
  * GET /api/hot-search?provider=auto
  *
- * 与 api.js:852-860 一致。
+ *
  * 注：hot-search 不做服务端缓存，保证实时性（用户主动点「换一批」、
  * 创建带热搜的 todo 都需要最新数据）。fetchHotSearchData 内部已有
  * 5s 超时 + 失败降级，足够健壮。

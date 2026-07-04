@@ -43,7 +43,7 @@ export interface StatsPayload {
 
 /**
  * 获取统计数据。
- * 与 api.js:836-957 完全一致。
+ *
  *
  * @returns { ok: true, payload } 或 { ok: false, error }
  */
@@ -81,7 +81,7 @@ export async function getStats(
     d1.prepare(`SELECT COUNT(*) AS total, SUM(CASE WHEN done = 1 THEN 1 ELSE 0 END) AS done, SUM(CASE WHEN done = 0 THEN 1 ELSE 0 END) AS undone, COUNT(DISTINCT CASE WHEN date = '' THEN NULL ELSE date END) AS active_days ${baseWhere}`).bind(s, e),
   ]);
 
-  // 组装响应（与 api.js:898-953 一致）
+  // 组装响应（）
   const results = batchResults as unknown as Array<{ results?: Array<Record<string, number | string>> }>;
 
   // 1) dailyCounts

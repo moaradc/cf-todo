@@ -1,8 +1,7 @@
 /**
  * cf-todo 鉴权中间件
  *
- * api-v1.js:82-142 的 verifyApiKey/getApiKeyScope + api-v1.js:297-310 的 touchApiKeyLastUsed
- * 整体搬到 Hono 中间件。
+ * 提供 cookie 鉴权 + API Key 鉴权 + scope 校验。
  *
  * 设计原则：
  *   - cookie 鉴权用 verify()（非恒定时间）——cookie token 是高熵随机串，时序攻击无意义。
@@ -38,7 +37,6 @@ export type AuthVariables = {
 /**
  * 校验 cookie 鉴权。
  *
- * 逻辑与 api.js:88-118 的 isAuthorized 完全一致，包括 line 100 的 legacy
  * single-string 兼容分支（旧版 cf-todo 把单个 token 直接存为字符串，新版存 JSON 数组）。
  *
  * 返回：
@@ -126,7 +124,7 @@ const API_KEYS_SETTINGS_KEY = 'api_keys';
 
 /**
  * 从 D1 读取所有 API Keys。
- * 与 api-v1.js:107-118 一致。
+ *
  */
 export async function getApiKeys(db: D1Database): Promise<ApiKeyRecord[]> {
   const record = await db
@@ -144,7 +142,7 @@ export async function getApiKeys(db: D1Database): Promise<ApiKeyRecord[]> {
 
 /**
  * 保存所有 API Keys。
- * 与 api-v1.js:123-127 一致。
+ *
  */
 export async function saveApiKeys(db: D1Database, keys: ApiKeyRecord[]): Promise<void> {
   await db
@@ -155,7 +153,7 @@ export async function saveApiKeys(db: D1Database, keys: ApiKeyRecord[]): Promise
 
 /**
  * 获取 API Key 作用域设置。
- * 与 api-v1.js:82-91 一致。默认 'v1'。
+ *默认 'v1'。
  */
 export async function getApiKeyScope(db: D1Database): Promise<ApiKeyScope> {
   try {
@@ -174,7 +172,7 @@ export async function getApiKeyScope(db: D1Database): Promise<ApiKeyScope> {
 
 /**
  * 从请求中提取 API Key。
- * 与 api-v1.js:147-158 一致。
+ *
  *
  * 优先级：
  *   1. X-API-Key 头
@@ -196,7 +194,7 @@ export function extractApiKey(request: Request, url: URL): string | null {
 
 /**
  * 验证 API Key（恒定时间比较）。
- * 与 api-v1.js:132-142 一致。
+ *
  *
  * 注意：必须用 secureCompare（HMAC），不能用 ===，否则时序攻击可逐字符爆破。
  * secret 必须为常量（env.JWT_SECRET），不能是用户输入。
@@ -220,7 +218,7 @@ export async function verifyApiKey(
 
 /**
  * 更新 API Key 最后使用时间（限频：5 分钟一次）。
- * 与 api-v1.js:297-310 一致。
+ *
  *
  * 设计：
  *   - 通过 c.executionCtx.waitUntil 异步执行，不阻塞请求。
@@ -301,7 +299,6 @@ export function apiKeyAuth(routeScope: 'v0' | 'v1'): MiddlewareHandler<{ Binding
 /**
  * Hono 中间件：API Key 优先，回退到 Cookie。
  *
- * 与旧 api.js:246-261 的逻辑等价：
  *   - 有 API Key → 校验 + scope（v1 scope 不允许访问 V0）
  *   - 无 API Key → cookie 鉴权
  *
@@ -330,8 +327,7 @@ export const v0Auth: MiddlewareHandler<{ Bindings: Env; Variables: AuthVariables
 
 /**
  * Hono 中间件：V1 路由鉴权（API Key 优先，回退到 Cookie）。
- *
- * 与旧 api-v1.js:2191-2204 的逻辑等价。
+ *。
  * 用于 V1 路由（/api/v1/*）。
  */
 export const v1Auth: MiddlewareHandler<{ Bindings: Env; Variables: AuthVariables }> = async (c, next) => {

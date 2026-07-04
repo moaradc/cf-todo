@@ -3,8 +3,8 @@
  *
  *
  * 路由：
- *   - GET  /api/export          ← api.js:838-1183（page/session/stream）
- *   - POST /api/import          ← api.js:1185-1687（init/finalize/status/abort + NDJSON）
+ *   - GET  /api/export（page/session/stream）
+ *   - POST /api/import（init/finalize/status/abort + NDJSON）
  *
  * 鉴权：cookie 鉴权
  */

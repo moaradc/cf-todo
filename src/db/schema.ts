@@ -1,24 +1,19 @@
 /**
- * cf-todo Drizzle Schema —— 与 src/api.js initDb() 字节级对齐
+ * cf-todo Drizzle Schema (v3.0 / db_schema 1)
  *
  * 设计原则：
- *   - 这是 v3.0 baseline 快照，不是"优化版"。字段顺序、NOT NULL、DEFAULT
- *     全部 1:1 复制自 initDb()。即使是看起来不一致的地方
- *     （如 todo_templates.exdates 没有 NOT NULL 而 time_records 有），
- *     也保留原状——后续迁移文件再统一。
- *   - 索引名严格对齐 initDb()，因为 SQL 查询里硬编码了这些名字。
+ *   - 索引名与 SQL 查询硬编码一致，不可随意重命名。
  *   - 不使用 Drizzle 的 $default / $onUpdate，所有 default 都是 SQL 层
- *     （sql\`DEFAULT '...'\`），保证生成的迁移 SQL 是纯 DDL，不依赖运行时。
- *
- * 字段顺序约束：
- *   drizzle-kit generate 按 schema.ts 中 column 声明顺序生成 CREATE TABLE，
- *   所以本文件的列顺序必须与 initDb() 完全一致。
+ *     （sql`DEFAULT '...'`），保证生成的迁移 SQL 是纯 DDL，不依赖运行时。
+ *   - drizzle-kit generate 按 column 声明顺序生成 CREATE TABLE，
+ *     新增列必须追加到末尾，不可插入中间。
  */
 
-import { sqliteTable, text, integer, index } from 'drizzle-orm/sqlite-core';
+import { sqliteTable, text, integer, index, uniqueIndex } from 'drizzle-orm/sqlite-core';
+import { sql } from 'drizzle-orm';
 
 // ==================== todos ====================
-// 21 列，4 索引。对应 initDb() 第 138-166 行。
+// 21 列，5 索引（含 1 个 partial unique index）。
 export const todos = sqliteTable(
   'todos',
   {
@@ -50,12 +45,14 @@ export const todos = sqliteTable(
     parentDateDelIdx: index('idx_todos_parent_date_del').on(table.parent_id, table.date, table.deleted),
     statsIdx: index('idx_todos_stats').on(table.date, table.deleted, table.priority, table.done, table.category_id, table.time),
     typeIdx: index('idx_todos_type').on(table.type),
+    parentDateDelUniqueIdx: uniqueIndex('uq_todos_parent_date_deleted')
+      .on(table.parent_id, table.date, table.deleted)
+      .where(sql`deleted = 0`),
   }),
 );
 
 // ==================== todo_templates ====================
-// 16 列，1 索引。对应 initDb() 第 168-181 行。
-// 注意：exdates 这里没有 NOT NULL（与 time_records 不一致），这是 initDb 原貌，保留。
+// 16 列，1 索引。
 export const todo_templates = sqliteTable(
   'todo_templates',
   {
@@ -82,7 +79,7 @@ export const todo_templates = sqliteTable(
 );
 
 // ==================== login_attempts ====================
-// 3 列。对应 initDb() 第 183-187 行。
+// 3 列。
 export const login_attempts = sqliteTable('login_attempts', {
   ip: text('ip').primaryKey(),
   attempts: integer('attempts').notNull().default(0),
@@ -90,15 +87,15 @@ export const login_attempts = sqliteTable('login_attempts', {
 });
 
 // ==================== settings ====================
-// 2 列。对应 initDb() 第 190-193 行。
-// value 允许 NULL（无 NOT NULL，无 DEFAULT）。
+// 2 列。value 允许 NULL（无 NOT NULL，无 DEFAULT）。
+// db_schema_version 行由 baseline 迁移写入，worker.ts 运行时校验。
 export const settings = sqliteTable('settings', {
   key: text('key').primaryKey(),
   value: text('value'),
 });
 
 // ==================== import_sessions ====================
-// 5 列。对应 initDb() 第 196-202 行。
+// 5 列。
 export const import_sessions = sqliteTable('import_sessions', {
   id: text('id').primaryKey(),
   mode: text('mode').notNull(),
@@ -108,7 +105,7 @@ export const import_sessions = sqliteTable('import_sessions', {
 });
 
 // ==================== export_sessions ====================
-// 10 列。对应 initDb() 第 205-217 行。
+// 10 列。
 export const export_sessions = sqliteTable('export_sessions', {
   id: text('id').primaryKey(),
   status: text('status').notNull().default('active'),
@@ -124,11 +121,9 @@ export const export_sessions = sqliteTable('export_sessions', {
 });
 
 // ==================== categories ====================
-// 3 列。对应 initDb() 第 220-224 行。
+// 3 列。
 export const categories = sqliteTable('categories', {
   id: text('id').primaryKey(),
   name: text('name').notNull(),
   color: text('color').notNull().default('#888888'),
 });
-
-

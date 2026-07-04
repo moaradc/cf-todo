@@ -3,8 +3,8 @@
  *
  *
  * 路由：
- *   - GET  /api/categories        ← api.js:1994-1997
- *   - POST /api/category-action   ← api.js:1999-2066
+ *   - GET  /api/categories
+ *   - POST /api/category-action
  *
  * 鉴权：cookie 鉴权（v0Auth 的 cookie 分支）
  *

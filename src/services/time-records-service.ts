@@ -23,7 +23,7 @@ export interface TimeRecordsResponse {
 
 /**
  * 获取 time-records。
- * 与 api.js:1979-2028 一致。
+ *
  */
 export async function getTimeRecords(
   db: Db,

@@ -38,7 +38,7 @@ export interface CategoryRow {
 
 /**
  * 列出所有分类（按 id 排序）。
- * 与 api.js:1994-1997 一致。
+ *
  */
 export async function listCategories(db: Db): Promise<CategoryRow[]> {
   const rows = await db
@@ -66,7 +66,7 @@ export interface CreateError {
 
 /**
  * 创建分类。
- * 与 api.js:2004-2016 一致。
+ *
  *
  * 规则：
  *   - name 不能为空
@@ -122,7 +122,7 @@ export interface UpdateError {
 
 /**
  * 更新分类。
- * 与 api.js:2017-2044 一致。
+ *
  *
  * 规则：
  *   - id 必填
@@ -194,7 +194,7 @@ export async function updateCategory(
 
 /**
  * 批量删除分类。
- * 与 api.js:2045-2062 一致。
+ *
  *
  * 规则：
  *   - ids 必须是非空数组

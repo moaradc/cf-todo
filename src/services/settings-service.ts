@@ -3,14 +3,14 @@
  *
  *
  * 搬迁来源：
- *   - GET  /api/settings        ← api.js:1947-1954
- *   - POST /api/settings        ← api.js:1956-1962
- *   - GET  /api/custom-code     ← api.js:824-831
- *   - POST /api/custom-code     ← api.js:833-850
- *   - GET  /api/custom-colors   ← api.js:1964-1971
- *   - POST /api/custom-colors   ← api.js:1983-1992
- *   - GET  /api/custom-header   ← api.js:1973-1976
- *   - GET  /api/custom-content  ← api.js:1978-1981
+ *   - GET  /api/settings
+ *   - POST /api/settings
+ *   - GET  /api/custom-code
+ *   - POST /api/custom-code
+ *   - GET  /api/custom-colors
+ *   - POST /api/custom-colors
+ *   - GET  /api/custom-header
+ *   - GET  /api/custom-content
  *
  * 所有 settings 值存 D1 settings 表（key-value），JSON 字符串序列化。
  */

@@ -87,12 +87,12 @@ export const detail = `
       document.getElementById('add-repeat-end-display').innerText = '截止: 永不';
       document.getElementById('add-interval-display').innerText = '间隔: 每1天';
       document.getElementById('add-repeat-end-row').style.display = 'none';
-      
-      tempSubtasks =[]; tempSearchTerms =[]; addSearchState = false; 
+
+      tempSubtasks =[]; tempSearchTerms =[]; addSearchState = false;
       tempSearchProvider = appSettings.provider || 'auto';
       document.getElementById('add-subtask-input').value = '';
       renderTempSubtasks('add');
-      
+
       const pMap = {'auto':'自动 (随机源)', 'bilibili':'哔哩哔哩', 'weibo':'微博热搜', 'zhihu':'知乎热榜', 'baidu':'百度热搜'};
       const providerDisplay = document.getElementById('add-search-provider-display');
       if(providerDisplay) providerDisplay.innerText = pMap[tempSearchProvider];
@@ -103,7 +103,7 @@ export const detail = `
       updateAddUI();
       _navPush('modal-add', closeAddModal, '/add');
     }
-    
+
     function updateAddUI() {
       document.getElementById('add-time-display').innerText = tempTime ? ('开始 ' + tempTime) : '开始 --:--';
       document.getElementById('add-endtime-display').innerText = tempEndTime ? ('结束 ' + tempEndTime) : '结束 --:--';
@@ -187,7 +187,7 @@ export const detail = `
         body: JSON.stringify({ action: 'CREATE', date: instanceDate, task: newTask }),
         headers: { 'Content-Type': 'application/json' }
       });
-      loadTodos(); 
+      loadTodos();
     }
 
     async function toggleSearchTerm(taskIndex, termIndex) {
@@ -199,7 +199,7 @@ export const detail = `
         body: JSON.stringify({ action: 'UPDATE_SEARCH_TERMS', task: { id: task.id, search_terms: task.search_terms } }),
         headers: { 'Content-Type': 'application/json' }
       });
-      renderTodos(); 
+      renderTodos();
     }
 
     async function copySearchTerm(taskIndex, termIndex, safeText) {
@@ -223,7 +223,7 @@ export const detail = `
       tempTime = task.time || ''; tempPriority = task.priority || 'low';
       tempCategoryId = task.category_id || '';
       renderDetailContent();
-      
+
       const btnSave = document.getElementById('btn-save-task'); const btnDel = document.getElementById('btn-delete-task');
       const btnEdit = document.getElementById('btn-edit-toggle');
       btnSave.classList.add('hidden'); btnDel.classList.remove('hidden'); btnEdit.innerText = "编辑";
@@ -547,7 +547,7 @@ export const detail = `
       // 不再 fetch。这里仅清空模板级缓存，下面会按需拉取模板级记录用于 predictDuration 预估。
       detailTimerOwnerId = task && task.id;
       detailTemplateRecords = [];
-      
+
       if (!isEditMode) {
         let urlSection = '';
         if (task.url) {
@@ -663,7 +663,7 @@ export const detail = `
         var intervalText = getIntervalDisplayText(tempRepeatInterval, tempRepeatType);
         container.innerHTML = \`
           <input type="text" id="edit-text" value="\${escapeHtml(task.text)}" class="detail-value editable" placeholder="事项标题（必填）">
-          
+
           <div class="detail-label modal-section">子任务</div>
           <div class="row modal-subtask-row">
             <input type="text" id="edit-subtask-input" placeholder="输入子任务（可选）" class="detail-value editable flex-1">
@@ -726,7 +726,7 @@ export const detail = `
             </div>
             <div class="search-card" id="edit-search-preview"></div>
           </div>
-          
+
           <textarea id="edit-desc" rows="3" class="detail-value editable" placeholder="输入备注/详细描述（可选）">\${escapeHtml(task.desc || '')}</textarea>
         \`;
         renderTempSubtasks('edit');
@@ -739,12 +739,11 @@ export const detail = `
       const btnSave = document.getElementById('btn-save-task'); const btnDel = document.getElementById('btn-delete-task'); const btnEdit = document.getElementById('btn-edit-toggle');
       if (isEditMode) {
         btnSave.classList.remove('hidden'); btnDel.classList.add('hidden'); btnEdit.innerText = "取消编辑";
-        const task = todos[currentDetailIndex]; 
+        const task = todos[currentDetailIndex];
         tempEditDate = task.date || '';
         tempTime = task.time || ''; tempPriority = task.priority || 'low';
         tempEndTime = task.end_time || '';
         // task.type 为 none/fragment/recurring；UI tempRepeatType 需从 rrule 解析 FREQ
-        // 兼容旧 task.repeat_type 字段（升级但前端缓存未刷新的边缘场景）
         if (task.type === 'fragment') {
           tempRepeatType = 'fragment';
         } else if (task.type === 'recurring') {
@@ -765,7 +764,7 @@ export const detail = `
         tempSubtasks = JSON.parse(JSON.stringify(task.subtasks ||[]));
         tempSearchTerms = JSON.parse(JSON.stringify(task.search_terms ||[]));
         tempSearchProvider = appSettings.provider || 'auto';
-        
+
         setTimeout(() => {
           const pMap = {'auto':'自动 (随机源)', 'bilibili':'哔哩哔哩', 'weibo':'微博热搜', 'zhihu':'知乎热榜', 'baidu':'百度热搜'};
           const el = document.getElementById('edit-search-provider-display');
@@ -778,12 +777,12 @@ export const detail = `
     }
 
     function toggleProviderMenu(mode, triggerEl) {
-      activeMode = mode; 
+      activeMode = mode;
       showPopover('popover-provider', triggerEl, true);
     }
 
     function selectProvider(val) {
-      tempSearchProvider = val; 
+      tempSearchProvider = val;
       const pMap = {
         'auto': '自动 (随机源)', 'bilibili':'哔哩哔哩', 'weibo':'微博热搜', 'zhihu':'知乎热榜', 'baidu':'百度热搜'
       };
@@ -810,7 +809,7 @@ export const detail = `
         if (parts[1] >= 60) { parts[0] += 1; parts[1] -= 60; }
         if (parts[0] >= 24) parts[0] = 23;
         timePickerHour = parts[0]; timePickerMin = parts[1];
-      } else if (refTime) { const[h, m] = refTime.split(':').map(Number); timePickerHour = h; timePickerMin = m; } 
+      } else if (refTime) { const[h, m] = refTime.split(':').map(Number); timePickerHour = h; timePickerMin = m; }
       else { const now = new Date(); timePickerHour = now.getHours(); timePickerMin = now.getMinutes(); }
       const hCol = document.getElementById('time-col-hour'); hCol.innerHTML = '';
       for(let i=0; i<24; i++) {
@@ -883,13 +882,13 @@ export const detail = `
     function openIntervalPicker(mode) {
       activeMode = mode;
       document.getElementById('modal-interval').classList.add('active');
-      
+
       // 根据当前 repeatType 确定单位索引
       var typeIdx = INTERVAL_TYPE_MAP.indexOf(tempRepeatType);
       if (typeIdx === -1) typeIdx = 0;
       intervalPickerUnitIndex = typeIdx;
       intervalPickerCount = tempRepeatInterval || 1;
-      
+
       var countCol = document.getElementById('interval-col-count'); countCol.innerHTML = '';
       for (let i = 1; i <= 99; i++) {
         const div = document.createElement('div');
@@ -898,7 +897,7 @@ export const detail = `
         div.onclick = () => { intervalPickerCount = i; updateIntervalPickerSelection(); };
         countCol.appendChild(div);
       }
-      
+
       var unitCol = document.getElementById('interval-col-unit'); unitCol.innerHTML = '';
       for (let i = 0; i < INTERVAL_UNITS.length; i++) {
         const div = document.createElement('div');
@@ -907,7 +906,7 @@ export const detail = `
         div.onclick = () => { intervalPickerUnitIndex = i; updateIntervalPickerSelection(); };
         unitCol.appendChild(div);
       }
-      
+
       setTimeout(() => {
         updateIntervalPickerSelection();
         var activeCount = countCol.querySelector('.active');
@@ -915,7 +914,7 @@ export const detail = `
         var activeUnit = unitCol.querySelector('.active');
         if (activeUnit) activeUnit.scrollIntoView({block: "center"});
       }, 10);
-      
+
       _navPush('modal-interval', closeIntervalPicker, '/interval');
     }
 
@@ -931,7 +930,7 @@ export const detail = `
       tempRepeatType = INTERVAL_TYPE_MAP[intervalPickerUnitIndex];
       var intervalText = getIntervalDisplayText(tempRepeatInterval, tempRepeatType);
       var rMap = { none: '不重复', daily: '每天', weekly: '每周', monthly: '每月', yearly: '每年', fragment: '碎时记' };
-      
+
       if (activeMode === 'add') {
         document.getElementById('add-interval-display').innerText = intervalText;
         document.getElementById('add-repeat-display').innerText = '重复: ' + rMap[tempRepeatType];
@@ -962,7 +961,7 @@ export const detail = `
     }
 
     function togglePriorityMenu(mode, triggerEl) {
-      activeMode = mode; 
+      activeMode = mode;
       showPopover('popover-priority', triggerEl, false);
     }
 
@@ -1077,7 +1076,7 @@ export const detail = `
         closeDetail();
         await fetch('/api/todo-action', { method: 'POST', body: JSON.stringify({ action: 'DELETE', date: formatDate(currentDate), task: task, scope: scope }), headers: { 'Content-Type': 'application/json' } });
         loadTodos();
-      } 
+      }
       else if (pendingAction === 'save') {
         // 保存原始日期，后端需要它定位当前实例
         // 注意：碎时记未完成时 task.date 可能是 ''（不限起始），不能用 || 兜底为 currentDate
@@ -1105,7 +1104,7 @@ export const detail = `
         task.copy_text = document.getElementById('edit-copy').value;
         task.subtasks = tempSubtasks; task.search_terms = tempSearchTerms;
         task.category_id = tempCategoryId;
-        
+
         // === 编辑保存前清理同系列计时器，避免 localStorage 孤儿 ===
         const _origIsSeries = task.is_series;
         const _taskId = task.id;
@@ -1119,20 +1118,20 @@ export const detail = `
           });
 
           if (scope === 'this') {
-            // 仅此日程：当前实例脱钩为非重复，服务端清空 time_records（api.js:2500-2502）
+            // 仅此日程：当前实例脱钩为非重复，服务端清空 time_records
             // 前端计时器同步清除（与 DELETE 路径 detail.js:872 行为一致），
             // 否则日后改回重复会复活显示成"进行中"。
             clearTimerState(_taskId);
           } else if (scope === 'thisAndFuture') {
             // 此日程及之后：服务端 DELETE date >= originalDate 的同系列其他实例
-            // （api.js:2529-2531）。这些实例的前端计时器会变孤儿，进度静默丢失。
+            // 这些实例的前端计时器会变孤儿，进度静默丢失。
             // 清掉这些 siblings 的计时器，避免 localStorage 残留。
             _siblingsWithTimer.forEach(function(t) {
               if (t.date >= originalDate) clearTimerState(t.id);
             });
           } else if (scope === 'all') {
-            // 所有日程：若改了重复规则/日期，服务端 DELETE 同系列其他实例
-            // （api.js:2544-2546）；仅改非重复属性时不删（api.js:2547-2551）。
+            // 所有日程：若改了重复规则/日期，服务端 DELETE 同系列其他实例；
+            // 仅改非重复属性时不删。
             // 前端无法可靠判断后端是否走 DELETE 分支（依赖 recurrenceChanged/dateChanged
             // 这些后端 computeUpdateActions 内部状态），保守清理：
             // 清掉所有 siblings + 当前实例的计时器。
@@ -1144,7 +1143,7 @@ export const detail = `
             clearTimerState(_taskId);
           }
         }
-        
+
         // 根据scope处理重复属性
         // 碎时记 (fragment): 即使原任务是系列（如 daily），编辑为碎时记后应保留 fragment 类型
         // 不能走 "仅此项 → type=none" 分支，否则会把 fragment 误改为 none
@@ -1182,17 +1181,17 @@ export const detail = `
             task.is_series = false;
           }
         }
-        
+
         // 系列任务：直接关闭详情；非系列任务：切回查看模式保留详情
         if (task.is_series) {
           closeDetail();
         } else {
           toggleEditMode();
         }
-        
+
         await fetch('/api/todo-action', { method: 'POST', body: JSON.stringify({ action: 'UPDATE', date: originalDate, task: task, scope: scope }), headers: { 'Content-Type': 'application/json' } });
         await loadTodos();
-        
+
         if (!task.is_series) {
           const newIndex = todos.findIndex(t => t.id === task.id);
           if (newIndex !== -1) { currentDetailIndex = newIndex; renderDetailContent(); }

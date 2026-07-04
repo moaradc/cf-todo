@@ -14,8 +14,7 @@ import { normalizePriority, parseJsonField, DEFAULT_CATEGORY_COLOR } from '../ut
 
 /**
  * V1 成功响应。
- * 与 api-v1.js:284 jsonResponse + { success: true, data } 一致。
- * 加 Cache-Control: no-store（V1 特有，V0 无此头）。
+ * 返回 { success: true, data } 信封 + Cache-Control: no-store（V1 特有，V0 无此头）。
  */
 export function v1Ok(data: unknown, pagination?: unknown, status = 200): Response {
   const body: Record<string, unknown> = { success: true, data };
@@ -44,8 +43,7 @@ export function v1OkNoData(status = 200): Response {
 }
 
 /**
- * V1 错误响应。
- * 与 api-v1.js apiError 一致（V0/V1 共用 apiError，但 V1 加 Cache-Control）。
+ * V1 错误响应。V0/V1 共用，但 V1 加 Cache-Control: no-store。
  */
 export function v1Err(msg: string, status = 400): Response {
   return new Response(JSON.stringify({ error: msg }), {
@@ -90,7 +88,6 @@ export interface V1TodoDTO {
 
 /**
  * 格式化 todo 记录为 V1 DTO。
- * 与 api-v1.js:320-400 formatTodo 完全一致。
  *
  * 计算字段（取最新一条 time_records）：
  *   - last_completed_at：最新完成时刻（epoch ms）
@@ -184,7 +181,6 @@ export interface V1CategoryDTO {
 
 /**
  * 格式化 category 记录为 V1 DTO。
- * 与 api-v1.js:405-413 formatCategory 一致。
  */
 export function formatCategory(row: Record<string, unknown>): V1CategoryDTO {
   return {

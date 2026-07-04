@@ -14,6 +14,8 @@
 import { Hono } from 'hono';
 import type { Env } from './env';
 import { ensureMigrated } from './middleware/init-db';
+import type { SchemaCheckResult } from './middleware/init-db';
+import { DB_SCHEMA } from './utils.js';
 import { v0App } from './routes/v0';
 import { v1App } from './routes/v1';
 import { staticApp } from './routes/v0/static';
@@ -30,28 +32,34 @@ export type AppEnv = {
 const app = new Hono<AppEnv>();
 
 /**
- * 全局中间件：迁移就绪检查 + D1 表存在性探测。
+ * 全局中间件：DB schema 版本校验。
+ *
+ * ensureMigrated 读 settings.db_schema_version 与 version.json DB_SCHEMA 比对：
+ *   - 'ok'      → 正常服务
+ *   - 'missing' → 503 提示跑迁移
+ *   - 'mismatch' → 503 提示版本不一致（迁移落后或超前）
  */
-let migrationFailed = false;
+let cachedSchemaState: SchemaCheckResult | null = null;
 app.use('*', async (c, next) => {
-  if (migrationFailed) {
-    return c.html(
-      '<html><body><h1>Database not initialized</h1><p>Run <code>wrangler d1 migrations apply todo-db --remote</code> first.</p></body></html>',
-      503,
-    );
+  if (cachedSchemaState === 'ok') {
+    await next();
+    return;
   }
+  let state: SchemaCheckResult;
   try {
-    await ensureMigrated(c.env);
+    state = await ensureMigrated(c.env);
   } catch {
-    // ensureMigrated 内部已 console.warn
+    state = 'missing';
   }
-  try {
-    await c.env.DB.prepare('SELECT 1 FROM settings LIMIT 1').first();
-  } catch {
-    migrationFailed = true;
-    console.error('[cf-todo] D1 tables missing — run: wrangler d1 migrations apply todo-db --remote');
+  cachedSchemaState = state;
+
+  if (state !== 'ok') {
+    const hint = state === 'mismatch'
+      ? `Database schema mismatch: version.json expects db_schema=${DB_SCHEMA}. Run \`wrangler d1 migrations apply todo-db --remote\` to update.`
+      : 'Database not initialized. Run `wrangler d1 migrations apply todo-db --remote` first.';
+    console.error(`[cf-todo] schema check: ${state} (expected db_schema=${DB_SCHEMA})`);
     return c.html(
-      '<html><body><h1>Database not initialized</h1><p>Run <code>wrangler d1 migrations apply todo-db --remote</code> first.</p></body></html>',
+      `<html><body><h1>Database schema ${state === 'mismatch' ? 'mismatch' : 'not initialized'}</h1><p>${hint}</p></body></html>`,
       503,
     );
   }

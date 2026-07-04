@@ -1,9 +1,7 @@
 /**
  * cf-todo Drizzle D1 客户端工厂
  *
- * 而不是直接用 env.DB.prepare()。旧 api.js / api-v1.js 仍走 env.DB 直连，
- *
- * 读副本策略（与原代码一致）：
+ * 读副本策略：
  *   - createDb(env.DB)：写操作 + 强一致读（默认）
  *   - createReadDb(env.DB)：first-primary 语义——第一查询走 primary 保证刚写入
  *     数据可见，后续走 replica。当前 read_replication=false 时退化为 env.DB。
@@ -29,9 +27,6 @@ export function createDb(d1: D1Database): Db {
  * 创建读副本 Drizzle 客户端（first-primary 语义）。
  * 第一查询走 primary 保证刚写入的数据可见，后续走 replica。
  * 当前 read_replication=false 时 withSession 返回 undefined，退化为 d1。
- *
- * 与原 api-v1.js:2210 的逻辑等价：
- *   env.DB.withSession && env.DB.withSession('first-primary') || env.DB
  *
  * 类型说明：
  *   withSession 返回 D1DatabaseSession（不含 exec/dump/withSession），

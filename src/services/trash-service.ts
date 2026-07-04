@@ -37,7 +37,7 @@ export type TrashRow = Record<string, unknown>;
 
 /**
  * 列出回收站（自动分页，最多 1000 条）。
- * 与 api.js:2068-2090 一致。
+ *
  */
 export async function listTrash(db: Db): Promise<TrashRow[]> {
   const allResults: TrashRow[] = [];
@@ -60,7 +60,7 @@ export async function listTrash(db: Db): Promise<TrashRow[]> {
 
 /**
  * 单条恢复。
- * 与 api.js:2096-2138 一致。
+ *
  */
 export async function restoreTrash(db: Db, id: string): Promise<void> {
   const t = await db
@@ -126,7 +126,7 @@ export async function restoreTrash(db: Db, id: string): Promise<void> {
 
 /**
  * 单条永久删除。
- * 与 api.js:2139-2140 一致。
+ *
  */
 export async function deletePermanent(db: Db, id: string): Promise<void> {
   await db.delete(todos).where(eq(todos.id, id)).run();
@@ -134,7 +134,7 @@ export async function deletePermanent(db: Db, id: string): Promise<void> {
 
 /**
  * 清空回收站（deleted=1 的）。
- * 与 api.js:2141-2142 一致。
+ *
  */
 export async function clearAll(db: Db): Promise<void> {
   await db.delete(todos).where(eq(todos.deleted, 1)).run();
@@ -142,7 +142,7 @@ export async function clearAll(db: Db): Promise<void> {
 
 /**
  * 批量恢复。
- * 与 api.js:2143-2262 一致。
+ *
  */
 export async function batchRestore(db: Db, ids: string[]): Promise<void> {
   if (!ids || ids.length === 0) return;
@@ -308,7 +308,7 @@ export async function batchRestore(db: Db, ids: string[]): Promise<void> {
 
 /**
  * 批量永久删除。
- * 与 api.js:2263-2274 一致。
+ *
  */
 export async function batchDeletePermanent(db: Db, ids: string[]): Promise<void> {
   if (!ids || ids.length === 0) return;
@@ -323,7 +323,7 @@ export async function batchDeletePermanent(db: Db, ids: string[]): Promise<void>
 
 /**
  * 清空所有数据（todos + todo_templates + settings + categories）。
- * 与 api.js:2275-2282 一致。
+ *
  * 注意：这是危险操作，路由层应加二次确认。
  */
 export async function clearAllData(db: Db): Promise<void> {

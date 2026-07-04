@@ -55,7 +55,7 @@ export interface FormattedTodo {
 
 /**
  * 获取指定日期的 todos（含 RRULE 展开）。
- * 与 api.js:1809-1977 完全一致。
+ *
  */
 export async function getTodos(
   db: Db,

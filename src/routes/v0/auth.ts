@@ -3,15 +3,15 @@
  *
  *
  * 搬迁来源：
- *   - POST /api/login          ← api.js:270-383
- *   - POST /api/logout         ← api.js:385-416
- *   - GET  /api/sessions       ← api.js:720-738
- *   - POST /api/session-action ← api.js:740-822
+ *   - POST /api/login
+ *   - POST /api/logout
+ *   - GET  /api/sessions
+ *   - POST /api/session-action
  *
  * 关键保留（审计警告）：
  *     （scaleByBrowser / fontSizeByBrowser / displayScaleByBrowser）
  *   - login 的 5 次锁定 + 15 分钟封禁逻辑
- *   - login 成功时同步初始化三个 per-UA 数组（与 api.js:311-367 一致）
+ *   - login 成功时同步初始化三个 per-UA 数组（）
  *   - logout 清 session + 清 cookie（Max-Age=0）
  *
  * 鉴权策略：
@@ -42,7 +42,7 @@ export const authApp = new Hono<V0AppEnv>();
 
 /**
  * 登录：5 次锁定 + 15 分钟封禁 + session 创建 + per-UA 数组初始化。
- * 与 api.js:270-383 完全一致。
+ *
  */
 authApp.post('/login', async (c) => {
   const env = c.env;
@@ -110,7 +110,7 @@ authApp.post('/login', async (c) => {
       .bind(JSON.stringify(sessions))
       .run();
 
-    // 初始化三个 per-UA 数组（与 api.js:311-367 一致）
+    // 初始化三个 per-UA 数组（）
     if (loginUA) {
       const appSettingsRecord = await env.DB.prepare(
         "SELECT value FROM settings WHERE key = 'app_settings'",
@@ -203,7 +203,7 @@ authApp.post('/login', async (c) => {
 
 /**
  * 登出：清 session + 清 cookie。
- * 与 api.js:385-416 一致。
+ *
  * 公开路由（即使 cookie 失效也要能清 cookie）。
  */
 authApp.post('/logout', async (c) => {
@@ -250,7 +250,7 @@ authApp.post('/logout', async (c) => {
 
 /**
  * 返回安全 sessions 列表（不带 token）。
- * 与 api.js:720-738 一致。
+ *
  * 需要 cookie 鉴权。
  */
 authApp.get('/sessions', async (c) => {
@@ -290,7 +290,7 @@ authApp.get('/sessions', async (c) => {
 
 /**
  * 会话操作：DELETE（踢指定 UA）/ DELETE_ALL（踢全部）。
- * 与 api.js:740-822 一致。
+ *
  *
  * 需要 cookie 鉴权。
  */

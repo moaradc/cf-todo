@@ -187,6 +187,18 @@ export const categories = `
           rebuildCategoriesMap();
         }
       } catch(e) { categoriesList = []; categoriesMap.clear(); categoriesNameMap.clear(); }
+      // 清理 >> 视图缓存中已不存在的分类 ID（避免删除分类后筛选集残留孤儿）
+      if (filterCategoryIds.size > 0) {
+        var staleIds = [];
+        filterCategoryIds.forEach(function(id) {
+          if (!categoriesMap.has(id)) staleIds.push(id);
+        });
+        if (staleIds.length > 0) {
+          for (var i = 0; i < staleIds.length; i++) filterCategoryIds.delete(staleIds[i]);
+          saveViewStateCache();
+          updateViewBtnLabel();
+        }
+      }
     }
 
     function getCategoryName(catId) {

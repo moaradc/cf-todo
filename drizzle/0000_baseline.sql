@@ -1,8 +1,6 @@
 -- cf-todo baseline 迁移：7 张表 + 5 个索引
--- 与 src/api.js initDb() 字节级对齐（CREATE TABLE IF NOT EXISTS 语义保留）。
--- 这是唯一一份 baseline：用于在已跑过旧 initDb() 的生产 D1 上平滑接管——
---   IF NOT EXISTS 让已存在的表被跳过，新部署的 D1 直接建表。
--- 后续 0001+ 迁移不再用 IF NOT EXISTS，回归 drizzle 默认风格。
+-- 用 CREATE TABLE IF NOT EXISTS 保留对已存在 D1 的兼容（已存在的表被跳过）。
+-- 后续 0001+ 迁移回归 drizzle 默认风格（不带 IF NOT EXISTS）。
 CREATE TABLE IF NOT EXISTS `categories` (
         `id` text PRIMARY KEY NOT NULL,
         `name` text NOT NULL,
@@ -90,7 +88,8 @@ CREATE INDEX IF NOT EXISTS `idx_todos_cursor` ON `todos` (`date`,`deleted`,`id`)
 CREATE INDEX IF NOT EXISTS `idx_todos_parent_date_del` ON `todos` (`parent_id`,`date`,`deleted`);--> statement-breakpoint
 CREATE INDEX IF NOT EXISTS `idx_todos_stats` ON `todos` (`date`,`deleted`,`priority`,`done`,`category_id`,`time`);--> statement-breakpoint
 CREATE INDEX IF NOT EXISTS `idx_todos_type` ON `todos` (`type`);--> statement-breakpoint
--- 向后兼容：写入 db_schema_version 行，让旧版 initDb（如果回滚）能识别 schema 已就绪。
--- 值与 version.json 的 db_schema 字段一致（当前为 1）。
--- INSERT OR IGNORE 保证已存在该行时不覆盖（避免降级已写入的更高版本号）。
+-- 写入 db_schema_version 行，作为运行时 schema 版本校验的依据。
+-- 值与 version.json 的 db_schema 字段绑定（当前为 1）。
+-- worker.ts 启动时读此行与 version.json DB_SCHEMA 比对，不一致返回 503。
+-- 后续迁移（0002+）应在 SQL 里 UPDATE 此行为新版本号，同时 bump version.json db_schema。
 INSERT OR IGNORE INTO `settings` (`key`, `value`) VALUES ('db_schema_version', '1');

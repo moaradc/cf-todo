@@ -1,60 +1,61 @@
 /**
  * cf-todo 迁移就绪检查中间件
  *
- * 设计变更说明（相对原计划）：
- *   原计划用 drizzle-orm/d1/migrator 在运行时跑迁移。实测发现该模块
- *   依赖 Node.js fs 读 migrationsFolder，Cloudflare Workers 运行时无 fs，
- *   直接调用会崩。因此本文件改为「诊断模式」：
- *
+ * 设计：DB schema 版本与 version.json db_schema 字段绑定。
  *   - 部署时迁移：npm run db:migrate:prod（wrangler d1 migrations apply --remote）
  *   - 本地开发：npm run dev 自动先跑 db:migrate:local（见 package.json）
- *   - 运行时：ensureMigrated 只做一次性轻量检查——查 d1_migrations 表是否存在。
- *     如果不存在，console.warn 提醒开发者/运维「请先跑迁移」，但不阻断请求
- *     （让后续 SQL 错误自然暴露，错误信息更明确）。
+ *   - 运行时：ensureMigrated 读 settings.db_schema_version，与 version.json 的
+ *     DB_SCHEMA 比对。不一致则返回 'missing' / 'mismatch'，由 worker.ts 决定
+ *     返回 503 提示运维跑迁移。
  *
- *
- * Env 类型：
+ * 单一事实源：version.json db_schema = 期望版本；settings.db_schema_version = 实际版本。
+ * baseline 迁移（drizzle/0000_baseline.sql）写入 db_schema_version='1'；
+ * 后续迁移（0002+）应在 SQL 里 UPDATE 该行为新版本号，同时 bump version.json。
  */
 
-// Env 类型从 src/env.ts 统一导出，避免重复定义。
 export type { Env } from '../env';
 import type { Env } from '../env';
+import { DB_SCHEMA } from '../utils.js';
 
-let migrationChecked = false;
+export type SchemaCheckResult = 'ok' | 'missing' | 'mismatch';
+
+let schemaCheckResult: SchemaCheckResult | null = null;
 
 /**
- * 检查 D1 是否已应用迁移。
+ * 检查 D1 schema 版本是否与 version.json 一致。
  *
- * 一次性检查 d1_migrations 表是否存在。检查通过后标记 migrationChecked=true，
- * 同一 isolate 内后续请求直接跳过，零开销。
+ * 一次性检查 settings.db_schema_version 行。检查通过后缓存结果，
+ * 同一 isolate 内后续请求直接返回，零开销。
  *
- * 行为：
- *   - 表存在 + 有记录 → 静默通过
- *   - 表不存在 → console.warn 提醒，但不抛错（让请求继续，SQL 错误更明确）
- *   - 任何异常 → 静默吞掉（不阻断业务请求；迁移问题应在部署时被发现）
+ * 返回值：
+ *   - 'ok'      → schema 版本匹配，可正常服务
+ *   - 'missing' → settings 表缺失或 db_schema_version 行不存在（未跑迁移）
+ *   - 'mismatch' → db_schema_version 与 version.json DB_SCHEMA 不一致（迁移版本落后/超前）
  */
-export async function ensureMigrated(env: Env): Promise<void> {
-  if (migrationChecked) return;
-  migrationChecked = true;
+export async function ensureMigrated(env: Env): Promise<SchemaCheckResult> {
+  if (schemaCheckResult !== null) return schemaCheckResult;
 
   try {
-    // 查 d1_migrations 表是否存在且有记录。
-    // 不读具体内容，只确认表就绪——最小开销。
-    const result = await env.DB.prepare(
-      "SELECT count(*) as n FROM d1_migrations"
-    ).first<{ n: number }>();
-    if (!result || result.n === 0) {
-      console.warn(
-        "[cf-todo] d1_migrations 表为空或不存在。请先跑 `npm run db:migrate:local`（本地）" +
-        "或 `npm run db:migrate:prod`（远端）应用迁移。"
-      );
+    const row = await env.DB.prepare(
+      "SELECT value FROM settings WHERE key = 'db_schema_version'"
+    ).first<{ value: string }>();
+
+    if (!row || !row.value) {
+      schemaCheckResult = 'missing';
+      return schemaCheckResult;
     }
-  } catch (e) {
-    // 表不存在的错误会落到这里——同样是 warn 不阻断
-    console.warn(
-      "[cf-todo] 迁移检查失败（d1_migrations 表可能不存在）：" +
-      (e instanceof Error ? e.message : String(e)) +
-      "。请先跑 `npm run db:migrate:local` 或 `npm run db:migrate:prod`。"
-    );
+
+    const dbVersion = parseInt(row.value, 10);
+    if (isNaN(dbVersion) || dbVersion !== DB_SCHEMA) {
+      schemaCheckResult = 'mismatch';
+      return schemaCheckResult;
+    }
+
+    schemaCheckResult = 'ok';
+    return schemaCheckResult;
+  } catch {
+    // settings 表不存在或其他异常 → 未初始化
+    schemaCheckResult = 'missing';
+    return schemaCheckResult;
   }
 }

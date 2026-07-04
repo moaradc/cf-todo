@@ -177,6 +177,7 @@ export const todos = `
       filterMethod = method;
       activateBtnGroup('view-filter-btns', method);
       updateViewBtnLabel();
+      saveViewStateCache();
       renderTodos();
     }
 
@@ -191,6 +192,7 @@ export const todos = `
       }
       renderViewCategoryBtns();
       updateViewBtnLabel();
+      saveViewStateCache();
       renderTodos();
     }
 
@@ -200,6 +202,7 @@ export const todos = `
       activateBtnGroup('view-sort-btns', method);
       activateBtnGroup('view-order-btns', sortAsc ? 'asc' : 'desc');
       updateViewBtnLabel();
+      saveViewStateCache();
       renderTodos();
     }
 
@@ -207,6 +210,7 @@ export const todos = `
       sortAsc = asc;
       activateBtnGroup('view-order-btns', asc ? 'asc' : 'desc');
       updateViewBtnLabel();
+      saveViewStateCache();
       renderTodos();
     }
 

@@ -3,9 +3,9 @@
  *
  *
  * 三个路由：
- *   - GET  /api/export          ← api.js:838-1183（page/session/stream）
- *   - POST /api/import          ← api.js:1185-1687（init/finalize/status/abort + NDJSON）
- *   - ALL  /api/import-backup   ← api.js:1689-1798（query/restore/clear，无 method 检查）
+ *   - GET  /api/export（page/session/stream）
+ *   - POST /api/import（init/finalize/status/abort + NDJSON）
+ *   - ALL  /api/import-backup（query/restore/clear，无 method 检查）
  *
  * 用 raw D1 API 保持与原代码字节级一致。
  *
@@ -14,7 +14,6 @@
  */
 
 import type { Db } from '../db/client';
-import { rruleFromLegacyFields } from '../recurring-engine.js';
 
 /** D1 原生数据库实例。 */
 function d1(db: Db): D1Database {
@@ -23,7 +22,7 @@ function d1(db: Db): D1Database {
 
 // ==================== Export ====================
 
-/** 导出 page 模式。与 api.js:841-908 一致。 */
+/** 导出 page 模式 */
 export async function exportPage(
   db: Db,
   params: { type?: string; cursor?: string; sessionId?: string; final?: boolean; todos?: boolean; trash?: boolean },
@@ -92,7 +91,7 @@ export async function exportPage(
   return new Response(body, { headers: { 'Content-Type': 'application/x-ndjson' } });
 }
 
-/** 导出 session 模式。与 api.js:911-997 一致。 */
+/** 导出 session 模式 */
 export async function exportSession(
   db: Db,
   params: { action?: string; sessionId?: string; todos?: boolean; trash?: boolean; settings?: boolean; categories?: boolean; todosCursor?: string | null; templatesCursor?: string | null },
@@ -370,7 +369,7 @@ function safeTimeRecords(v: unknown): string {
   return '[]';
 }
 
-/** import NDJSON 上传。与 api.js:1345-1414 一致。 */
+/** import NDJSON 上传 */
 export async function importNdjson(db: Db, request: Request, importId: string): Promise<Response> {
   const d = d1(db);
   if (!importId) return new Response(JSON.stringify({ error: 'importId required' }), { status: 400, headers: { 'Content-Type': 'application/json' } });
@@ -380,23 +379,8 @@ export async function importNdjson(db: Db, request: Request, importId: string): 
   if (!session) return new Response(JSON.stringify({ error: '无效或已过期的导入会话' }), { status: 400, headers: { 'Content-Type': 'application/json' } });
 
   const TODO_BIND_EXTRACTOR = (t: Record<string, unknown>): unknown[] => {
-    let type = t.type as string | undefined;
-    if (!type) {
-      const rpt = t.repeat_type as string;
-      if (rpt === 'fragment') type = 'fragment';
-      else if (rpt && ['daily', 'weekly', 'monthly', 'yearly'].includes(rpt)) type = 'recurring';
-      else type = 'none';
-    }
-    let rrule = (t.rrule as string) || '';
-    if (!rrule && type === 'recurring') {
-      rrule = rruleFromLegacyFields({
-        repeat_type: (t.repeat_type as string) || (type === 'recurring' ? 'daily' : 'none'),
-        repeat_interval: (t.repeat_interval as number) || 1,
-        repeat_end: (t.repeat_end as string) || '',
-        repeat_custom: (t.repeat_custom as string) || '',
-        anchor_date: (t.anchor_date as string) || (t.date as string) || '',
-      } as never) as string;
-    }
+    const type = (t.type as string) || 'none';
+    const rrule = (t.rrule as string) || '';
     return [
       t.id, t.parent_id, t.date, t.text, t.time || '', t.priority || 'low',
       t.desc || '', t.url || '', t.copy_text || '',
@@ -409,18 +393,8 @@ export async function importNdjson(db: Db, request: Request, importId: string): 
 
   const TEMPLATE_BIND_EXTRACTOR = (t: Record<string, unknown>): unknown[] => {
     const exdates = (t.exdates as string) || '[]';
-    let type = t.type as string | undefined;
-    if (!type) { const rpt = t.repeat_type as string; type = (rpt && ['daily', 'weekly', 'monthly', 'yearly'].includes(rpt)) ? 'recurring' : 'recurring'; }
-    let rrule = (t.rrule as string) || '';
-    if (!rrule) {
-      rrule = rruleFromLegacyFields({
-        repeat_type: (t.repeat_type as string) || 'daily',
-        repeat_interval: (t.repeat_interval as number) || 1,
-        repeat_end: (t.repeat_end as string) || '',
-        repeat_custom: (t.repeat_custom as string) || '',
-        anchor_date: (t.anchor_date as string) || '',
-      } as never) as string;
-    }
+    const type = (t.type as string) || 'recurring';
+    const rrule = (t.rrule as string) || '';
     return [
       t.parent_id, t.text || '', t.time || '', t.priority || 'low', t.desc || '', t.url || '', t.copy_text || '',
       safeStringify(t.subtasks), safeStringify(t.search_terms), type, t.end_time || '',
@@ -505,7 +479,7 @@ export async function importNdjson(db: Db, request: Request, importId: string): 
   return new Response(JSON.stringify({ success: true }), { headers: { 'Content-Type': 'application/json' } });
 }
 
-/** clearBackupTables / cleanExpiredBackups / restoreBackup 辅助。与 api.js:1325-1342 一致。 */
+/** clearBackupTables / cleanExpiredBackups / restoreBackup 辅助 */
 async function clearBackupTables(d: D1Database): Promise<void> {
   try {
     await d.batch([d.prepare('DROP TABLE IF EXISTS todos_backup'), d.prepare('DROP TABLE IF EXISTS todo_templates_backup'), d.prepare('DROP TABLE IF EXISTS categories_backup')]);
@@ -529,7 +503,7 @@ const INDEX_REBUILD_STMTS = (d: D1Database) => [
   d.prepare('CREATE INDEX IF NOT EXISTS idx_templates_type ON todo_templates(type)'),
 ];
 
-/** 恢复备份（DROP 当前 + RENAME backup 回来 + 重建索引）。与 api.js:1460-1471 一致。 */
+/** 恢复备份（DROP 当前 + RENAME backup 回来 + 重建索引） */
 async function restoreFromBackup(d: D1Database): Promise<void> {
   await d.batch([
     d.prepare('DROP TABLE IF EXISTS todos'),
@@ -542,7 +516,7 @@ async function restoreFromBackup(d: D1Database): Promise<void> {
   ]);
 }
 
-/** import JSON phase（init/finalize/status/abort）。与 api.js:1416-1687 一致。 */
+/** import JSON phase（init/finalize/status/abort） */
 export async function importPhase(db: Db, impBody: Record<string, unknown>): Promise<Response> {
   const d = d1(db);
   const phase = impBody.phase as string | undefined;
@@ -671,7 +645,7 @@ export async function importPhase(db: Db, impBody: Record<string, unknown>): Pro
 
 // ==================== Import-backup ====================
 
-/** import-backup（query/restore/clear，无 method 检查）。与 api.js:1689-1798 一致。 */
+/** import-backup（query/restore/clear，无 method 检查） */
 export async function importBackup(db: Db, action: string): Promise<Response> {
   const d = d1(db);
   try {
