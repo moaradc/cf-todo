@@ -54,10 +54,10 @@
 
 ### 两套 API 体系
 
-| 体系 | 文件 | 基础路径 | 鉴权方式 | 用途 |
-|------|------|----------|----------|------|
-| **V0 (Internal/Web)** | `api.js` | `/api/` | Cookie 或 API Key | Web 前端 + 外部调用 |
-| **V1 (RESTful)** | `api-v1.js` | `/api/v1/` | API Key 或 Cookie | 外部程序 / OpenClaw 调用 |
+| 体系 | 路由入口 | 基础路径 | 鉴权方式 | 用途 |
+|------|----------|----------|----------|------|
+| **V0 (Internal/Web)** | `src/routes/v0/index.ts` | `/api/` | Cookie 或 API Key | Web 前端 + 外部调用 |
+| **V1 (RESTful)** | `src/routes/v1/index.ts` | `/api/v1/` | API Key 或 Cookie | 外部程序 / OpenClaw 调用 |
 
 ### 公开端点（无需鉴权）
 
@@ -164,7 +164,7 @@ API Key 格式为 `cfk_` 前缀 + 32 字节随机 Base64URL 编码。验证使�
       }
     ]
     ```
-  - **注意**: 此端点返回裸数组，非 `{success, data}` 格式。`keyPrefix` 字段为前 8 位 + `...` + 后 4 位的掩码形式（如 `cfk_Y7BG...lY_4`），完整 Key 仅在创建时返回一次。
+  - **注意**: 此端点返回裸数组，非 `{success, data}` 格式。`keyPrefix` 字段为前 8 位 + `...` + 后 4 位的掩码形式（如 `cfk_aB12...xY9z`），完整 Key 仅在创建时返回一次。
 
 - **POST /api/v1/keys**
   - **描述**: 创建或管理 API Key。
@@ -1378,7 +1378,7 @@ v3.0 起，重复规则字段从 5 个旧字段（`repeat_type` / `repeat_custom
 > - **`type`**：三态 `none` / `fragment` / `recurring`。仅作分类，不参与 RRULE 展开。普通 todo 和碎时记的 `rrule` 始终为空字符串；`recurring` 必须有非空 `rrule`。
 > - **`rrule`**：RFC 5545 RRULE 字符串（不含 `RRULE:` 前缀），是重复规则的唯一规范字段。允许的 token：`FREQ=DAILY/WEEKLY/MONTHLY/YEARLY`、`INTERVAL`、`UNTIL`、`COUNT`、`BYDAY`、`BYMONTHDAY`、`BYMONTH`、`BYWEEKNO`、`BYYEARDAY`、`BYSETPOS`、`WKST`；拒绝 `SECONDLY`/`MINUTELY`/`HOURLY`（撑爆 Worker CPU）与 `BYHOUR`/`BYMINUTE`/`BYSECOND`（时间段语义，项目无此场景）。详见 [§5.6 RRULE 完整使用指南](#56-rrule-rfc-5545-完整使用指南)。
 > - **`anchor_date`**：DTSTART 等价物（`YYYY-MM-DD`），是 RRULE 展开的起始日期。`type='recurring'` 时必填；其他类型为空字符串。RFC 5545 规定 `anchor_date` 始终是第一个实例（即使不匹配 RRULE 也会强制出现）。
-> - **`exdates`**：JSON 数组字符串（如 `"[]"` 或 `"['2026-07-04']"`），列出 RRULE 应排除的日期。与 `rrule` 独立，始终叠加生效。`type='recurring'` 时调用方可设置；其他类型强制为 `"[]"`。
+> - **`exdates`**：JSON 数组字符串（如 `"[]"` 或 `"['2026-07-01']"`），列出 RRULE 应排除的日期。与 `rrule` 独立，始终叠加生效。`type='recurring'` 时调用方可设置；其他类型强制为 `"[]"`。
 > - **`is_series`**：派生字段 = `type === 'recurring'`。客户端不可篡改，写入时被服务端忽略。
 
 > **`fragment_anchor` 字段说明**：碎时记（`type: "fragment"`）起始日期的权威副本，不受完成/取消完成影响。
@@ -1590,7 +1590,7 @@ V0 和 V1 的 Category 对象格式一致：
 | `type` | `"recurring"` | 唯一标识重复系列 |
 | `rrule` | 必填非空 | RFC 5545 RRULE 字符串（不含 `RRULE:` 前缀），须通过 `sanitizeRRule` 校验。允许 token 详见 [§5.6](#56-rrule-rfc-5545-完整使用指南) |
 | `anchor_date` | 必填 `YYYY-MM-DD` | DTSTART 等价物，首实例日期；RFC 5545 规定其始终是第一个实例（即使不匹配 RRULE 也会强制出现） |
-| `exdates` | `"[]"` 或 JSON 数组字符串 | 排除日期数组（如 `"['2026-07-04']"`），与 `rrule` 独立生效 |
+| `exdates` | `"[]"` 或 JSON 数组字符串 | 排除日期数组（如 `"['2026-07-01']"`），与 `rrule` 独立生效 |
 | `date` | 必填 `YYYY-MM-DD` | 作为 instance 日期，首实例 = `anchor_date` |
 | `time` / `end_time` | 可设置 | — |
 | `fragment_anchor` | 始终空 | — |
@@ -1711,7 +1711,7 @@ V0 Web API 还支持 `keep_records: true`（来自「继续计时」路径，仅
 
 v3.0 起 `rrule` 是重复规则的唯一规范字段，与 `anchor_date` + `exdates` 一起描述完整的重复行为。本节涵盖所有合法 token、校验规则、使用示例与迁移提示。
 
-> 本节所有行为描述均基于 `src/recurring-engine.js` 与 `src/api.js` / `src/api-v1.js` 源码逐项核对，并已在生产部署上端到端验证。
+> 本节所有行为描述均基于 `src/recurring-engine.js` 与 `src/routes/v1/todos.ts` / `src/services/todo-service.ts` 源码逐项核对。
 
 #### 5.6.1 设计哲学
 
@@ -1997,7 +1997,7 @@ curl -X PUT \
   "https://your-app.workers.dev/api/v1/todos/17826341657711955"
 ```
 
-> `scope=all` + `rrule` 变更会触发引擎 `recurrence_changed=true`，旧实例被 DELETE 并由模板按新 rrule 重新生成。已端到端验证：MWF 模板改为 TU,TH 后，原 Wed 实例消失，原 Thu 实例出现。
+> `scope=all` + `rrule` 变更会触发引擎 `recurrence_changed=true`，旧实例被 DELETE 并由模板按新 rrule 重新生成。例如 MWF 模板改为 TU,TH 后，原 Wed 实例消失，原 Thu 实例出现。
 
 显式清空 `rrule`（重复任务改为单次）：
 
@@ -2463,7 +2463,7 @@ data = response.json()
 16. `rrule` 严格校验：必须以 `FREQ=DAILY/WEEKLY/MONTHLY/YEARLY` 开头；`UNTIL` 与 `COUNT` 互斥（RFC 5545 §3.3.10）；`INTERVAL` / `COUNT` 必须为正整数（≥1）；拒绝 `SECONDLY`/`MINUTELY`/`HOURLY` 与 `BYHOUR`/`BYMINUTE`/`BYSECOND`；最大长度 500；不含控制字符；须通过 ical.js 解析。详见 [§5.6 RRULE 完整使用指南](#56-rrule-rfc-5545-完整使用指南)。
 17. 日期/时间格式校验：`date` / `anchor_date` 必须 `YYYY-MM-DD` 且真实存在；`time` / `end_time` 必须 `HH:MM` 且范围合法（00:00-23:59）。四个写入端点（V0 CREATE/UPDATE + V1 POST/PUT）全部应用，冲突返回 400。
 18. **碎时记完成日期时区**：v3.0 修复了 UTC 与本地日期跨天偏差。`todayStr` 改用 UTC+8（用户时区 Asia/Shanghai），碎时记完成时若 `body.date` 为未来日期，自动纠正为今天（保持幂等），不拒绝请求。
-19. **V0 vs V1 响应格式差异**（实测对照）：
+19. **V0 vs V1 响应格式差异**：
     - V0 GET 端点（`/api/todos` / `/api/trash` / `/api/categories` / `/api/sessions` / `/api/custom-colors`）返回**纯数组**，无 `success` 包装；V1 对应端点返回 `{"success":true,"data":[...]}`。
     - V0 GET 端点（`/api/settings` / `/api/custom-code` / `/api/time-records` / `/api/import-backup`）返回**纯对象**，无 `success`/`data` 包装；V1 对应端点返回 `{"success":true,"data":{...}}`。
     - V0 `/api/hot-search` 返回 `{"success":true,"data":[...]}`（与 V1 风格一致，是 V0 中少数有 `success` 包装的端点）。
@@ -2477,7 +2477,7 @@ data = response.json()
 23. **PATCH toggle 的 `record_accepted` 字段**：`PATCH /api/v1/todos/:id/toggle` 对 `record` 字段进行严格校验（`s>0`、`e>=s`、时长 ≤7d、`0<=p<=(e-s)`、非对象/缺 `s`/`e` 拒绝）。**仅在调用方传入 `record` 字段时**响应才包含 `record_accepted` 字段：record 合法为 `true` 并写入 `time_records`；record 非法为 `false`（`done` 仍切换保持幂等，但 record 不写入）。**未传 `record` 时响应不包含 `record_accepted` 字段**（仅切换 `done`，不写 `time_records`）。响应始终包含 `time_records` 数组（即使为空），调用方可据此判断 record 是否真的写入。
 24. **`limit` / `offset` 边界**：V1 `/api/v1/todos` 与 `/api/v1/trash` 的 `limit` 上限 500，`offset` 上限 10000。超出会被夹紧到上限（不报错），响应中 `pagination.limit` / `pagination.offset` 反映夹紧后的值。
 25. **登录响应**：成功 `{"success":true}` + `Set-Cookie: auth_token=...; auth_sig=...`；失败 401（响应体 `ACCESS DENIED`，纯文本）；IP 锁定 429（响应体 `ACCOUNT LOCKED`，纯文本）。请求体非 JSON 或缺 `password` 字段均按密码错误处理，返回 401 `ACCESS DENIED`。
-26. **`exdates` 入参支持两种形式**：JSON 数组字符串（如 `"[\"2026-07-04\"]"`）或 JSON 数组本身（如 `["2026-07-04"]`）。响应中始终返回 JSON 数组字符串。
+26. **`exdates` 入参支持两种形式**：JSON 数组字符串（如 `"[\"2026-07-01\"]"`）或 JSON 数组本身（如 `["2026-07-01"]`）。响应中始终返回 JSON 数组字符串。
 27. **`is_series` 在 V0 `/api/todos` 中为派生字段**：`type === 'recurring'` → `true`，其他 → `false`。V0 `/api/trash` 返回纯 DB 行**不含** `is_series` 字段。
 28. **V1 GET /todos 日期参数校验**：`date` / `start_date` / `end_date` 必须为 `YYYY-MM-DD` 格式且真实存在（如 `2026-13-45` 会被拒绝），与 V0 `GET /api/todos` 一致。非法格式返回 400 `{"error":"日期格式应为 YYYY-MM-DD，当前值: ..."}` 或 `{"error":"日期无效: ..."}`。
 29. **API Key 作用域默认值**：`app_settings.apiKeyScope` 默认 `v1`（仅允许 V1 接口）。若希望同一 API Key 同时访问 V0 和 V1，须在 web 设置面板或 `POST /api/v1/settings` 中显式设为 `all`。可选值 `v1` / `v0` / `all` / `disabled`。
