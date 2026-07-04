@@ -1061,9 +1061,11 @@ V0 CREATE / V0 UPDATE / V1 POST / V1 PUT 四个写入端点共享同一套联动
     {
       "action": "RESTORE | DELETE_PERMANENT | CLEAR_ALL | BATCH_RESTORE | BATCH_DELETE_PERMANENT | CLEAR_ALL_DATA",
       "id": "todo_id",
-      "ids": ["id1", "id2"]
+      "ids": ["id1", "id2"],
+      "confirm": "DELETE_ALL_DATA_CONFIRM"
     }
     ```
+    > `confirm` 字段仅 `CLEAR_ALL_DATA` 需要，值为 `"DELETE_ALL_DATA_CONFIRM"`。其余 action 不需要。
   - **Action 详情**:
     | Action | 说明 | 响应 |
     |--------|------|------|
@@ -1072,7 +1074,7 @@ V0 CREATE / V0 UPDATE / V1 POST / V1 PUT 四个写入端点共享同一套联动
     | `CLEAR_ALL` | 清空回收站。**不可恢复** | `{"success":true}` |
     | `BATCH_RESTORE` | 批量恢复。**自动分片**（每 99 条一组，调用方无需手动拆分）。逻辑同 `RESTORE` | `{"success":true}`（**不返回** `restored`/`chunked`/`chunkCount`） |
     | `BATCH_DELETE_PERMANENT` | 批量永久删除。**自动分片**（每 99 条一组）。**不可恢复** | `{"success":true}`（**不返回** `deleted`/`chunked`/`chunkCount`） |
-    | `CLEAR_ALL_DATA` | **危险** 清空所有数据（todos、templates、settings、categories），**不可恢复** | `{"success":true}` |
+    | `CLEAR_ALL_DATA` | **危险** 清空所有数据（todos、templates、settings、categories），**不可恢复**。**V0 需要二次确认参数** `confirm: "DELETE_ALL_DATA_CONFIRM"`，否则返回 400。注意：`settings` 表被清空意味着 `api_keys` 也会被删除——调用此端点后，**所有现有 API Key 立即失效**，必须重新通过 Cookie 鉴权 `POST /api/v1/keys` 创建新 Key。`app_settings`（含 `apiKeyScope`）也会被清空，恢复后需重新配置。调用前务必备份数据（`GET /api/export?mode=stream`）| `{"success":true}` |
 
 > **V0 vs V1 差异**：V1 `POST /api/v1/trash-action` 的 `BATCH_RESTORE`/`BATCH_DELETE_PERMANENT` 返回 `{"success":true,"data":{"restored":N,"chunked":false,"chunkCount":1}}` 等结构，V0 只返回 `{"success":true}`。
 

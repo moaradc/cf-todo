@@ -934,14 +934,20 @@ export const io = `
       if (!confirm("最终确认：真的要彻底清空所有数据吗？")) return;
       
       try {
-        await fetch('/api/trash-action', {
-          method: 'POST', body: JSON.stringify({ action: 'CLEAR_ALL_DATA' }),
+        var res = await fetch('/api/trash-action', {
+          method: 'POST', body: JSON.stringify({ action: 'CLEAR_ALL_DATA', confirm: 'DELETE_ALL_DATA_CONFIRM' }),
           headers: { 'Content-Type': 'application/json' }
         });
+        if (!res.ok) {
+          var errData = {};
+          try { errData = await res.json(); } catch(e) {}
+          alert("数据清理执行失败：" + (errData.error || res.statusText));
+          return;
+        }
         alert("系统云端已完全清空，即将重置。");
         await refreshToHome();
       } catch (e) {
-        alert("数据清理执行失败");
+        alert("数据清理执行失败：" + e.message);
       }
     }
 
