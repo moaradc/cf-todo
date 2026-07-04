@@ -32,11 +32,16 @@ import {
   secureCompare,
   apiError,
 } from '../../utils.js';
-import { checkCookieAuth, type SessionEntry } from '../../middleware/auth';
+import { checkCookieAuth, v0Auth, type SessionEntry } from '../../middleware/auth';
 import type { V0AppEnv } from './index';
 
 /** 鉴权路由 Hono app。 */
 export const authApp = new Hono<V0AppEnv>();
+
+// sessions / session-action 需要 API Key 或 Cookie 鉴权
+// login / logout 保持公开
+authApp.use('/sessions', v0Auth);
+authApp.use('/session-action', v0Auth);
 
 // ==================== POST /api/login ====================
 
@@ -257,11 +262,8 @@ authApp.get('/sessions', async (c) => {
   const env = c.env;
   const request = c.req.raw;
 
-  // cookie 鉴权
-  const authResult = await checkCookieAuth(request, env);
-  if (!authResult.ok) {
-    return apiError('UNAUTHORIZED', 401);
-  }
+  // v0Auth 中间件已鉴权（API Key 优先，回退 Cookie），此处直接使用
+  // 如果鉴权失败，v0Auth 已返回 401，不会走到这里
 
   const record = await env.DB.prepare(
     "SELECT value FROM settings WHERE key = 'active_session_token'",
@@ -298,11 +300,8 @@ authApp.post('/session-action', async (c) => {
   const env = c.env;
   const request = c.req.raw;
 
-  // cookie 鉴权
-  const authResult = await checkCookieAuth(request, env);
-  if (!authResult.ok) {
-    return apiError('UNAUTHORIZED', 401);
-  }
+  // v0Auth 中间件已鉴权（API Key 优先，回退 Cookie），此处直接使用
+  // 如果鉴权失败，v0Auth 已返回 401，不会走到这里
 
   // 解析 body
   let sessionParsedBody: { action?: string; ua?: string };
