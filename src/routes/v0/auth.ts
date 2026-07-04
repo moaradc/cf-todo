@@ -187,6 +187,7 @@ authApp.post('/login', async (c) => {
 
     // 设置 cookie + 返回成功
     const headers = new Headers();
+    headers.append('Content-Type', 'application/json');
     headers.append('Set-Cookie', `auth_token=${token}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=2592000`);
     headers.append('Set-Cookie', `auth_sig=${sig}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=2592000`);
     return new Response(JSON.stringify({ success: true }), { headers });
@@ -246,6 +247,7 @@ authApp.post('/logout', async (c) => {
     }
   }
   const headers = new Headers();
+  headers.append('Content-Type', 'application/json');
   headers.append('Set-Cookie', `auth_token=; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=0`);
   headers.append('Set-Cookie', `auth_sig=; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=0`);
   return new Response(JSON.stringify({ success: true }), { headers });
