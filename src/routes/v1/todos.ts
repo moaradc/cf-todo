@@ -99,17 +99,18 @@ v1TodosApp.get('/todos', async (c) => {
   const execGet = async () => {
     const conditions: string[] = ['deleted = 0'];
     const params: (string | number)[] = [];
+    // 复合 OR 条件用括号包裹，避免与后续 AND 条件（category_id / done）发生 SQL 优先级问题
     if (date) {
-      conditions.push(`(type != 'fragment' AND date = ?) OR (type = 'fragment' AND done = 1 AND date = ?) OR (type = 'fragment' AND done = 0 AND (date = '' OR date <= ?))`);
+      conditions.push(`((type != 'fragment' AND date = ?) OR (type = 'fragment' AND done = 1 AND date = ?) OR (type = 'fragment' AND done = 0 AND (date = '' OR date <= ?)))`);
       params.push(date, date, date);
     } else if (startDate && endDate) {
-      conditions.push(`(type != 'fragment' AND date >= ? AND date <= ?) OR (type = 'fragment' AND done = 1 AND date >= ? AND date <= ?) OR (type = 'fragment' AND done = 0 AND (date = '' OR date <= ?))`);
+      conditions.push(`((type != 'fragment' AND date >= ? AND date <= ?) OR (type = 'fragment' AND done = 1 AND date >= ? AND date <= ?) OR (type = 'fragment' AND done = 0 AND (date = '' OR date <= ?)))`);
       params.push(startDate, endDate, startDate, endDate, endDate);
     } else if (startDate) {
-      conditions.push(`(type != 'fragment' AND date >= ?) OR (type = 'fragment' AND done = 1 AND date >= ?) OR (type = 'fragment' AND done = 0 AND (date = '' OR date >= ?))`);
+      conditions.push(`((type != 'fragment' AND date >= ?) OR (type = 'fragment' AND done = 1 AND date >= ?) OR (type = 'fragment' AND done = 0 AND (date = '' OR date >= ?)))`);
       params.push(startDate, startDate, startDate);
     } else if (endDate) {
-      conditions.push(`(type != 'fragment' AND date <= ?) OR (type = 'fragment' AND done = 1 AND date <= ?) OR (type = 'fragment' AND done = 0 AND (date = '' OR date <= ?))`);
+      conditions.push(`((type != 'fragment' AND date <= ?) OR (type = 'fragment' AND done = 1 AND date <= ?) OR (type = 'fragment' AND done = 0 AND (date = '' OR date <= ?)))`);
       params.push(endDate, endDate, endDate);
     }
     if (category_id) { conditions.push('category_id = ?'); params.push(category_id); }
