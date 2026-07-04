@@ -10,10 +10,14 @@
  */
 
 import { Hono } from 'hono';
-import { getApiKeys, saveApiKeys, type ApiKeyRecord } from '../../middleware/auth';
+import { getApiKeys, saveApiKeys, cookieAuth, type ApiKeyRecord } from '../../middleware/auth';
 import type { V1AppEnv } from './index';
 
 export const keysApp = new Hono<V1AppEnv>();
+
+// 关键：cookieAuth 必须在 .all('/keys', handler) 之前注册，
+// 否则 Hono 会先匹配 .all 路由处理器，导致鉴权被绕过。
+keysApp.use('/keys', cookieAuth);
 
 /** 生成 API Key（cfk_ 前缀 + 32 字节随机 base64url）。 */
 function generateApiKey(): string {

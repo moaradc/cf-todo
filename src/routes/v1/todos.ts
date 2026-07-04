@@ -25,6 +25,7 @@ import {
   processRRule, validateType, validateDateFormat, validateTimeFormat, validateExdates,
   addExdate, getPreviousDate, sanitizeRRule,
   computeUpdateActions, computeDeleteActions, isOccurrenceOnDate,
+  detectLegacyRepeatFields,
 } from '../../recurring-engine.js';
 import type { V1AppEnv } from './index';
 
@@ -90,6 +91,11 @@ v1TodosApp.get('/todos', async (c) => {
   const offset = Math.min(Math.max(parseInt(url.searchParams.get('offset') || '0', 10) || 0, 0), 10000);
   const expand = url.searchParams.get('expand') !== 'false';
 
+  // 日期参数格式校验（与 V0 GET /api/todos 一致）
+  if (date) { const e = validateDateFormat(date); if (e) return v1Err(e); }
+  if (startDate) { const e = validateDateFormat(startDate); if (e) return v1Err(e); }
+  if (endDate) { const e = validateDateFormat(endDate); if (e) return v1Err(e); }
+
   const execGet = async () => {
     const conditions: string[] = ['deleted = 0'];
     const params: (string | number)[] = [];
@@ -151,6 +157,9 @@ v1TodosApp.post('/todos', async (c) => {
   const d = d1(createDb(c.env.DB));
   let body: Record<string, unknown>;
   try { body = await c.req.raw.json(); } catch { return v1Err('请求体不是有效的 JSON'); }
+  // v3.0: 拒绝已废弃的旧字段（repeat_type / repeat_custom / repeat_interval / repeat_end）
+  const legacyField = detectLegacyRepeatFields(body);
+  if (legacyField) return v1Err('v1.0 已废弃 repeat_type / repeat_custom / repeat_interval / repeat_end 字段，请改用 type + rrule + anchor_date + exdates');
   const { date, text, time, priority, desc, url, copy_text, subtasks, search_terms, type: bodyType, end_time, category_id, rrule: bodyRRule, anchor_date: bodyAnchorDate, exdates: bodyExdates } = body as Record<string, unknown>;
   let type = (bodyType as string) || 'none';
   if (type !== 'none' && type !== 'fragment' && type !== 'recurring') return v1Err(`无效的 type: ${type}，v3.0 有效值: none / fragment / recurring`);
@@ -207,6 +216,9 @@ v1TodosApp.put('/todos/:id', async (c) => {
   if (!existing) return v1Err('Todo 不存在', 404);
   let body: Record<string, unknown>;
   try { body = await c.req.raw.json(); } catch { return v1Err('请求体不是有效的 JSON'); }
+  // v3.0: 拒绝已废弃的旧字段（repeat_type / repeat_custom / repeat_interval / repeat_end）
+  const legacyField = detectLegacyRepeatFields(body);
+  if (legacyField) return v1Err('v1.0 已废弃 repeat_type / repeat_custom / repeat_interval / repeat_end 字段，请改用 type + rrule + anchor_date + exdates');
   const parent_id = existing.parent_id as string;
   if (body.type !== undefined && body.type !== 'none' && body.type !== 'fragment' && body.type !== 'recurring') return v1Err(`无效的 type: ${body.type}，v3.0 有效值: none / fragment / recurring`);
   if (body.scope !== undefined && body.scope !== 'none' && !['this', 'thisAndFuture', 'all'].includes(body.scope as string)) return v1Err(`无效的 scope: ${body.scope}，有效值: this, thisAndFuture, all`);
@@ -351,18 +363,19 @@ v1TodosApp.patch('/todos/:id/toggle', async (c) => {
   let body_date: string | null = null;
   try { const body = await c.req.raw.json() as Record<string, unknown>; if (body && typeof body === 'object') { if (body.record) record = body.record as { s: number; e: number; p?: number }; if (body.date) body_date = body.date as string; } } catch { record = null; }
   if (is_fragment && new_done && body_date) { const todayStr = new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10); if (body_date > todayStr) body_date = todayStr; }
-  let record_accepted = false;
+  let record_accepted: boolean | null = null;  // null = 未传 record，不返回此字段
+  let has_record = false;
   if (new_done) {
     if (is_fragment) { const fd = body_date || (existing.date as string) || ''; try { await d.prepare('UPDATE todos SET done = 1, date = ? WHERE id = ?').bind(fd, todo_id).run(); } catch { try { await d.prepare('UPDATE todos SET done = 1 WHERE id = ?').bind(todo_id).run(); } catch { /* 静默 */ } } }
     else { try { await d.prepare('UPDATE todos SET done = 1 WHERE id = ?').bind(todo_id).run(); } catch { try { await d.prepare('UPDATE todos SET done = 1 WHERE id = ?').bind(todo_id).run(); } catch { /* 静默 */ } } }
-    if (record) record_accepted = await writeTimerRecord(d, todo_id, existing.parent_id as string, record, is_fragment);
+    if (record) { has_record = true; record_accepted = await writeTimerRecord(d, todo_id, existing.parent_id as string, record, is_fragment); }
   } else {
     if (is_fragment) { const sa = (existing.fragment_anchor as string) || ''; try { await d.prepare('UPDATE todos SET done = 0, date = ?, time_records = ? WHERE id = ?').bind(sa, '[]', todo_id).run(); } catch { await d.prepare('UPDATE todos SET done = 0 WHERE id = ?').bind(todo_id).run(); } }
     else { try { await d.prepare('UPDATE todos SET done = 0, time_records = ? WHERE id = ?').bind('[]', todo_id).run(); } catch { await d.prepare('UPDATE todos SET done = 0 WHERE id = ?').bind(todo_id).run(); } }
   }
   const updated = await d.prepare('SELECT date, time_records FROM todos WHERE id = ?').bind(todo_id).first<{ date: string; time_records: string }>();
   const rd: Record<string, unknown> = { id: todo_id, done: !!new_done };
-  if (updated) { if (new_done && updated.date) rd.date = updated.date; try { const tr = typeof updated.time_records === 'string' ? JSON.parse(updated.time_records || '[]') : (updated.time_records || []); rd.time_records = Array.isArray(tr) ? tr : []; } catch { rd.time_records = []; } if (new_done) rd.record_accepted = record_accepted; }
+  if (updated) { if (new_done && updated.date) rd.date = updated.date; try { const tr = typeof updated.time_records === 'string' ? JSON.parse(updated.time_records || '[]') : (updated.time_records || []); rd.time_records = Array.isArray(tr) ? tr : []; } catch { rd.time_records = []; } if (new_done && has_record && record_accepted !== null) rd.record_accepted = record_accepted; }
   return v1Ok(rd);
 });
 

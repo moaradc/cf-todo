@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import type { Env } from '../../env';
 import type { AuthVariables } from '../../middleware/auth';
-import { cookieAuth } from '../../middleware/auth';
+import { v0Auth } from '../../middleware/auth';
 import { authApp } from './auth';
 import { hotSearchApp } from './hot-search';
 import { categoriesApp } from './categories';
@@ -24,9 +24,9 @@ export const v0App = new Hono<V0AppEnv>();
 v0App.route('/', authApp);
 v0App.route('/', hotSearchApp);
 
-// 需鉴权路由（cookie auth 中间件统一拦截）
+// 需鉴权路由：API Key 优先（与 wiki 一致），无 API Key 回退到 Cookie
 const authedApp = new Hono<V0AppEnv>();
-authedApp.use('*', cookieAuth);
+authedApp.use('*', v0Auth);
 authedApp.route('/', categoriesApp);
 authedApp.route('/', trashApp);
 authedApp.route('/', settingsApp);

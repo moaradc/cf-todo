@@ -648,6 +648,25 @@ export function validateType(type) {
 }
 
 /**
+ * v3.0 已废弃的旧字段名集合（repeat_type / repeat_custom / repeat_interval / repeat_end）。
+ * 调用方应在 CREATE / UPDATE 入口检测这些字段，存在则返回 400。
+ */
+export const LEGACY_REPEAT_FIELDS = ['repeat_type', 'repeat_custom', 'repeat_interval', 'repeat_end'];
+
+/**
+ * 检测对象是否含 v3.0 已废弃的旧字段。
+ * @param {object} obj 待检测对象（如 task body）
+ * @returns {string|null} 命中的字段名（小写）或 null
+ */
+export function detectLegacyRepeatFields(obj) {
+  if (!obj || typeof obj !== 'object') return null;
+  for (const key of Object.keys(obj)) {
+    if (LEGACY_REPEAT_FIELDS.includes(key.toLowerCase())) return key;
+  }
+  return null;
+}
+
+/**
  * 校验 anchor_date 格式（YYYY-MM-DD 且真实存在）。
  * @param {string} dateStr
  * @returns {string|null} 错误消息，null 表示通过

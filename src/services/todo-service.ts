@@ -28,6 +28,7 @@ import {
   sanitizeRRule,
   computeUpdateActions,
   computeDeleteActions,
+  detectLegacyRepeatFields,
 } from '../recurring-engine.js';
 
 /** D1 原生数据库实例（从 Drizzle 客户端提取）。 */
@@ -82,6 +83,11 @@ export async function createTodo(db: Db, body: TodoActionBody): Promise<ActionRe
   }
   if (!task.text || typeof task.text !== 'string' || !String(task.text).trim()) {
     return { ok: false, error: 'task.text 为必填字段', status: 400 };
+  }
+  // v3.0: 拒绝已废弃的旧字段（repeat_type / repeat_custom / repeat_interval / repeat_end）
+  const legacyField = detectLegacyRepeatFields(task);
+  if (legacyField) {
+    return { ok: false, error: 'v1.0 已废弃 repeat_type / repeat_custom / repeat_interval / repeat_end 字段，请改用 type + rrule + anchor_date + exdates', status: 400 };
   }
 
   let type = (task.type as string) || 'none';
@@ -156,6 +162,11 @@ export async function updateTodo(db: Db, body: TodoActionBody): Promise<ActionRe
   const { task, date, scope } = body;
   if (!task || !task.id || typeof task.id !== 'string' || !String(task.id).trim()) {
     return { ok: false, error: 'task.id 为必填字段', status: 400 };
+  }
+  // v3.0: 拒绝已废弃的旧字段（repeat_type / repeat_custom / repeat_interval / repeat_end）
+  const legacyField = detectLegacyRepeatFields(task);
+  if (legacyField) {
+    return { ok: false, error: 'v1.0 已废弃 repeat_type / repeat_custom / repeat_interval / repeat_end 字段，请改用 type + rrule + anchor_date + exdates', status: 400 };
   }
   if (task.type !== undefined && task.type !== 'none' && task.type !== 'fragment' && task.type !== 'recurring') {
     return { ok: false, error: `无效的 type: ${task.type}，v3.0 有效值: none / fragment / recurring`, status: 400 };

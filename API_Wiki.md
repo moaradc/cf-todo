@@ -4,6 +4,17 @@
 
 > **v3.0 / db_schema 1（破坏性变更）**：API 字段 `repeat_type` / `repeat_custom` / `repeat_interval` / `repeat_end` 已彻底删除，不再后兼容。唯一规范字段为 `type`（none/fragment/recurring）+ `rrule` + `anchor_date` + `exdates`。外部 API 客户端必须迁移，否则返回 400 + 明确错误消息。详见 [§5 Todo 类型专章](#5-todo-类型专章)。
 
+> **本文档已对照 https://test.945426.xyz 部署实例端到端实测校准**（2026-07-04）。修订过程中修复了以下 7 个生产 bug，wiki 描述对应实际部署行为：
+> - **V1 `/api/v1/keys` 鉴权绕过**（严重）：因 Hono 中间件注册顺序错误，`cookieAuth` 注册在 `.all('/keys')` 路由处理器之后，导致 `/api/v1/keys` 完全无鉴权可访问。修复：将 `cookieAuth` 移至 keys.ts 顶部，在 `.all` 之前注册。
+> - **V0 端点不接受 API Key**：V0 路由使用 `cookieAuth` 而非 `v0Auth`，导致 API Key 调用 V0 端点全部 401。修复：将 V0 鉴权中间件替换为 `v0Auth`（API Key 优先，回退 Cookie）。
+> - **V1 `GET /api/v1/todos` 缺日期格式校验**：`date` / `start_date` / `end_date` 不校验格式，`?date=invalid` 返回 200。修复：补齐 `validateDateFormat` 校验，与 V0 一致返回 400。
+> - **V1 `POST/PUT /api/v1/todos` 与 V0 `CREATE/UPDATE` 不拒绝旧字段**：传入 `repeat_type` 等旧字段不会返回 400，违反 v3.0 强制迁移承诺。修复：在四个写入入口增加 `detectLegacyRepeatFields` 检测。
+> - **V1 `/api/v1/categories/batch` 响应缺字段**：仅返回 `{deleted: N}`，缺 `chunked` / `chunkCount`，与 wiki 文档及其他批量端点不一致。修复：返回完整 `{deleted, chunked, chunkCount}` 三字段，并修正 `deleted` 为实际删除行数（原为 `ids.length`）。
+> - **V1 `/api/v1/todos/:id/toggle` `record_accepted` 字段语义偏差**：未传 `record` 时也返回 `record_accepted: false`，与 wiki "未传 record 时不返回此字段" 描述不符。修复：仅在调用方传入 `record` 字段时才返回 `record_accepted`。
+> - **V1 `/api/v1/trash-action` BATCH_RESTORE 计数偏差**：`restored` 字段统计恢复后所有非删除 todos，包含调用前已活跃的项。修复：改为恢复前统计 `deleted=1` 的项数。
+>
+> 详见 [§7 注意事项](#7-注意事项) 第 23 / 28–32 条。
+
 ## 目录
 
 - [1. 架构概览](#1-架构概览)
@@ -147,7 +158,7 @@ API Key 格式为 `cfk_` 前缀 + 32 字节随机 Base64URL 编码。验证使�
 
 ### 2.2 API Key 管理
 
-管理端点需要 Cookie 鉴权（即已登录的网页端用户），不支持 API Key 鉴权。
+管理端点需要 Cookie 鉴权（即已登录的网页端用户），**不支持 API Key 鉴权**——用 API Key 调用本节端点返回 401 `{"error":"UNAUTHORIZED"}`，无任何鉴权调用同样返回 401。这是出于安全考虑：API Key 管理操作（创建/删除/禁用/重命名）必须由 Cookie 会话发起，防止 API Key 持有者绕过 Cookie 鉴权自我提权或删除其他 Key。
 
 - **GET /api/v1/keys**
   - **描述**: 获取所有 API Keys 列表（脱敏）。
@@ -164,7 +175,7 @@ API Key 格式为 `cfk_` 前缀 + 32 字节随机 Base64URL 编码。验证使�
       }
     ]
     ```
-  - **注意**: 此端点返回裸数组，非 `{success, data}` 格式。
+  - **注意**: 此端点返回裸数组，非 `{success, data}` 格式。`keyPrefix` 字段为前 8 位 + `...` + 后 4 位的掩码形式（如 `cfk_Y7BG...lY_4`），完整 Key 仅在创建时返回一次。
 
 - **POST /api/v1/keys**
   - **描述**: 创建或管理 API Key。
@@ -185,9 +196,15 @@ API Key 格式为 `cfk_` 前缀 + 32 字节随机 Base64URL 编码。验证使�
       "name": "..."
     }
     ```
-  - **响应 (DELETE)**: `{"success": true}`
+  - **响应 (DELETE)**: `{"success": true}`（即使 id 不存在也返回 success，不报错）
   - **响应 (TOGGLE)**: `{"success": true, "disabled": true}`
   - **响应 (RENAME)**: `{"success": true}`
+  - **错误响应**:
+    - TOGGLE/RENAME 时 `id` 不存在 → 404 `{"error":"Key 不存在"}`
+    - TOGGLE/RENAME/DELETE 时缺 `id` → 400 `{"error":"缺少 id"}`
+    - 未知 action → 400 `{"error":"未知操作，可用: CREATE, DELETE, TOGGLE, RENAME"}`
+    - 请求体非 JSON → 400 `{"error":"请求体不是有效的 JSON"}`
+    - CREATE 时已有 10 个 key → 400 `{"error":"最多创建10个API Key"}`
   - **限制**: 最多创建 10 个 API Key。名称最长 50 字符，默认值 `"Default"`。
 
 ---
@@ -211,6 +228,7 @@ API Key 格式为 `cfk_` 前缀 + 32 字节随机 Base64URL 编码。验证使�
   - **不传 `date` 参数**：返回所有未删除的 todos（按 `date ASC, id ASC` 排序），不触发模板展开。碎时记按可见性规则匹配。
   - **`category_id` + `expand=true` 行为**：服务端在展开重复模板时严格按 `category_id` 过滤，不匹配的模板不展开。调用方可放心使用 `?category_id=X&date=Y` 组合，不会看到不属于该分类的重复实例。
   - **`limit` / `offset` 行为**：`limit` 上限 500，`offset` 上限 10000，超出会被夹紧到上限（不返回 400）。`pagination.total` 是已持久化 todos 行数 + 当次自动展开的实例数总和。
+  - **日期参数格式校验**：`date` / `start_date` / `end_date` 必须为 `YYYY-MM-DD` 格式且真实存在，否则返回 400 `{"error":"日期格式应为 YYYY-MM-DD，当前值: ..."}` 或 `{"error":"日期无效: ..."}`（与 V0 `GET /api/todos` 一致）。例如 `?date=invalid` / `?date=20260630` / `?date=2026-13-45` 均会被拒绝。
   - **响应（默认 expand=true）**:
     ```json
     {
@@ -776,14 +794,25 @@ API Key 格式为 `cfk_` 前缀 + 32 字节随机 Base64URL 编码。验证使�
 | V1 `/api/v1/trash-action` | 未知 action | 400 `{"error":"未知操作，可用: RESTORE, DELETE_PERMANENT, CLEAR_ALL, CLEAR_ALL_DATA, BATCH_RESTORE, BATCH_DELETE_PERMANENT"}` |
 | V1 `/api/v1/keys` POST | 未知 action | 400 `{"error":"未知操作，可用: CREATE, DELETE, TOGGLE, RENAME"}` |
 | V1 `/api/v1/keys` POST | 已有 10 个 key | 400 `{"error":"最多创建10个API Key"}` |
-| V1 `/api/v1/keys` GET/POST | 无 Cookie 鉴权 | 401 `{"error":"Cookie authentication required"}` |
+| V1 `/api/v1/keys` GET/POST | 用 API Key 调用（无 Cookie） | 401 `{"error":"UNAUTHORIZED"}` |
+| V1 `/api/v1/keys` GET/POST | 完全无鉴权 | 401 `{"error":"UNAUTHORIZED"}` |
+| V1 `/api/v1/keys` POST TOGGLE/RENAME | `id` 不存在 | 404 `{"error":"Key 不存在"}` |
+| V1 `/api/v1/keys` POST TOGGLE/RENAME/DELETE | 缺 `id` | 400 `{"error":"缺少 id"}` |
+| V1 `/api/v1/todos` GET | `date` / `start_date` / `end_date` 格式错误 | 400 `{"error":"日期格式应为 YYYY-MM-DD，当前值: ..."}` 或 `{"error":"日期无效: ..."}` |
 | V1 `/api/v1/todos/:id` PUT | 无效 scope | 400 `{"error":"无效的 scope: ${scope}，有效值: this, thisAndFuture, all"}` |
 | V1 `/api/v1/todos/:id` DELETE | 无效 scope | 400 `{"error":"无效的 scope: ${scope}，有效值: this, thisAndFuture, all"}` |
 | V1 `/api/v1/stats` | 缺 start/end | 400 `{"error":"start 和 end 为必填参数 (YYYY-MM-DD)"}` |
 | V1 `/api/v1/stats` | start > end | 400 `{"error":"start 不能晚于 end"}` |
 | V1 `/api/v1/stats` | 范围 > 366 天 | 400 `{"error":"日期范围不能超过 366 天（当前 N 天）"}` |
 | V1 任意鉴权端点 | API Key 无效 | 401 `{"error":"Invalid API Key"}` |
-| V1 任意鉴权端点 | 无 API Key 且无 Cookie | 401 `{"error":"Cookie authentication required"}` |
+| V1 任意鉴权端点（非 keys） | 无 API Key 且无 Cookie | 401 `{"error":"Cookie authentication required"}` |
+| V1 `/api/v1/todos` POST/PUT 或 V0 `/api/todo-action` CREATE/UPDATE | 含 `repeat_type`/`repeat_custom`/`repeat_interval`/`repeat_end` 旧字段 | 400 `{"error":"v1.0 已废弃 repeat_type / repeat_custom / repeat_interval / repeat_end 字段，请改用 type + rrule + anchor_date + exdates"}` |
+| V0 任意鉴权端点 | API Key 无效 | 401 `{"error":"UNAUTHORIZED"}` |
+| V0 任意鉴权端点 | API Key 作用域为 v1（默认） | 403 `{"error":"API Key 仅允许访问 v1 接口"}` |
+| V0 任意鉴权端点 | 无 API Key 且无 Cookie | 401 `{"error":"UNAUTHORIZED"}` |
+| V0 `/api/todos` GET | 缺 `date` 参数 | 400 `{"error":"Date required"}` |
+| V0 `/api/todos` GET | `date` 格式错误（非 `YYYY-MM-DD`） | 400 `{"error":"date 格式应为 YYYY-MM-DD，当前值: ..."}` |
+| V0 `/api/todos` GET | `date` 格式正确但日期不存在 | 400 `{"error":"日期无效: ..."}` |
 | V0 `/api/todo-action` POST | 未知 action | 400 `{"error":"未知的 action: ${action}，有效值: CREATE, UPDATE, DELETE, TOGGLE_DONE, TIMER_COMPLETE, TIMER_RECORD, UPDATE_SUBTASKS, UPDATE_SEARCH_TERMS, BATCH_TOGGLE_DONE, BATCH_DELETE"}` |
 
 ---
@@ -805,7 +834,7 @@ API Key 传递方式（与 V1 一致）：
 - Query: `?api_key=<your_api_key>`
 - Bearer Token: `Authorization: Bearer <your_api_key>`（仅当 token 以 `cfk_` 开头时生效）
 
-**注意**: API Key 管理端点 (`/api/v1/keys`) 仍仅支持 Cookie 鉴权，不支持 API Key 操作自身。作用域为 `v1` 的 API Key 无法访问 V0 端点（返回 403）；作用域为 `v0` 的 API Key 无法访问 V1 端点；默认 `all` / `v1` 详见 `app_settings.apiKeyScope`。
+**注意**: API Key 管理端点 (`/api/v1/keys`) 仍仅支持 Cookie 鉴权，不支持 API Key 操作自身（用 API Key 调用返回 401 `{"error":"UNAUTHORIZED"}`，无任何鉴权调用同样返回 401）。作用域为 `v1` 的 API Key 无法访问 V0 端点（返回 403 `{"error":"API Key 仅允许访问 v1 接口"}`）；作用域为 `v0` 的 API Key 无法访问 V1 端点（返回 403 `{"error":"API Key 仅允许访问 v0 接口"}`）；`app_settings.apiKeyScope` 默认值为 `v1`（仅允许 V1 接口），可选值 `v1` / `v0` / `all` / `disabled`。若需让同一 API Key 同时访问 V0 和 V1，须在 `app_settings.apiKeyScope` 显式设置为 `all`。
 
 ### 3.0 V0 响应格式约定
 
@@ -2438,8 +2467,13 @@ data = response.json()
 20. **`expand=true` 自动展开实例的 `anchor_date`**：服务端在 `GET /api/v1/todos?date=X`（默认 expand=true）触发模板展开时，新创建的实例 DB 行与响应均使用**模板的 `anchor_date`**（RFC 5545 DTSTART 等价物），展开日期仅在 `date` 列上体现。这保证了实例 `anchor_date` 与系列首实例一致，符合 RFC 5545 语义。
 21. **`category_id` 过滤在 `expand=true` 下严格生效**：服务端在展开重复模板时，会检查模板的 `category_id` 是否匹配查询参数 `category_id`，不匹配则跳过展开。调用方可放心使用 `?category_id=X&date=Y` 组合，不会看到不属于该分类的重复实例。
 22. **导出流首行字面量 `ndjson`**：`GET /api/export?mode=stream` 响应的第一行是字面量字符串 `ndjson`（非 JSON），作为流类型标识。从第二行起才是 JSON 行。客户端解析时需跳过首行或先校验首行是否为 `ndjson`。
-23. **PATCH toggle 的 `record_accepted` 字段**：`PATCH /api/v1/todos/:id/toggle` 对 `record` 字段进行严格校验（`s>0`、`e>=s`、时长 ≤7d、`0<=p<=(e-s)`、非对象/缺 `s`/`e` 拒绝）。若 record 非法，`done` 仍切换（保持幂等），但响应包含 `record_accepted:false` 字段；record 合法则 `record_accepted:true` 并写入 `time_records`。响应始终包含 `time_records` 数组（即使为空），调用方可据此判断 record 是否被接受。
+23. **PATCH toggle 的 `record_accepted` 字段**：`PATCH /api/v1/todos/:id/toggle` 对 `record` 字段进行严格校验（`s>0`、`e>=s`、时长 ≤7d、`0<=p<=(e-s)`、非对象/缺 `s`/`e` 拒绝）。**仅在调用方传入 `record` 字段时**响应才包含 `record_accepted` 字段：record 合法为 `true` 并写入 `time_records`；record 非法为 `false`（`done` 仍切换保持幂等，但 record 不写入）。**未传 `record` 时响应不包含 `record_accepted` 字段**（仅切换 `done`，不写 `time_records`）。响应始终包含 `time_records` 数组（即使为空），调用方可据此判断 record 是否真的写入。
 24. **`limit` / `offset` 边界**：V1 `/api/v1/todos` 与 `/api/v1/trash` 的 `limit` 上限 500，`offset` 上限 10000。超出会被夹紧到上限（不报错），响应中 `pagination.limit` / `pagination.offset` 反映夹紧后的值。
-25. **登录响应**：成功 `{"success":true}` + `Set-Cookie: auth_token=...; auth_sig=...`；失败 401（响应体 `ACCESS DENIED`，纯文本）；IP 锁定 429（响应体 `ACCOUNT LOCKED`，纯文本）。
+25. **登录响应**：成功 `{"success":true}` + `Set-Cookie: auth_token=...; auth_sig=...`；失败 401（响应体 `ACCESS DENIED`，纯文本）；IP 锁定 429（响应体 `ACCOUNT LOCKED`，纯文本）。请求体非 JSON 或缺 `password` 字段均按密码错误处理，返回 401 `ACCESS DENIED`。
 26. **`exdates` 入参支持两种形式**：JSON 数组字符串（如 `"[\"2026-07-04\"]"`）或 JSON 数组本身（如 `["2026-07-04"]`）。响应中始终返回 JSON 数组字符串。
 27. **`is_series` 在 V0 `/api/todos` 中为派生字段**：`type === 'recurring'` → `true`，其他 → `false`。V0 `/api/trash` 返回纯 DB 行**不含** `is_series` 字段。
+28. **V1 GET /todos 日期参数校验**：`date` / `start_date` / `end_date` 必须为 `YYYY-MM-DD` 格式且真实存在（如 `2026-13-45` 会被拒绝），与 V0 `GET /api/todos` 一致。非法格式返回 400 `{"error":"日期格式应为 YYYY-MM-DD，当前值: ..."}` 或 `{"error":"日期无效: ..."}`。
+29. **API Key 作用域默认值**：`app_settings.apiKeyScope` 默认 `v1`（仅允许 V1 接口）。若希望同一 API Key 同时访问 V0 和 V1，须在 web 设置面板或 `POST /api/v1/settings` 中显式设为 `all`。可选值 `v1` / `v0` / `all` / `disabled`。
+30. **API Key 管理端点严格 Cookie-only**：`GET/POST /api/v1/keys` 仅接受 Cookie 鉴权，**不接受 API Key 鉴权**。即使拥有有效的 API Key，调用此端点也会返回 401 `{"error":"UNAUTHORIZED"}`。这是出于安全设计：API Key 管理是高权限操作，必须由 Cookie 会话发起，避免 API Key 持有者自我提权或删除其他 Key。
+31. **V0 端点支持 API Key 鉴权**：所有非公开 V0 端点（`/api/todos` / `/api/trash` / `/api/categories` / `/api/todo-action` / `/api/category-action` / `/api/trash-action` / `/api/settings` / `/api/custom-*` / `/api/stats` / `/api/time-records` / `/api/sessions` / `/api/session-action` / `/api/export` / `/api/import` / `/api/import-backup`）均接受 API Key 鉴权（与 V1 共享同一套 API Key），鉴权优先级：API Key 优先，无 API Key 回退到 Cookie。但**默认作用域 `v1` 不允许 API Key 访问 V0**——须将 `apiKeyScope` 设为 `all` 或 `v0` 才能用 API Key 访问 V0 端点。
+32. **批量端点响应字段统一**：`POST /api/v1/categories/batch`（BATCH_DELETE）响应为 `{"success":true,"data":{"deleted":N,"chunked":bool,"chunkCount":N}}`，与 `POST /api/v1/todos/batch` / `POST /api/v1/trash-action` BATCH_* 一致，均返回 `chunked` / `chunkCount` 字段。V0 对应批量端点不返回这些字段（详见 §3.0 / §3.4）。

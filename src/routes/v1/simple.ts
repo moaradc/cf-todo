@@ -110,9 +110,13 @@ v1SimpleApp.post('/categories/batch', async (c) => {
   const { action, ids } = body;
   if (action !== 'BATCH_DELETE') return v1Err('未知操作，可用: BATCH_DELETE');
   if (!ids || !Array.isArray(ids) || ids.length === 0) return v1Err('ids 为必填数组');
+  let totalDeleted = 0;
   for (const chunk of chunkArray(ids, BATCH_CHUNK_SIZE)) {
     const ph = sqlPlaceholders(chunk.length);
     try {
+      // D1 不返回 batch 中 DELETE 的 changes，单独执行 SELECT COUNT 后 DELETE
+      const countRes = await d.prepare(`SELECT COUNT(*) as cnt FROM categories WHERE id IN (${ph})`).bind(...chunk).first<{ cnt: number }>();
+      totalDeleted += Number(countRes?.cnt || 0);
       await d.batch([
         d.prepare(`DELETE FROM categories WHERE id IN (${ph})`).bind(...chunk),
         d.prepare(`UPDATE todos SET category_id = '' WHERE category_id IN (${ph})`).bind(...chunk),
@@ -120,7 +124,7 @@ v1SimpleApp.post('/categories/batch', async (c) => {
       ]);
     } catch { /* 静默 */ }
   }
-  return v1Ok({ deleted: ids.length });
+  return v1Ok({ deleted: totalDeleted, chunked: ids.length > BATCH_CHUNK_SIZE, chunkCount: Math.ceil(ids.length / BATCH_CHUNK_SIZE) });
 });
 
 // ==================== Trash ====================
@@ -177,14 +181,15 @@ v1SimpleApp.post('/trash-action', async (c) => {
   }
   if (action === 'BATCH_RESTORE') {
     if (!ids || !Array.isArray(ids) || ids.length === 0) return v1Err('ids 为必填数组');
-    // 复用 V0 trash-service 的 batchRestore 逻辑（行为一致，只是响应壳不同）
-    const { batchRestore } = await import('../../services/trash-service');
-    await batchRestore(createDb(c.env.DB), ids);
+    // 先统计 ids 中实际处于回收站（deleted=1）的数量，作为 restored 基线
     let totalRestored = 0;
     for (const chunk of chunkArray(ids, BATCH_CHUNK_SIZE)) {
       const ph = sqlPlaceholders(chunk.length);
-      try { const r = await d.prepare(`SELECT id FROM todos WHERE id IN (${ph}) AND deleted = 0`).bind(...chunk).all(); totalRestored += (r.results || []).length; } catch { /* 静默 */ }
+      try { const r = await d.prepare(`SELECT COUNT(*) as cnt FROM todos WHERE id IN (${ph}) AND deleted = 1`).bind(...chunk).first<{ cnt: number }>(); totalRestored += Number(r?.cnt || 0); } catch { /* 静默 */ }
     }
+    // 复用 V0 trash-service 的 batchRestore 逻辑（行为一致，只是响应壳不同）
+    const { batchRestore } = await import('../../services/trash-service');
+    await batchRestore(createDb(c.env.DB), ids);
     return v1Ok({ restored: totalRestored, chunked: ids.length > BATCH_CHUNK_SIZE, chunkCount: Math.ceil(ids.length / BATCH_CHUNK_SIZE) });
   }
   if (action === 'BATCH_DELETE_PERMANENT') {
