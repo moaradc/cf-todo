@@ -366,7 +366,16 @@ v1TodosApp.patch('/todos/:id/toggle', async (c) => {
   let record_accepted: boolean | null = null;  // null = 未传 record，不返回此字段
   let has_record = false;
   if (new_done) {
-    if (is_fragment) { const fd = body_date || (existing.date as string) || ''; try { await d.prepare('UPDATE todos SET done = 1, date = ? WHERE id = ?').bind(fd, todo_id).run(); } catch { try { await d.prepare('UPDATE todos SET done = 1 WHERE id = ?').bind(todo_id).run(); } catch { /* 静默 */ } } }
+    if (is_fragment) {
+      // 碎时记完成时冻结 date：优先 body.date，其次 existing.date，最后用今天
+      // wiki §5.4: done=false→true 时 date 冻结为完成日期（body.date 或现有 date，不能是未来日期，否则纠正为今天 UTC+8）
+      // 当 body.date 未传且 existing.date 为空时（未完成态碎时记），应冻结为今天
+      let fd = body_date || (existing.date as string) || '';
+      if (!fd) {
+        fd = new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10);
+      }
+      try { await d.prepare('UPDATE todos SET done = 1, date = ? WHERE id = ?').bind(fd, todo_id).run(); } catch { try { await d.prepare('UPDATE todos SET done = 1 WHERE id = ?').bind(todo_id).run(); } catch { /* 静默 */ } }
+    }
     else { try { await d.prepare('UPDATE todos SET done = 1 WHERE id = ?').bind(todo_id).run(); } catch { try { await d.prepare('UPDATE todos SET done = 1 WHERE id = ?').bind(todo_id).run(); } catch { /* 静默 */ } } }
     if (record) { has_record = true; record_accepted = await writeTimerRecord(d, todo_id, existing.parent_id as string, record, is_fragment); }
   } else {
@@ -420,7 +429,10 @@ v1TodosApp.post('/todos/batch', async (c) => {
     const all_fragment_ids: string[] = []; const all_fragment_id_set = new Set<string>(); const all_plain_ids: string[] = [];
     for (const chunk of chunkArray(ids, BATCH_CHUNK_SIZE)) { const ph = sqlPlaceholders(chunk.length); const rows = await d.prepare(`SELECT id, type FROM todos WHERE id IN (${ph})`).bind(...chunk).all<{ id: string; type: string }>(); for (const r of (rows.results || [])) { if (r.type === 'fragment') { all_fragment_ids.push(r.id); all_fragment_id_set.add(r.id); } else all_plain_ids.push(r.id); } }
     if (done_status) {
-      const runFC = async () => { let a = 0; for (const chunk of chunkArray(all_fragment_ids, BATCH_CHUNK_SIZE)) { const ph = sqlPlaceholders(chunk.length); try { const r = await d.prepare(`UPDATE todos SET done = 1, date = ? WHERE id IN (${ph}) AND done = 0`).bind(date || '', ...chunk).run(); a += (r.meta?.changes || 0); } catch { try { const r2 = await d.prepare(`UPDATE todos SET done = 1 WHERE id IN (${ph}) AND done = 0`).bind(...chunk).run(); a += (r2.meta?.changes || 0); } catch { /* 静默 */ } } } return a; };
+      // 碎时记完成时 date 冻结：若 body.date 未传，使用今天 UTC+8（与 PATCH /toggle 一致）
+      const todayStr = new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10);
+      const effective_date = date || todayStr;
+      const runFC = async () => { let a = 0; for (const chunk of chunkArray(all_fragment_ids, BATCH_CHUNK_SIZE)) { const ph = sqlPlaceholders(chunk.length); try { const r = await d.prepare(`UPDATE todos SET done = 1, date = ? WHERE id IN (${ph}) AND done = 0`).bind(effective_date, ...chunk).run(); a += (r.meta?.changes || 0); } catch { try { const r2 = await d.prepare(`UPDATE todos SET done = 1 WHERE id IN (${ph}) AND done = 0`).bind(...chunk).run(); a += (r2.meta?.changes || 0); } catch { /* 静默 */ } } } return a; };
       const runPC = async () => { let a = 0; for (const chunk of chunkArray(all_plain_ids, BATCH_CHUNK_SIZE)) { const ph = sqlPlaceholders(chunk.length); try { const r = await d.prepare(`UPDATE todos SET done = 1 WHERE id IN (${ph}) AND done = 0`).bind(...chunk).run(); a += (r.meta?.changes || 0); } catch { /* 静默 */ } } return a; };
       const [fa, pa] = await Promise.all([runFC(), runPC()]); totalAffected += fa + pa;
       if (Array.isArray(timer_records) && timer_records.length > 0) {

@@ -53,10 +53,17 @@ todoActionApp.post('/todo-action', async (c) => {
 
   // TOGGLE_DONE/TIMER_COMPLETE/BATCH_TOGGLE_DONE 的完成日期校验
   // todayStr 使用 UTC+8（用户时区 Asia/Shanghai），避免 UTC 与本地日期跨天偏差
+  // 碎时记 done: false→true 时若未传 date，应冻结为今天（而非保留空串），详见 wiki §5.4
   let effective_date = date;
-  if (date && ['TOGGLE_DONE', 'TIMER_COMPLETE', 'BATCH_TOGGLE_DONE'].includes(action)) {
+  if (['TOGGLE_DONE', 'TIMER_COMPLETE', 'BATCH_TOGGLE_DONE'].includes(action)) {
     const todayStr = new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10);
-    if (date > todayStr) {
+    if (!date) {
+      // 仅对碎时记完成操作补默认日期；非碎时记不需要 date 冻结，保持 undefined 避免影响其他逻辑
+      // 服务端 toggleDone / timerComplete / batchToggleDone 内部会判断 is_fragment 后使用
+      // 但为了与 V1 PATCH /toggle 行为一致，这里统一补 todayStr 作为 fragment 完成日期默认值
+      // 注意：普通 todo 的 TOGGLE_DONE 不依赖 date，effective_date 传 todayStr 也不会影响行为
+      effective_date = todayStr;
+    } else if (date > todayStr) {
       effective_date = todayStr;
     }
   }
