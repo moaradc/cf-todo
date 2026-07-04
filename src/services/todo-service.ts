@@ -823,24 +823,27 @@ export async function batchDelete(db: Db, body: TodoActionBody): Promise<ActionR
   const { ids } = body;
   if (!ids || ids.length === 0) return { ok: true };
 
+  // 只查询未删除的 todos（已 deleted=1 的不重复处理，避免 exdate 重复添加）
   const tasks: Array<{ parent_id: string; date: string; type: string }> = [];
+  const activeIds: string[] = [];
   for (const chunk of chunkArray(ids, BATCH_CHUNK_SIZE)) {
     const ph = sqlPlaceholders(chunk.length);
     try {
-      const rows = await d.prepare(`SELECT parent_id, date, type FROM todos WHERE id IN (${ph})`).bind(...chunk).all<{ parent_id: string; date: string; type: string }>();
-      for (const r of (rows.results || [])) tasks.push(r);
+      const rows = await d.prepare(`SELECT id, parent_id, date, type FROM todos WHERE id IN (${ph}) AND deleted = 0`).bind(...chunk).all<{ id: string; parent_id: string; date: string; type: string }>();
+      for (const r of (rows.results || [])) { tasks.push(r); activeIds.push(r.id); }
     } catch { /* 静默 */ }
   }
 
-  for (const chunk of chunkArray(ids, BATCH_CHUNK_SIZE)) {
+  // 只 UPDATE 未删除的，避免重复软删除
+  for (const chunk of chunkArray(activeIds, BATCH_CHUNK_SIZE)) {
     const ph = sqlPlaceholders(chunk.length);
-    try { await d.prepare(`UPDATE todos SET deleted = 1 WHERE id IN (${ph})`).bind(...chunk).run(); }
+    try { await d.prepare(`UPDATE todos SET deleted = 1 WHERE id IN (${ph}) AND deleted = 0`).bind(...chunk).run(); }
     catch { /* 静默 */ }
   }
 
   const exdateUpdates: Record<string, string[]> = {};
   for (const t of tasks) {
-    if (t.type === 'recurring') {
+    if (t.type === 'recurring' && t.parent_id) {
       if (!exdateUpdates[t.parent_id]) exdateUpdates[t.parent_id] = [];
       exdateUpdates[t.parent_id].push(t.date);
     }

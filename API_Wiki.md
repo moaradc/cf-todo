@@ -442,7 +442,7 @@ API Key 格式为 `cfk_` 前缀 + 32 字节随机 Base64URL 编码。验证使�
     - `done_status: true`：先按 `type` 分组（fragment / plain）批量 `UPDATE done=1`；碎时记同时冻结 `date` 到 `body.date`。再对 `timer_records` 中每条 record 写入 `time_records`（规则同 `PATCH /toggle` 的 record 写入）。
     - `done_status: false`：批量 `UPDATE done=0, time_records='[]'`；碎时记 `date` 从 `fragment_anchor` 恢复。
     - `ids` 中有但 `timer_records` 没有的项：仅 `done=1`，不写 `time_records`（向后兼容）。
-  - **BATCH_DELETE**: 批量软删除，自动为 `type='recurring'` 的任务添加 exdate 防止重新生成（碎时记无模板，跳过）。
+  - **BATCH_DELETE**: 批量软删除，自动为 `type='recurring'` 的任务添加 exdate 防止重新生成（碎时记无模板，跳过）。`affected` 为本次新删除的行数（已 `deleted=1` 的 id 不重复计数，不重复添加 exdate）。
   - **自动分片**: 当 `ids.length > 99` 时，后端按 99 一组自动分片处理，调用方无需手动拆分。分片内单语句失败不阻断整体流程。
   - **响应 (BATCH_TOGGLE_DONE)**:
     ```json

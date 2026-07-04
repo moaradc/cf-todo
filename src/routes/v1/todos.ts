@@ -461,10 +461,13 @@ v1TodosApp.post('/todos/batch', async (c) => {
   }
   if (action === 'BATCH_DELETE') {
     if (!ids || !Array.isArray(ids) || ids.length === 0) return v1Err('ids 为必填数组');
+    // 只查询未删除的 todos（已 deleted=1 的不重复处理，避免 affected 重复计数 + exdate 重复添加）
     const tasks: Array<{ parent_id: string; date: string; type: string }> = [];
-    for (const chunk of chunkArray(ids, BATCH_CHUNK_SIZE)) { const ph = sqlPlaceholders(chunk.length); try { const rows = await d.prepare(`SELECT parent_id, date, type FROM todos WHERE id IN (${ph})`).bind(...chunk).all<{ parent_id: string; date: string; type: string }>(); for (const r of (rows.results || [])) tasks.push(r); } catch { /* 静默 */ } }
+    const activeIds: string[] = [];
+    for (const chunk of chunkArray(ids, BATCH_CHUNK_SIZE)) { const ph = sqlPlaceholders(chunk.length); try { const rows = await d.prepare(`SELECT id, parent_id, date, type FROM todos WHERE id IN (${ph}) AND deleted = 0`).bind(...chunk).all<{ id: string; parent_id: string; date: string; type: string }>(); for (const r of (rows.results || [])) { tasks.push(r); activeIds.push(r.id); } } catch { /* 静默 */ } }
     let totalAffected = 0;
-    for (const chunk of chunkArray(ids, BATCH_CHUNK_SIZE)) { const ph = sqlPlaceholders(chunk.length); try { const r = await d.prepare(`UPDATE todos SET deleted = 1 WHERE id IN (${ph})`).bind(...chunk).run(); totalAffected += (r.meta?.changes || 0); } catch { /* 静默 */ } }
+    // 只 UPDATE 未删除的，确保 affected 准确反映"本次新删除"的数量
+    for (const chunk of chunkArray(activeIds, BATCH_CHUNK_SIZE)) { const ph = sqlPlaceholders(chunk.length); try { const r = await d.prepare(`UPDATE todos SET deleted = 1 WHERE id IN (${ph}) AND deleted = 0`).bind(...chunk).run(); totalAffected += (r.meta?.changes || 0); } catch { /* 静默 */ } }
     const exdateUpdates: Record<string, string[]> = {};
     for (const t of tasks) { if (t.type === 'recurring' && t.parent_id) { if (!exdateUpdates[t.parent_id]) exdateUpdates[t.parent_id] = []; exdateUpdates[t.parent_id].push(t.date); } }
     const parentIds = Object.keys(exdateUpdates); const tplExdatesMap = new Map<string, string>();
