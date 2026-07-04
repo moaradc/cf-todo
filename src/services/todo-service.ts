@@ -109,8 +109,9 @@ export async function createTodo(db: Db, body: TodoActionBody): Promise<ActionRe
   const final_exdates = exdatesResult.value;
 
   const is_fragment = type === 'fragment';
-  const effectiveEndTime = is_fragment ? '' : ((task.end_time as string) || '');
-  const effectiveTime = is_fragment ? '' : ((task.time as string) || '');
+  // 碎时记允许设置 time / end_time（不再强制清空）
+  const effectiveEndTime = (task.end_time as string) || '';
+  const effectiveTime = (task.time as string) || '';
 
   const fallbackDate = date || (task.date as string) || '';
   if (!is_fragment && !fallbackDate) {
@@ -268,7 +269,7 @@ export async function updateTodo(db: Db, body: TodoActionBody): Promise<ActionRe
     if (!patchAnchorDate) patchAnchorDate = patchDate;
     if (!patchAnchorDate) return { ok: false, error: 'type=recurring 时 anchor_date 不能为空（请传 task.anchor_date 或 task.date）', status: 400 };
   }
-  if (patchType === 'fragment') { patchTime = ''; patchEndTime = ''; }
+  // 碎时记允许设置 time / end_time（不再强制清空）
 
   if (patchDate) { const e = validateDateFormat(patchDate); if (e) return { ok: false, error: e, status: 400 }; }
   if (patchTime) { const e = validateTimeFormat(patchTime); if (e) return { ok: false, error: e, status: 400 }; }

@@ -177,8 +177,9 @@ v1TodosApp.post('/todos', async (c) => {
   if (date && !/^\d{4}-\d{2}-\d{2}$/.test(date as string)) return v1Err('date 格式应为 YYYY-MM-DD');
   const id = Date.now().toString() + Math.floor(Math.random() * 10000).toString().padStart(4, '0');
   const catId = (category_id as string) || '';
-  const eTime = is_fragment ? '' : ((end_time as string) || '');
-  const effectiveTime = is_fragment ? '' : ((time as string) || '');
+  // 碎时记允许设置 time / end_time（不再强制清空）
+  const eTime = (end_time as string) || '';
+  const effectiveTime = (time as string) || '';
   const effective_date = is_fragment ? ((date as string) || '') : (date as string);
   const normPriority = normalizePriority((priority as string) || 'low');
   if (effective_date) { const e = validateDateFormat(effective_date); if (e) return v1Err(e); }
@@ -252,7 +253,7 @@ v1TodosApp.put('/todos/:id', async (c) => {
     category_id: body.category_id !== undefined ? body.category_id : (existing.category_id || ''),
     date: body.date !== undefined ? body.date : existing.date,
   };
-  if (new_values.type === 'fragment') { new_values.time = ''; new_values.end_time = ''; }
+  // 碎时记允许设置 time / end_time（不再强制清空）
   if (new_values.date) { const e = validateDateFormat(new_values.date as string); if (e) return v1Err(e); }
   if (new_values.time) { const e = validateTimeFormat(new_values.time as string); if (e) return v1Err(e); }
   if (new_values.end_time) { const e = validateTimeFormat(new_values.end_time as string); if (e) return v1Err(e); }

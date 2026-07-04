@@ -297,7 +297,7 @@ API Key 格式为 `cfk_` 前缀 + 32 字节随机 Base64URL 编码。验证使�
     - 拒绝旧字段 `repeat_type` / `repeat_custom` / `repeat_interval` / `repeat_end`：传入返回 400（错误消息明确提示改用 `type` + `rrule` + `anchor_date` + `exdates`）。
     - `type='recurring'` 时 `rrule` 必填且须通过 `sanitizeRRule` 校验；`anchor_date` 必填（默认 = `date`）。
     - `type='none'` / `type='fragment'` 时 `rrule` 强制清空（即便传入也忽略）；`anchor_date` 强制为空。
-    - `type='fragment'`（碎时记）特殊约束：`date` 允许为空；`time` / `end_time` 强制清空；`fragment_anchor` 同步为 `date`（作为取消完成时恢复起始日期的权威副本，详见 [§4.1](#41-todo-对象v1-响应格式)）。
+    - `type='fragment'`（碎时记）特殊约束：`date` 允许为空；`time` / `end_time` 可设置（与普通 todo 一致）；`fragment_anchor` 同步为 `date`（作为取消完成时恢复起始日期的权威副本，详见 [§4.1](#41-todo-对象v1-响应格式)）。
   - **说明**: 字段名与 V0 Web API 保持一致（snake_case）。`subtasks` 和 `search_terms` 支持纯字符串或 `{text, done}` 对象，纯字符串会自动转为 `{text: "xxx", done: false}`。当 `type='recurring'` 时会同时创建 `todo_templates` 记录；`fragment` 与 `none` 不创建模板。
   - **响应 (201)**: 返回完整 Todo 对象（含 v3.0 规范字段 `type` / `rrule` / `anchor_date` / `exdates` / 派生 `is_series` / `fragment_anchor`）：
     ```json
@@ -352,7 +352,7 @@ API Key 格式为 `cfk_` 前缀 + 32 字节随机 Base64URL 编码。验证使�
     - `anchor_date` / `exdates` 均支持 PATCH 语义。
     - `type='fragment'` / `type='none'` 时强制清空 `rrule` / `anchor_date` / `exdates`（即便调用方传值也覆盖）。
     - `type='recurring'` 时 `rrule` 与 `anchor_date` 必须非空（`anchor_date` 默认回退为 `date`）。
-    - `type='fragment'` 时 `time` / `end_time` 强制清空。
+    - `type='fragment'` 时 `time` / `end_time` 可设置（与普通 todo 一致）。
   - **scope 说明**:
     | scope | 行为 |
     |-------|------|
@@ -992,7 +992,7 @@ V0 CREATE / V0 UPDATE / V1 POST / V1 PUT 四个写入端点共享同一套联动
 
 | 触发条件 | 联动行为 |
 |---------|---------|
-| `type=fragment` | 强制清空 `time` / `end_time` / `rrule` / `anchor_date` / `exdates`；`fragment_anchor` 同步为 `date`（未完成时）或保留原值（已完成时） |
+| `type=fragment` | 强制清空 `rrule` / `anchor_date` / `exdates`；`time` / `end_time` 保留（可设置）；`fragment_anchor` 同步为 `date`（未完成时）或保留原值（已完成时） |
 | `type=none` | 强制清空 `rrule` / `anchor_date` / `exdates` |
 | `rrule` 非空 + `type=none` | 自动从 `rrule` 反推 `type=recurring`。**不覆盖 `fragment`**：若调用方显式传 `type=fragment`，尊重其意图，fragment 强制清空 rrule 由后续逻辑处理 |
 | `type=recurring` 缺 `anchor_date` | 默认回退为 `date` |
@@ -1539,7 +1539,7 @@ V0 和 V1 的 Category 对象格式一致：
 | `anchor_date` | 始终空 | 必填（= 首 instance 日期） | 始终空 |
 | `exdates` | `"[]"` | 可设置（JSON 数组字符串） | `"[]"` |
 | `date` | 必填 `YYYY-MM-DD` | 必填 `YYYY-MM-DD`（首实例 / anchor） | 可空，未完成=起始或空，完成=冻结为完成日期 |
-| `time` / `end_time` | 可设置 | 可设置 | 强制空 |
+| `time` / `end_time` | 可设置 | 可设置 | 可设置 |
 | `fragment_anchor` | 始终空 | 始终空 | `YYYY-MM-DD` 或空（碎时记起始日期权威副本） |
 | 实例级 `time_records` 截断 | FIFO 5 | FIFO 5 | **不截断**（保留全部 session 用于累计） |
 | 模板级 `time_records` | 不写（无模板） | 仅真实耗时（`s<e`）写，FIFO 10 | 不写（无模板） |
@@ -1639,7 +1639,7 @@ V0 和 V1 的 Category 对象格式一致：
 | `parent_id` | 自身 `id` | 不挂载到任何模板 |
 | `time_records` | 数组 | 实例级完成记录，**不截断**（保留全部 session 用于累计统计） |
 
-POST 时碎时记允许 `date` 为空；`time` / `end_time` 即便传入也会被强制清空；`rrule` / `anchor_date` / `exdates` 强制清空。
+POST 时碎时记允许 `date` 为空；`time` / `end_time` 可设置（与普通 todo 一致）；`rrule` / `anchor_date` / `exdates` 强制清空。
 
 **模板**：**不创建 `todo_templates` 记录**。`date`、`fragment_anchor`、`time_records` 都直接挂在 `todos` 行上。
 
@@ -1658,7 +1658,7 @@ V0 Web API 还支持 `keep_records: true`（来自「继续计时」路径，仅
 
 | 切换方向 | 行为 |
 |----------|------|
-| `none`/`recurring` → `fragment` | 脱离旧系列（旧模板加 exdate），强制清空 `rrule` / `anchor_date` / `exdates` / `time` / `end_time`，`fragment_anchor` 同步为 `date`（未完成时）或保留原值（已完成时）；不创建新模板 |
+| `none`/`recurring` → `fragment` | 脱离旧系列（旧模板加 exdate），强制清空 `rrule` / `anchor_date` / `exdates`，`time` / `end_time` 保留（可设置），`fragment_anchor` 同步为 `date`（未完成时）或保留原值（已完成时）；不创建新模板 |
 | `fragment` → `none`/`recurring` | 视为「单次 → 重复」路径：若新值是 `recurring` 则创建模板（须提供合法 `rrule` 与 `anchor_date`）；`fragment_anchor` 同步清空 |
 
 **可见性规则（GET /api/v1/todos 查询）**
@@ -1699,7 +1699,7 @@ V0 Web API 还支持 `keep_records: true`（来自「继续计时」路径，仅
 | `anchor_date` | 普通/碎时记始终空；重复 todo 必填（首实例日期） |
 | `exdates` | 普通/碎时记强制 `"[]"`；重复 todo 可设置 |
 | `date` | 普通/重复 todo 必填 `YYYY-MM-DD`；碎时记可空（未完成=起始或空，完成=冻结为完成日期） |
-| `time` / `end_time` | 普通/重复 todo 可设置；碎时记强制空 |
+| `time` / `end_time` | 普通/重复/碎时记 todo 均可设置 |
 | `is_series` | 后端派生：`type === 'recurring'`；普通/碎时记 `false`，重复 todo `true` |
 | `parent_id` | 普通 todo 与碎时记 = 自身 `id`；重复 todo = 系列 anchor `id`（CREATE 时与自身一致，后续实例沿用，UPDATE/DELETE 时若缺省则从 DB 派生） |
 | `fragment_anchor` | 普通 todo 与重复 todo 始终空；碎时记 = `YYYY-MM-DD` 或空（起始日期权威副本，不受完成/取消完成影响） |
