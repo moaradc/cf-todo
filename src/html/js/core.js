@@ -862,11 +862,14 @@ export const core = `
       timed_enabled: false, timed_lead_minutes: 15,
       daily_enabled: false, daily_include_completed: false, daily_include_uncompleted: true, daily_include_search: 'off',
       priority_enabled: false, priority_min_level: 'high',
+      skip_start: '', skip_end: '',
     };
     let tempReminderLead = 15;
     let tempReminderTz = 480;
     let tempReminderPriorityLevel = 'high';
     let tempReminderSearchMode = 'off';
+    let tempReminderSkipStart = '';
+    let tempReminderSkipEnd = '';
 
     function _reminderTzLabel(offset) {
       var sign = offset >= 0 ? '+' : '-';
@@ -898,6 +901,11 @@ export const core = `
       openTimePicker('edit', 'reminderLead');
     }
 
+    // 复用时间选择模态框选跳过时段起止
+    function openReminderSkipPicker(which) {
+      openTimePicker('edit', which === 'start' ? 'skipStart' : 'skipEnd');
+    }
+
     async function loadReminderConfig() {
       try {
         var res = await fetch('/api/reminder/config');
@@ -917,11 +925,15 @@ export const core = `
           daily_include_search: data.daily_include_search === 'all' || data.daily_include_search === 'uncompleted' ? data.daily_include_search : 'off',
           priority_enabled: !!data.priority_enabled,
           priority_min_level: data.priority_min_level || 'high',
+          skip_start: data.skip_start || '',
+          skip_end: data.skip_end || '',
         };
         tempReminderLead = reminderConfig.timed_lead_minutes;
         tempReminderTz = reminderConfig.timezone_offset;
         tempReminderPriorityLevel = reminderConfig.priority_min_level;
         tempReminderSearchMode = reminderConfig.daily_include_search;
+        tempReminderSkipStart = reminderConfig.skip_start;
+        tempReminderSkipEnd = reminderConfig.skip_end;
         _saveReminderSnapshot();
       } catch (e) {
         console.error('Load reminder config error:', e);
@@ -938,6 +950,8 @@ export const core = `
         tz: tempReminderTz,
         pri: tempReminderPriorityLevel,
         search: tempReminderSearchMode,
+        skipS: tempReminderSkipStart,
+        skipE: tempReminderSkipEnd,
       };
     }
     // 关闭设置页时重置未保存的修改
@@ -948,6 +962,8 @@ export const core = `
       tempReminderTz = _savedReminderSnapshot.tz;
       tempReminderPriorityLevel = _savedReminderSnapshot.pri;
       tempReminderSearchMode = _savedReminderSnapshot.search;
+      tempReminderSkipStart = _savedReminderSnapshot.skipS;
+      tempReminderSkipEnd = _savedReminderSnapshot.skipE;
       renderReminderConfig();
     }
 
@@ -963,6 +979,8 @@ export const core = `
       if (el('reminder-priority-box')) el('reminder-priority-box').classList.toggle('checked', reminderConfig.priority_enabled);
       if (el('set-disp-reminderPriorityLevel')) el('set-disp-reminderPriorityLevel').innerText = _priorityLabel(tempReminderPriorityLevel);
       if (el('set-disp-reminderSearchMode')) el('set-disp-reminderSearchMode').innerText = _searchModeLabel(tempReminderSearchMode);
+      if (el('set-disp-reminderSkipStart')) el('set-disp-reminderSkipStart').innerText = tempReminderSkipStart || '--:--';
+      if (el('set-disp-reminderSkipEnd')) el('set-disp-reminderSkipEnd').innerText = tempReminderSkipEnd || '--:--';
       if (el('reminder-daily-uncompleted')) el('reminder-daily-uncompleted').classList.toggle('active', reminderConfig.daily_include_uncompleted);
       if (el('reminder-daily-completed')) el('reminder-daily-completed').classList.toggle('active', reminderConfig.daily_include_completed);
     }
@@ -1020,6 +1038,8 @@ export const core = `
       reminderConfig.daily_include_completed = compPill ? compPill.classList.contains('active') : false;
       reminderConfig.daily_include_search = tempReminderSearchMode;
       reminderConfig.priority_min_level = tempReminderPriorityLevel;
+      reminderConfig.skip_start = tempReminderSkipStart;
+      reminderConfig.skip_end = tempReminderSkipEnd;
       if (!reminderConfig.app_url) reminderConfig.app_url = window.location.origin + '/';
     }
 
@@ -1048,6 +1068,8 @@ export const core = `
             tempReminderTz = reminderConfig.timezone_offset;
             tempReminderPriorityLevel = reminderConfig.priority_min_level;
             tempReminderSearchMode = reminderConfig.daily_include_search;
+            tempReminderSkipStart = reminderConfig.skip_start;
+            tempReminderSkipEnd = reminderConfig.skip_end;
             _saveReminderSnapshot();
             renderReminderConfig();
           }

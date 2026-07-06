@@ -233,6 +233,7 @@ export const bootstrap = `
       toggleReminderMode: toggleReminderMode,
       toggleReminderPill: toggleReminderPill,
       openReminderLeadPicker: openReminderLeadPicker,
+      openReminderSkipPicker: openReminderSkipPicker,
       saveReminderConfig: saveReminderConfig,
       sendTestReminder: sendTestReminder,
       onScaleSliderChange: onScaleSliderChange,

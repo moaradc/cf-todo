@@ -803,14 +803,19 @@ export const detail = `
       if (titleEl) {
         if (target === 'end') titleEl.textContent = '选择结束时间';
         else if (target === 'reminderLead') titleEl.textContent = '选择提前时间';
+        else if (target === 'skipStart') titleEl.textContent = '选择跳过起始时间';
+        else if (target === 'skipEnd') titleEl.textContent = '选择跳过结束时间';
         else titleEl.textContent = '选择开始时间';
       }
       document.getElementById('modal-time').classList.add('active');
       var refTime;
       if (target === 'reminderLead') {
-        // 提前时间：把 tempReminderLead 分钟拆成 H:M
         timePickerHour = Math.floor(tempReminderLead / 60);
         timePickerMin = tempReminderLead % 60;
+      } else if (target === 'skipStart' || target === 'skipEnd') {
+        var skipVal = (target === 'skipStart') ? tempReminderSkipStart : tempReminderSkipEnd;
+        if (skipVal) { const [h, m] = skipVal.split(':').map(Number); timePickerHour = h; timePickerMin = m; }
+        else { const now = new Date(); timePickerHour = now.getHours(); timePickerMin = now.getMinutes(); }
       } else {
         refTime = (target === 'end') ? tempEndTime : tempTime;
         if (target === 'end' && !tempEndTime && tempTime) {
@@ -855,6 +860,13 @@ export const detail = `
         closeTimePicker();
         return;
       }
+      if (timePickerTarget === 'skipStart' || timePickerTarget === 'skipEnd') {
+        if (timePickerTarget === 'skipStart') tempReminderSkipStart = selectedTime;
+        else tempReminderSkipEnd = selectedTime;
+        renderReminderConfig();
+        closeTimePicker();
+        return;
+      }
       if (timePickerTarget === 'end') {
         tempEndTime = selectedTime;
         if(activeMode === 'add') updateAddUI();
@@ -875,6 +887,13 @@ export const detail = `
     function clearTime() {
       if (timePickerTarget === 'reminderLead') {
         tempReminderLead = 15;
+        renderReminderConfig();
+        closeTimePicker();
+        return;
+      }
+      if (timePickerTarget === 'skipStart' || timePickerTarget === 'skipEnd') {
+        if (timePickerTarget === 'skipStart') tempReminderSkipStart = '';
+        else tempReminderSkipEnd = '';
         renderReminderConfig();
         closeTimePicker();
         return;

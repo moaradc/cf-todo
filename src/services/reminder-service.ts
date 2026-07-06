@@ -47,6 +47,9 @@ export interface ReminderConfig {
   // priority 模式
   priority_enabled: boolean;
   priority_min_level: PriorityLevel;
+  // 时间跳过（hh:mm 格式，空表示不跳过；同时设置时在该时段内不发邮件）
+  skip_start: string;
+  skip_end: string;
 }
 
 interface ReminderSentEntry {
@@ -124,6 +127,8 @@ const DEFAULT_CONFIG: ReminderConfig = {
   daily_include_search: 'off',
   priority_enabled: false,
   priority_min_level: 'high',
+  skip_start: '',
+  skip_end: '',
 };
 
 function clamp(v: unknown, min: number, max: number, fallback: number): number {
@@ -138,6 +143,17 @@ function parsePriorityLevel(v: unknown): PriorityLevel {
 
 function parseSearchIncludeMode(v: unknown): SearchIncludeMode {
   return v === 'all' || v === 'uncompleted' ? v : 'off';
+}
+
+/** 解析 hh:mm 格式时间，非法返回空串 */
+function parseHHMM(v: unknown): string {
+  if (typeof v !== 'string') return '';
+  const m = v.trim().match(/^(\d{1,2}):(\d{2})$/);
+  if (!m) return '';
+  const h = parseInt(m[1], 10);
+  const mm = parseInt(m[2], 10);
+  if (h < 0 || h > 23 || mm < 0 || mm > 59) return '';
+  return `${String(h).padStart(2, '0')}:${String(mm).padStart(2, '0')}`;
 }
 
 export function normalizeConfig(input: unknown): ReminderConfig {
@@ -167,6 +183,8 @@ export function normalizeConfig(input: unknown): ReminderConfig {
     daily_include_search: migratedSearch,
     priority_enabled: r.priority_enabled === true,
     priority_min_level: parsePriorityLevel(r.priority_min_level),
+    skip_start: parseHHMM(r.skip_start),
+    skip_end: parseHHMM(r.skip_end),
   };
 }
 
@@ -234,6 +252,22 @@ async function sha256Hex(input: string): Promise<string> {
 /** 15 秒时间桶：用于 Resend Idempotency-Key。同一桶内重复请求被去重，跨桶允许新发。 */
 function idemBucket(): number {
   return Math.floor(Date.now() / 15000);
+}
+
+/** 检查当前时间（目标时区壁钟）是否在跳过范围内。支持跨午夜（如 23:00-07:00）。 */
+function isInSkipWindow(localNow: Date, skipStart: string, skipEnd: string): boolean {
+  if (!skipStart || !skipEnd) return false;
+  const [sh, sm] = skipStart.split(':').map(Number);
+  const [eh, em] = skipEnd.split(':').map(Number);
+  const cur = localNow.getUTCHours() * 60 + localNow.getUTCMinutes();
+  const start = sh * 60 + sm;
+  const end = eh * 60 + em;
+  // 同日：start < end，cur 在 [start, end) 内
+  // 跨午夜：start > end，cur >= start 或 cur < end
+  if (start < end) return cur >= start && cur < end;
+  if (start > end) return cur >= start || cur < end;
+  // start === end：不跳过（避免全天跳过）
+  return false;
 }
 
 // ==================== 查询 ====================
@@ -485,6 +519,11 @@ export async function runScheduledReminders(env: Env): Promise<ReminderRunResult
   const nowUtcMs = Date.now();
   const localNow = new Date(nowUtcMs + tzOffsetMs);
   const todayStr = getLocalDateStr(localNow);
+
+  // 时间跳过：在跳过时段内不发送任何邮件
+  if (isInSkipWindow(localNow, cfg.skip_start, cfg.skip_end)) {
+    return { skipped: true, reason: `skip_window ${cfg.skip_start}-${cfg.skip_end}`, sent: 0, failed: 0, modes: [] };
+  }
 
   const state = await getState(db);
   state.last_run = nowUtcMs;

@@ -456,6 +456,20 @@ export function getBody(isAuthorized) {
                   <span style="font-size:0.8rem; margin-right: 4px;">▼</span>
               </div>
           </div>
+          <div class="setting-item" style="margin-bottom: 4px; border: none; padding: 0;">
+              <span class="settings-text" style="margin:0;">时间跳过</span>
+              <div style="display:flex; gap:6px; align-items:center;">
+                  <div class="fake-input" onclick="openReminderSkipPicker('start')" style="width: 70px; margin-bottom: 0; padding: 6px 10px; justify-content: space-between; border-radius: 4px;">
+                      <span id="set-disp-reminderSkipStart">--:--</span>
+                      <span style="font-size:0.75rem; margin-left: 4px; color:#888;">▼</span>
+                  </div>
+                  <span style="font-size:0.75rem; color:#888;">—</span>
+                  <div class="fake-input" onclick="openReminderSkipPicker('end')" style="width: 70px; margin-bottom: 0; padding: 6px 10px; justify-content: space-between; border-radius: 4px;">
+                      <span id="set-disp-reminderSkipEnd">--:--</span>
+                      <span style="font-size:0.75rem; margin-left: 4px; color:#888;">▼</span>
+                  </div>
+              </div>
+          </div>
 
           <div style="border-top: 1px dashed #333; margin: 16px 0 12px 0; padding-top: 12px;">
             <div class="settings-text" style="font-weight:bold; margin-bottom: 10px;">提醒模式</div>
