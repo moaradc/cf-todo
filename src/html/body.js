@@ -519,13 +519,6 @@ export function getBody(isAuthorized) {
                     <label style="font-size:0.8rem; color:#666; cursor:pointer;"><input type="checkbox" id="reminder-daily-completed"> 已完成</label>
                   </div>
               </div>
-              <div class="setting-item" style="margin-top: 8px; border: none; padding: 0;">
-                  <span class="settings-text" style="margin:0; color:#666;">搜索词</span>
-                  <div class="fake-input" onclick="toggleSettingPopover('reminderSearchMode', this)" style="width: 110px; margin-bottom: 0; padding: 6px 10px; justify-content: space-between; border-radius: 4px;">
-                      <span id="set-disp-reminderSearchMode">关闭</span>
-                      <span style="font-size:0.8rem; margin-right: 4px;">▼</span>
-                  </div>
-              </div>
             </div>
 
             <div class="reminder-mode-block">
@@ -540,6 +533,21 @@ export function getBody(isAuthorized) {
                   <span class="settings-text" style="margin:0; color:#666;">阈值</span>
                   <div class="fake-input" onclick="toggleSettingPopover('reminderPriorityLevel', this)" style="width: 110px; margin-bottom: 0; padding: 6px 10px; justify-content: space-between; border-radius: 4px;">
                       <span id="set-disp-reminderPriorityLevel">高</span>
+                      <span style="font-size:0.8rem; margin-right: 4px;">▼</span>
+                  </div>
+              </div>
+            </div>
+
+            <div class="reminder-mode-block">
+              <div class="reminder-mode-header">
+                <span class="settings-text" style="margin:0; font-weight:600;">搜索词附加</span>
+                <span class="settings-text" style="margin:0; font-size:0.75rem; color:#666;">所有模式生效</span>
+              </div>
+              <div class="settings-text reminder-mode-desc">在每封提醒邮件末尾附加待办关联的搜索词（按来源待办分组）</div>
+              <div class="setting-item" style="margin-top: 10px; border: none; padding: 0;">
+                  <span class="settings-text" style="margin:0; color:#666;">包含范围</span>
+                  <div class="fake-input" onclick="toggleSettingPopover('reminderSearchMode', this)" style="width: 110px; margin-bottom: 0; padding: 6px 10px; justify-content: space-between; border-radius: 4px;">
+                      <span id="set-disp-reminderSearchMode">关闭</span>
                       <span style="font-size:0.8rem; margin-right: 4px;">▼</span>
                   </div>
               </div>

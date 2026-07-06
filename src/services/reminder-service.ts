@@ -281,13 +281,7 @@ function dueTodoToItem(t: DueTodo): EmailItem {
   };
 }
 
-// ==================== search_terms 解析（供 daily 模式附加 section 用） ====================
-
-interface SearchTermEntry {
-  text: string;
-  done: boolean;
-  todoText: string;
-}
+// ==================== search_terms 解析（供各模式附加 section 用） ====================
 
 function parseSearchTerms(raw: string): Array<{ text: string; done: boolean }> {
   if (!raw) return [];
@@ -309,38 +303,23 @@ function parseSearchTerms(raw: string): Array<{ text: string; done: boolean }> {
 }
 
 /**
- * 聚合今日所有 todo 的 search_terms。
- * mode: 'all' 全部 / 'uncompleted' 仅未完成 / 'off' 不附加
- * 返回的 sections 直接拼到 daily 邮件里。
+ * 聚合今日所有 todo 的 search_terms，按来源 todo 分组。
+ * mode: 'all' 全部 / 'uncompleted' 仅未完成搜索词 / 'off' 不附加
+ * 每个 todo 一个 section，section 内按搜索词 done 状态排序（未完成在前）。
  */
 function buildSearchSections(allTodos: DueTodo[], mode: SearchIncludeMode): EmailSection[] {
   if (mode === 'off') return [];
-  const allTerms: SearchTermEntry[] = [];
-  for (const t of allTodos) {
-    const terms = parseSearchTerms(t.search_terms);
-    for (const term of terms) {
-      allTerms.push({ text: term.text, done: term.done, todoText: t.text });
-    }
-  }
-  if (allTerms.length === 0) return [];
-
-  const showTerms = mode === 'uncompleted' ? allTerms.filter((t) => !t.done) : allTerms;
-  if (showTerms.length === 0) return [];
-
-  const uncompleted = showTerms.filter((t) => !t.done);
-  const completed = showTerms.filter((t) => t.done);
   const sections: EmailSection[] = [];
-  if (uncompleted.length > 0) {
+  for (const todo of allTodos) {
+    const terms = parseSearchTerms(todo.search_terms);
+    if (terms.length === 0) continue;
+    const showTerms = mode === 'uncompleted' ? terms.filter((t) => !t.done) : terms;
+    if (showTerms.length === 0) continue;
+    // 排序：未完成在前，已完成在后
+    showTerms.sort((a, b) => Number(a.done) - Number(b.done));
     sections.push({
-      title: `未完成搜索词 (${uncompleted.length})`,
-      items: uncompleted.map((t) => ({ text: t.text, desc: `来源：${t.todoText}` })),
-      listStyle: 'keywords',
-    });
-  }
-  if (completed.length > 0) {
-    sections.push({
-      title: `已完成搜索词 (${completed.length})`,
-      items: completed.map((t) => ({ text: t.text, desc: `来源：${t.todoText}`, done: true })),
+      title: `${todo.text} 的搜索词 (${showTerms.length})`,
+      items: showTerms.map((t) => ({ text: t.text, done: t.done })),
       listStyle: 'keywords',
     });
   }
@@ -377,15 +356,18 @@ async function runTimedMode(
   if (dueTodos.length === 0) return { mode: 'timed', skipped: false, checked: timed.length, sent: 0, failed: 0 };
 
   const tzLbl = timezoneLabel(cfg.timezone_offset);
-  const section: EmailSection = {
+  const sections: EmailSection[] = [{
     title: `未来 ${cfg.timed_lead_minutes} 分钟内到期`,
     items: dueTodos.map(dueTodoToItem),
     listStyle: 'cards',
-  };
+  }];
+  // 附加今日所有 todo 的搜索词（按来源 todo 分组）
+  const searchSections = buildSearchSections(allTodos, cfg.daily_include_search);
+  sections.push(...searchSections);
   const { html, text, subject } = renderModeEmail({
     title: `【待办提醒】${dueTodos.length} 项任务即将到期`,
     subtitle: `未来 ${cfg.timed_lead_minutes} 分钟内到期的待办事项`,
-    sections: [section], runAt: localNow, timezoneLabel: tzLbl, appUrl: cfg.app_url,
+    sections, runAt: localNow, timezoneLabel: tzLbl, appUrl: cfg.app_url,
   });
 
   const idemParts = dueTodos.map((t) => `${t.id}@${dueUtcMsFor(t.time, localNow, tzOffsetMs) ?? 0}`).sort();
@@ -451,10 +433,9 @@ async function runDailyMode(
   }
 
   const tzLbl = timezoneLabel(cfg.timezone_offset);
-  const searchLabel = cfg.daily_include_search === 'all' ? '，含搜索词' : cfg.daily_include_search === 'uncompleted' ? '，含未完成搜索词' : '';
   const { html, text, subject } = renderModeEmail({
     title: `【今日汇总】${todayStr} 待办一览`,
-    subtitle: `今日共 ${allTodos.length} 项待办（未完成 ${uncompleted.length} / 已完成 ${completed.length}）${searchLabel}`,
+    subtitle: `今日共 ${allTodos.length} 项待办（未完成 ${uncompleted.length} / 已完成 ${completed.length}）`,
     sections, runAt: localNow, timezoneLabel: tzLbl, appUrl: cfg.app_url,
   });
 
@@ -489,15 +470,18 @@ async function runPriorityMode(
 
   const levelLabel = cfg.priority_min_level === 'high' ? '高' : cfg.priority_min_level === 'med' ? '中及以上' : '低及以上（全部）';
   const tzLbl = timezoneLabel(cfg.timezone_offset);
-  const section: EmailSection = {
+  const sections: EmailSection[] = [{
     title: `${levelLabel}优先级未完成`,
     items: allTodos.map(dueTodoToItem),
     listStyle: 'cards',
-  };
+  }];
+  // 附加这些 todo 的搜索词（按来源 todo 分组）
+  const searchSections = buildSearchSections(allTodos, cfg.daily_include_search);
+  sections.push(...searchSections);
   const { html, text, subject } = renderModeEmail({
     title: `【优先级提醒】${allTodos.length} 项待办需关注`,
     subtitle: `${levelLabel}优先级的未完成待办`,
-    sections: [section], runAt: localNow, timezoneLabel: tzLbl, appUrl: cfg.app_url,
+    sections, runAt: localNow, timezoneLabel: tzLbl, appUrl: cfg.app_url,
   });
 
   const idempotencyKey = `cf-todo:priority:${idemBucket()}`;
@@ -575,7 +559,8 @@ export async function sendTestEmail(env: Env, cfg: ReminderConfig): Promise<{ ok
 
   const result = await sendEmail(env.RESEND_API_KEY, {
     from: cfg.from, to: cfg.recipient, subject, html, text,
-    idempotencyKey: `cf-todo:test:${now.getUTCFullYear()}-${pad2(now.getUTCMonth() + 1)}-${pad2(now.getUTCDate())}T${pad2(now.getUTCHours())}`,
+    // 15s 时间桶：同 15s 内重复点击去重，跨 15s 允许重发（测试邮件用户可能需要多次验证）
+    idempotencyKey: `cf-todo:test:${idemBucket()}`,
   });
   return { ok: result.ok, id: result.id, error: result.error };
 }
