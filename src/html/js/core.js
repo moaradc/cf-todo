@@ -922,9 +922,32 @@ export const core = `
         tempReminderTz = reminderConfig.timezone_offset;
         tempReminderPriorityLevel = reminderConfig.priority_min_level;
         tempReminderSearchMode = reminderConfig.daily_include_search;
+        _saveReminderSnapshot();
       } catch (e) {
         console.error('Load reminder config error:', e);
       }
+      renderReminderConfig();
+    }
+
+    // 已保存配置的本地快照，关闭设置页时用它重置 DOM（0 请求）
+    var _savedReminderSnapshot = null;
+    function _saveReminderSnapshot() {
+      _savedReminderSnapshot = {
+        cfg: Object.assign({}, reminderConfig),
+        lead: tempReminderLead,
+        tz: tempReminderTz,
+        pri: tempReminderPriorityLevel,
+        search: tempReminderSearchMode,
+      };
+    }
+    // 关闭设置页时重置未保存的修改（纯本地，不发请求）
+    function resetReminderToSaved() {
+      if (!_savedReminderSnapshot) return;
+      reminderConfig = Object.assign({}, _savedReminderSnapshot.cfg);
+      tempReminderLead = _savedReminderSnapshot.lead;
+      tempReminderTz = _savedReminderSnapshot.tz;
+      tempReminderPriorityLevel = _savedReminderSnapshot.pri;
+      tempReminderSearchMode = _savedReminderSnapshot.search;
       renderReminderConfig();
     }
 
@@ -1026,6 +1049,7 @@ export const core = `
             tempReminderTz = reminderConfig.timezone_offset;
             tempReminderPriorityLevel = reminderConfig.priority_min_level;
             tempReminderSearchMode = reminderConfig.daily_include_search;
+            _saveReminderSnapshot();
             renderReminderConfig();
           }
           _setReminderStatus('✓ 保存成功', false);

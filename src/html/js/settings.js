@@ -144,8 +144,8 @@ export const settings = `
     }
 
     function closeSettings() {
-      // 重置邮件通知未保存的修改：重新从后端拉取配置并渲染
-      try { loadReminderConfig(); } catch(e) {}
+      // 重置邮件通知未保存的修改（纯本地快照，不发请求）
+      try { resetReminderToSaved(); } catch(e) {}
       if (_isNavClosing) {
         const view = document.getElementById('settings-overlay');
         view.classList.add('closing');
