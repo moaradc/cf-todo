@@ -80,7 +80,7 @@ export interface ModeResult {
   enabled: boolean;
   /** 本模式贡献的邮件 section（可能为空，表示无内容可发） */
   sections: EmailSection[];
-  /** 简短描述，用于拼邮件主题，如「到期2」「汇总(9/10)」「优先级3」 */
+  /** 简短描述，用于拼邮件主题，如「即将到期2」「汇总(9/10)」「优先级3」 */
   summary?: string;
   /** 该模式触发的 state.sent 追加项（仅 timed 模式有） */
   sentEntries?: ReminderSentEntry[];
@@ -411,13 +411,13 @@ async function runTimedMode(
   }
 
   const sections: EmailSection[] = [{
-    title: `未来 ${cfg.timed_lead_minutes} 分钟内到期`,
+    title: `未来 ${cfg.timed_lead_minutes} 分钟内即将到期`,
     items: dueTodos.map(dueTodoToItem),
     listStyle: 'cards',
   }];
   return {
     mode: 'timed', enabled: true, sections, checked: timed.length, skipped: false,
-    summary: `到期${dueTodos.length}`,
+    summary: `即将到期${dueTodos.length}`,
     sentEntries,
     displayedIds: dueTodos.map((t) => t.id),
   };
@@ -562,7 +562,7 @@ export async function runScheduledReminders(env: Env): Promise<ReminderRunResult
     return { skipped: false, sent: 0, failed: 0, modes: results };
   }
 
-  // 组合邮件主题：各模式紧凑标签用「·」拼接（到期2 · 高优3 · 汇总(9/10)）
+  // 组合邮件主题：各模式紧凑标签用「·」拼接（即将到期2 · 高优3 · 汇总(9/10)）
   const summaries = results.filter((r) => r.summary).map((r) => r.summary!);
   const subject = summaries.join(' · ');
   const subtitle = `${mergedSections.length} 个板块 · ${getLocalDateStr(localNow)} ${pad2(localNow.getUTCHours())}:${pad2(localNow.getUTCMinutes())} ${timezoneLabel(cfg.timezone_offset)}`;

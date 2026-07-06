@@ -481,7 +481,7 @@ export function getBody(isAuthorized) {
                     <div class="switch-box" id="reminder-timed-box"></div>
                 </div>
               </div>
-              <div class="reminder-mode-desc">每次 Cron 执行时，扫描未来指定分钟内到期的待办</div>
+              <div class="reminder-mode-desc">每次 Cron 执行时，扫描未来指定分钟内即将到期的待办</div>
               <div class="reminder-mode-opts">
                 <div class="reminder-opt-row">
                   <span class="reminder-opt-label">扫描范围</span>
