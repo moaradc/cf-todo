@@ -576,6 +576,20 @@ html.bg-dark #modal-changelog.modal-overlay{background:rgba(0,0,0,.42)!important
 .changelog-new{border-left:3px solid var(--ycy-ac)!important;padding-left:10px!important;border-bottom:none!important}
 .changelog-new .changelog-version{color:var(--ycy-ac)!important}
 .changelog-section-title{font-size:.7rem!important;color:var(--ycy-t2)!important;text-transform:uppercase!important;margin:12px 0 8px!important;padding-bottom:4px!important;border-bottom:1px solid var(--ycy-bd2)!important;letter-spacing:1px!important}
+
+/* ── reminder (邮件通知设置) ── */
+.reminder-mode-block{background:var(--ycy-panel)!important;border:1px solid var(--ycy-bd)!important;border-radius:var(--ycy-r-s)!important;box-shadow:var(--ycy-sh)!important;margin-bottom:10px!important;padding:0!important}
+.reminder-mode-head{display:flex!important;align-items:center!important;justify-content:space-between!important;padding:12px 14px 6px!important}
+.reminder-mode-title{font-size:.9rem!important;font-weight:600!important;color:var(--ycy-t)!important}
+.reminder-mode-desc{font-size:.72rem!important;color:var(--ycy-t3)!important;padding:0 14px 10px!important;line-height:1.4!important}
+.reminder-mode-opts{padding:4px 14px 12px!important}
+.reminder-opt-row{display:flex!important;align-items:center!important;justify-content:space-between!important;padding:8px 0!important;border-top:1px solid var(--ycy-bd2)!important}
+.reminder-opt-row:first-child{border-top:none!important}
+.reminder-opt-label{font-size:.8rem!important;color:var(--ycy-t2)!important}
+.reminder-opt-row .fake-input{width:auto!important;min-width:100px!important;max-width:140px!important}
+.reminder-pill{display:inline-block!important;padding:4px 12px!important;font-size:.78rem!important;color:var(--ycy-t2)!important;background:var(--ycy-panel-s)!important;border:1px solid var(--ycy-bd)!important;border-radius:999px!important;cursor:pointer!important;user-select:none!important;transition:all .15s!important;box-shadow:none!important}
+.reminder-pill.active{color:#fff!important;background:var(--ycy-gn)!important;border-color:var(--ycy-gn)!important}
+.reminder-pill:active{transform:scale(.96)!important}
 </style>
 ```
 </details>
