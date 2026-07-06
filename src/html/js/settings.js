@@ -71,6 +71,7 @@ export const settings = `
       if (createdBox) createdBox.style.display = 'none';
       loadSessions();
       loadApiKeys();
+      loadReminderConfig();
       checkUpdate();
       updatePwaInstallUI();
       _navPush('settings-overlay', closeSettings, '/settings');
@@ -206,6 +207,11 @@ export const settings = `
     }
 
     function selectSetting(type, value, label) {
+      // 邮件通知的两个选择项走独立处理（不写 appSettings，避免污染主设置流）
+      if (type === 'reminderLead' || type === 'reminderTz') {
+        _selectReminderSetting(type, value);
+        return;
+      }
       if (type === 'provider') { tempSetProvider = value; document.getElementById('set-disp-provider').innerText = label; }
       else if (type === 'sort') { tempSetSort = value; document.getElementById('set-disp-sort').innerText = label; }
       else if (type === 'sortAsc') { tempSetSortAsc = value === 'true'; document.getElementById('set-disp-sort-asc').innerText = label; }

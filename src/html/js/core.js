@@ -854,6 +854,180 @@ export const core = `
         alert('操作失败: ' + e.message);
       }
     }
+
+    // ==================== 邮件通知（定时提醒） ====================
+
+    // 与后端 ReminderConfig 对应的运行时状态。openSettings 时从后端拉取覆盖。
+    let reminderConfig = {
+      enabled: false,
+      recipient: '',
+      from: '',
+      lead_minutes: 15,
+      timezone_offset: 480,
+      app_url: '',
+    };
+    // popover 选择项的临时态（与 tempSetProvider 等同模式）
+    let tempReminderLead = 15;
+    let tempReminderTz = 480;
+
+    function _reminderTzLabel(offset) {
+      var sign = offset >= 0 ? '+' : '-';
+      var abs = Math.abs(offset);
+      var h = Math.floor(abs / 60);
+      var m = abs % 60;
+      return 'UTC' + sign + h + (m > 0 ? ':' + String(m).padStart(2, '0') : '');
+    }
+
+    async function loadReminderConfig() {
+      try {
+        var res = await fetch('/api/reminder/config');
+        if (!res.ok) return;
+        var data = await res.json();
+        reminderConfig = {
+          enabled: !!data.enabled,
+          recipient: data.recipient || '',
+          from: data.from || '',
+          lead_minutes: Number.isFinite(data.lead_minutes) ? data.lead_minutes : 15,
+          timezone_offset: Number.isFinite(data.timezone_offset) ? data.timezone_offset : 480,
+          app_url: data.app_url || '',
+        };
+        tempReminderLead = reminderConfig.lead_minutes;
+        tempReminderTz = reminderConfig.timezone_offset;
+      } catch (e) {
+        console.error('Load reminder config error:', e);
+      }
+      renderReminderConfig();
+    }
+
+    function renderReminderConfig() {
+      var box = document.getElementById('reminder-enabled-box');
+      if (box) box.classList.toggle('checked', reminderConfig.enabled);
+      var recipientInput = document.getElementById('reminder-recipient-input');
+      if (recipientInput) recipientInput.value = reminderConfig.recipient;
+      var fromInput = document.getElementById('reminder-from-input');
+      if (fromInput) fromInput.value = reminderConfig.from;
+      var leadDisp = document.getElementById('set-disp-reminderLead');
+      if (leadDisp) leadDisp.innerText = String(tempReminderLead);
+      var tzDisp = document.getElementById('set-disp-reminderTz');
+      if (tzDisp) tzDisp.innerText = _reminderTzLabel(tempReminderTz);
+    }
+
+    // popover 选择回调（与 selectSetting 同模式，但走独立分支避免污染主选择器）
+    function _selectReminderSetting(type, value) {
+      if (type === 'reminderLead') {
+        tempReminderLead = parseInt(value, 10) || 15;
+        var leadDisp = document.getElementById('set-disp-reminderLead');
+        if (leadDisp) leadDisp.innerText = String(tempReminderLead);
+      } else if (type === 'reminderTz') {
+        tempReminderTz = parseInt(value, 10);
+        var tzDisp = document.getElementById('set-disp-reminderTz');
+        if (tzDisp) tzDisp.innerText = _reminderTzLabel(tempReminderTz);
+      }
+      var pop = document.getElementById('popover-set-' + type);
+      if (pop) pop.style.display = 'none';
+    }
+
+    function toggleReminderEnabled() {
+      reminderConfig.enabled = !reminderConfig.enabled;
+      var box = document.getElementById('reminder-enabled-box');
+      if (box) box.classList.toggle('checked', reminderConfig.enabled);
+    }
+
+    function _setReminderStatus(msg, isError) {
+      var el = document.getElementById('reminder-status-text');
+      if (!el) return;
+      el.textContent = msg || '';
+      el.style.color = isError ? 'var(--accent)' : 'var(--crt)';
+    }
+
+    async function saveReminderConfig() {
+      var recipientInput = document.getElementById('reminder-recipient-input');
+      var fromInput = document.getElementById('reminder-from-input');
+      reminderConfig.recipient = recipientInput ? recipientInput.value.trim() : '';
+      reminderConfig.from = fromInput ? fromInput.value.trim() : '';
+      reminderConfig.lead_minutes = tempReminderLead;
+      reminderConfig.timezone_offset = tempReminderTz;
+      if (!reminderConfig.app_url) reminderConfig.app_url = window.location.origin + '/';
+
+      _setReminderStatus('保存中...', false);
+      var testBtn = document.getElementById('reminder-test-btn');
+      if (testBtn) testBtn.disabled = true;
+
+      try {
+        var res = await fetch('/api/reminder/config', {
+          method: 'POST',
+          body: JSON.stringify(reminderConfig),
+          headers: { 'Content-Type': 'application/json' },
+        });
+        var data = await res.json();
+        if (res.ok && data.success) {
+          // 后端可能规范化了字段（如 lead_minutes 范围裁剪），同步回显
+          if (data.config) {
+            reminderConfig = Object.assign(reminderConfig, data.config);
+            tempReminderLead = reminderConfig.lead_minutes;
+            tempReminderTz = reminderConfig.timezone_offset;
+            renderReminderConfig();
+          }
+          _setReminderStatus('✓ 保存成功', false);
+        } else {
+          _setReminderStatus('✗ ' + (data.error || '保存失败'), true);
+        }
+      } catch (e) {
+        _setReminderStatus('✗ ' + e.message, true);
+      } finally {
+        if (testBtn) testBtn.disabled = false;
+      }
+    }
+
+    async function sendTestReminder() {
+      // 测试前先保存当前表单值，避免测试的是旧配置
+      var recipientInput = document.getElementById('reminder-recipient-input');
+      var fromInput = document.getElementById('reminder-from-input');
+      reminderConfig.recipient = recipientInput ? recipientInput.value.trim() : '';
+      reminderConfig.from = fromInput ? fromInput.value.trim() : '';
+      reminderConfig.lead_minutes = tempReminderLead;
+      reminderConfig.timezone_offset = tempReminderTz;
+      if (!reminderConfig.app_url) reminderConfig.app_url = window.location.origin + '/';
+
+      if (!reminderConfig.recipient || !reminderConfig.from) {
+        _setReminderStatus('✗ 请先填写收件人和发件人邮箱', true);
+        return;
+      }
+
+      _setReminderStatus('保存配置并发送测试邮件...', false);
+      var testBtn = document.getElementById('reminder-test-btn');
+      if (testBtn) { testBtn.disabled = true; testBtn.textContent = '发送中...'; }
+
+      try {
+        // 先保存（启用时后端会校验 RESEND_API_KEY 是否已配置）
+        var saveRes = await fetch('/api/reminder/config', {
+          method: 'POST',
+          body: JSON.stringify(reminderConfig),
+          headers: { 'Content-Type': 'application/json' },
+        });
+        var saveData = await saveRes.json();
+        if (!saveRes.ok || !saveData.success) {
+          _setReminderStatus('✗ 保存失败：' + (saveData.error || '未知错误'), true);
+          return;
+        }
+        if (saveData.config) {
+          reminderConfig = Object.assign(reminderConfig, saveData.config);
+          renderReminderConfig();
+        }
+
+        var testRes = await fetch('/api/reminder/test', { method: 'POST' });
+        var testData = await testRes.json();
+        if (testRes.ok && testData.success) {
+          _setReminderStatus('✓ 测试邮件已发送，ID: ' + (testData.id || ''), false);
+        } else {
+          _setReminderStatus('✗ 发送失败：' + (testData.error || '未知错误'), true);
+        }
+      } catch (e) {
+        _setReminderStatus('✗ ' + e.message, true);
+      } finally {
+        if (testBtn) { testBtn.disabled = false; testBtn.textContent = '发送测试邮件'; }
+      }
+    }
     
     let tempAppScale = 1.0;
     let tempDisplayScale = 1.0;

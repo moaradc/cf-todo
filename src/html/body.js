@@ -464,6 +464,43 @@ export function getBody(isAuthorized) {
           </div>
       </div>
 
+      <div class="detail-label">邮件通知</div>
+      <div class="settings-card">
+          <div class="setting-item" style="margin-bottom: 15px; border: none; padding: 0;">
+              <span class="settings-text" style="margin:0;"><strong>启用定时提醒</strong></span>
+              <div class="switch-label" onclick="toggleReminderEnabled()" style="margin-bottom: 0;">
+                  <div class="switch-box" id="reminder-enabled-box"></div>
+              </div>
+          </div>
+          <p class="settings-text" style="margin-bottom: 12px;">每 5 分钟扫描即将到期的待办事项，通过 Resend 邮件 API 发送提醒。需在 Worker 配置 <span class="md-code">RESEND_API_KEY</span> 环境变量。</p>
+          <div class="detail-label" style="margin-top: 6px;">收件人邮箱</div>
+          <input type="email" id="reminder-recipient-input" placeholder="user@example.com" style="margin-bottom: 12px;" autocomplete="email">
+          <div class="detail-label">发件人邮箱</div>
+          <input type="text" id="reminder-from-input" placeholder="cf-todo &lt;noreply@yourdomain.com&gt;" style="margin-bottom: 12px;" autocomplete="off">
+          <div class="setting-item" style="margin-bottom: 12px; border: none; padding: 0;">
+              <span class="settings-text" style="margin:0;">提前提醒分钟数</span>
+              <div class="fake-input" onclick="toggleSettingPopover('reminderLead', this)" style="width: 70px; margin-bottom: 0; padding: 6px 8px; justify-content: space-between; border-radius: 4px;">
+                  <span id="set-disp-reminderLead">15</span>
+                  <span style="font-size:0.8rem; margin-right: 4px;">▼</span>
+              </div>
+          </div>
+          <div class="setting-item" style="margin-bottom: 12px; border: none; padding: 0;">
+              <span class="settings-text" style="margin:0;">时区偏移</span>
+              <div class="fake-input" onclick="toggleSettingPopover('reminderTz', this)" style="width: 90px; margin-bottom: 0; padding: 6px 8px; justify-content: space-between; border-radius: 4px;">
+                  <span id="set-disp-reminderTz">UTC+8</span>
+                  <span style="font-size:0.8rem; margin-right: 4px;">▼</span>
+              </div>
+          </div>
+          <div style="display:flex; gap:8px; margin-bottom: 12px;">
+              <button style="flex:1;" onclick="saveReminderConfig()">保存配置</button>
+              <button id="reminder-test-btn" style="flex:1;" onclick="sendTestReminder()">发送测试邮件</button>
+          </div>
+          <div id="reminder-status-text" class="settings-text" style="margin-top:8px; min-height: 1em;"></div>
+          <div class="settings-text" style="border-top: 1px dashed #333; padding-top: 10px;">
+            <strong>说明：</strong>配置保存在 D1 数据库。Cron 每 5 分钟触发一次，扫描未来 <span class="md-code">N</span> 分钟内到期且未完成、未删除的待办。同一批待办 24 小时内不会重复发送（Resend Idempotency-Key 去重）。
+          </div>
+      </div>
+
       <div class="detail-label">登录管理</div>
       <div class="settings-card">
           <p class="settings-text" style="margin-bottom: 12px;">最多支持 <strong>${MAX_BROWSER_UA}</strong> 个浏览器UA同时登录。达到上限后新登录将自动替换最早（靠上）登录的会话。</p>
@@ -616,6 +653,21 @@ export function getBody(isAuthorized) {
     <button onclick="selectSetting('apiKeyScope', 'v0', 'v0')">v0</button>
     <button onclick="selectSetting('apiKeyScope', 'all', '全部')">全部</button>
     <button onclick="selectSetting('apiKeyScope', 'disabled', '禁用')">禁用</button>
+  </div>
+  <div id="popover-set-reminderLead" class="popover-menu">
+    <button onclick="selectSetting('reminderLead', '5', '5')">5 分钟</button>
+    <button onclick="selectSetting('reminderLead', '10', '10')">10 分钟</button>
+    <button onclick="selectSetting('reminderLead', '15', '15')">15 分钟</button>
+    <button onclick="selectSetting('reminderLead', '30', '30')">30 分钟</button>
+    <button onclick="selectSetting('reminderLead', '60', '60')">1 小时</button>
+  </div>
+  <div id="popover-set-reminderTz" class="popover-menu">
+    <button onclick="selectSetting('reminderTz', '0', 'UTC+0')">UTC+0</button>
+    <button onclick="selectSetting('reminderTz', '480', 'UTC+8')">UTC+8（北京时间）</button>
+    <button onclick="selectSetting('reminderTz', '540', 'UTC+9')">UTC+9（东京）</button>
+    <button onclick="selectSetting('reminderTz', '-480', 'UTC-8')">UTC-8（太平洋）</button>
+    <button onclick="selectSetting('reminderTz', '-300', 'UTC-5')">UTC-5（东部）</button>
+    <button onclick="selectSetting('reminderTz', '60', 'UTC+1')">UTC+1（中欧）</button>
   </div>
 
   <div id="modal-calendar" class="modal-overlay" style="z-index:65;" onclick="if(event.target===this) closeCalendar()">

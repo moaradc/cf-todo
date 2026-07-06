@@ -226,6 +226,12 @@ export const bootstrap = `
       createApiKey: createApiKey,
       deleteApiKey: deleteApiKey,
       toggleApiKey: toggleApiKey,
+      // 邮件通知（定时提醒）
+      loadReminderConfig: loadReminderConfig,
+      renderReminderConfig: renderReminderConfig,
+      toggleReminderEnabled: toggleReminderEnabled,
+      saveReminderConfig: saveReminderConfig,
+      sendTestReminder: sendTestReminder,
       onScaleSliderChange: onScaleSliderChange,
       setScalePreset: setScalePreset,
       resetScaleBrowserData: resetScaleBrowserData,
