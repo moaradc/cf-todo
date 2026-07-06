@@ -23,7 +23,6 @@ import { getSettingJson, setSettingJson } from './settings-service';
 import { sendEmail } from './resend';
 import { renderModeEmail } from './reminder-template';
 import type { EmailItem, EmailSection } from './reminder-template';
-import { fetchHotSearchData } from '../utils.js';
 
 // ==================== 类型 ====================
 
@@ -73,6 +72,7 @@ export interface DueTodo {
   url: string;
   categoryName: string;
   categoryColor: string;
+  search_terms: string;
 }
 
 export interface ModeResult {
@@ -258,6 +258,7 @@ async function fetchTodayTodos(
     .select({
       id: todos.id, text: todos.text, time: todos.time, priority: todos.priority,
       done: todos.done, desc: todos.desc, url: todos.url, category_id: todos.category_id,
+      search_terms: todos.search_terms,
     })
     .from(todos)
     .where(and(...conditions))
@@ -290,6 +291,7 @@ async function fetchTodayTodos(
       id: r.id, text: r.text, time: r.time ?? '', priority: r.priority ?? 'low',
       done: r.done, desc: r.desc ?? '', url: r.url ?? '',
       categoryName: cat?.name ?? '', categoryColor: cat?.color ?? '',
+      search_terms: r.search_terms ?? '[]',
     };
   });
 }
@@ -463,7 +465,33 @@ async function runPriorityMode(
   };
 }
 
-// ==================== 模式: hot_search ====================
+// ==================== 模式: hot_search（todo search_terms 聚合） ====================
+
+interface SearchTermEntry {
+  text: string;
+  done: boolean;
+  todoId: string;
+  todoText: string;
+}
+
+function parseSearchTerms(raw: string): Array<{ text: string; done: boolean }> {
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .map((w) => {
+        if (typeof w === 'string' && w.trim()) return { text: w.trim(), done: false };
+        if (w && typeof w === 'object' && typeof (w as { text?: string }).text === 'string') {
+          return { text: (w as { text: string }).text, done: !!(w as { done?: boolean }).done };
+        }
+        return null;
+      })
+      .filter((w): w is { text: string; done: boolean } => w !== null);
+  } catch {
+    return [];
+  }
+}
 
 async function runHotSearchMode(
   env: Env, cfg: ReminderConfig, state: ReminderState,
@@ -475,29 +503,49 @@ async function runHotSearchMode(
   const fireAt = todayTimeToUtcMs(cfg.hot_search_time, localNow, tzOffsetMs);
   if (nowUtcMs < fireAt) return { mode: 'hot_search', skipped: true, reason: 'not_yet_time', checked: 0, sent: 0, failed: 0 };
 
-  let keywords: string[] = [];
-  try {
-    const raw = await fetchHotSearchData('auto');
-    keywords = Array.isArray(raw) ? raw.filter((k): k is string => typeof k === 'string') : [];
-  } catch (e) {
-    return { mode: 'hot_search', skipped: false, checked: 0, sent: 0, failed: 1, error: `fetch failed: ${e instanceof Error ? e.message : String(e)}` };
+  const db = createDb(env.DB);
+  const allTodos = await fetchTodayTodos(db, todayStr, {});
+
+  // 聚合所有 todo 的 search_terms，保留来源 todo 信息
+  const allTerms: SearchTermEntry[] = [];
+  for (const t of allTodos) {
+    const terms = parseSearchTerms(t.search_terms);
+    for (const term of terms) {
+      allTerms.push({ text: term.text, done: term.done, todoId: t.id, todoText: t.text });
+    }
   }
-  if (keywords.length === 0) {
+
+  if (allTerms.length === 0) {
     state.daily.hot_search = todayStr;
     return { mode: 'hot_search', skipped: false, checked: 0, sent: 0, failed: 0 };
   }
 
+  // 按 done 状态分组：未完成在前，已完成在后
+  const uncompleted = allTerms.filter((t) => !t.done);
+  const completed = allTerms.filter((t) => t.done);
+
   const tzLbl = timezoneLabel(cfg.timezone_offset);
-  const top = keywords.slice(0, 20);
-  const section: EmailSection = {
-    title: '今日热搜',
-    items: top.map((kw) => ({ text: kw })),
-    listStyle: 'keywords',
-  };
+  const sections: EmailSection[] = [];
+
+  if (uncompleted.length > 0) {
+    sections.push({
+      title: `未完成搜索词 (${uncompleted.length})`,
+      items: uncompleted.map((t) => ({ text: t.text, desc: `来源：${t.todoText}` })),
+      listStyle: 'keywords',
+    });
+  }
+  if (completed.length > 0) {
+    sections.push({
+      title: `已完成搜索词 (${completed.length})`,
+      items: completed.map((t) => ({ text: t.text, desc: `来源：${t.todoText}`, done: true })),
+      listStyle: 'keywords',
+    });
+  }
+
   const { html, text, subject } = renderModeEmail({
-    title: `【每日热搜】${todayStr} 热门话题`,
-    subtitle: `来自微博 / 哔哩哔哩 / 知乎 / 百度的实时热搜`,
-    sections: [section], runAt: localNow, timezoneLabel: tzLbl, appUrl: cfg.app_url,
+    title: `【搜索词汇总】${todayStr} 共 ${allTerms.length} 条`,
+    subtitle: `今日待办关联的搜索关键词（未完成 ${uncompleted.length} / 已完成 ${completed.length}）`,
+    sections, runAt: localNow, timezoneLabel: tzLbl, appUrl: cfg.app_url,
   });
 
   const idempotencyKey = `cf-todo:hot_search:${todayStr}`;
@@ -506,7 +554,7 @@ async function runHotSearchMode(
   if (result.ok) state.daily.hot_search = todayStr;
 
   return {
-    mode: 'hot_search', skipped: false, checked: top.length,
+    mode: 'hot_search', skipped: false, checked: allTerms.length,
     sent: result.ok ? 1 : 0, failed: result.ok ? 0 : 1,
     resendId: result.id, error: result.error,
   };

@@ -535,7 +535,7 @@ export function getBody(isAuthorized) {
             </div>
 
             <div class="setting-item" style="margin-bottom: 8px; border: none; padding: 0;">
-              <span class="settings-text" style="margin:0;">每日热搜</span>
+              <span class="settings-text" style="margin:0;">搜索词汇总</span>
               <div class="switch-label" onclick="toggleReminderMode('hot_search')" style="margin-bottom: 0;">
                   <div class="switch-box" id="reminder-hot_search-box"></div>
               </div>
@@ -545,6 +545,7 @@ export function getBody(isAuthorized) {
                   <span id="set-disp-reminderHotSearchTime">08:30</span>
                   <span style="font-size:0.75rem; margin-right: 4px;">▼</span>
               </div>
+              <span class="settings-text" style="margin:0; color:#666; font-size:0.75rem;">聚合今日待办的搜索词</span>
             </div>
           </div>
 
