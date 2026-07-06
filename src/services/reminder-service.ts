@@ -77,10 +77,12 @@ export interface ModeResult {
   enabled: boolean;
   /** 本模式贡献的邮件 section（可能为空，表示无内容可发） */
   sections: EmailSection[];
-  /** 简短描述，用于拼邮件主题，如「即将到期 2 项」「今日汇总」「优先级 3 项」 */
+  /** 简短描述，用于拼邮件主题，如「到期2」「汇总(9/10)」「优先级3」 */
   summary?: string;
   /** 该模式触发的 state.sent 追加项（仅 timed 模式有） */
   sentEntries?: ReminderSentEntry[];
+  /** 本模式展示的 todo id（供后续模式去重） */
+  displayedIds: string[];
   /** 统计：检查的待办数 */
   checked: number;
   skipped: boolean;
@@ -342,12 +344,13 @@ function buildSearchSections(allTodos: DueTodo[], mode: SearchIncludeMode): Emai
 async function runTimedMode(
   db: Db, cfg: ReminderConfig, state: ReminderState,
   localNow: Date, todayStr: string, tzOffsetMs: number, nowUtcMs: number,
+  excludeIds: Set<string>,
 ): Promise<ModeResult> {
-  if (!cfg.timed_enabled) return { mode: 'timed', enabled: false, sections: [], checked: 0, skipped: true, reason: 'disabled' };
+  if (!cfg.timed_enabled) return { mode: 'timed', enabled: false, sections: [], displayedIds: [], checked: 0, skipped: true, reason: 'disabled' };
 
   const allTodos = await fetchTodayTodos(db, todayStr, { includeDone: false });
-  const timed = allTodos.filter((t) => t.time && /^\d{1,2}:\d{2}$/.test(t.time));
-  if (timed.length === 0) return { mode: 'timed', enabled: true, sections: [], checked: 0, skipped: false, reason: 'no_timed_todos' };
+  const timed = allTodos.filter((t) => t.time && /^\d{1,2}:\d{2}$/.test(t.time) && !excludeIds.has(t.id));
+  if (timed.length === 0) return { mode: 'timed', enabled: true, sections: [], displayedIds: [], checked: 0, skipped: false, reason: 'no_timed_todos' };
 
   const windowStartMs = nowUtcMs - LOOKBACK_MINUTES * 60 * 1000;
   const windowEndMs = nowUtcMs + cfg.timed_lead_minutes * 60 * 1000;
@@ -367,7 +370,7 @@ async function runTimedMode(
   }
 
   if (dueTodos.length === 0) {
-    return { mode: 'timed', enabled: true, sections: [], checked: timed.length, skipped: false, reason: 'no_due_in_window' };
+    return { mode: 'timed', enabled: true, sections: [], displayedIds: [], checked: timed.length, skipped: false, reason: 'no_due_in_window' };
   }
 
   const sections: EmailSection[] = [{
@@ -379,6 +382,7 @@ async function runTimedMode(
     mode: 'timed', enabled: true, sections, checked: timed.length, skipped: false,
     summary: `到期${dueTodos.length}`,
     sentEntries,
+    displayedIds: dueTodos.map((t) => t.id),
   };
 }
 
@@ -386,33 +390,51 @@ async function runTimedMode(
 
 async function runDailyMode(
   db: Db, cfg: ReminderConfig, todayStr: string,
+  excludeIds: Set<string>,
 ): Promise<ModeResult> {
-  if (!cfg.daily_enabled) return { mode: 'daily', enabled: false, sections: [], checked: 0, skipped: true, reason: 'disabled' };
+  if (!cfg.daily_enabled) return { mode: 'daily', enabled: false, sections: [], displayedIds: [], checked: 0, skipped: true, reason: 'disabled' };
 
   const allTodos = await fetchTodayTodos(db, todayStr, {});
-  const uncompleted = allTodos.filter((t) => t.done === 0);
-  const completed = allTodos.filter((t) => t.done === 1);
+  const totalUncompleted = allTodos.filter((t) => t.done === 0).length;
+  const totalCount = allTodos.length;
+
+  // 未完成 section 排除已在 timed/priority 展示的；已完成不受影响（前两者只处理未完成）
+  const showUncompleted = cfg.daily_include_uncompleted
+    ? allTodos.filter((t) => t.done === 0 && !excludeIds.has(t.id))
+    : [];
+  const showCompleted = cfg.daily_include_completed
+    ? allTodos.filter((t) => t.done === 1)
+    : [];
 
   const sections: EmailSection[] = [];
+  const displayedIds: string[] = [];
+  // 有排除时（timed/priority 已展示部分未完成）标题用「其余未完成」表明已去重
+  const uncompletedTitle = excludeIds.size > 0 ? '其余未完成' : '今日未完成';
+
   if (cfg.daily_include_uncompleted) {
     sections.push({
-      title: '今日未完成',
-      items: uncompleted.map(dueTodoToItem),
-      emptyMessage: '今日无未完成待办',
+      title: uncompletedTitle,
+      items: showUncompleted.map(dueTodoToItem),
+      emptyMessage: '无其余未完成待办',
       listStyle: 'cards',
     });
+    showUncompleted.forEach((t) => displayedIds.push(t.id));
   }
   if (cfg.daily_include_completed) {
     sections.push({
       title: '今日已完成',
-      items: completed.map(dueTodoToItem),
+      items: showCompleted.map(dueTodoToItem),
       emptyMessage: '今日无已完成待办',
       listStyle: 'cards',
     });
+    showCompleted.forEach((t) => displayedIds.push(t.id));
   }
+
+  // 标题格式：汇总(未完成/总数) — 显示今日整体状态分布，不受去重影响
+  const summary = `汇总(${totalUncompleted}/${totalCount})`;
   return {
-    mode: 'daily', enabled: true, sections, checked: allTodos.length, skipped: false,
-    summary: `汇总${allTodos.length}`,
+    mode: 'daily', enabled: true, sections, displayedIds, checked: totalCount, skipped: false,
+    summary,
   };
 }
 
@@ -420,23 +442,27 @@ async function runDailyMode(
 
 async function runPriorityMode(
   db: Db, cfg: ReminderConfig, todayStr: string,
+  excludeIds: Set<string>,
 ): Promise<ModeResult> {
-  if (!cfg.priority_enabled) return { mode: 'priority', enabled: false, sections: [], checked: 0, skipped: true, reason: 'disabled' };
+  if (!cfg.priority_enabled) return { mode: 'priority', enabled: false, sections: [], displayedIds: [], checked: 0, skipped: true, reason: 'disabled' };
 
   const allTodos = await fetchTodayTodos(db, todayStr, { includeDone: false, minPriority: cfg.priority_min_level });
-  if (allTodos.length === 0) {
-    return { mode: 'priority', enabled: true, sections: [], checked: 0, skipped: false, reason: 'no_matching_todos' };
+  // 排除已在 timed 展示的
+  const showTodos = allTodos.filter((t) => !excludeIds.has(t.id));
+  if (showTodos.length === 0) {
+    return { mode: 'priority', enabled: true, sections: [], displayedIds: [], checked: 0, skipped: false, reason: 'no_matching_todos' };
   }
 
   const levelLabel = cfg.priority_min_level === 'high' ? '高' : cfg.priority_min_level === 'med' ? '中及以上' : '全部';
   const sections: EmailSection[] = [{
     title: `${levelLabel}优先级未完成`,
-    items: allTodos.map(dueTodoToItem),
+    items: showTodos.map(dueTodoToItem),
     listStyle: 'cards',
   }];
   return {
     mode: 'priority', enabled: true, sections, checked: allTodos.length, skipped: false,
-    summary: `优先级${allTodos.length}`,
+    summary: `优先级${showTodos.length}`,
+    displayedIds: showTodos.map((t) => t.id),
   };
 }
 
@@ -458,11 +484,22 @@ export async function runScheduledReminders(env: Env): Promise<ReminderRunResult
   const state = await getState(db);
   state.last_run = nowUtcMs;
 
-  // 1. 运行所有启用的模式，每个返回 sections（不直接发邮件）
+  // 1. 按顺序运行所有启用的模式（timed → priority → daily），后续模式排除已展示的 todo
+  //    顺序原因：timed 最紧迫先展示，priority 次之，daily 兜底展示「其余」未完成 + 已完成
+  const displayedIds = new Set<string>();
   const results: ModeResult[] = [];
-  results.push(await runTimedMode(db, cfg, state, localNow, todayStr, tzOffsetMs, nowUtcMs));
-  results.push(await runDailyMode(db, cfg, todayStr));
-  results.push(await runPriorityMode(db, cfg, todayStr));
+
+  const timedResult = await runTimedMode(db, cfg, state, localNow, todayStr, tzOffsetMs, nowUtcMs, displayedIds);
+  results.push(timedResult);
+  timedResult.displayedIds.forEach((id) => displayedIds.add(id));
+
+  const priorityResult = await runPriorityMode(db, cfg, todayStr, displayedIds);
+  results.push(priorityResult);
+  priorityResult.displayedIds.forEach((id) => displayedIds.add(id));
+
+  const dailyResult = await runDailyMode(db, cfg, todayStr, displayedIds);
+  results.push(dailyResult);
+  dailyResult.displayedIds.forEach((id) => displayedIds.add(id));
 
   // 2. 合并所有 sections（按模式顺序拼接）
   const mergedSections: EmailSection[] = [];
