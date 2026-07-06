@@ -472,13 +472,12 @@ export function getBody(isAuthorized) {
                   <div class="switch-box" id="reminder-enabled-box"></div>
               </div>
           </div>
-          <p class="settings-text" style="margin-bottom: 12px;">每 5 分钟扫描即将到期的待办事项，通过 Resend 邮件 API 发送提醒。需在 Worker 配置 <span class="md-code">RESEND_API_KEY</span> 环境变量。</p>
           <div class="detail-label" style="margin-top: 6px;">收件人邮箱</div>
           <input type="email" id="reminder-recipient-input" placeholder="user@example.com" style="margin-bottom: 12px;" autocomplete="email">
           <div class="detail-label">发件人邮箱</div>
           <input type="text" id="reminder-from-input" placeholder="cf-todo &lt;noreply@yourdomain.com&gt;" style="margin-bottom: 12px;" autocomplete="off">
           <div class="setting-item" style="margin-bottom: 12px; border: none; padding: 0;">
-              <span class="settings-text" style="margin:0;">提前提醒分钟数</span>
+              <span class="settings-text" style="margin:0;">提前提醒</span>
               <div class="fake-input" onclick="toggleSettingPopover('reminderLead', this)" style="width: 70px; margin-bottom: 0; padding: 6px 8px; justify-content: space-between; border-radius: 4px;">
                   <span id="set-disp-reminderLead">15</span>
                   <span style="font-size:0.8rem; margin-right: 4px;">▼</span>
