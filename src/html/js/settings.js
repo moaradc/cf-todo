@@ -207,8 +207,8 @@ export const settings = `
     }
 
     function selectSetting(type, value, label) {
-      // 邮件通知的两个选择项走独立处理（不写 appSettings，避免污染主设置流）
-      if (type === 'reminderLead' || type === 'reminderTz') {
+      var reminderTypes = ['reminderLead', 'reminderTz', 'reminderDailyTime', 'reminderPriorityTime', 'reminderPriorityLevel', 'reminderHotSearchTime'];
+      if (reminderTypes.indexOf(type) >= 0) {
         _selectReminderSetting(type, value);
         return;
       }

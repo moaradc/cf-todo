@@ -230,6 +230,7 @@ export const bootstrap = `
       loadReminderConfig: loadReminderConfig,
       renderReminderConfig: renderReminderConfig,
       toggleReminderEnabled: toggleReminderEnabled,
+      toggleReminderMode: toggleReminderMode,
       saveReminderConfig: saveReminderConfig,
       sendTestReminder: sendTestReminder,
       onScaleSliderChange: onScaleSliderChange,
