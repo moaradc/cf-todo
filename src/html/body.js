@@ -485,71 +485,79 @@ export function getBody(isAuthorized) {
           </div>
 
           <div style="border-top: 1px dashed #333; margin: 16px 0 12px 0; padding-top: 12px;">
-            <div class="settings-text" style="font-weight:bold; margin-bottom: 12px;">提醒模式</div>
+            <div class="settings-text" style="font-weight:bold; margin-bottom: 10px;">提醒模式 <span style="font-weight:normal; color:#666; font-size:0.75rem;">（启用模式合并为一封邮件发送）</span></div>
 
             <div class="reminder-mode-block">
-              <div class="reminder-mode-header">
-                <span class="settings-text" style="margin:0; font-weight:600;">即将到期提醒</span>
+              <div class="reminder-mode-head">
+                <span class="reminder-mode-title">即将到期提醒</span>
                 <div class="switch-label" onclick="toggleReminderMode('timed')" style="margin-bottom: 0;">
                     <div class="switch-box" id="reminder-timed-box"></div>
                 </div>
               </div>
-              <div class="settings-text reminder-mode-desc">未来到期前提前发提醒</div>
-              <div class="setting-item" style="margin-top: 10px; border: none; padding: 0;">
-                  <span class="settings-text" style="margin:0; color:#666;">提前时间</span>
-                  <div class="fake-input" onclick="openReminderLeadPicker()" style="width: 110px; margin-bottom: 0; padding: 6px 10px; justify-content: space-between; border-radius: 4px;">
+              <div class="reminder-mode-desc">到期前提前发提醒，扫描未来一段时间内到期的待办</div>
+              <div class="reminder-mode-opts">
+                <div class="reminder-opt-row">
+                  <span class="reminder-opt-label">提前时间</span>
+                  <div class="fake-input" onclick="openReminderLeadPicker()" style="margin-bottom: 0; padding: 6px 12px; justify-content: space-between; border-radius: 4px;">
                       <span id="set-disp-reminderLead">15 分</span>
-                      <span style="font-size:0.8rem; margin-right: 4px;">▼</span>
+                      <span style="font-size:0.75rem; margin-left: 8px; color:#888;">▼</span>
                   </div>
+                </div>
               </div>
             </div>
 
             <div class="reminder-mode-block">
-              <div class="reminder-mode-header">
-                <span class="settings-text" style="margin:0; font-weight:600;">今日汇总</span>
+              <div class="reminder-mode-head">
+                <span class="reminder-mode-title">今日汇总</span>
                 <div class="switch-label" onclick="toggleReminderMode('daily')" style="margin-bottom: 0;">
                     <div class="switch-box" id="reminder-daily-box"></div>
                 </div>
               </div>
-              <div class="settings-text reminder-mode-desc">每次 Cron 发送今日待办一览</div>
-              <div class="setting-item" style="margin-top: 10px; border: none; padding: 0;">
-                  <span class="settings-text" style="margin:0; color:#666;">包含内容</span>
-                  <div style="display:flex; gap:14px; align-items:center;">
-                    <label style="font-size:0.8rem; color:#666; cursor:pointer;"><input type="checkbox" id="reminder-daily-uncompleted" checked> 未完成</label>
-                    <label style="font-size:0.8rem; color:#666; cursor:pointer;"><input type="checkbox" id="reminder-daily-completed"> 已完成</label>
+              <div class="reminder-mode-desc">每次 Cron 发送今日待办一览</div>
+              <div class="reminder-mode-opts">
+                <div class="reminder-opt-row">
+                  <span class="reminder-opt-label">包含内容</span>
+                  <div style="display:flex; gap:12px; align-items:center;">
+                    <label style="font-size:0.78rem; color:#888; cursor:pointer;"><input type="checkbox" id="reminder-daily-uncompleted" checked> 未完成</label>
+                    <label style="font-size:0.78rem; color:#888; cursor:pointer;"><input type="checkbox" id="reminder-daily-completed"> 已完成</label>
                   </div>
+                </div>
               </div>
             </div>
 
             <div class="reminder-mode-block">
-              <div class="reminder-mode-header">
-                <span class="settings-text" style="margin:0; font-weight:600;">优先级提醒</span>
+              <div class="reminder-mode-head">
+                <span class="reminder-mode-title">优先级提醒</span>
                 <div class="switch-label" onclick="toggleReminderMode('priority')" style="margin-bottom: 0;">
                     <div class="switch-box" id="reminder-priority-box"></div>
                 </div>
               </div>
-              <div class="settings-text reminder-mode-desc">按优先级阈值发送未完成待办</div>
-              <div class="setting-item" style="margin-top: 10px; border: none; padding: 0;">
-                  <span class="settings-text" style="margin:0; color:#666;">阈值</span>
-                  <div class="fake-input" onclick="toggleSettingPopover('reminderPriorityLevel', this)" style="width: 110px; margin-bottom: 0; padding: 6px 10px; justify-content: space-between; border-radius: 4px;">
+              <div class="reminder-mode-desc">按优先级阈值发送未完成待办</div>
+              <div class="reminder-mode-opts">
+                <div class="reminder-opt-row">
+                  <span class="reminder-opt-label">阈值</span>
+                  <div class="fake-input" onclick="toggleSettingPopover('reminderPriorityLevel', this)" style="margin-bottom: 0; padding: 6px 12px; justify-content: space-between; border-radius: 4px;">
                       <span id="set-disp-reminderPriorityLevel">高</span>
-                      <span style="font-size:0.8rem; margin-right: 4px;">▼</span>
+                      <span style="font-size:0.75rem; margin-left: 8px; color:#888;">▼</span>
                   </div>
+                </div>
               </div>
             </div>
 
             <div class="reminder-mode-block">
-              <div class="reminder-mode-header">
-                <span class="settings-text" style="margin:0; font-weight:600;">搜索词附加</span>
-                <span class="settings-text" style="margin:0; font-size:0.75rem; color:#666;">所有模式生效</span>
+              <div class="reminder-mode-head">
+                <span class="reminder-mode-title">搜索词附加</span>
+                <span class="reminder-opt-label" style="font-size:0.7rem;">所有模式生效</span>
               </div>
-              <div class="settings-text reminder-mode-desc">在每封提醒邮件末尾附加待办关联的搜索词（按来源待办分组）</div>
-              <div class="setting-item" style="margin-top: 10px; border: none; padding: 0;">
-                  <span class="settings-text" style="margin:0; color:#666;">包含范围</span>
-                  <div class="fake-input" onclick="toggleSettingPopover('reminderSearchMode', this)" style="width: 110px; margin-bottom: 0; padding: 6px 10px; justify-content: space-between; border-radius: 4px;">
+              <div class="reminder-mode-desc">在每封提醒邮件末尾附加待办关联的搜索词（按来源待办分组）</div>
+              <div class="reminder-mode-opts">
+                <div class="reminder-opt-row">
+                  <span class="reminder-opt-label">包含范围</span>
+                  <div class="fake-input" onclick="toggleSettingPopover('reminderSearchMode', this)" style="margin-bottom: 0; padding: 6px 12px; justify-content: space-between; border-radius: 4px;">
                       <span id="set-disp-reminderSearchMode">关闭</span>
-                      <span style="font-size:0.8rem; margin-right: 4px;">▼</span>
+                      <span style="font-size:0.75rem; margin-left: 8px; color:#888;">▼</span>
                   </div>
+                </div>
               </div>
             </div>
           </div>

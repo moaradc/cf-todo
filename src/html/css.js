@@ -354,11 +354,20 @@ export const css = `
     .settings-text { font-size: 0.85rem; line-height: 1.6; color: #888; margin-bottom: 0; }
     .settings-text strong { color: var(--crt); }
 
-    .reminder-mode-block { background: rgba(0,0,0,0.18); border: 1px solid #333; border-radius: 6px; padding: 12px 14px; margin-bottom: 10px; }
-    .reminder-mode-header { display: flex; align-items: center; justify-content: space-between; }
-    .reminder-mode-desc { font-size: 0.75rem; color: #666; margin-top: 4px; line-height: 1.4; }
+    .reminder-mode-block { background: rgba(0,0,0,0.18); border: 1px solid #333; border-radius: 8px; padding: 0; margin-bottom: 10px; overflow: hidden; }
+    .reminder-mode-head { display: flex; align-items: center; justify-content: space-between; padding: 12px 14px 6px 14px; }
+    .reminder-mode-title { font-size: 0.9rem; font-weight: 600; color: var(--fg); }
+    .reminder-mode-desc { font-size: 0.72rem; color: #666; padding: 0 14px 10px 14px; line-height: 1.4; }
+    .reminder-mode-opts { padding: 4px 14px 12px 14px; }
+    .reminder-opt-row { display: flex; align-items: center; justify-content: space-between; padding: 8px 0; border-top: 1px solid rgba(128,128,128,0.15); }
+    .reminder-opt-row:first-child { border-top: none; }
+    .reminder-opt-label { font-size: 0.8rem; color: #888; }
+    .reminder-opt-row .fake-input { width: auto; min-width: 100px; max-width: 140px; }
     [data-theme="light"] .reminder-mode-block { background: #FAFAF7; border: 1px solid #D8D5C8; }
     [data-theme="light"] .reminder-mode-desc { color: #6B6757; }
+    [data-theme="light"] .reminder-opt-row { border-top-color: rgba(0,0,0,0.06); }
+    [data-theme="light"] .reminder-opt-label { color: #5C5950; }
+    [data-theme="light"] .reminder-mode-title { color: #1B1915; }
 
     .md-code { background: #222; padding: 2px 4px; border-radius: 2px; color: var(--crt); font-family: var(--font-main); }
     .md-ul { padding-left: 20px; margin: 5px 0; }
