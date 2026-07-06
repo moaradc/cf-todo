@@ -118,7 +118,9 @@ async function handleScheduled(env: Env): Promise<void> {
 
   try {
     const result = await runScheduledReminders(env);
-    console.log('[cf-todo][cron] reminder run:', JSON.stringify(result));
+    // 精简日志：只记录 skip/sent/failed + 各模式 summary，不打印完整 sections（避免日志膨胀）
+    const modesLog = result.modes.map((m) => `${m.mode}:${m.enabled ? 'on' : 'off'}:${m.summary || m.reason || '-'}`).join(' ');
+    console.log(`[cf-todo][cron] reminder run: skipped=${result.skipped} sent=${result.sent} failed=${result.failed} | ${modesLog}`);
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     console.error('[cf-todo][cron] reminder run failed:', msg);

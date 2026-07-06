@@ -1,15 +1,16 @@
 /**
- * 定时提醒服务 —— 多模式 Cron 编排层。
+ * 定时提醒服务 —— digest 模式：所有启用的模式合并为一封邮件发送。
  *
- * 模式：
- *   - timed       每 5 分钟扫描未来 N 分钟内到期的待办（应用层 state.sent 去重）
- *   - daily       每次 Cron 触发时发送今日待办汇总（可选附加搜索词 section）
- *   - priority    每次 Cron 触发时发送指定优先级及以上的未完成待办
+ * 流程：
+ *   1. 每次 Cron 触发，运行所有启用的模式（timed / daily / priority）
+ *   2. 每个模式返回 EmailSection[]（不直接发邮件）
+ *   3. 合并所有 sections + 附加搜索词 section（所有模式共享）
+ *   4. 若合并后有内容则发一封 digest 邮件；无内容则不发
+ *   5. 主题由各模式 summary 用「·」拼接，如「即将到期 2 项 · 今日汇总 5 项」
  *
- * 去重策略：
- *   - timed     应用层 state.sent[] 按 todo_id@due_at 去重（24h TTL）
- *   - daily/priority  每次 Cron 都发送；Resend Idempotency-Key 用 15s 时间桶，
- *                     仅防止 Cron 抖动/重试导致的瞬间重复，跨 15s 允许新发
+ * 去重：
+ *   - timed     应用层 state.sent[] 按 todo_id@due_at 去重（窗口内已发不再入 sections）
+ *   - digest    15s 时间桶 + sections 内容哈希幂等键，防 Cron 抖动重发
  *
  * 时区：用 tzOffsetMs 把「现在」位移到目标时区后用 UTC getter 读取年月日。
  */
@@ -73,18 +74,28 @@ export interface DueTodo {
 
 export interface ModeResult {
   mode: string;
+  enabled: boolean;
+  /** 本模式贡献的邮件 section（可能为空，表示无内容可发） */
+  sections: EmailSection[];
+  /** 简短描述，用于拼邮件主题，如「即将到期 2 项」「今日汇总」「优先级 3 项」 */
+  summary?: string;
+  /** 该模式触发的 state.sent 追加项（仅 timed 模式有） */
+  sentEntries?: ReminderSentEntry[];
+  /** 统计：检查的待办数 */
+  checked: number;
   skipped: boolean;
   reason?: string;
-  checked: number;
-  sent: number;
-  failed: number;
-  resendId?: string;
-  error?: string;
 }
 
 export interface ReminderRunResult {
   skipped: boolean;
   reason?: string;
+  /** 合并发送结果 */
+  sent: number;
+  failed: number;
+  resendId?: string;
+  error?: string;
+  /** 各模式执行情况（不单独发邮件，仅记录 sections 贡献） */
   modes: ModeResult[];
 }
 
@@ -326,17 +337,17 @@ function buildSearchSections(allTodos: DueTodo[], mode: SearchIncludeMode): Emai
   return sections;
 }
 
-// ==================== 模式: timed ====================
+// ==================== 模式: timed（返回 sections，不直接发邮件） ====================
 
 async function runTimedMode(
-  env: Env, cfg: ReminderConfig, state: ReminderState,
+  db: Db, cfg: ReminderConfig, state: ReminderState,
   localNow: Date, todayStr: string, tzOffsetMs: number, nowUtcMs: number,
 ): Promise<ModeResult> {
-  if (!cfg.timed_enabled) return { mode: 'timed', skipped: true, reason: 'disabled', checked: 0, sent: 0, failed: 0 };
+  if (!cfg.timed_enabled) return { mode: 'timed', enabled: false, sections: [], checked: 0, skipped: true, reason: 'disabled' };
 
-  const allTodos = await fetchTodayTodos(createDb(env.DB), todayStr, { includeDone: false });
+  const allTodos = await fetchTodayTodos(db, todayStr, { includeDone: false });
   const timed = allTodos.filter((t) => t.time && /^\d{1,2}:\d{2}$/.test(t.time));
-  if (timed.length === 0) return { mode: 'timed', skipped: false, checked: 0, sent: 0, failed: 0 };
+  if (timed.length === 0) return { mode: 'timed', enabled: true, sections: [], checked: 0, skipped: false, reason: 'no_timed_todos' };
 
   const windowStartMs = nowUtcMs - LOOKBACK_MINUTES * 60 * 1000;
   const windowEndMs = nowUtcMs + cfg.timed_lead_minutes * 60 * 1000;
@@ -344,66 +355,40 @@ async function runTimedMode(
   const sentSet = new Set(state.sent.map((e) => sentKey(e.todo_id, e.due_at)));
 
   const dueTodos: DueTodo[] = [];
+  const sentEntries: ReminderSentEntry[] = [];
   for (const t of timed) {
     const dueUtcMs = dueUtcMsFor(t.time, localNow, tzOffsetMs);
     if (dueUtcMs === null) continue;
     if (dueUtcMs > windowStartMs && dueUtcMs <= windowEndMs) {
       if (sentSet.has(sentKey(t.id, dueUtcMs))) continue;
       dueTodos.push(t);
+      sentEntries.push({ todo_id: t.id, due_at: dueUtcMs });
     }
   }
 
-  if (dueTodos.length === 0) return { mode: 'timed', skipped: false, checked: timed.length, sent: 0, failed: 0 };
+  if (dueTodos.length === 0) {
+    return { mode: 'timed', enabled: true, sections: [], checked: timed.length, skipped: false, reason: 'no_due_in_window' };
+  }
 
-  const tzLbl = timezoneLabel(cfg.timezone_offset);
   const sections: EmailSection[] = [{
-    title: `未来 ${cfg.timed_lead_minutes} 分钟内到期`,
+    title: `即将到期（未来 ${cfg.timed_lead_minutes} 分钟内）`,
     items: dueTodos.map(dueTodoToItem),
     listStyle: 'cards',
   }];
-  // 附加今日所有 todo 的搜索词（按来源 todo 分组）
-  const searchSections = buildSearchSections(allTodos, cfg.daily_include_search);
-  sections.push(...searchSections);
-  const { html, text, subject } = renderModeEmail({
-    title: `【待办提醒】${dueTodos.length} 项任务即将到期`,
-    subtitle: `未来 ${cfg.timed_lead_minutes} 分钟内到期的待办事项`,
-    sections, runAt: localNow, timezoneLabel: tzLbl, appUrl: cfg.app_url,
-  });
-
-  const idemParts = dueTodos.map((t) => `${t.id}@${dueUtcMsFor(t.time, localNow, tzOffsetMs) ?? 0}`).sort();
-  const idempotencyKey = `cf-todo:timed:${idemBucket()}:${(await sha256Hex(idemParts.join('|'))).slice(0, 16)}`;
-  const result = await sendEmail(env.RESEND_API_KEY, { from: cfg.from, to: cfg.recipient, subject, html, text, idempotencyKey });
-
-  if (result.ok) {
-    for (const t of dueTodos) {
-      const dueUtcMs = dueUtcMsFor(t.time, localNow, tzOffsetMs);
-      if (dueUtcMs !== null) state.sent.push({ todo_id: t.id, due_at: dueUtcMs });
-    }
-  }
-
   return {
-    mode: 'timed', skipped: false, checked: timed.length,
-    sent: result.ok ? dueTodos.length : 0, failed: result.ok ? 0 : dueTodos.length,
-    resendId: result.id, error: result.error,
+    mode: 'timed', enabled: true, sections, checked: timed.length, skipped: false,
+    summary: `即将到期 ${dueTodos.length} 项`,
+    sentEntries,
   };
 }
 
-// ==================== 模式: daily（含可选搜索词 section） ====================
-
-/** 检测 Resend 幂等冲突：同 key 已发过（body 相同或不同均算）。 */
-function isIdempotencyConflict(result: { ok: boolean; error?: string; status?: number }): boolean {
-  if (result.ok) return false;
-  const err = result.error || '';
-  return err.includes('idempotency') || err.includes('invalid_idempotent_request');
-}
+// ==================== 模式: daily（返回 sections） ====================
 
 async function runDailyMode(
-  env: Env, cfg: ReminderConfig,
-  localNow: Date, todayStr: string,
+  db: Db, cfg: ReminderConfig, todayStr: string,
 ): Promise<ModeResult> {
-  if (!cfg.daily_enabled) return { mode: 'daily', skipped: true, reason: 'disabled', checked: 0, sent: 0, failed: 0 };
+  if (!cfg.daily_enabled) return { mode: 'daily', enabled: false, sections: [], checked: 0, skipped: true, reason: 'disabled' };
 
-  const db = createDb(env.DB);
   const allTodos = await fetchTodayTodos(db, todayStr, {});
   const uncompleted = allTodos.filter((t) => t.done === 0);
   const completed = allTodos.filter((t) => t.done === 1);
@@ -411,7 +396,7 @@ async function runDailyMode(
   const sections: EmailSection[] = [];
   if (cfg.daily_include_uncompleted) {
     sections.push({
-      title: '未完成',
+      title: '今日未完成',
       items: uncompleted.map(dueTodoToItem),
       emptyMessage: '今日无未完成待办',
       listStyle: 'cards',
@@ -419,94 +404,51 @@ async function runDailyMode(
   }
   if (cfg.daily_include_completed) {
     sections.push({
-      title: '已完成',
+      title: '今日已完成',
       items: completed.map(dueTodoToItem),
       emptyMessage: '今日无已完成待办',
       listStyle: 'cards',
     });
   }
-  const searchSections = buildSearchSections(allTodos, cfg.daily_include_search);
-  sections.push(...searchSections);
-
-  if (sections.length === 0) {
-    sections.push({ title: '今日待办', items: allTodos.map(dueTodoToItem), emptyMessage: '今日无待办', listStyle: 'cards' });
-  }
-
-  const tzLbl = timezoneLabel(cfg.timezone_offset);
-  const { html, text, subject } = renderModeEmail({
-    title: `【今日汇总】${todayStr} 待办一览`,
-    subtitle: `今日共 ${allTodos.length} 项待办（未完成 ${uncompleted.length} / 已完成 ${completed.length}）`,
-    sections, runAt: localNow, timezoneLabel: tzLbl, appUrl: cfg.app_url,
-  });
-
-  // 每次 Cron 都尝试发送；15s 时间桶幂等键防止 Cron 抖动/重试导致的瞬间重复。
-  const idempotencyKey = `cf-todo:daily:${idemBucket()}`;
-  const result = await sendEmail(env.RESEND_API_KEY, { from: cfg.from, to: cfg.recipient, subject, html, text, idempotencyKey });
-
-  if (isIdempotencyConflict(result)) {
-    return { mode: 'daily', skipped: true, reason: 'already_sent_today (idempotency)', checked: allTodos.length, sent: 0, failed: 0 };
-  }
-
   return {
-    mode: 'daily', skipped: false, checked: allTodos.length,
-    sent: result.ok ? 1 : 0, failed: result.ok ? 0 : 1,
-    resendId: result.id, error: result.error,
+    mode: 'daily', enabled: true, sections, checked: allTodos.length, skipped: false,
+    summary: `今日汇总 ${allTodos.length} 项`,
   };
 }
 
-// ==================== 模式: priority ====================
+// ==================== 模式: priority（返回 sections） ====================
 
 async function runPriorityMode(
-  env: Env, cfg: ReminderConfig,
-  localNow: Date, todayStr: string,
+  db: Db, cfg: ReminderConfig, todayStr: string,
 ): Promise<ModeResult> {
-  if (!cfg.priority_enabled) return { mode: 'priority', skipped: true, reason: 'disabled', checked: 0, sent: 0, failed: 0 };
+  if (!cfg.priority_enabled) return { mode: 'priority', enabled: false, sections: [], checked: 0, skipped: true, reason: 'disabled' };
 
-  const db = createDb(env.DB);
   const allTodos = await fetchTodayTodos(db, todayStr, { includeDone: false, minPriority: cfg.priority_min_level });
   if (allTodos.length === 0) {
-    return { mode: 'priority', skipped: false, reason: 'no_matching_todos', checked: 0, sent: 0, failed: 0 };
+    return { mode: 'priority', enabled: true, sections: [], checked: 0, skipped: false, reason: 'no_matching_todos' };
   }
 
   const levelLabel = cfg.priority_min_level === 'high' ? '高' : cfg.priority_min_level === 'med' ? '中及以上' : '低及以上（全部）';
-  const tzLbl = timezoneLabel(cfg.timezone_offset);
   const sections: EmailSection[] = [{
     title: `${levelLabel}优先级未完成`,
     items: allTodos.map(dueTodoToItem),
     listStyle: 'cards',
   }];
-  // 附加这些 todo 的搜索词（按来源 todo 分组）
-  const searchSections = buildSearchSections(allTodos, cfg.daily_include_search);
-  sections.push(...searchSections);
-  const { html, text, subject } = renderModeEmail({
-    title: `【优先级提醒】${allTodos.length} 项待办需关注`,
-    subtitle: `${levelLabel}优先级的未完成待办`,
-    sections, runAt: localNow, timezoneLabel: tzLbl, appUrl: cfg.app_url,
-  });
-
-  const idempotencyKey = `cf-todo:priority:${idemBucket()}`;
-  const result = await sendEmail(env.RESEND_API_KEY, { from: cfg.from, to: cfg.recipient, subject, html, text, idempotencyKey });
-
-  if (isIdempotencyConflict(result)) {
-    return { mode: 'priority', skipped: true, reason: 'already_sent_today (idempotency)', checked: allTodos.length, sent: 0, failed: 0 };
-  }
-
   return {
-    mode: 'priority', skipped: false, checked: allTodos.length,
-    sent: result.ok ? 1 : 0, failed: result.ok ? 0 : 1,
-    resendId: result.id, error: result.error,
+    mode: 'priority', enabled: true, sections, checked: allTodos.length, skipped: false,
+    summary: `${levelLabel}优先级 ${allTodos.length} 项`,
   };
 }
 
-// ==================== 主入口 ====================
+// ==================== 主入口：合并所有模式为一封 digest 邮件 ====================
 
 export async function runScheduledReminders(env: Env): Promise<ReminderRunResult> {
   const db = createDb(env.DB);
   const cfg = await getReminderConfig(db);
 
-  if (!cfg.enabled) return { skipped: true, reason: 'disabled', modes: [] };
-  if (!cfg.recipient || !cfg.from) return { skipped: true, reason: 'missing recipient or from', modes: [] };
-  if (!env.RESEND_API_KEY) return { skipped: true, reason: 'RESEND_API_KEY not set', modes: [] };
+  if (!cfg.enabled) return { skipped: true, reason: 'disabled', sent: 0, failed: 0, modes: [] };
+  if (!cfg.recipient || !cfg.from) return { skipped: true, reason: 'missing recipient or from', sent: 0, failed: 0, modes: [] };
+  if (!env.RESEND_API_KEY) return { skipped: true, reason: 'RESEND_API_KEY not set', sent: 0, failed: 0, modes: [] };
 
   const tzOffsetMs = cfg.timezone_offset * 60 * 1000;
   const nowUtcMs = Date.now();
@@ -516,14 +458,71 @@ export async function runScheduledReminders(env: Env): Promise<ReminderRunResult
   const state = await getState(db);
   state.last_run = nowUtcMs;
 
+  // 1. 运行所有启用的模式，每个返回 sections（不直接发邮件）
   const results: ModeResult[] = [];
-  results.push(await runTimedMode(env, cfg, state, localNow, todayStr, tzOffsetMs, nowUtcMs));
-  results.push(await runDailyMode(env, cfg, localNow, todayStr));
-  results.push(await runPriorityMode(env, cfg, localNow, todayStr));
+  results.push(await runTimedMode(db, cfg, state, localNow, todayStr, tzOffsetMs, nowUtcMs));
+  results.push(await runDailyMode(db, cfg, todayStr));
+  results.push(await runPriorityMode(db, cfg, todayStr));
+
+  // 2. 合并所有 sections（按模式顺序拼接）
+  const mergedSections: EmailSection[] = [];
+  for (const r of results) {
+    mergedSections.push(...r.sections);
+  }
+
+  // 3. 附加搜索词 section（所有模式共享，从今日全部 todo 聚合，按来源 todo 分组）
+  //    只在有模式贡献了内容时才附加，避免空邮件带搜索词
+  if (mergedSections.length > 0 && cfg.daily_include_search !== 'off') {
+    const allTodosForSearch = await fetchTodayTodos(db, todayStr, {});
+    const searchSections = buildSearchSections(allTodosForSearch, cfg.daily_include_search);
+    mergedSections.push(...searchSections);
+  }
+
+  // 4. 无内容则不发邮件（但仍保存 state）
+  if (mergedSections.length === 0) {
+    await saveState(db, pruneState(state, nowUtcMs));
+    return { skipped: false, sent: 0, failed: 0, modes: results };
+  }
+
+  // 5. 组合邮件主题：各模式 summary 用「·」拼接
+  const summaries = results.filter((r) => r.summary).map((r) => r.summary!);
+  const subject = `【cf-todo 提醒】${summaries.join(' · ')}`;
+  const subtitle = `共 ${mergedSections.length} 个板块 · 检查时间 ${getLocalDateStr(localNow)}`;
+  const tzLbl = timezoneLabel(cfg.timezone_offset);
+
+  const { html, text } = renderModeEmail({
+    title: subject,
+    subtitle,
+    sections: mergedSections,
+    runAt: localNow,
+    timezoneLabel: tzLbl,
+    appUrl: cfg.app_url,
+  });
+
+  // 6. 幂等键：15s 时间桶 + sections 内容哈希（内容不变则 15s 内去重）
+  const idemParts = mergedSections.map((s) => `${s.title}|${s.items.length}`).join('|');
+  const idempotencyKey = `cf-todo:digest:${idemBucket()}:${(await sha256Hex(idemParts)).slice(0, 16)}`;
+  const result = await sendEmail(env.RESEND_API_KEY, {
+    from: cfg.from, to: cfg.recipient, subject, html, text, idempotencyKey,
+  });
+
+  // 7. 发送成功才追加 timed 模式的 sentEntries（去重表）
+  if (result.ok) {
+    for (const r of results) {
+      if (r.sentEntries) state.sent.push(...r.sentEntries);
+    }
+  }
 
   await saveState(db, pruneState(state, nowUtcMs));
 
-  return { skipped: false, modes: results };
+  return {
+    skipped: false,
+    sent: result.ok ? 1 : 0,
+    failed: result.ok ? 0 : 1,
+    resendId: result.id,
+    error: result.error,
+    modes: results,
+  };
 }
 
 function pruneState(state: ReminderState, nowUtcMs: number): ReminderState {
