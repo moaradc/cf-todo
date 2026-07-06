@@ -51,14 +51,8 @@ export interface ReminderConfig {
   skip_end: string;
 }
 
-interface ReminderSentEntry {
-  todo_id: string;
-  due_at: number;
-}
-
 interface ReminderState {
   last_run: number;
-  sent: ReminderSentEntry[];
 }
 
 export interface DueTodo {
@@ -105,7 +99,6 @@ export interface ReminderRunResult {
 
 const CONFIG_KEY = 'reminder_config';
 const STATE_KEY = 'reminder_state';
-const SENT_TTL_MS = 24 * 60 * 60 * 1000;
 const DEFAULT_TZ_OFFSET = 480;
 const DEFAULT_LEAD_MINUTES = 15;
 const LOOKBACK_MINUTES = 1;
@@ -195,21 +188,13 @@ export async function setReminderConfig(db: Db, cfg: ReminderConfig): Promise<vo
 }
 
 async function getState(db: Db): Promise<ReminderState> {
-  const fallback: ReminderState = { last_run: 0, sent: [] };
+  const fallback: ReminderState = { last_run: 0 };
   const raw = await getSettingJson<unknown>(db, STATE_KEY, fallback);
   if (!raw || typeof raw !== 'object') return fallback;
   const r = raw as Record<string, unknown>;
-  const sent = Array.isArray(r.sent) ? r.sent.filter(isSentEntry) : [];
   return {
     last_run: typeof r.last_run === 'number' ? r.last_run : 0,
-    sent,
   };
-}
-
-function isSentEntry(v: unknown): v is ReminderSentEntry {
-  if (!v || typeof v !== 'object') return false;
-  const e = v as Record<string, unknown>;
-  return typeof e.todo_id === 'string' && typeof e.due_at === 'number';
 }
 
 async function saveState(db: Db, state: ReminderState): Promise<void> {
@@ -549,7 +534,7 @@ export async function runScheduledReminders(env: Env): Promise<ReminderRunResult
 
   // 无内容则不发邮件（仍保存 state）
   if (mergedSections.length === 0) {
-    await saveState(db, pruneState(state, nowUtcMs));
+    await saveState(db, state);
     return { skipped: false, sent: 0, failed: 0, modes: results };
   }
 
@@ -575,7 +560,7 @@ export async function runScheduledReminders(env: Env): Promise<ReminderRunResult
     from: cfg.from, to: cfg.recipient, subject, html, text, idempotencyKey,
   });
 
-  await saveState(db, pruneState(state, nowUtcMs));
+  await saveState(db, state);
 
   return {
     skipped: false,
@@ -585,12 +570,6 @@ export async function runScheduledReminders(env: Env): Promise<ReminderRunResult
     error: result.error,
     modes: results,
   };
-}
-
-function pruneState(state: ReminderState, nowUtcMs: number): ReminderState {
-  const cutoff = nowUtcMs - SENT_TTL_MS;
-  const sent = state.sent.filter((e) => e.due_at >= cutoff);
-  return { last_run: state.last_run, sent };
 }
 
 // ==================== 连通测试（用真实数据发一封 digest，不修改 state） ====================
