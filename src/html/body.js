@@ -481,10 +481,10 @@ export function getBody(isAuthorized) {
                     <div class="switch-box" id="reminder-timed-box"></div>
                 </div>
               </div>
-              <div class="reminder-mode-desc">到期前提前发提醒，扫描未来一段时间内到期的待办</div>
+              <div class="reminder-mode-desc">每次 Cron 执行时，扫描未来指定分钟内到期的待办</div>
               <div class="reminder-mode-opts">
                 <div class="reminder-opt-row">
-                  <span class="reminder-opt-label">提前时间</span>
+                  <span class="reminder-opt-label">扫描范围</span>
                   <div class="fake-input" onclick="openReminderLeadPicker()" style="margin-bottom: 0; padding: 6px 12px; justify-content: space-between; border-radius: 4px;">
                       <span id="set-disp-reminderLead">15 分</span>
                       <span style="font-size:0.75rem; margin-left: 8px; color:#888;">▼</span>

@@ -411,7 +411,7 @@ async function runTimedMode(
   }
 
   const sections: EmailSection[] = [{
-    title: `即将到期（未来 ${cfg.timed_lead_minutes} 分钟内）`,
+    title: `未来 ${cfg.timed_lead_minutes} 分钟内到期`,
     items: dueTodos.map(dueTodoToItem),
     listStyle: 'cards',
   }];
