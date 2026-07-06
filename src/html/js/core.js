@@ -1045,7 +1045,7 @@ export const core = `
         _setReminderStatus('✗ 请先填写收件人和发件人邮箱', true);
         return;
       }
-      _setReminderStatus('保存配置并发送测试邮件...', false);
+      _setReminderStatus('保存配置并发送连通测试...', false);
       var testBtn = document.getElementById('reminder-test-btn');
       if (testBtn) { testBtn.disabled = true; testBtn.textContent = '发送中...'; }
       try {
@@ -1072,7 +1072,7 @@ export const core = `
       } catch (e) {
         _setReminderStatus('✗ ' + e.message, true);
       } finally {
-        if (testBtn) { testBtn.disabled = false; testBtn.textContent = '发送测试邮件'; }
+        if (testBtn) { testBtn.disabled = false; testBtn.textContent = '连通测试'; }
       }
     }
 

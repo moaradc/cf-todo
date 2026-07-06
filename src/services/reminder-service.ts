@@ -573,34 +573,65 @@ function pruneState(state: ReminderState, nowUtcMs: number): ReminderState {
   return { last_run: state.last_run, sent };
 }
 
-// ==================== 测试邮件 ====================
+// ==================== 连通测试（用真实数据发一封 digest，不修改 state） ====================
 
 export async function sendTestEmail(env: Env, cfg: ReminderConfig): Promise<{ ok: boolean; id?: string; error?: string }> {
   if (!env.RESEND_API_KEY) return { ok: false, error: 'RESEND_API_KEY not set' };
   if (!cfg.recipient || !cfg.from) return { ok: false, error: 'recipient or from not configured' };
 
-  const now = new Date(Date.now() + cfg.timezone_offset * 60 * 1000);
-  const tzLbl = timezoneLabel(cfg.timezone_offset);
-  const testItem: EmailItem = {
-    text: '【测试】这是一封来自 cf-todo 的提醒测试邮件',
-    time: `${pad2(now.getUTCHours())}:${pad2(now.getUTCMinutes())}`,
-    priority: 'med',
-    desc: '如果你收到这封邮件，说明 Resend API 集成正常工作。',
-  };
-  const section: EmailSection = {
-    title: '测试邮件',
-    items: [testItem],
-    listStyle: 'cards',
-  };
-  const { html, text, subject } = renderModeEmail({
-    title: `测试邮件`,
-    subtitle: '验证 Resend API 集成是否正常',
-    sections: [section], runAt: now, timezoneLabel: tzLbl, appUrl: cfg.app_url,
+  const db = createDb(env.DB);
+  const tzOffsetMs = cfg.timezone_offset * 60 * 1000;
+  const nowUtcMs = Date.now();
+  const localNow = new Date(nowUtcMs + tzOffsetMs);
+  const todayStr = getLocalDateStr(localNow);
+
+  // 用真实数据运行各模式（空 state，不写入 sent 去重表）
+  const emptyState: ReminderState = { last_run: nowUtcMs, sent: [] };
+  const displayedIds = new Set<string>();
+  const results: ModeResult[] = [];
+
+  const timedResult = await runTimedMode(db, cfg, emptyState, localNow, todayStr, tzOffsetMs, nowUtcMs, displayedIds);
+  results.push(timedResult);
+  timedResult.displayedIds.forEach((id) => displayedIds.add(id));
+
+  const priorityResult = await runPriorityMode(db, cfg, todayStr, displayedIds);
+  results.push(priorityResult);
+  priorityResult.displayedIds.forEach((id) => displayedIds.add(id));
+
+  const dailyResult = await runDailyMode(db, cfg, todayStr, displayedIds);
+  results.push(dailyResult);
+  dailyResult.displayedIds.forEach((id) => displayedIds.add(id));
+
+  const mergedSections: EmailSection[] = [];
+  for (const r of results) mergedSections.push(...r.sections);
+
+  if (mergedSections.length === 0 && cfg.daily_include_search === 'off') {
+    return { ok: false, error: '当前无符合条件的数据可发送（今日无待办或模式都未启用）' };
+  }
+
+  // 附加搜索词
+  if (mergedSections.length > 0 && cfg.daily_include_search !== 'off') {
+    const allTodosForSearch = await fetchTodayTodos(db, todayStr, {});
+    mergedSections.push(...buildSearchSections(allTodosForSearch, cfg.daily_include_search));
+  }
+
+  // 无内容时补一个占位 section，让用户至少收到一封邮件确认连通性
+  if (mergedSections.length === 0) {
+    mergedSections.push({ title: '当前无待办数据', items: [], emptyMessage: '今日无待办，连通测试正常', listStyle: 'cards' });
+  }
+
+  const summaries = results.filter((r) => r.summary).map((r) => r.summary!);
+  const subjectPrefix = summaries.length > 0 ? summaries.join(' · ') : '无数据';
+  const subject = `[连通测试] ${subjectPrefix}`;
+  const subtitle = `${mergedSections.length} 个板块 · ${getLocalDateStr(localNow)} ${pad2(localNow.getUTCHours())}:${pad2(localNow.getUTCMinutes())} ${timezoneLabel(cfg.timezone_offset)}`;
+
+  const { html, text } = renderModeEmail({
+    title: subject, subtitle, sections: mergedSections,
+    runAt: localNow, timezoneLabel: timezoneLabel(cfg.timezone_offset), appUrl: cfg.app_url,
   });
 
   const result = await sendEmail(env.RESEND_API_KEY, {
     from: cfg.from, to: cfg.recipient, subject, html, text,
-    // 15s 时间桶：同 15s 内重复点击去重，跨 15s 允许重发（测试邮件用户可能需要多次验证）
     idempotencyKey: `cf-todo:test:${idemBucket()}`,
   });
   return { ok: result.ok, id: result.id, error: result.error };

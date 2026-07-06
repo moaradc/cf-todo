@@ -564,7 +564,7 @@ export function getBody(isAuthorized) {
 
           <div class="row" style="margin-bottom: 10px;">
               <button class="flex-1" onclick="saveReminderConfig()">保存配置</button>
-              <button id="reminder-test-btn" class="flex-1" onclick="sendTestReminder()">发送测试邮件</button>
+              <button id="reminder-test-btn" class="flex-1" onclick="sendTestReminder()">连通测试</button>
           </div>
           <div id="reminder-status-text" class="settings-text" style="margin:0 0 8px 0; min-height:0;"></div>
           <div class="settings-text" style="border-top: 1px dashed #333; padding-top: 10px; margin-top: 0;">
