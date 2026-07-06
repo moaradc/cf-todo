@@ -353,7 +353,13 @@ export const css = `
     .settings-card.danger { border: 1px solid var(--accent); }
     .settings-text { font-size: 0.85rem; line-height: 1.6; color: #888; margin-bottom: 0; }
     .settings-text strong { color: var(--crt); }
-    
+
+    .reminder-mode-block { background: rgba(0,0,0,0.18); border: 1px solid #333; border-radius: 6px; padding: 12px 14px; margin-bottom: 10px; }
+    .reminder-mode-header { display: flex; align-items: center; justify-content: space-between; }
+    .reminder-mode-desc { font-size: 0.75rem; color: #666; margin-top: 4px; line-height: 1.4; }
+    [data-theme="light"] .reminder-mode-block { background: #FAFAF7; border: 1px solid #D8D5C8; }
+    [data-theme="light"] .reminder-mode-desc { color: #6B6757; }
+
     .md-code { background: #222; padding: 2px 4px; border-radius: 2px; color: var(--crt); font-family: var(--font-main); }
     .md-ul { padding-left: 20px; margin: 5px 0; }
     del { opacity: 0.6; }

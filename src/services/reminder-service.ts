@@ -4,14 +4,12 @@
  * 模式：
  *   - timed       每 5 分钟扫描未来 N 分钟内到期的待办（应用层 state.sent 去重）
  *   - daily       每次 Cron 触发时发送今日待办汇总（可选附加搜索词 section）
- *                 Resend Idempotency-Key cf-todo:daily:YYYY-MM-DD 保证每天只发一封
  *   - priority    每次 Cron 触发时发送指定优先级及以上的未完成待办
- *                 Resend Idempotency-Key cf-todo:priority:YYYY-MM-DD 保证每天只发一封
  *
  * 去重策略：
  *   - timed     应用层 state.sent[] 按 todo_id@due_at 去重（24h TTL）
- *   - daily/priority  每次 Cron 都尝试发送，由 Resend 服务端幂等去重；
- *                     body 变化导致幂等冲突时视为"今天已发"跳过
+ *   - daily/priority  每次 Cron 都发送；Resend Idempotency-Key 用 15s 时间桶，
+ *                     仅防止 Cron 抖动/重试导致的瞬间重复，跨 15s 允许新发
  *
  * 时区：用 tzOffsetMs 把「现在」位移到目标时区后用 UTC getter 读取年月日。
  */
@@ -217,6 +215,11 @@ async function sha256Hex(input: string): Promise<string> {
   return Array.from(new Uint8Array(digest)).map((b) => b.toString(16).padStart(2, '0')).join('');
 }
 
+/** 15 秒时间桶：用于 Resend Idempotency-Key。同一桶内重复请求被去重，跨桶允许新发。 */
+function idemBucket(): number {
+  return Math.floor(Date.now() / 15000);
+}
+
 // ==================== 查询 ====================
 
 async function fetchTodayTodos(
@@ -386,7 +389,7 @@ async function runTimedMode(
   });
 
   const idemParts = dueTodos.map((t) => `${t.id}@${dueUtcMsFor(t.time, localNow, tzOffsetMs) ?? 0}`).sort();
-  const idempotencyKey = `cf-todo:timed:${(await sha256Hex(idemParts.join('|'))).slice(0, 32)}`;
+  const idempotencyKey = `cf-todo:timed:${idemBucket()}:${(await sha256Hex(idemParts.join('|'))).slice(0, 16)}`;
   const result = await sendEmail(env.RESEND_API_KEY, { from: cfg.from, to: cfg.recipient, subject, html, text, idempotencyKey });
 
   if (result.ok) {
@@ -455,9 +458,8 @@ async function runDailyMode(
     sections, runAt: localNow, timezoneLabel: tzLbl, appUrl: cfg.app_url,
   });
 
-  // 每次 Cron 都尝试发送；Resend 用 cf-todo:daily:YYYY-MM-DD 幂等键去重，
-  // 同一天重复调用不会产生新邮件。body 变化时 Resend 返回幂等冲突，视为"今天已发"。
-  const idempotencyKey = `cf-todo:daily:${todayStr}`;
+  // 每次 Cron 都尝试发送；15s 时间桶幂等键防止 Cron 抖动/重试导致的瞬间重复。
+  const idempotencyKey = `cf-todo:daily:${idemBucket()}`;
   const result = await sendEmail(env.RESEND_API_KEY, { from: cfg.from, to: cfg.recipient, subject, html, text, idempotencyKey });
 
   if (isIdempotencyConflict(result)) {
@@ -498,7 +500,7 @@ async function runPriorityMode(
     sections: [section], runAt: localNow, timezoneLabel: tzLbl, appUrl: cfg.app_url,
   });
 
-  const idempotencyKey = `cf-todo:priority:${todayStr}`;
+  const idempotencyKey = `cf-todo:priority:${idemBucket()}`;
   const result = await sendEmail(env.RESEND_API_KEY, { from: cfg.from, to: cfg.recipient, subject, html, text, idempotencyKey });
 
   if (isIdempotencyConflict(result)) {

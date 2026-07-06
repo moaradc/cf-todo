@@ -476,61 +476,72 @@ export function getBody(isAuthorized) {
           <input type="email" id="reminder-recipient-input" placeholder="user@example.com" style="margin-bottom: 12px;" autocomplete="email">
           <div class="detail-label">发件人邮箱</div>
           <input type="text" id="reminder-from-input" placeholder="cf-todo &lt;noreply@yourdomain.com&gt;" style="margin-bottom: 12px;" autocomplete="off">
-          <div class="setting-item" style="margin-bottom: 12px; border: none; padding: 0;">
+          <div class="setting-item" style="margin-bottom: 4px; border: none; padding: 0;">
               <span class="settings-text" style="margin:0;">时区偏移</span>
-              <div class="fake-input" onclick="toggleSettingPopover('reminderTz', this)" style="width: 90px; margin-bottom: 0; padding: 6px 8px; justify-content: space-between; border-radius: 4px;">
+              <div class="fake-input" onclick="toggleSettingPopover('reminderTz', this)" style="width: 110px; margin-bottom: 0; padding: 6px 10px; justify-content: space-between; border-radius: 4px;">
                   <span id="set-disp-reminderTz">UTC+8</span>
                   <span style="font-size:0.8rem; margin-right: 4px;">▼</span>
               </div>
           </div>
 
-          <div style="border-top: 1px dashed #333; margin: 12px 0; padding-top: 12px;">
-            <div class="settings-text" style="font-weight:bold; margin-bottom: 10px;">提醒模式</div>
+          <div style="border-top: 1px dashed #333; margin: 16px 0 12px 0; padding-top: 12px;">
+            <div class="settings-text" style="font-weight:bold; margin-bottom: 12px;">提醒模式</div>
 
-            <div class="setting-item" style="margin-bottom: 8px; border: none; padding: 0;">
-              <span class="settings-text" style="margin:0;">即将到期提醒</span>
-              <div class="switch-label" onclick="toggleReminderMode('timed')" style="margin-bottom: 0;">
-                  <div class="switch-box" id="reminder-timed-box"></div>
+            <div class="reminder-mode-block">
+              <div class="reminder-mode-header">
+                <span class="settings-text" style="margin:0; font-weight:600;">即将到期提醒</span>
+                <div class="switch-label" onclick="toggleReminderMode('timed')" style="margin-bottom: 0;">
+                    <div class="switch-box" id="reminder-timed-box"></div>
+                </div>
               </div>
-            </div>
-            <div class="setting-item" style="margin-bottom: 12px; padding-left: 16px; border: none;">
-              <span class="settings-text" style="margin:0; color:#666;">提前</span>
-              <div class="fake-input" onclick="toggleSettingPopover('reminderLead', this)" style="width: 70px; margin-bottom: 0; padding: 4px 8px; justify-content: space-between; border-radius: 4px;">
-                  <span id="set-disp-reminderLead">15</span>
-                  <span style="font-size:0.75rem; margin-right: 4px;">▼</span>
-              </div>
-              <span class="settings-text" style="margin:0; color:#666;">分钟提醒</span>
-            </div>
-
-            <div class="setting-item" style="margin-bottom: 8px; border: none; padding: 0;">
-              <span class="settings-text" style="margin:0;">今日汇总</span>
-              <div class="switch-label" onclick="toggleReminderMode('daily')" style="margin-bottom: 0;">
-                  <div class="switch-box" id="reminder-daily-box"></div>
-              </div>
-            </div>
-            <div class="setting-item" style="margin-bottom: 8px; padding-left: 16px; border: none;">
-              <label style="font-size:0.8rem; color:#666; margin-right: 12px; cursor:pointer;"><input type="checkbox" id="reminder-daily-uncompleted" checked> 未完成</label>
-              <label style="font-size:0.8rem; color:#666; cursor:pointer;"><input type="checkbox" id="reminder-daily-completed"> 已完成</label>
-            </div>
-            <div class="setting-item" style="margin-bottom: 12px; padding-left: 16px; border: none;">
-              <span class="settings-text" style="margin:0; color:#666; font-size:0.8rem;">搜索词</span>
-              <div class="fake-input" onclick="toggleSettingPopover('reminderSearchMode', this)" style="width: 90px; margin-bottom: 0; padding: 4px 8px; justify-content: space-between; border-radius: 4px;">
-                  <span id="set-disp-reminderSearchMode">关闭</span>
-                  <span style="font-size:0.75rem; margin-right: 4px;">▼</span>
+              <div class="settings-text reminder-mode-desc">未来到期前提前发提醒</div>
+              <div class="setting-item" style="margin-top: 10px; border: none; padding: 0;">
+                  <span class="settings-text" style="margin:0; color:#666;">提前时间</span>
+                  <div class="fake-input" onclick="openReminderLeadPicker()" style="width: 110px; margin-bottom: 0; padding: 6px 10px; justify-content: space-between; border-radius: 4px;">
+                      <span id="set-disp-reminderLead">15 分</span>
+                      <span style="font-size:0.8rem; margin-right: 4px;">▼</span>
+                  </div>
               </div>
             </div>
 
-            <div class="setting-item" style="margin-bottom: 8px; border: none; padding: 0;">
-              <span class="settings-text" style="margin:0;">优先级提醒</span>
-              <div class="switch-label" onclick="toggleReminderMode('priority')" style="margin-bottom: 0;">
-                  <div class="switch-box" id="reminder-priority-box"></div>
+            <div class="reminder-mode-block">
+              <div class="reminder-mode-header">
+                <span class="settings-text" style="margin:0; font-weight:600;">今日汇总</span>
+                <div class="switch-label" onclick="toggleReminderMode('daily')" style="margin-bottom: 0;">
+                    <div class="switch-box" id="reminder-daily-box"></div>
+                </div>
+              </div>
+              <div class="settings-text reminder-mode-desc">每次 Cron 发送今日待办一览</div>
+              <div class="setting-item" style="margin-top: 10px; border: none; padding: 0;">
+                  <span class="settings-text" style="margin:0; color:#666;">包含内容</span>
+                  <div style="display:flex; gap:14px; align-items:center;">
+                    <label style="font-size:0.8rem; color:#666; cursor:pointer;"><input type="checkbox" id="reminder-daily-uncompleted" checked> 未完成</label>
+                    <label style="font-size:0.8rem; color:#666; cursor:pointer;"><input type="checkbox" id="reminder-daily-completed"> 已完成</label>
+                  </div>
+              </div>
+              <div class="setting-item" style="margin-top: 8px; border: none; padding: 0;">
+                  <span class="settings-text" style="margin:0; color:#666;">搜索词</span>
+                  <div class="fake-input" onclick="toggleSettingPopover('reminderSearchMode', this)" style="width: 110px; margin-bottom: 0; padding: 6px 10px; justify-content: space-between; border-radius: 4px;">
+                      <span id="set-disp-reminderSearchMode">关闭</span>
+                      <span style="font-size:0.8rem; margin-right: 4px;">▼</span>
+                  </div>
               </div>
             </div>
-            <div class="setting-item" style="margin-bottom: 12px; padding-left: 16px; border: none;">
-              <span class="settings-text" style="margin:0; color:#666; font-size:0.8rem;">阈值</span>
-              <div class="fake-input" onclick="toggleSettingPopover('reminderPriorityLevel', this)" style="width: 90px; margin-bottom: 0; padding: 4px 8px; justify-content: space-between; border-radius: 4px;">
-                  <span id="set-disp-reminderPriorityLevel">高</span>
-                  <span style="font-size:0.75rem; margin-right: 4px;">▼</span>
+
+            <div class="reminder-mode-block">
+              <div class="reminder-mode-header">
+                <span class="settings-text" style="margin:0; font-weight:600;">优先级提醒</span>
+                <div class="switch-label" onclick="toggleReminderMode('priority')" style="margin-bottom: 0;">
+                    <div class="switch-box" id="reminder-priority-box"></div>
+                </div>
+              </div>
+              <div class="settings-text reminder-mode-desc">按优先级阈值发送未完成待办</div>
+              <div class="setting-item" style="margin-top: 10px; border: none; padding: 0;">
+                  <span class="settings-text" style="margin:0; color:#666;">阈值</span>
+                  <div class="fake-input" onclick="toggleSettingPopover('reminderPriorityLevel', this)" style="width: 110px; margin-bottom: 0; padding: 6px 10px; justify-content: space-between; border-radius: 4px;">
+                      <span id="set-disp-reminderPriorityLevel">高</span>
+                      <span style="font-size:0.8rem; margin-right: 4px;">▼</span>
+                  </div>
               </div>
             </div>
           </div>
@@ -541,7 +552,7 @@ export function getBody(isAuthorized) {
           </div>
           <div id="reminder-status-text" class="settings-text" style="margin-top:8px; min-height: 1em;"></div>
           <div class="settings-text" style="border-top: 1px dashed #333; padding-top: 10px;">
-            <strong>说明：</strong>配置保存在 D1 数据库。所有模式由 Cron 触发：「即将到期」每 5 分钟扫描一次；「今日汇总」与「优先级提醒」每天首次触发时发送（当天已发不重发）。
+            <strong>说明：</strong>配置保存在 D1 数据库。所有模式由 Cron 触发（每 5 分钟）；15s 内重复触发自动去重。
           </div>
       </div>
 
@@ -697,13 +708,6 @@ export function getBody(isAuthorized) {
     <button onclick="selectSetting('apiKeyScope', 'v0', 'v0')">v0</button>
     <button onclick="selectSetting('apiKeyScope', 'all', '全部')">全部</button>
     <button onclick="selectSetting('apiKeyScope', 'disabled', '禁用')">禁用</button>
-  </div>
-  <div id="popover-set-reminderLead" class="popover-menu">
-    <button onclick="selectSetting('reminderLead', '5', '5')">5 分钟</button>
-    <button onclick="selectSetting('reminderLead', '10', '10')">10 分钟</button>
-    <button onclick="selectSetting('reminderLead', '15', '15')">15 分钟</button>
-    <button onclick="selectSetting('reminderLead', '30', '30')">30 分钟</button>
-    <button onclick="selectSetting('reminderLead', '60', '60')">1 小时</button>
   </div>
   <div id="popover-set-reminderTz" class="popover-menu">
     <button onclick="selectSetting('reminderTz', '0', 'UTC+0')">UTC+0</button>

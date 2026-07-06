@@ -800,17 +800,28 @@ export const detail = `
     function openTimePicker(mode, target) {
       activeMode = mode; timePickerTarget = target || 'start';
       var titleEl = document.getElementById('time-picker-title');
-      if (titleEl) titleEl.textContent = (target === 'end') ? '选择结束时间' : '选择开始时间';
+      if (titleEl) {
+        if (target === 'end') titleEl.textContent = '选择结束时间';
+        else if (target === 'reminderLead') titleEl.textContent = '选择提前时间';
+        else titleEl.textContent = '选择开始时间';
+      }
       document.getElementById('modal-time').classList.add('active');
-      var refTime = (target === 'end') ? tempEndTime : tempTime;
-      if (target === 'end' && !tempEndTime && tempTime) {
-        var parts = tempTime.split(':').map(Number);
-        parts[1] += 30;
-        if (parts[1] >= 60) { parts[0] += 1; parts[1] -= 60; }
-        if (parts[0] >= 24) parts[0] = 23;
-        timePickerHour = parts[0]; timePickerMin = parts[1];
-      } else if (refTime) { const[h, m] = refTime.split(':').map(Number); timePickerHour = h; timePickerMin = m; }
-      else { const now = new Date(); timePickerHour = now.getHours(); timePickerMin = now.getMinutes(); }
+      var refTime;
+      if (target === 'reminderLead') {
+        // 提前时间：把 tempReminderLead 分钟拆成 H:M
+        timePickerHour = Math.floor(tempReminderLead / 60);
+        timePickerMin = tempReminderLead % 60;
+      } else {
+        refTime = (target === 'end') ? tempEndTime : tempTime;
+        if (target === 'end' && !tempEndTime && tempTime) {
+          var parts = tempTime.split(':').map(Number);
+          parts[1] += 30;
+          if (parts[1] >= 60) { parts[0] += 1; parts[1] -= 60; }
+          if (parts[0] >= 24) parts[0] = 23;
+          timePickerHour = parts[0]; timePickerMin = parts[1];
+        } else if (refTime) { const[h, m] = refTime.split(':').map(Number); timePickerHour = h; timePickerMin = m; }
+        else { const now = new Date(); timePickerHour = now.getHours(); timePickerMin = now.getMinutes(); }
+      }
       const hCol = document.getElementById('time-col-hour'); hCol.innerHTML = '';
       for(let i=0; i<24; i++) {
         const div = document.createElement('div'); div.className = 'time-cell'; div.innerText = String(i).padStart(2, '0');
@@ -836,6 +847,14 @@ export const detail = `
 
     function confirmTime() {
       var selectedTime = \`\${String(timePickerHour).padStart(2,'0')}:\${String(timePickerMin).padStart(2,'0')}\`;
+      if (timePickerTarget === 'reminderLead') {
+        var lead = timePickerHour * 60 + timePickerMin;
+        if (lead < 1) lead = 15;
+        tempReminderLead = lead;
+        renderReminderConfig();
+        closeTimePicker();
+        return;
+      }
       if (timePickerTarget === 'end') {
         tempEndTime = selectedTime;
         if(activeMode === 'add') updateAddUI();
@@ -854,6 +873,12 @@ export const detail = `
     }
 
     function clearTime() {
+      if (timePickerTarget === 'reminderLead') {
+        tempReminderLead = 15;
+        renderReminderConfig();
+        closeTimePicker();
+        return;
+      }
       if (timePickerTarget === 'end') {
         tempEndTime = '';
         if(activeMode === 'add') updateAddUI();

@@ -231,6 +231,7 @@ export const bootstrap = `
       renderReminderConfig: renderReminderConfig,
       toggleReminderEnabled: toggleReminderEnabled,
       toggleReminderMode: toggleReminderMode,
+      openReminderLeadPicker: openReminderLeadPicker,
       saveReminderConfig: saveReminderConfig,
       sendTestReminder: sendTestReminder,
       onScaleSliderChange: onScaleSliderChange,

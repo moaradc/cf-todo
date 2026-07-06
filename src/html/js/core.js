@@ -884,6 +884,20 @@ export const core = `
       return mode === 'all' ? '全部' : mode === 'uncompleted' ? '仅未完成' : '关闭';
     }
 
+    // 把分钟数格式化为「H 时 M 分」/「M 分」显示，配合时间选择模态框
+    function _leadLabel(mins) {
+      var h = Math.floor(mins / 60);
+      var m = mins % 60;
+      if (h > 0 && m > 0) return h + ' 时 ' + m + ' 分';
+      if (h > 0) return h + ' 时';
+      return m + ' 分';
+    }
+
+    // 复用「选择开始时间」模态框选提前分钟数：时列=小时，分列=分钟
+    function openReminderLeadPicker() {
+      openTimePicker('edit', 'reminderLead');
+    }
+
     async function loadReminderConfig() {
       try {
         var res = await fetch('/api/reminder/config');
@@ -919,7 +933,7 @@ export const core = `
       if (el('reminder-enabled-box')) el('reminder-enabled-box').classList.toggle('checked', reminderConfig.enabled);
       if (el('reminder-recipient-input')) el('reminder-recipient-input').value = reminderConfig.recipient;
       if (el('reminder-from-input')) el('reminder-from-input').value = reminderConfig.from;
-      if (el('set-disp-reminderLead')) el('set-disp-reminderLead').innerText = String(tempReminderLead);
+      if (el('set-disp-reminderLead')) el('set-disp-reminderLead').innerText = _leadLabel(tempReminderLead);
       if (el('set-disp-reminderTz')) el('set-disp-reminderTz').innerText = _reminderTzLabel(tempReminderTz);
       if (el('reminder-timed-box')) el('reminder-timed-box').classList.toggle('checked', reminderConfig.timed_enabled);
       if (el('reminder-daily-box')) el('reminder-daily-box').classList.toggle('checked', reminderConfig.daily_enabled);
@@ -931,9 +945,7 @@ export const core = `
     }
 
     function _selectReminderSetting(type, value) {
-      if (type === 'reminderLead') {
-        tempReminderLead = parseInt(value, 10) || 15;
-      } else if (type === 'reminderTz') {
+      if (type === 'reminderTz') {
         tempReminderTz = parseInt(value, 10);
       } else if (type === 'reminderPriorityLevel') {
         tempReminderPriorityLevel = value;
