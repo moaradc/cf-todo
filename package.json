@@ -4,7 +4,7 @@
   "version": "1.0.0",
   "scripts": {
     "build": "esbuild src/index.ts --bundle --format=esm --platform=browser --outfile=dist/worker.mjs --banner:js=\"/* eslint-disable */\"",
-    "dev": "npm run db:migrate:local && wrangler dev",
+    "dev": "npm run db:migrate:local && wrangler dev --test-scheduled",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "db:generate": "drizzle-kit generate",

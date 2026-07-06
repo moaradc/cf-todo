@@ -12,4 +12,6 @@ export interface Env {
   JWT_SECRET: string;
   /** 管理员登录密码。 */
   ADMIN_PASSWORD: string;
+  /** Resend 邮件 API Key（Workers Secret），用于定时提醒发信。 */
+  RESEND_API_KEY: string;
 }
