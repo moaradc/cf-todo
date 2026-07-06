@@ -802,7 +802,7 @@ export const detail = `
       var titleEl = document.getElementById('time-picker-title');
       if (titleEl) {
         if (target === 'end') titleEl.textContent = '选择结束时间';
-        else if (target === 'reminderLead') titleEl.textContent = '选择提前时间';
+        else if (target === 'reminderLead') titleEl.textContent = '选择扫描范围';
         else if (target === 'skipStart') titleEl.textContent = '选择跳过起始时间';
         else if (target === 'skipEnd') titleEl.textContent = '选择跳过结束时间';
         else titleEl.textContent = '选择开始时间';
