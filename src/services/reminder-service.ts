@@ -377,7 +377,7 @@ async function runTimedMode(
   }];
   return {
     mode: 'timed', enabled: true, sections, checked: timed.length, skipped: false,
-    summary: `即将到期 ${dueTodos.length} 项`,
+    summary: `到期${dueTodos.length}`,
     sentEntries,
   };
 }
@@ -412,7 +412,7 @@ async function runDailyMode(
   }
   return {
     mode: 'daily', enabled: true, sections, checked: allTodos.length, skipped: false,
-    summary: `今日汇总 ${allTodos.length} 项`,
+    summary: `汇总${allTodos.length}`,
   };
 }
 
@@ -436,7 +436,7 @@ async function runPriorityMode(
   }];
   return {
     mode: 'priority', enabled: true, sections, checked: allTodos.length, skipped: false,
-    summary: `${levelLabel}优先级 ${allTodos.length} 项`,
+    summary: `优先级${allTodos.length}`,
   };
 }
 
@@ -484,10 +484,10 @@ export async function runScheduledReminders(env: Env): Promise<ReminderRunResult
     return { skipped: false, sent: 0, failed: 0, modes: results };
   }
 
-  // 5. 组合邮件主题：各模式 summary 用「·」拼接
+  // 组合邮件主题：cf-todo · 各模式紧凑标签（到期2 · 汇总5 · 优先级3）
   const summaries = results.filter((r) => r.summary).map((r) => r.summary!);
-  const subject = `【cf-todo 提醒】${summaries.join(' · ')}`;
-  const subtitle = `共 ${mergedSections.length} 个板块 · 检查时间 ${getLocalDateStr(localNow)}`;
+  const subject = `cf-todo · ${summaries.join(' · ')}`;
+  const subtitle = `${mergedSections.length} 个板块 · ${getLocalDateStr(localNow)} ${pad2(localNow.getUTCHours())}:${pad2(localNow.getUTCMinutes())} ${timezoneLabel(cfg.timezone_offset)}`;
   const tzLbl = timezoneLabel(cfg.timezone_offset);
 
   const { html, text } = renderModeEmail({
@@ -551,8 +551,8 @@ export async function sendTestEmail(env: Env, cfg: ReminderConfig): Promise<{ ok
     listStyle: 'cards',
   };
   const { html, text, subject } = renderModeEmail({
-    title: `[测试] cf-todo 提醒测试`,
-    subtitle: '这是一封测试邮件，验证 Resend API 集成是否正常',
+    title: `cf-todo · 测试邮件`,
+    subtitle: '验证 Resend API 集成是否正常',
     sections: [section], runAt: now, timezoneLabel: tzLbl, appUrl: cfg.app_url,
   });
 

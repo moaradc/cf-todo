@@ -354,7 +354,7 @@ export const css = `
     .settings-text { font-size: 0.85rem; line-height: 1.6; color: #888; margin-bottom: 0; }
     .settings-text strong { color: var(--crt); }
 
-    .reminder-mode-block { background: rgba(0,0,0,0.18); border: 1px solid #333; border-radius: 8px; padding: 0; margin-bottom: 10px; overflow: hidden; }
+    .reminder-mode-block { background: rgba(0,0,0,0.18); border: 1px solid #333; border-radius: 8px; padding: 0; margin-bottom: 10px; }
     .reminder-mode-head { display: flex; align-items: center; justify-content: space-between; padding: 12px 14px 6px 14px; }
     .reminder-mode-title { font-size: 0.9rem; font-weight: 600; color: var(--fg); }
     .reminder-mode-desc { font-size: 0.72rem; color: #666; padding: 0 14px 10px 14px; line-height: 1.4; }
