@@ -428,7 +428,7 @@ async function runPriorityMode(
     return { mode: 'priority', enabled: true, sections: [], checked: 0, skipped: false, reason: 'no_matching_todos' };
   }
 
-  const levelLabel = cfg.priority_min_level === 'high' ? '高' : cfg.priority_min_level === 'med' ? '中及以上' : '低及以上（全部）';
+  const levelLabel = cfg.priority_min_level === 'high' ? '高' : cfg.priority_min_level === 'med' ? '中及以上' : '全部';
   const sections: EmailSection[] = [{
     title: `${levelLabel}优先级未完成`,
     items: allTodos.map(dueTodoToItem),

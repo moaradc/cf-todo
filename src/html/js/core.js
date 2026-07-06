@@ -877,7 +877,7 @@ export const core = `
     }
 
     function _priorityLabel(level) {
-      return level === 'high' ? '高' : level === 'med' ? '中及以上' : '低及以上';
+      return level === 'high' ? '高' : level === 'med' ? '中及以上' : '全部';
     }
 
     function _searchModeLabel(mode) {
@@ -940,8 +940,13 @@ export const core = `
       if (el('reminder-priority-box')) el('reminder-priority-box').classList.toggle('checked', reminderConfig.priority_enabled);
       if (el('set-disp-reminderPriorityLevel')) el('set-disp-reminderPriorityLevel').innerText = _priorityLabel(tempReminderPriorityLevel);
       if (el('set-disp-reminderSearchMode')) el('set-disp-reminderSearchMode').innerText = _searchModeLabel(tempReminderSearchMode);
-      if (el('reminder-daily-uncompleted')) el('reminder-daily-uncompleted').checked = reminderConfig.daily_include_uncompleted;
-      if (el('reminder-daily-completed')) el('reminder-daily-completed').checked = reminderConfig.daily_include_completed;
+      if (el('reminder-daily-uncompleted')) el('reminder-daily-uncompleted').classList.toggle('active', reminderConfig.daily_include_uncompleted);
+      if (el('reminder-daily-completed')) el('reminder-daily-completed').classList.toggle('active', reminderConfig.daily_include_completed);
+    }
+
+    // pill 切换：点击切换 active 状态（未完成/已完成两个独立 pill，可单选/多选/全不选）
+    function toggleReminderPill(el) {
+      el.classList.toggle('active');
     }
 
     function _selectReminderSetting(type, value) {
@@ -973,14 +978,14 @@ export const core = `
     function _collectReminderForm() {
       var recipientInput = document.getElementById('reminder-recipient-input');
       var fromInput = document.getElementById('reminder-from-input');
-      var uncompBox = document.getElementById('reminder-daily-uncompleted');
-      var compBox = document.getElementById('reminder-daily-completed');
+      var uncompPill = document.getElementById('reminder-daily-uncompleted');
+      var compPill = document.getElementById('reminder-daily-completed');
       reminderConfig.recipient = recipientInput ? recipientInput.value.trim() : '';
       reminderConfig.from = fromInput ? fromInput.value.trim() : '';
       reminderConfig.timezone_offset = tempReminderTz;
       reminderConfig.timed_lead_minutes = tempReminderLead;
-      reminderConfig.daily_include_uncompleted = uncompBox ? uncompBox.checked : true;
-      reminderConfig.daily_include_completed = compBox ? compBox.checked : false;
+      reminderConfig.daily_include_uncompleted = uncompPill ? uncompPill.classList.contains('active') : true;
+      reminderConfig.daily_include_completed = compPill ? compPill.classList.contains('active') : false;
       reminderConfig.daily_include_search = tempReminderSearchMode;
       reminderConfig.priority_min_level = tempReminderPriorityLevel;
       if (!reminderConfig.app_url) reminderConfig.app_url = window.location.origin + '/';

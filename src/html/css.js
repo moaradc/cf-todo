@@ -363,6 +363,11 @@ export const css = `
     .reminder-opt-row:first-child { border-top: none; }
     .reminder-opt-label { font-size: 0.8rem; color: #888; }
     .reminder-opt-row .fake-input { width: auto; min-width: 100px; max-width: 140px; }
+    .reminder-pill { display: inline-block; padding: 4px 12px; font-size: 0.78rem; color: #888; background: rgba(0,0,0,0.25); border: 1px solid #444; border-radius: 999px; cursor: pointer; user-select: none; transition: all 0.15s; }
+    .reminder-pill.active { color: var(--crt); background: rgba(0,255,65,0.12); border-color: var(--crt); }
+    .reminder-pill:active { transform: scale(0.96); }
+    [data-theme="light"] .reminder-pill { background: #F0EEE2; border-color: #C8C5B8; color: #6B6757; }
+    [data-theme="light"] .reminder-pill.active { color: #5C960B; background: rgba(92,150,11,0.12); border-color: #5C960B; }
     [data-theme="light"] .reminder-mode-block { background: #FAFAF7; border: 1px solid #D8D5C8; }
     [data-theme="light"] .reminder-mode-desc { color: #6B6757; }
     [data-theme="light"] .reminder-opt-row { border-top-color: rgba(0,0,0,0.06); }

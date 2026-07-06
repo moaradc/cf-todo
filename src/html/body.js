@@ -517,9 +517,9 @@ export function getBody(isAuthorized) {
               <div class="reminder-mode-opts">
                 <div class="reminder-opt-row">
                   <span class="reminder-opt-label">包含内容</span>
-                  <div style="display:flex; gap:12px; align-items:center;">
-                    <label style="font-size:0.78rem; color:#888; cursor:pointer;"><input type="checkbox" id="reminder-daily-uncompleted" checked> 未完成</label>
-                    <label style="font-size:0.78rem; color:#888; cursor:pointer;"><input type="checkbox" id="reminder-daily-completed"> 已完成</label>
+                  <div style="display:flex; gap:6px; align-items:center;">
+                    <span class="reminder-pill" id="reminder-daily-uncompleted" onclick="toggleReminderPill(this)">未完成</span>
+                    <span class="reminder-pill" id="reminder-daily-completed" onclick="toggleReminderPill(this)">已完成</span>
                   </div>
                 </div>
               </div>
@@ -562,12 +562,12 @@ export function getBody(isAuthorized) {
             </div>
           </div>
 
-          <div style="display:flex; gap:8px; margin-bottom: 12px;">
-              <button style="flex:1;" onclick="saveReminderConfig()">保存配置</button>
-              <button id="reminder-test-btn" style="flex:1;" onclick="sendTestReminder()">发送测试邮件</button>
+          <div class="row" style="margin-bottom: 10px;">
+              <button class="flex-1" onclick="saveReminderConfig()">保存配置</button>
+              <button id="reminder-test-btn" class="flex-1" onclick="sendTestReminder()">发送测试邮件</button>
           </div>
-          <div id="reminder-status-text" class="settings-text" style="margin-top:8px; min-height: 1em;"></div>
-          <div class="settings-text" style="border-top: 1px dashed #333; padding-top: 10px;">
+          <div id="reminder-status-text" class="settings-text" style="margin:0 0 8px 0; min-height:0;"></div>
+          <div class="settings-text" style="border-top: 1px dashed #333; padding-top: 10px; margin-top: 0;">
             <strong>说明：</strong>配置保存在 D1 数据库。所有模式由 Cron 触发（每 5 分钟）；15s 内重复触发自动去重。
           </div>
       </div>
@@ -736,7 +736,7 @@ export function getBody(isAuthorized) {
   <div id="popover-set-reminderPriorityLevel" class="popover-menu">
     <button onclick="selectSetting('reminderPriorityLevel', 'high', '高')">仅高优先级</button>
     <button onclick="selectSetting('reminderPriorityLevel', 'med', '中及以上')">中及以上</button>
-    <button onclick="selectSetting('reminderPriorityLevel', 'low', '低及以上')">低及以上（全部）</button>
+    <button onclick="selectSetting('reminderPriorityLevel', 'low', '全部')">全部</button>
   </div>
   <div id="popover-set-reminderSearchMode" class="popover-menu">
     <button onclick="selectSetting('reminderSearchMode', 'off', '关闭')">关闭</button>
