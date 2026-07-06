@@ -2,14 +2,16 @@
  * 定时提醒服务 —— 多模式 Cron 编排层。
  *
  * 模式：
- *   - timed       每 5 分钟扫描未来 N 分钟内到期的待办
- *   - daily       每天定时发送今日待办汇总（已完成/未完成可单独勾选）
- *   - priority    每天定时发送指定优先级以上的未完成待办
- *   - hot_search  每天定时发送网络热搜关键词
+ *   - timed       每 5 分钟扫描未来 N 分钟内到期的待办（应用层 state.sent 去重）
+ *   - daily       每次 Cron 触发时发送今日待办汇总（可选附加搜索词 section）
+ *                 Resend Idempotency-Key cf-todo:daily:YYYY-MM-DD 保证每天只发一封
+ *   - priority    每次 Cron 触发时发送指定优先级及以上的未完成待办
+ *                 Resend Idempotency-Key cf-todo:priority:YYYY-MM-DD 保证每天只发一封
  *
- * 去重：
- *   - timed     state.sent[] 按 todo_id@due_at 去重（24h TTL）
- *   - daily 系列  state.daily[mode] = "YYYY-MM-DD"，当天已发则跳过
+ * 去重策略：
+ *   - timed     应用层 state.sent[] 按 todo_id@due_at 去重（24h TTL）
+ *   - daily/priority  每次 Cron 都尝试发送，由 Resend 服务端幂等去重；
+ *                     body 变化导致幂等冲突时视为"今天已发"跳过
  *
  * 时区：用 tzOffsetMs 把「现在」位移到目标时区后用 UTC getter 读取年月日。
  */
@@ -27,6 +29,7 @@ import type { EmailItem, EmailSection } from './reminder-template';
 // ==================== 类型 ====================
 
 export type PriorityLevel = 'high' | 'med' | 'low';
+export type SearchIncludeMode = 'off' | 'uncompleted' | 'all';
 
 export interface ReminderConfig {
   enabled: boolean;
@@ -39,16 +42,12 @@ export interface ReminderConfig {
   timed_lead_minutes: number;
   // daily 模式
   daily_enabled: boolean;
-  daily_time: string;
   daily_include_completed: boolean;
   daily_include_uncompleted: boolean;
+  daily_include_search: SearchIncludeMode;
   // priority 模式
   priority_enabled: boolean;
-  priority_time: string;
   priority_min_level: PriorityLevel;
-  // hot_search 模式
-  hot_search_enabled: boolean;
-  hot_search_time: string;
 }
 
 interface ReminderSentEntry {
@@ -59,7 +58,6 @@ interface ReminderSentEntry {
 interface ReminderState {
   last_run: number;
   sent: ReminderSentEntry[];
-  daily: Record<string, string>;
 }
 
 export interface DueTodo {
@@ -99,13 +97,8 @@ const STATE_KEY = 'reminder_state';
 const SENT_TTL_MS = 24 * 60 * 60 * 1000;
 const DEFAULT_TZ_OFFSET = 480;
 const DEFAULT_LEAD_MINUTES = 15;
-const DEFAULT_DAILY_TIME = '08:00';
-const DEFAULT_PRIORITY_TIME = '09:00';
-const DEFAULT_HOT_SEARCH_TIME = '08:30';
 const LOOKBACK_MINUTES = 1;
 const PRIORITY_RANK: Record<string, number> = { high: 3, med: 2, low: 1 };
-
-const DAILY_MODES = ['daily', 'priority', 'hot_search'] as const;
 
 const DEFAULT_CONFIG: ReminderConfig = {
   enabled: false,
@@ -115,14 +108,11 @@ const DEFAULT_CONFIG: ReminderConfig = {
   timed_enabled: false,
   timed_lead_minutes: DEFAULT_LEAD_MINUTES,
   daily_enabled: false,
-  daily_time: DEFAULT_DAILY_TIME,
   daily_include_completed: false,
   daily_include_uncompleted: true,
+  daily_include_search: 'off',
   priority_enabled: false,
-  priority_time: DEFAULT_PRIORITY_TIME,
   priority_min_level: 'high',
-  hot_search_enabled: false,
-  hot_search_time: DEFAULT_HOT_SEARCH_TIME,
 };
 
 function clamp(v: unknown, min: number, max: number, fallback: number): number {
@@ -131,45 +121,39 @@ function clamp(v: unknown, min: number, max: number, fallback: number): number {
   return Math.max(min, Math.min(max, n));
 }
 
-function parseTimeStr(v: unknown, fallback: string): string {
-  if (typeof v !== 'string') return fallback;
-  const m = v.trim().match(/^(\d{1,2}):(\d{2})$/);
-  if (!m) return fallback;
-  const h = parseInt(m[1], 10);
-  const mm = parseInt(m[2], 10);
-  if (h < 0 || h > 23 || mm < 0 || mm > 59) return fallback;
-  return `${String(h).padStart(2, '0')}:${String(mm).padStart(2, '0')}`;
-}
-
 function parsePriorityLevel(v: unknown): PriorityLevel {
   return v === 'high' || v === 'med' || v === 'low' ? v : 'high';
+}
+
+function parseSearchIncludeMode(v: unknown): SearchIncludeMode {
+  return v === 'all' || v === 'uncompleted' ? v : 'off';
 }
 
 export function normalizeConfig(input: unknown): ReminderConfig {
   if (!input || typeof input !== 'object') return { ...DEFAULT_CONFIG };
   const r = input as Record<string, unknown>;
-  const cfg: ReminderConfig = {
+  // 旧配置迁移：hot_search_enabled + hot_search_time → daily_include_search
+  let migratedSearch: SearchIncludeMode = 'off';
+  if (r.daily_include_search !== undefined) {
+    migratedSearch = parseSearchIncludeMode(r.daily_include_search);
+  } else if (r.hot_search_enabled === true) {
+    migratedSearch = 'all';
+  }
+  return {
     enabled: r.enabled === true,
     recipient: typeof r.recipient === 'string' ? r.recipient.trim() : '',
     from: typeof r.from === 'string' ? r.from.trim() : '',
     timezone_offset: clamp(r.timezone_offset, -720, 720, DEFAULT_TZ_OFFSET),
     app_url: typeof r.app_url === 'string' ? r.app_url.trim() : undefined,
     timed_enabled: r.timed_enabled === true || (r.lead_minutes !== undefined && r.enabled === true && r.timed_enabled === undefined),
-    timed_lead_minutes: clamp(
-      r.timed_lead_minutes ?? r.lead_minutes,
-      1, 1440, DEFAULT_LEAD_MINUTES,
-    ),
+    timed_lead_minutes: clamp(r.timed_lead_minutes ?? r.lead_minutes, 1, 1440, DEFAULT_LEAD_MINUTES),
     daily_enabled: r.daily_enabled === true,
-    daily_time: parseTimeStr(r.daily_time, DEFAULT_DAILY_TIME),
     daily_include_completed: r.daily_include_completed === true,
     daily_include_uncompleted: r.daily_include_uncompleted !== false,
+    daily_include_search: migratedSearch,
     priority_enabled: r.priority_enabled === true,
-    priority_time: parseTimeStr(r.priority_time, DEFAULT_PRIORITY_TIME),
     priority_min_level: parsePriorityLevel(r.priority_min_level),
-    hot_search_enabled: r.hot_search_enabled === true,
-    hot_search_time: parseTimeStr(r.hot_search_time, DEFAULT_HOT_SEARCH_TIME),
   };
-  return cfg;
 }
 
 export async function getReminderConfig(db: Db): Promise<ReminderConfig> {
@@ -182,16 +166,14 @@ export async function setReminderConfig(db: Db, cfg: ReminderConfig): Promise<vo
 }
 
 async function getState(db: Db): Promise<ReminderState> {
-  const fallback: ReminderState = { last_run: 0, sent: [], daily: {} };
+  const fallback: ReminderState = { last_run: 0, sent: [] };
   const raw = await getSettingJson<unknown>(db, STATE_KEY, fallback);
   if (!raw || typeof raw !== 'object') return fallback;
   const r = raw as Record<string, unknown>;
   const sent = Array.isArray(r.sent) ? r.sent.filter(isSentEntry) : [];
-  const daily = (r.daily && typeof r.daily === 'object') ? r.daily as Record<string, string> : {};
   return {
     last_run: typeof r.last_run === 'number' ? r.last_run : 0,
     sent,
-    daily,
   };
 }
 
@@ -224,15 +206,6 @@ function timezoneLabel(offsetMinutes: number): string {
 function dueUtcMsFor(todoTime: string, localNow: Date, tzOffsetMs: number): number | null {
   const [hh, mm] = todoTime.split(':').map(Number);
   if (!Number.isFinite(hh) || !Number.isFinite(mm)) return null;
-  return Date.UTC(
-    localNow.getUTCFullYear(), localNow.getUTCMonth(), localNow.getUTCDate(),
-    hh, mm, 0, 0,
-  ) - tzOffsetMs;
-}
-
-/** 把目标时区的 HH:MM 转成今天对应的 UTC ms 时间戳 */
-function todayTimeToUtcMs(timeStr: string, localNow: Date, tzOffsetMs: number): number {
-  const [hh, mm] = timeStr.split(':').map(Number);
   return Date.UTC(
     localNow.getUTCFullYear(), localNow.getUTCMonth(), localNow.getUTCDate(),
     hh, mm, 0, 0,
@@ -305,6 +278,72 @@ function dueTodoToItem(t: DueTodo): EmailItem {
   };
 }
 
+// ==================== search_terms 解析（供 daily 模式附加 section 用） ====================
+
+interface SearchTermEntry {
+  text: string;
+  done: boolean;
+  todoText: string;
+}
+
+function parseSearchTerms(raw: string): Array<{ text: string; done: boolean }> {
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .map((w) => {
+        if (typeof w === 'string' && w.trim()) return { text: w.trim(), done: false };
+        if (w && typeof w === 'object' && typeof (w as { text?: string }).text === 'string') {
+          return { text: (w as { text: string }).text, done: !!(w as { done?: boolean }).done };
+        }
+        return null;
+      })
+      .filter((w): w is { text: string; done: boolean } => w !== null);
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * 聚合今日所有 todo 的 search_terms。
+ * mode: 'all' 全部 / 'uncompleted' 仅未完成 / 'off' 不附加
+ * 返回的 sections 直接拼到 daily 邮件里。
+ */
+function buildSearchSections(allTodos: DueTodo[], mode: SearchIncludeMode): EmailSection[] {
+  if (mode === 'off') return [];
+  const allTerms: SearchTermEntry[] = [];
+  for (const t of allTodos) {
+    const terms = parseSearchTerms(t.search_terms);
+    for (const term of terms) {
+      allTerms.push({ text: term.text, done: term.done, todoText: t.text });
+    }
+  }
+  if (allTerms.length === 0) return [];
+
+  const showTerms = mode === 'uncompleted' ? allTerms.filter((t) => !t.done) : allTerms;
+  if (showTerms.length === 0) return [];
+
+  const uncompleted = showTerms.filter((t) => !t.done);
+  const completed = showTerms.filter((t) => t.done);
+  const sections: EmailSection[] = [];
+  if (uncompleted.length > 0) {
+    sections.push({
+      title: `未完成搜索词 (${uncompleted.length})`,
+      items: uncompleted.map((t) => ({ text: t.text, desc: `来源：${t.todoText}` })),
+      listStyle: 'keywords',
+    });
+  }
+  if (completed.length > 0) {
+    sections.push({
+      title: `已完成搜索词 (${completed.length})`,
+      items: completed.map((t) => ({ text: t.text, desc: `来源：${t.todoText}`, done: true })),
+      listStyle: 'keywords',
+    });
+  }
+  return sections;
+}
+
 // ==================== 模式: timed ====================
 
 async function runTimedMode(
@@ -364,17 +403,20 @@ async function runTimedMode(
   };
 }
 
-// ==================== 模式: daily ====================
+// ==================== 模式: daily（含可选搜索词 section） ====================
+
+/** 检测 Resend 幂等冲突：同 key 已发过（body 相同或不同均算）。 */
+function isIdempotencyConflict(result: { ok: boolean; error?: string; status?: number }): boolean {
+  if (result.ok) return false;
+  const err = result.error || '';
+  return err.includes('idempotency') || err.includes('invalid_idempotent_request');
+}
 
 async function runDailyMode(
-  env: Env, cfg: ReminderConfig, state: ReminderState,
-  localNow: Date, todayStr: string, nowUtcMs: number, tzOffsetMs: number,
+  env: Env, cfg: ReminderConfig,
+  localNow: Date, todayStr: string,
 ): Promise<ModeResult> {
   if (!cfg.daily_enabled) return { mode: 'daily', skipped: true, reason: 'disabled', checked: 0, sent: 0, failed: 0 };
-  if (state.daily.daily === todayStr) return { mode: 'daily', skipped: true, reason: 'already_sent_today', checked: 0, sent: 0, failed: 0 };
-
-  const fireAt = todayTimeToUtcMs(cfg.daily_time, localNow, tzOffsetMs);
-  if (nowUtcMs < fireAt) return { mode: 'daily', skipped: true, reason: 'not_yet_time', checked: 0, sent: 0, failed: 0 };
 
   const db = createDb(env.DB);
   const allTodos = await fetchTodayTodos(db, todayStr, {});
@@ -398,21 +440,29 @@ async function runDailyMode(
       listStyle: 'cards',
     });
   }
+  const searchSections = buildSearchSections(allTodos, cfg.daily_include_search);
+  sections.push(...searchSections);
+
   if (sections.length === 0) {
     sections.push({ title: '今日待办', items: allTodos.map(dueTodoToItem), emptyMessage: '今日无待办', listStyle: 'cards' });
   }
 
   const tzLbl = timezoneLabel(cfg.timezone_offset);
+  const searchLabel = cfg.daily_include_search === 'all' ? '，含搜索词' : cfg.daily_include_search === 'uncompleted' ? '，含未完成搜索词' : '';
   const { html, text, subject } = renderModeEmail({
     title: `【今日汇总】${todayStr} 待办一览`,
-    subtitle: `今日共 ${allTodos.length} 项待办（未完成 ${uncompleted.length} / 已完成 ${completed.length}）`,
+    subtitle: `今日共 ${allTodos.length} 项待办（未完成 ${uncompleted.length} / 已完成 ${completed.length}）${searchLabel}`,
     sections, runAt: localNow, timezoneLabel: tzLbl, appUrl: cfg.app_url,
   });
 
+  // 每次 Cron 都尝试发送；Resend 用 cf-todo:daily:YYYY-MM-DD 幂等键去重，
+  // 同一天重复调用不会产生新邮件。body 变化时 Resend 返回幂等冲突，视为"今天已发"。
   const idempotencyKey = `cf-todo:daily:${todayStr}`;
   const result = await sendEmail(env.RESEND_API_KEY, { from: cfg.from, to: cfg.recipient, subject, html, text, idempotencyKey });
 
-  if (result.ok) state.daily.daily = todayStr;
+  if (isIdempotencyConflict(result)) {
+    return { mode: 'daily', skipped: true, reason: 'already_sent_today (idempotency)', checked: allTodos.length, sent: 0, failed: 0 };
+  }
 
   return {
     mode: 'daily', skipped: false, checked: allTodos.length,
@@ -424,23 +474,18 @@ async function runDailyMode(
 // ==================== 模式: priority ====================
 
 async function runPriorityMode(
-  env: Env, cfg: ReminderConfig, state: ReminderState,
-  localNow: Date, todayStr: string, nowUtcMs: number, tzOffsetMs: number,
+  env: Env, cfg: ReminderConfig,
+  localNow: Date, todayStr: string,
 ): Promise<ModeResult> {
   if (!cfg.priority_enabled) return { mode: 'priority', skipped: true, reason: 'disabled', checked: 0, sent: 0, failed: 0 };
-  if (state.daily.priority === todayStr) return { mode: 'priority', skipped: true, reason: 'already_sent_today', checked: 0, sent: 0, failed: 0 };
-
-  const fireAt = todayTimeToUtcMs(cfg.priority_time, localNow, tzOffsetMs);
-  if (nowUtcMs < fireAt) return { mode: 'priority', skipped: true, reason: 'not_yet_time', checked: 0, sent: 0, failed: 0 };
 
   const db = createDb(env.DB);
   const allTodos = await fetchTodayTodos(db, todayStr, { includeDone: false, minPriority: cfg.priority_min_level });
   if (allTodos.length === 0) {
-    state.daily.priority = todayStr;
-    return { mode: 'priority', skipped: false, checked: 0, sent: 0, failed: 0 };
+    return { mode: 'priority', skipped: false, reason: 'no_matching_todos', checked: 0, sent: 0, failed: 0 };
   }
 
-  const levelLabel = cfg.priority_min_level === 'high' ? '高' : cfg.priority_min_level === 'med' ? '中及以上' : '全部';
+  const levelLabel = cfg.priority_min_level === 'high' ? '高' : cfg.priority_min_level === 'med' ? '中及以上' : '低及以上（全部）';
   const tzLbl = timezoneLabel(cfg.timezone_offset);
   const section: EmailSection = {
     title: `${levelLabel}优先级未完成`,
@@ -456,105 +501,12 @@ async function runPriorityMode(
   const idempotencyKey = `cf-todo:priority:${todayStr}`;
   const result = await sendEmail(env.RESEND_API_KEY, { from: cfg.from, to: cfg.recipient, subject, html, text, idempotencyKey });
 
-  if (result.ok) state.daily.priority = todayStr;
+  if (isIdempotencyConflict(result)) {
+    return { mode: 'priority', skipped: true, reason: 'already_sent_today (idempotency)', checked: allTodos.length, sent: 0, failed: 0 };
+  }
 
   return {
     mode: 'priority', skipped: false, checked: allTodos.length,
-    sent: result.ok ? 1 : 0, failed: result.ok ? 0 : 1,
-    resendId: result.id, error: result.error,
-  };
-}
-
-// ==================== 模式: hot_search（todo search_terms 聚合） ====================
-
-interface SearchTermEntry {
-  text: string;
-  done: boolean;
-  todoId: string;
-  todoText: string;
-}
-
-function parseSearchTerms(raw: string): Array<{ text: string; done: boolean }> {
-  if (!raw) return [];
-  try {
-    const parsed = JSON.parse(raw);
-    if (!Array.isArray(parsed)) return [];
-    return parsed
-      .map((w) => {
-        if (typeof w === 'string' && w.trim()) return { text: w.trim(), done: false };
-        if (w && typeof w === 'object' && typeof (w as { text?: string }).text === 'string') {
-          return { text: (w as { text: string }).text, done: !!(w as { done?: boolean }).done };
-        }
-        return null;
-      })
-      .filter((w): w is { text: string; done: boolean } => w !== null);
-  } catch {
-    return [];
-  }
-}
-
-async function runHotSearchMode(
-  env: Env, cfg: ReminderConfig, state: ReminderState,
-  localNow: Date, todayStr: string, nowUtcMs: number, tzOffsetMs: number,
-): Promise<ModeResult> {
-  if (!cfg.hot_search_enabled) return { mode: 'hot_search', skipped: true, reason: 'disabled', checked: 0, sent: 0, failed: 0 };
-  if (state.daily.hot_search === todayStr) return { mode: 'hot_search', skipped: true, reason: 'already_sent_today', checked: 0, sent: 0, failed: 0 };
-
-  const fireAt = todayTimeToUtcMs(cfg.hot_search_time, localNow, tzOffsetMs);
-  if (nowUtcMs < fireAt) return { mode: 'hot_search', skipped: true, reason: 'not_yet_time', checked: 0, sent: 0, failed: 0 };
-
-  const db = createDb(env.DB);
-  const allTodos = await fetchTodayTodos(db, todayStr, {});
-
-  // 聚合所有 todo 的 search_terms，保留来源 todo 信息
-  const allTerms: SearchTermEntry[] = [];
-  for (const t of allTodos) {
-    const terms = parseSearchTerms(t.search_terms);
-    for (const term of terms) {
-      allTerms.push({ text: term.text, done: term.done, todoId: t.id, todoText: t.text });
-    }
-  }
-
-  if (allTerms.length === 0) {
-    state.daily.hot_search = todayStr;
-    return { mode: 'hot_search', skipped: false, checked: 0, sent: 0, failed: 0 };
-  }
-
-  // 按 done 状态分组：未完成在前，已完成在后
-  const uncompleted = allTerms.filter((t) => !t.done);
-  const completed = allTerms.filter((t) => t.done);
-
-  const tzLbl = timezoneLabel(cfg.timezone_offset);
-  const sections: EmailSection[] = [];
-
-  if (uncompleted.length > 0) {
-    sections.push({
-      title: `未完成搜索词 (${uncompleted.length})`,
-      items: uncompleted.map((t) => ({ text: t.text, desc: `来源：${t.todoText}` })),
-      listStyle: 'keywords',
-    });
-  }
-  if (completed.length > 0) {
-    sections.push({
-      title: `已完成搜索词 (${completed.length})`,
-      items: completed.map((t) => ({ text: t.text, desc: `来源：${t.todoText}`, done: true })),
-      listStyle: 'keywords',
-    });
-  }
-
-  const { html, text, subject } = renderModeEmail({
-    title: `【搜索词汇总】${todayStr} 共 ${allTerms.length} 条`,
-    subtitle: `今日待办关联的搜索关键词（未完成 ${uncompleted.length} / 已完成 ${completed.length}）`,
-    sections, runAt: localNow, timezoneLabel: tzLbl, appUrl: cfg.app_url,
-  });
-
-  const idempotencyKey = `cf-todo:hot_search:${todayStr}`;
-  const result = await sendEmail(env.RESEND_API_KEY, { from: cfg.from, to: cfg.recipient, subject, html, text, idempotencyKey });
-
-  if (result.ok) state.daily.hot_search = todayStr;
-
-  return {
-    mode: 'hot_search', skipped: false, checked: allTerms.length,
     sent: result.ok ? 1 : 0, failed: result.ok ? 0 : 1,
     resendId: result.id, error: result.error,
   };
@@ -580,9 +532,8 @@ export async function runScheduledReminders(env: Env): Promise<ReminderRunResult
 
   const results: ModeResult[] = [];
   results.push(await runTimedMode(env, cfg, state, localNow, todayStr, tzOffsetMs, nowUtcMs));
-  results.push(await runDailyMode(env, cfg, state, localNow, todayStr, nowUtcMs, tzOffsetMs));
-  results.push(await runPriorityMode(env, cfg, state, localNow, todayStr, nowUtcMs, tzOffsetMs));
-  results.push(await runHotSearchMode(env, cfg, state, localNow, todayStr, nowUtcMs, tzOffsetMs));
+  results.push(await runDailyMode(env, cfg, localNow, todayStr));
+  results.push(await runPriorityMode(env, cfg, localNow, todayStr));
 
   await saveState(db, pruneState(state, nowUtcMs));
 
@@ -592,13 +543,7 @@ export async function runScheduledReminders(env: Env): Promise<ReminderRunResult
 function pruneState(state: ReminderState, nowUtcMs: number): ReminderState {
   const cutoff = nowUtcMs - SENT_TTL_MS;
   const sent = state.sent.filter((e) => e.due_at >= cutoff);
-  const todayCutoff = new Date(nowUtcMs - SENT_TTL_MS);
-  const cutoffDateStr = getLocalDateStr(todayCutoff);
-  const daily: Record<string, string> = {};
-  for (const [k, v] of Object.entries(state.daily)) {
-    if (v >= cutoffDateStr) daily[k] = v;
-  }
-  return { last_run: state.last_run, sent, daily };
+  return { last_run: state.last_run, sent };
 }
 
 // ==================== 测试邮件 ====================

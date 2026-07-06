@@ -207,7 +207,7 @@ export const settings = `
     }
 
     function selectSetting(type, value, label) {
-      var reminderTypes = ['reminderLead', 'reminderTz', 'reminderDailyTime', 'reminderPriorityTime', 'reminderPriorityLevel', 'reminderHotSearchTime'];
+      var reminderTypes = ['reminderLead', 'reminderTz', 'reminderPriorityLevel', 'reminderSearchMode'];
       if (reminderTypes.indexOf(type) >= 0) {
         _selectReminderSetting(type, value);
         return;

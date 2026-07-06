@@ -860,16 +860,13 @@ export const core = `
     let reminderConfig = {
       enabled: false, recipient: '', from: '', timezone_offset: 480, app_url: '',
       timed_enabled: false, timed_lead_minutes: 15,
-      daily_enabled: false, daily_time: '08:00', daily_include_completed: false, daily_include_uncompleted: true,
-      priority_enabled: false, priority_time: '09:00', priority_min_level: 'high',
-      hot_search_enabled: false, hot_search_time: '08:30',
+      daily_enabled: false, daily_include_completed: false, daily_include_uncompleted: true, daily_include_search: 'off',
+      priority_enabled: false, priority_min_level: 'high',
     };
     let tempReminderLead = 15;
     let tempReminderTz = 480;
-    let tempReminderDailyTime = '08:00';
-    let tempReminderPriorityTime = '09:00';
     let tempReminderPriorityLevel = 'high';
-    let tempReminderHotSearchTime = '08:30';
+    let tempReminderSearchMode = 'off';
 
     function _reminderTzLabel(offset) {
       var sign = offset >= 0 ? '+' : '-';
@@ -880,7 +877,11 @@ export const core = `
     }
 
     function _priorityLabel(level) {
-      return level === 'high' ? '高' : level === 'med' ? '中及以上' : '全部';
+      return level === 'high' ? '高' : level === 'med' ? '中及以上' : '低及以上';
+    }
+
+    function _searchModeLabel(mode) {
+      return mode === 'all' ? '全部' : mode === 'uncompleted' ? '仅未完成' : '关闭';
     }
 
     async function loadReminderConfig() {
@@ -897,21 +898,16 @@ export const core = `
           timed_enabled: !!data.timed_enabled,
           timed_lead_minutes: Number.isFinite(data.timed_lead_minutes) ? data.timed_lead_minutes : (Number.isFinite(data.lead_minutes) ? data.lead_minutes : 15),
           daily_enabled: !!data.daily_enabled,
-          daily_time: data.daily_time || '08:00',
           daily_include_completed: !!data.daily_include_completed,
           daily_include_uncompleted: data.daily_include_uncompleted !== false,
+          daily_include_search: data.daily_include_search === 'all' || data.daily_include_search === 'uncompleted' ? data.daily_include_search : 'off',
           priority_enabled: !!data.priority_enabled,
-          priority_time: data.priority_time || '09:00',
           priority_min_level: data.priority_min_level || 'high',
-          hot_search_enabled: !!data.hot_search_enabled,
-          hot_search_time: data.hot_search_time || '08:30',
         };
         tempReminderLead = reminderConfig.timed_lead_minutes;
         tempReminderTz = reminderConfig.timezone_offset;
-        tempReminderDailyTime = reminderConfig.daily_time;
-        tempReminderPriorityTime = reminderConfig.priority_time;
         tempReminderPriorityLevel = reminderConfig.priority_min_level;
-        tempReminderHotSearchTime = reminderConfig.hot_search_time;
+        tempReminderSearchMode = reminderConfig.daily_include_search;
       } catch (e) {
         console.error('Load reminder config error:', e);
       }
@@ -928,11 +924,8 @@ export const core = `
       if (el('reminder-timed-box')) el('reminder-timed-box').classList.toggle('checked', reminderConfig.timed_enabled);
       if (el('reminder-daily-box')) el('reminder-daily-box').classList.toggle('checked', reminderConfig.daily_enabled);
       if (el('reminder-priority-box')) el('reminder-priority-box').classList.toggle('checked', reminderConfig.priority_enabled);
-      if (el('reminder-hot_search-box')) el('reminder-hot_search-box').classList.toggle('checked', reminderConfig.hot_search_enabled);
-      if (el('set-disp-reminderDailyTime')) el('set-disp-reminderDailyTime').innerText = tempReminderDailyTime;
-      if (el('set-disp-reminderPriorityTime')) el('set-disp-reminderPriorityTime').innerText = tempReminderPriorityTime;
       if (el('set-disp-reminderPriorityLevel')) el('set-disp-reminderPriorityLevel').innerText = _priorityLabel(tempReminderPriorityLevel);
-      if (el('set-disp-reminderHotSearchTime')) el('set-disp-reminderHotSearchTime').innerText = tempReminderHotSearchTime;
+      if (el('set-disp-reminderSearchMode')) el('set-disp-reminderSearchMode').innerText = _searchModeLabel(tempReminderSearchMode);
       if (el('reminder-daily-uncompleted')) el('reminder-daily-uncompleted').checked = reminderConfig.daily_include_uncompleted;
       if (el('reminder-daily-completed')) el('reminder-daily-completed').checked = reminderConfig.daily_include_completed;
     }
@@ -942,14 +935,10 @@ export const core = `
         tempReminderLead = parseInt(value, 10) || 15;
       } else if (type === 'reminderTz') {
         tempReminderTz = parseInt(value, 10);
-      } else if (type === 'reminderDailyTime') {
-        tempReminderDailyTime = value;
-      } else if (type === 'reminderPriorityTime') {
-        tempReminderPriorityTime = value;
       } else if (type === 'reminderPriorityLevel') {
         tempReminderPriorityLevel = value;
-      } else if (type === 'reminderHotSearchTime') {
-        tempReminderHotSearchTime = value;
+      } else if (type === 'reminderSearchMode') {
+        tempReminderSearchMode = value;
       }
       renderReminderConfig();
       var pop = document.getElementById('popover-set-' + type);
@@ -978,12 +967,10 @@ export const core = `
       reminderConfig.from = fromInput ? fromInput.value.trim() : '';
       reminderConfig.timezone_offset = tempReminderTz;
       reminderConfig.timed_lead_minutes = tempReminderLead;
-      reminderConfig.daily_time = tempReminderDailyTime;
       reminderConfig.daily_include_uncompleted = uncompBox ? uncompBox.checked : true;
       reminderConfig.daily_include_completed = compBox ? compBox.checked : false;
-      reminderConfig.priority_time = tempReminderPriorityTime;
+      reminderConfig.daily_include_search = tempReminderSearchMode;
       reminderConfig.priority_min_level = tempReminderPriorityLevel;
-      reminderConfig.hot_search_time = tempReminderHotSearchTime;
       if (!reminderConfig.app_url) reminderConfig.app_url = window.location.origin + '/';
     }
 
@@ -1010,10 +997,8 @@ export const core = `
             reminderConfig = Object.assign(reminderConfig, data.config);
             tempReminderLead = reminderConfig.timed_lead_minutes;
             tempReminderTz = reminderConfig.timezone_offset;
-            tempReminderDailyTime = reminderConfig.daily_time;
-            tempReminderPriorityTime = reminderConfig.priority_time;
             tempReminderPriorityLevel = reminderConfig.priority_min_level;
-            tempReminderHotSearchTime = reminderConfig.hot_search_time;
+            tempReminderSearchMode = reminderConfig.daily_include_search;
             renderReminderConfig();
           }
           _setReminderStatus('✓ 保存成功', false);
@@ -1063,6 +1048,7 @@ export const core = `
         if (testBtn) { testBtn.disabled = false; testBtn.textContent = '发送测试邮件'; }
       }
     }
+
 
     
     let tempAppScale = 1.0;

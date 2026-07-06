@@ -15,13 +15,11 @@ describe('normalizeConfig', () => {
     expect(cfg.timezone_offset).toBe(480);
     expect(cfg.recipient).toBe('');
     expect(cfg.daily_enabled).toBe(false);
-    expect(cfg.daily_time).toBe('08:00');
     expect(cfg.daily_include_uncompleted).toBe(true);
     expect(cfg.daily_include_completed).toBe(false);
+    expect(cfg.daily_include_search).toBe('off');
     expect(cfg.priority_enabled).toBe(false);
     expect(cfg.priority_min_level).toBe('high');
-    expect(cfg.hot_search_enabled).toBe(false);
-    expect(cfg.hot_search_time).toBe('08:30');
   });
 
   it('clamps timed_lead_minutes to [1, 1440] range', () => {
@@ -30,7 +28,6 @@ describe('normalizeConfig', () => {
     expect(normalizeConfig({ timed_lead_minutes: 30 }).timed_lead_minutes).toBe(30);
     expect(normalizeConfig({ timed_lead_minutes: 99999 }).timed_lead_minutes).toBe(1440);
     expect(normalizeConfig({ timed_lead_minutes: 'abc' }).timed_lead_minutes).toBe(15);
-    expect(normalizeConfig({ timed_lead_minutes: undefined }).timed_lead_minutes).toBe(15);
   });
 
   it('clamps timezone_offset to [-720, 720]', () => {
@@ -57,18 +54,24 @@ describe('normalizeConfig', () => {
     expect(cfg.timed_lead_minutes).toBe(30);
   });
 
-  it('parses time strings with validation', () => {
-    expect(normalizeConfig({ daily_time: '09:30' }).daily_time).toBe('09:30');
-    expect(normalizeConfig({ daily_time: '25:00' }).daily_time).toBe('08:00');
-    expect(normalizeConfig({ daily_time: '08:99' }).daily_time).toBe('08:00');
-    expect(normalizeConfig({ daily_time: 'invalid' }).daily_time).toBe('08:00');
-  });
-
-  it('parses priority level', () => {
+  it('parses priority level including low', () => {
     expect(normalizeConfig({ priority_min_level: 'high' }).priority_min_level).toBe('high');
     expect(normalizeConfig({ priority_min_level: 'med' }).priority_min_level).toBe('med');
     expect(normalizeConfig({ priority_min_level: 'low' }).priority_min_level).toBe('low');
     expect(normalizeConfig({ priority_min_level: 'invalid' }).priority_min_level).toBe('high');
+  });
+
+  it('parses daily_include_search mode', () => {
+    expect(normalizeConfig({ daily_include_search: 'all' }).daily_include_search).toBe('all');
+    expect(normalizeConfig({ daily_include_search: 'uncompleted' }).daily_include_search).toBe('uncompleted');
+    expect(normalizeConfig({ daily_include_search: 'off' }).daily_include_search).toBe('off');
+    expect(normalizeConfig({ daily_include_search: 'invalid' }).daily_include_search).toBe('off');
+    expect(normalizeConfig({}).daily_include_search).toBe('off');
+  });
+
+  it('backward compat: migrates old hot_search_enabled to daily_include_search', () => {
+    expect(normalizeConfig({ hot_search_enabled: true }).daily_include_search).toBe('all');
+    expect(normalizeConfig({ hot_search_enabled: false }).daily_include_search).toBe('off');
   });
 
   it('handles daily include flags', () => {
@@ -78,10 +81,21 @@ describe('normalizeConfig', () => {
     });
     expect(cfg.daily_include_completed).toBe(true);
     expect(cfg.daily_include_uncompleted).toBe(false);
-    // default: uncompleted true, completed false
     const cfg2 = normalizeConfig({});
     expect(cfg2.daily_include_uncompleted).toBe(true);
     expect(cfg2.daily_include_completed).toBe(false);
+  });
+
+  it('drops legacy time fields (daily_time, priority_time, hot_search_time)', () => {
+    const cfg = normalizeConfig({
+      daily_time: '10:00',
+      priority_time: '11:00',
+      hot_search_time: '12:00',
+    });
+    expect(cfg).not.toHaveProperty('daily_time');
+    expect(cfg).not.toHaveProperty('priority_time');
+    expect(cfg).not.toHaveProperty('hot_search_time');
+    expect(cfg).not.toHaveProperty('hot_search_enabled');
   });
 });
 

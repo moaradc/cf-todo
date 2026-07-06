@@ -509,12 +509,15 @@ export function getBody(isAuthorized) {
               </div>
             </div>
             <div class="setting-item" style="margin-bottom: 8px; padding-left: 16px; border: none;">
-              <div class="fake-input" onclick="toggleSettingPopover('reminderDailyTime', this)" style="width: 60px; margin-bottom: 0; padding: 4px 8px; justify-content: space-between; border-radius: 4px;">
-                  <span id="set-disp-reminderDailyTime">08:00</span>
+              <label style="font-size:0.8rem; color:#666; margin-right: 12px; cursor:pointer;"><input type="checkbox" id="reminder-daily-uncompleted" checked> 未完成</label>
+              <label style="font-size:0.8rem; color:#666; cursor:pointer;"><input type="checkbox" id="reminder-daily-completed"> 已完成</label>
+            </div>
+            <div class="setting-item" style="margin-bottom: 12px; padding-left: 16px; border: none;">
+              <span class="settings-text" style="margin:0; color:#666; font-size:0.8rem;">搜索词</span>
+              <div class="fake-input" onclick="toggleSettingPopover('reminderSearchMode', this)" style="width: 90px; margin-bottom: 0; padding: 4px 8px; justify-content: space-between; border-radius: 4px;">
+                  <span id="set-disp-reminderSearchMode">关闭</span>
                   <span style="font-size:0.75rem; margin-right: 4px;">▼</span>
               </div>
-              <label style="font-size:0.8rem; color:#666; margin-left: 12px; cursor:pointer;"><input type="checkbox" id="reminder-daily-uncompleted" checked> 未完成</label>
-              <label style="font-size:0.8rem; color:#666; margin-left: 8px; cursor:pointer;"><input type="checkbox" id="reminder-daily-completed"> 已完成</label>
             </div>
 
             <div class="setting-item" style="margin-bottom: 8px; border: none; padding: 0;">
@@ -524,28 +527,11 @@ export function getBody(isAuthorized) {
               </div>
             </div>
             <div class="setting-item" style="margin-bottom: 12px; padding-left: 16px; border: none;">
-              <div class="fake-input" onclick="toggleSettingPopover('reminderPriorityTime', this)" style="width: 60px; margin-bottom: 0; padding: 4px 8px; justify-content: space-between; border-radius: 4px;">
-                  <span id="set-disp-reminderPriorityTime">09:00</span>
-                  <span style="font-size:0.75rem; margin-right: 4px;">▼</span>
-              </div>
-              <div class="fake-input" onclick="toggleSettingPopover('reminderPriorityLevel', this)" style="width: 80px; margin-bottom: 0; padding: 4px 8px; justify-content: space-between; border-radius: 4px;">
+              <span class="settings-text" style="margin:0; color:#666; font-size:0.8rem;">阈值</span>
+              <div class="fake-input" onclick="toggleSettingPopover('reminderPriorityLevel', this)" style="width: 90px; margin-bottom: 0; padding: 4px 8px; justify-content: space-between; border-radius: 4px;">
                   <span id="set-disp-reminderPriorityLevel">高</span>
                   <span style="font-size:0.75rem; margin-right: 4px;">▼</span>
               </div>
-            </div>
-
-            <div class="setting-item" style="margin-bottom: 8px; border: none; padding: 0;">
-              <span class="settings-text" style="margin:0;">搜索词汇总</span>
-              <div class="switch-label" onclick="toggleReminderMode('hot_search')" style="margin-bottom: 0;">
-                  <div class="switch-box" id="reminder-hot_search-box"></div>
-              </div>
-            </div>
-            <div class="setting-item" style="margin-bottom: 12px; padding-left: 16px; border: none;">
-              <div class="fake-input" onclick="toggleSettingPopover('reminderHotSearchTime', this)" style="width: 60px; margin-bottom: 0; padding: 4px 8px; justify-content: space-between; border-radius: 4px;">
-                  <span id="set-disp-reminderHotSearchTime">08:30</span>
-                  <span style="font-size:0.75rem; margin-right: 4px;">▼</span>
-              </div>
-              <span class="settings-text" style="margin:0; color:#666; font-size:0.75rem;">聚合今日待办的搜索词</span>
             </div>
           </div>
 
@@ -555,7 +541,7 @@ export function getBody(isAuthorized) {
           </div>
           <div id="reminder-status-text" class="settings-text" style="margin-top:8px; min-height: 1em;"></div>
           <div class="settings-text" style="border-top: 1px dashed #333; padding-top: 10px;">
-            <strong>说明：</strong>配置保存在 D1 数据库。「即将到期」每 5 分钟扫描一次；其余模式每天在指定时间发送一次（当天已发不重发）。同一批待办 24 小时内不会重复发送。
+            <strong>说明：</strong>配置保存在 D1 数据库。所有模式由 Cron 触发：「即将到期」每 5 分钟扫描一次；「今日汇总」与「优先级提醒」每天首次触发时发送（当天已发不重发）。
           </div>
       </div>
 
@@ -727,35 +713,15 @@ export function getBody(isAuthorized) {
     <button onclick="selectSetting('reminderTz', '-300', 'UTC-5')">UTC-5（东部）</button>
     <button onclick="selectSetting('reminderTz', '60', 'UTC+1')">UTC+1（中欧）</button>
   </div>
-  <div id="popover-set-reminderDailyTime" class="popover-menu">
-    <button onclick="selectSetting('reminderDailyTime', '06:00', '06:00')">06:00</button>
-    <button onclick="selectSetting('reminderDailyTime', '07:00', '07:00')">07:00</button>
-    <button onclick="selectSetting('reminderDailyTime', '08:00', '08:00')">08:00</button>
-    <button onclick="selectSetting('reminderDailyTime', '09:00', '09:00')">09:00</button>
-    <button onclick="selectSetting('reminderDailyTime', '12:00', '12:00')">12:00</button>
-    <button onclick="selectSetting('reminderDailyTime', '20:00', '20:00')">20:00</button>
-    <button onclick="selectSetting('reminderDailyTime', '22:00', '22:00')">22:00</button>
-  </div>
-  <div id="popover-set-reminderPriorityTime" class="popover-menu">
-    <button onclick="selectSetting('reminderPriorityTime', '07:00', '07:00')">07:00</button>
-    <button onclick="selectSetting('reminderPriorityTime', '08:00', '08:00')">08:00</button>
-    <button onclick="selectSetting('reminderPriorityTime', '09:00', '09:00')">09:00</button>
-    <button onclick="selectSetting('reminderPriorityTime', '10:00', '10:00')">10:00</button>
-    <button onclick="selectSetting('reminderPriorityTime', '12:00', '12:00')">12:00</button>
-    <button onclick="selectSetting('reminderPriorityTime', '18:00', '18:00')">18:00</button>
-  </div>
   <div id="popover-set-reminderPriorityLevel" class="popover-menu">
     <button onclick="selectSetting('reminderPriorityLevel', 'high', '高')">仅高优先级</button>
     <button onclick="selectSetting('reminderPriorityLevel', 'med', '中及以上')">中及以上</button>
-    <button onclick="selectSetting('reminderPriorityLevel', 'low', '全部')">全部</button>
+    <button onclick="selectSetting('reminderPriorityLevel', 'low', '低及以上')">低及以上（全部）</button>
   </div>
-  <div id="popover-set-reminderHotSearchTime" class="popover-menu">
-    <button onclick="selectSetting('reminderHotSearchTime', '07:00', '07:00')">07:00</button>
-    <button onclick="selectSetting('reminderHotSearchTime', '08:00', '08:00')">08:00</button>
-    <button onclick="selectSetting('reminderHotSearchTime', '08:30', '08:30')">08:30</button>
-    <button onclick="selectSetting('reminderHotSearchTime', '09:00', '09:00')">09:00</button>
-    <button onclick="selectSetting('reminderHotSearchTime', '12:00', '12:00')">12:00</button>
-    <button onclick="selectSetting('reminderHotSearchTime', '20:00', '20:00')">20:00</button>
+  <div id="popover-set-reminderSearchMode" class="popover-menu">
+    <button onclick="selectSetting('reminderSearchMode', 'off', '关闭')">关闭</button>
+    <button onclick="selectSetting('reminderSearchMode', 'uncompleted', '仅未完成')">仅未完成</button>
+    <button onclick="selectSetting('reminderSearchMode', 'all', '全部')">全部</button>
   </div>
 
   <div id="modal-calendar" class="modal-overlay" style="z-index:65;" onclick="if(event.target===this) closeCalendar()">
