@@ -485,7 +485,7 @@ export function getBody(isAuthorized) {
           </div>
 
           <div style="border-top: 1px dashed #333; margin: 16px 0 12px 0; padding-top: 12px;">
-            <div class="settings-text" style="font-weight:bold; margin-bottom: 10px;">提醒模式 <span style="font-weight:normal; color:#666; font-size:0.75rem;">（启用模式合并为一封邮件发送）</span></div>
+            <div class="settings-text" style="font-weight:bold; margin-bottom: 10px;">提醒模式</div>
 
             <div class="reminder-mode-block">
               <div class="reminder-mode-head">

@@ -150,6 +150,8 @@ export function normalizeConfig(input: unknown): ReminderConfig {
   } else if (r.hot_search_enabled === true) {
     migratedSearch = 'all';
   }
+  const dailyIncludeCompleted = r.daily_include_completed === true;
+  const dailyIncludeUncompleted = r.daily_include_uncompleted !== false;
   return {
     enabled: r.enabled === true,
     recipient: typeof r.recipient === 'string' ? r.recipient.trim() : '',
@@ -158,9 +160,10 @@ export function normalizeConfig(input: unknown): ReminderConfig {
     app_url: typeof r.app_url === 'string' ? r.app_url.trim() : undefined,
     timed_enabled: r.timed_enabled === true || (r.lead_minutes !== undefined && r.enabled === true && r.timed_enabled === undefined),
     timed_lead_minutes: clamp(r.timed_lead_minutes ?? r.lead_minutes, 1, 1440, DEFAULT_LEAD_MINUTES),
-    daily_enabled: r.daily_enabled === true,
-    daily_include_completed: r.daily_include_completed === true,
-    daily_include_uncompleted: r.daily_include_uncompleted !== false,
+    // daily 启用时必须至少包含未完成/已完成之一，否则自动关闭
+    daily_enabled: r.daily_enabled === true && (dailyIncludeUncompleted || dailyIncludeCompleted),
+    daily_include_completed: dailyIncludeCompleted,
+    daily_include_uncompleted: dailyIncludeUncompleted,
     daily_include_search: migratedSearch,
     priority_enabled: r.priority_enabled === true,
     priority_min_level: parsePriorityLevel(r.priority_min_level),
@@ -459,9 +462,11 @@ async function runPriorityMode(
     items: showTodos.map(dueTodoToItem),
     listStyle: 'cards',
   }];
+  // 标题用短标签：高优3 / 中优5 / 全优8（去掉「优先级」冗余，保留级别信息）
+  const shortLevel = cfg.priority_min_level === 'high' ? '高优' : cfg.priority_min_level === 'med' ? '中优' : '全优';
   return {
     mode: 'priority', enabled: true, sections, checked: allTodos.length, skipped: false,
-    summary: `优先级${showTodos.length}`,
+    summary: `${shortLevel}${showTodos.length}`,
     displayedIds: showTodos.map((t) => t.id),
   };
 }
@@ -521,9 +526,9 @@ export async function runScheduledReminders(env: Env): Promise<ReminderRunResult
     return { skipped: false, sent: 0, failed: 0, modes: results };
   }
 
-  // 组合邮件主题：cf-todo · 各模式紧凑标签（到期2 · 汇总5 · 优先级3）
+  // 组合邮件主题：各模式紧凑标签用「·」拼接（到期2 · 高优3 · 汇总(9/10)）
   const summaries = results.filter((r) => r.summary).map((r) => r.summary!);
-  const subject = `cf-todo · ${summaries.join(' · ')}`;
+  const subject = summaries.join(' · ');
   const subtitle = `${mergedSections.length} 个板块 · ${getLocalDateStr(localNow)} ${pad2(localNow.getUTCHours())}:${pad2(localNow.getUTCMinutes())} ${timezoneLabel(cfg.timezone_offset)}`;
   const tzLbl = timezoneLabel(cfg.timezone_offset);
 
@@ -588,7 +593,7 @@ export async function sendTestEmail(env: Env, cfg: ReminderConfig): Promise<{ ok
     listStyle: 'cards',
   };
   const { html, text, subject } = renderModeEmail({
-    title: `cf-todo · 测试邮件`,
+    title: `测试邮件`,
     subtitle: '验证 Resend API 集成是否正常',
     sections: [section], runAt: now, timezoneLabel: tzLbl, appUrl: cfg.app_url,
   });
