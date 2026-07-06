@@ -87,5 +87,5 @@ done
 ## 设计取舍
 
 - **录制脚本不进 vitest**：基线是 HTTP 层契约测试，跑一次 wrangler dev 后用 curl/python 发请求最直接。Vitest 留给阶段 3+ 的单元/集成测试。
-- **种子数据来源**：`https://1814804152.cdn.123clouddisk.com/1814804152/43538350`（1272 条真实 todo + 9 模板 + 5 配置，含 RRULE 重复 / fragment 碎时记 / 子任务 / 计时等全场景）。下载到 `.research/baseline_seed.json`，**不提交**（`.gitignore` 已排除）。
+- **种子数据来源**：本地导出文件（1272 条真实 todo + 9 模板 + 5 配置，含 RRULE 重复 / fragment 碎时记 / 子任务 / 计时等全场景）。下载到 `.research/baseline_seed.json`，**不提交**（`.gitignore` 已排除）。
 - **Cookie 手动管理**：Python `urllib` 严格遵守 Secure cookie 限制，但 cf-todo 的 auth cookie 设了 Secure（生产 HTTPS 必需）。本地 HTTP dev 下浏览器对 localhost 豁免，但 urllib 不豁免，所以脚本手动从 Set-Cookie 提取再塞 Cookie 头。
