@@ -102,6 +102,15 @@ jobs:
           if ! echo "$SECRET_LIST" | grep -q "JWT_SECRET"; then
             echo "${{ secrets.JWT_SECRET }}" | npx wrangler secret put JWT_SECRET
           fi
+          # RESEND_API_KEY：定时提醒发信用。GitHub Secret 缺失时跳过（不阻塞部署）。
+          if ! echo "$SECRET_LIST" | grep -q "RESEND_API_KEY"; then
+            if [ -n "${{ secrets.RESEND_API_KEY }}" ]; then
+              echo "${{ secrets.RESEND_API_KEY }}" | npx wrangler secret put RESEND_API_KEY
+              echo "RESEND_API_KEY 已写入"
+            else
+              echo "::warning::RESEND_API_KEY GitHub Secret 未配置，定时提醒功能将不可用。请在 仓库 Settings → Secrets → Actions 添加 RESEND_API_KEY 后重新触发部署。"
+            fi
+          fi
 
       - name: Apply D1 Migrations
         env:
