@@ -106,7 +106,7 @@ export async function createTodo(db: Db, body: TodoActionBody): Promise<ActionRe
 
   const exdatesResult = validateExdates(task.exdates as unknown as string);
   if (exdatesResult.error) return { ok: false, error: exdatesResult.error, status: 400 };
-  const final_exdates = exdatesResult.value;
+  const final_exdates = (type === 'none' || type === 'fragment') ? '[]' : exdatesResult.value;
 
   const is_fragment = type === 'fragment';
   // 碎时记允许设置 time / end_time（不再强制清空）

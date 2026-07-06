@@ -171,7 +171,7 @@ v1TodosApp.post('/todos', async (c) => {
   if (type === 'none' || type === 'fragment') final_rrule = '';
   const exdatesResult = validateExdates(bodyExdates as string);
   if (exdatesResult.error) return v1Err(exdatesResult.error);
-  const final_exdates = exdatesResult.value;
+  const final_exdates = (type === 'none' || type === 'fragment') ? '[]' : exdatesResult.value;
   const is_fragment = (type === 'fragment');
   if ((!date && !is_fragment) || !text) return v1Err('date 和 text 为必填项（碎时记允许 date 为空）');
   if (date && !/^\d{4}-\d{2}-\d{2}$/.test(date as string)) return v1Err('date 格式应为 YYYY-MM-DD');

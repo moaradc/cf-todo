@@ -194,7 +194,7 @@ API Key 格式为 `cfk_` 前缀 + 32 字节随机 Base64URL 编码。验证使�
     - 未知 action → 400 `{"error":"未知操作，可用: CREATE, DELETE, TOGGLE, RENAME"}`
     - 请求体非 JSON → 400 `{"error":"请求体不是有效的 JSON"}`
     - CREATE 时已有 10 个 key → 400 `{"error":"最多创建10个API Key"}`
-  - **限制**: 最多创建 10 个 API Key。名称最长 50 字符，默认值 `"Default"`。
+  - **限制**: 最多创建 10 个 API Key。名称最长 50 字符（超出会被静默截断为 50 字符，不返回错误），默认值 `"Default"`。
 
 ---
 
@@ -422,6 +422,7 @@ API Key 格式为 `cfk_` 前缀 + 32 字节随机 Base64URL 编码。验证使�
 
 - **POST /api/v1/todos/batch**
   - **描述**: 批量操作 Todo。后端自动分片处理，可传任意数量。
+  - **必填**: `ids` 为必填数组，长度 ≥ 1；空数组返回 400 `{"error":"ids 为必填数组"}`。
   - **Body**:
     ```json
     {
@@ -843,8 +844,8 @@ V0 端点的响应格式与 V1 略有差异，调用方需注意：
 
 | 端点类型 | 响应格式 | 示例 |
 |---------|---------|------|
-| `GET /api/todos` | 纯数组（无 `success` 包装） | `[{...todo}, {...todo}]` |
-| `GET /api/trash` | 纯数组（无 `success` 包装，纯 DB 行） | `[{...db_row}]` |
+| `GET /api/todos` | 纯数组（无 `success` 包装）。项中 `done: bool`、`deleted: int (0/1)`、`time_records: string`（未解析 JSON，需 `JSON.parse`）、含派生 `is_series` | `[{...todo}, {...todo}]` |
+| `GET /api/trash` | 纯数组（无 `success` 包装，纯 DB 行）。项中 `done: int`、`deleted: int`、`subtasks: string`、`search_terms: string`、`time_records: string`（均未解析），**不**含派生 `is_series` | `[{...db_row}]` |
 | `GET /api/categories` | 纯数组 | `[{"id":"...","name":"...","color":"..."}]` |
 | `GET /api/sessions` | 纯数组 | `[{"ua":"...","disabled":false,"isCurrent":true}]` |
 | `GET /api/settings` | 纯对象（无 `success`/`data` 包装） | `{"provider":"auto",...}` |
@@ -862,6 +863,12 @@ V0 端点的响应格式与 V1 略有差异，调用方需注意：
 | `GET /api/import-backup?action=query` | 纯对象 | `{"exists":false,"todos":0,"templates":0,"categories":0}` |
 | `GET /api/export?mode=page` | NDJSON 流，末尾 `_type:page_info` 行 | 见 §3.5 |
 | `GET /api/export?mode=stream` | NDJSON 流，首行字面量 `ndjson` | 见 §3.5 |
+
+> **V0 vs V1 字段类型差异提示**：
+> - V0 `/api/todos` 与 `/api/trash` 中的 `time_records` / `subtasks` / `search_terms` 均为**未解析的 JSON 字符串**，调用方需自行 `JSON.parse`。
+> - V1 `/api/v1/todos` 与 `/api/v1/trash` 中对应字段已被 `formatTodo` 解析为数组。
+> - V0 `/api/todos` 的 `done` 为 `bool`，`deleted` 为 `int (0/1)`；V0 `/api/trash` 的 `done` 与 `deleted` 均为 `int (0/1)`；V1 中两者均为 `bool`。
+> - V0 `/api/trash` 返回纯 DB 行，**不**含派生 `is_series`；V0 `/api/todos` 含派生 `is_series`（`type === 'recurring'`）。
 
 ---
 
@@ -1165,7 +1172,17 @@ V0 CREATE / V0 UPDATE / V1 POST / V1 PUT 四个写入端点共享同一套联动
 
 #### JSON Body 分阶段导入
 
+  > **请求方法**：所有 phase 操作均通过 `POST /api/import` 发起，`phase` 字段位于请求体 JSON 中。`GET /api/import` 未注册路由，调用会返回 404。
+  >
+  > **示例**：
+  > ```bash
+  > curl -X POST -H "Content-Type: application/json" \
+  >   -d '{"phase":"status"}' \
+  >   https://your-app.workers.dev/api/import
+  > ```
+
   - **phase=status**: 查询当前导入状态。
+    - **Body**: `{"phase":"status"}`
     - **响应**（有活跃会话）:
       ```json
       {
@@ -1184,7 +1201,7 @@ V0 CREATE / V0 UPDATE / V1 POST / V1 PUT 四个写入端点共享同一套联动
   - **phase=init**: 初始化导入会话。
     - **Body**:
       ```json
-      { "importId": "uuid", "mode": "merge | overwrite" }
+      { "phase": "init", "importId": "uuid", "mode": "merge | overwrite" }
       ```
     - **overwrite 模式**: 将现有表重命名为 `_backup`，创建新空表（v3.0 schema 1）。若备份失败自动回滚。
     - **merge 模式**: 直接插入/覆盖数据，不备份。
@@ -1194,6 +1211,7 @@ V0 CREATE / V0 UPDATE / V1 POST / V1 PUT 四个写入端点共享同一套联动
     - **Body**:
       ```json
       {
+        "phase": "finalize",
         "importId": "uuid",
         "custom_header": "...",
         "custom_content": "...",
@@ -1206,7 +1224,7 @@ V0 CREATE / V0 UPDATE / V1 POST / V1 PUT 四个写入端点共享同一套联动
   - **phase=abort**: 中止导入。
     - **Body**:
       ```json
-      { "importId": "uuid", "discard": false, "keepBackup": false }
+      { "phase": "abort", "importId": "uuid", "discard": false, "keepBackup": false }
       ```
     - **说明**: `discard=true` 时丢弃备份数据；`discard=false` 时从备份恢复原始数据。`keepBackup=true` 保留备份表不恢复。
 
@@ -1380,7 +1398,9 @@ v3.0 起，重复规则字段从 5 个旧字段（`repeat_type` / `repeat_custom
 > - **`type`**：三态 `none` / `fragment` / `recurring`。仅作分类，不参与 RRULE 展开。普通 todo 和碎时记的 `rrule` 始终为空字符串；`recurring` 必须有非空 `rrule`。
 > - **`rrule`**：RFC 5545 RRULE 字符串（不含 `RRULE:` 前缀），是重复规则的唯一规范字段。允许的 token：`FREQ=DAILY/WEEKLY/MONTHLY/YEARLY`、`INTERVAL`、`UNTIL`、`COUNT`、`BYDAY`、`BYMONTHDAY`、`BYMONTH`、`BYWEEKNO`、`BYYEARDAY`、`BYSETPOS`、`WKST`；拒绝 `SECONDLY`/`MINUTELY`/`HOURLY`（撑爆 Worker CPU）与 `BYHOUR`/`BYMINUTE`/`BYSECOND`（时间段语义，项目无此场景）。详见 [§5.6 RRULE 完整使用指南](#56-rrule-rfc-5545-完整使用指南)。
 > - **`anchor_date`**：DTSTART 等价物（`YYYY-MM-DD`），是 RRULE 展开的起始日期。`type='recurring'` 时必填；其他类型为空字符串。RFC 5545 规定 `anchor_date` 始终是第一个实例（即使不匹配 RRULE 也会强制出现）。
-> - **`exdates`**：JSON 数组字符串（如 `"[]"` 或 `"['2026-07-01']"`），列出 RRULE 应排除的日期。与 `rrule` 独立，始终叠加生效。`type='recurring'` 时调用方可设置；其他类型强制为 `"[]"`。
+> - **`exdates`**：JSON 数组字符串（如 `"[]"` 或 `"[\"2026-07-01\"]"`），列出 RRULE 应排除的日期。与 `rrule` 独立，始终叠加生效。`type='recurring'` 时调用方可设置；其他类型强制为 `"[]"`。
+> 
+> **注**：`exdates` 是 JSON 数组字符串，元素必须使用双引号（与 RFC 8259 一致），不可用单引号。例如 `"['2026-07-01']"` 不是合法 JSON，会被 `JSON.parse` 拒绝；正确写法是 `"[\"2026-07-01\"]"`。
 > - **`is_series`**：派生字段 = `type === 'recurring'`。客户端不可篡改，写入时被服务端忽略。
 
 > **`fragment_anchor` 字段说明**：碎时记（`type: "fragment"`）起始日期的权威副本，不受完成/取消完成影响。
@@ -1592,7 +1612,7 @@ V0 和 V1 的 Category 对象格式一致：
 | `type` | `"recurring"` | 唯一标识重复系列 |
 | `rrule` | 必填非空 | RFC 5545 RRULE 字符串（不含 `RRULE:` 前缀），须通过 `sanitizeRRule` 校验。允许 token 详见 [§5.6](#56-rrule-rfc-5545-完整使用指南) |
 | `anchor_date` | 必填 `YYYY-MM-DD` | DTSTART 等价物，首实例日期；RFC 5545 规定其始终是第一个实例（即使不匹配 RRULE 也会强制出现） |
-| `exdates` | `"[]"` 或 JSON 数组字符串 | 排除日期数组（如 `"['2026-07-01']"`），与 `rrule` 独立生效 |
+| `exdates` | `"[]"` 或 JSON 数组字符串 | 排除日期数组（如 `"[\"2026-07-01\"]"`），与 `rrule` 独立生效。元素必须使用双引号（合法 JSON） |
 | `date` | 必填 `YYYY-MM-DD` | 作为 instance 日期，首实例 = `anchor_date` |
 | `time` / `end_time` | 可设置 | — |
 | `fragment_anchor` | 始终空 | — |
