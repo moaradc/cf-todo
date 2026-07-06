@@ -8,9 +8,8 @@
  *   4. 若合并后有内容则发一封 digest 邮件；无内容则不发
  *   5. 主题由各模式 summary 用「·」拼接，如「即将到期 2 项 · 今日汇总 5 项」
  *
- * 去重：
- *   - timed     应用层 state.sent[] 按 todo_id@due_at 去重（窗口内已发不再入 sections）
- *   - digest    15s 时间桶 + sections 内容哈希幂等键，防 Cron 抖动重发
+ * 去重：15s 时间桶 + sections 内容哈希幂等键，防 Cron 抖动重发。
+ * 不再按 todo_id 应用层去重——每次 Cron 扫描到窗口内的待办都发。
  *
  * 时区：用 tzOffsetMs 把「现在」位移到目标时区后用 UTC getter 读取年月日。
  */
@@ -82,8 +81,6 @@ export interface ModeResult {
   sections: EmailSection[];
   /** 简短描述，用于拼邮件主题，如「即将到期2」「汇总(9/10)」「优先级3」 */
   summary?: string;
-  /** 该模式触发的 state.sent 追加项（仅 timed 模式有） */
-  sentEntries?: ReminderSentEntry[];
   /** 本模式展示的 todo id（供后续模式去重） */
   displayedIds: string[];
   /** 统计：检查的待办数 */
@@ -379,7 +376,7 @@ function buildSearchSections(allTodos: DueTodo[], mode: SearchIncludeMode): Emai
 // ==================== 模式: timed（返回 sections，不直接发邮件） ====================
 
 async function runTimedMode(
-  db: Db, cfg: ReminderConfig, state: ReminderState,
+  db: Db, cfg: ReminderConfig,
   localNow: Date, todayStr: string, tzOffsetMs: number, nowUtcMs: number,
   excludeIds: Set<string>,
 ): Promise<ModeResult> {
@@ -391,18 +388,13 @@ async function runTimedMode(
 
   const windowStartMs = nowUtcMs - LOOKBACK_MINUTES * 60 * 1000;
   const windowEndMs = nowUtcMs + cfg.timed_lead_minutes * 60 * 1000;
-  const sentKey = (todoId: string, dueAt: number) => `${todoId}@${dueAt}`;
-  const sentSet = new Set(state.sent.map((e) => sentKey(e.todo_id, e.due_at)));
 
   const dueTodos: DueTodo[] = [];
-  const sentEntries: ReminderSentEntry[] = [];
   for (const t of timed) {
     const dueUtcMs = dueUtcMsFor(t.time, localNow, tzOffsetMs);
     if (dueUtcMs === null) continue;
     if (dueUtcMs > windowStartMs && dueUtcMs <= windowEndMs) {
-      if (sentSet.has(sentKey(t.id, dueUtcMs))) continue;
       dueTodos.push(t);
-      sentEntries.push({ todo_id: t.id, due_at: dueUtcMs });
     }
   }
 
@@ -418,7 +410,6 @@ async function runTimedMode(
   return {
     mode: 'timed', enabled: true, sections, checked: timed.length, skipped: false,
     summary: `即将到期${dueTodos.length}`,
-    sentEntries,
     displayedIds: dueTodos.map((t) => t.id),
   };
 }
@@ -532,7 +523,7 @@ export async function runScheduledReminders(env: Env): Promise<ReminderRunResult
   const displayedIds = new Set<string>();
   const results: ModeResult[] = [];
 
-  const timedResult = await runTimedMode(db, cfg, state, localNow, todayStr, tzOffsetMs, nowUtcMs, displayedIds);
+  const timedResult = await runTimedMode(db, cfg, localNow, todayStr, tzOffsetMs, nowUtcMs, displayedIds);
   results.push(timedResult);
   timedResult.displayedIds.forEach((id) => displayedIds.add(id));
 
@@ -584,13 +575,6 @@ export async function runScheduledReminders(env: Env): Promise<ReminderRunResult
     from: cfg.from, to: cfg.recipient, subject, html, text, idempotencyKey,
   });
 
-  // 发送成功才追加 timed 的 sentEntries（去重表）
-  if (result.ok) {
-    for (const r of results) {
-      if (r.sentEntries) state.sent.push(...r.sentEntries);
-    }
-  }
-
   await saveState(db, pruneState(state, nowUtcMs));
 
   return {
@@ -622,11 +606,10 @@ export async function sendTestEmail(env: Env, cfg: ReminderConfig): Promise<{ ok
   const todayStr = getLocalDateStr(localNow);
 
   // 用真实数据运行各模式（空 state，不写去重表）
-  const emptyState: ReminderState = { last_run: nowUtcMs, sent: [] };
   const displayedIds = new Set<string>();
   const results: ModeResult[] = [];
 
-  const timedResult = await runTimedMode(db, cfg, emptyState, localNow, todayStr, tzOffsetMs, nowUtcMs, displayedIds);
+  const timedResult = await runTimedMode(db, cfg, localNow, todayStr, tzOffsetMs, nowUtcMs, displayedIds);
   results.push(timedResult);
   timedResult.displayedIds.forEach((id) => displayedIds.add(id));
 
