@@ -437,33 +437,6 @@ export function getBody(isAuthorized) {
           </div>
       </div>
 
-      <div class="detail-label">API 密钥管理</div>
-      <div class="settings-card">
-          <p class="settings-text" style="margin-bottom: 12px;">API 密钥用于外部程序（如 OpenClaw、脚本等）通过 RESTful API 安全访问待办数据。最多 <strong>10</strong> 个密钥。</p>
-          <div class="setting-item" style="margin-bottom: 12px;">
-              <span class="flex-1">将秘钥作用于</span>
-              <div class="fake-input" onclick="toggleSettingPopover('apiKeyScope', this)" style="width: 80px; margin-bottom: 0; padding: 6px 8px; justify-content: space-between; border-radius: 4px;">
-                  <span id="set-disp-apiKeyScope">v1</span>
-                  <span style="font-size:0.8rem; margin-right: 4px;">▼</span>
-              </div>
-          </div>
-          <div id="apikeys-list" style="margin-bottom: 12px;"></div>
-          <div class="apikey-create-row">
-            <input type="text" id="apikey-name-input" placeholder="密钥名称（可选）">
-            <button class="apikey-create-btn" onclick="createApiKey()">+</button>
-          </div>
-          <div id="apikey-created-box">
-            <p class="settings-text apikey-created-text"><strong>密钥已创建！请立即复制，此密钥仅显示一次：</strong></p>
-            <div class="apikey-created-row">
-              <input type="text" id="apikey-created-value" readonly onclick="this.select()">
-              <button class="apikey-copy-btn" onclick="copyText(document.getElementById('apikey-created-value').value)">复制</button>
-            </div>
-          </div>
-          <div class="settings-text" style="border-top: 1px dashed #333; padding-top: 10px;">
-            <strong>使用方式：</strong><a href="https://github.com/moaradc/cf-todo/blob/main/API_Wiki.md" target="_blank" style="color: var(--accent); text-decoration: none;">API Wiki</a>
-          </div>
-      </div>
-
       <div class="detail-label">邮件通知</div>
       <div class="settings-card">
           <div class="setting-item" style="margin-bottom: 15px; border: none; padding: 0;">
@@ -569,6 +542,33 @@ export function getBody(isAuthorized) {
           <div id="reminder-status-text" class="settings-text" style="margin:0 0 8px 0; min-height:0;"></div>
           <div class="settings-text" style="border-top: 1px dashed #333; padding-top: 10px; margin-top: 0;">
             <strong>说明：</strong>配置保存在 D1 数据库。所有模式由 Cron 触发（每 5 分钟）；15s 内重复触发自动去重。
+          </div>
+      </div>
+
+      <div class="detail-label">API 密钥管理</div>
+      <div class="settings-card">
+          <p class="settings-text" style="margin-bottom: 12px;">API 密钥用于外部程序（如 OpenClaw、脚本等）通过 RESTful API 安全访问待办数据。最多 <strong>10</strong> 个密钥。</p>
+          <div class="setting-item" style="margin-bottom: 12px;">
+              <span class="flex-1">将秘钥作用于</span>
+              <div class="fake-input" onclick="toggleSettingPopover('apiKeyScope', this)" style="width: 80px; margin-bottom: 0; padding: 6px 8px; justify-content: space-between; border-radius: 4px;">
+                  <span id="set-disp-apiKeyScope">v1</span>
+                  <span style="font-size:0.8rem; margin-right: 4px;">▼</span>
+              </div>
+          </div>
+          <div id="apikeys-list" style="margin-bottom: 12px;"></div>
+          <div class="apikey-create-row">
+            <input type="text" id="apikey-name-input" placeholder="密钥名称（可选）">
+            <button class="apikey-create-btn" onclick="createApiKey()">+</button>
+          </div>
+          <div id="apikey-created-box">
+            <p class="settings-text apikey-created-text"><strong>密钥已创建！请立即复制，此密钥仅显示一次：</strong></p>
+            <div class="apikey-created-row">
+              <input type="text" id="apikey-created-value" readonly onclick="this.select()">
+              <button class="apikey-copy-btn" onclick="copyText(document.getElementById('apikey-created-value').value)">复制</button>
+            </div>
+          </div>
+          <div class="settings-text" style="border-top: 1px dashed #333; padding-top: 10px;">
+            <strong>使用方式：</strong><a href="https://github.com/moaradc/cf-todo/blob/main/API_Wiki.md" target="_blank" style="color: var(--accent); text-decoration: none;">API Wiki</a>
           </div>
       </div>
 

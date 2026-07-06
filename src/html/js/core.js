@@ -893,7 +893,7 @@ export const core = `
       return m + ' 分';
     }
 
-    // 复用「选择开始时间」模态框选提前分钟数：时列=小时，分列=分钟
+    // 复用「选择开始时间」模态框选提前分钟数
     function openReminderLeadPicker() {
       openTimePicker('edit', 'reminderLead');
     }
@@ -929,7 +929,7 @@ export const core = `
       renderReminderConfig();
     }
 
-    // 已保存配置的本地快照，关闭设置页时用它重置 DOM（0 请求）
+    // 已保存配置的本地快照（关闭设置页时重置用，0 请求）
     var _savedReminderSnapshot = null;
     function _saveReminderSnapshot() {
       _savedReminderSnapshot = {
@@ -940,7 +940,7 @@ export const core = `
         search: tempReminderSearchMode,
       };
     }
-    // 关闭设置页时重置未保存的修改（纯本地，不发请求）
+    // 关闭设置页时重置未保存的修改
     function resetReminderToSaved() {
       if (!_savedReminderSnapshot) return;
       reminderConfig = Object.assign({}, _savedReminderSnapshot.cfg);
@@ -967,8 +967,7 @@ export const core = `
       if (el('reminder-daily-completed')) el('reminder-daily-completed').classList.toggle('active', reminderConfig.daily_include_completed);
     }
 
-    // pill 切换：点击切换 active 状态，并与今日汇总开关联动
-    // 两个 pill 都取消 → 自动取消今日汇总开关；至少一个选中 → 自动勾选今日汇总
+    // pill 与今日汇总开关联动：两个都取消→关闭，至少一个选中→开启
     function toggleReminderPill(el) {
       el.classList.toggle('active');
       var uncompPill = document.getElementById('reminder-daily-uncompleted');

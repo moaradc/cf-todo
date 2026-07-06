@@ -144,7 +144,7 @@ export const settings = `
     }
 
     function closeSettings() {
-      // 重置邮件通知未保存的修改（纯本地快照，不发请求）
+      // 重置邮件通知未保存的修改（本地快照）
       try { resetReminderToSaved(); } catch(e) {}
       if (_isNavClosing) {
         const view = document.getElementById('settings-overlay');

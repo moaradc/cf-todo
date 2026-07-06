@@ -143,7 +143,7 @@ function parseSearchIncludeMode(v: unknown): SearchIncludeMode {
 export function normalizeConfig(input: unknown): ReminderConfig {
   if (!input || typeof input !== 'object') return { ...DEFAULT_CONFIG };
   const r = input as Record<string, unknown>;
-  // 旧配置迁移：hot_search_enabled + hot_search_time → daily_include_search
+  // 旧配置迁移：hot_search_enabled → daily_include_search
   let migratedSearch: SearchIncludeMode = 'off';
   if (r.daily_include_search !== undefined) {
     migratedSearch = parseSearchIncludeMode(r.daily_include_search);
@@ -160,7 +160,7 @@ export function normalizeConfig(input: unknown): ReminderConfig {
     app_url: typeof r.app_url === 'string' ? r.app_url.trim() : undefined,
     timed_enabled: r.timed_enabled === true || (r.lead_minutes !== undefined && r.enabled === true && r.timed_enabled === undefined),
     timed_lead_minutes: clamp(r.timed_lead_minutes ?? r.lead_minutes, 1, 1440, DEFAULT_LEAD_MINUTES),
-    // daily 启用时必须至少包含未完成/已完成之一，否则自动关闭
+    // daily 启用要求至少包含未完成/已完成之一
     daily_enabled: r.daily_enabled === true && (dailyIncludeUncompleted || dailyIncludeCompleted),
     daily_include_completed: dailyIncludeCompleted,
     daily_include_uncompleted: dailyIncludeUncompleted,
@@ -331,7 +331,7 @@ function buildSearchSections(allTodos: DueTodo[], mode: SearchIncludeMode): Emai
     if (terms.length === 0) continue;
     const showTerms = mode === 'uncompleted' ? terms.filter((t) => !t.done) : terms;
     if (showTerms.length === 0) continue;
-    // 排序：未完成在前，已完成在后
+    // 排序：未完成在前
     showTerms.sort((a, b) => Number(a.done) - Number(b.done));
     sections.push({
       title: `${todo.text} 的搜索词 (${showTerms.length})`,
@@ -401,7 +401,7 @@ async function runDailyMode(
   const totalUncompleted = allTodos.filter((t) => t.done === 0).length;
   const totalCount = allTodos.length;
 
-  // 未完成 section 排除已在 timed/priority 展示的；已完成不受影响（前两者只处理未完成）
+  // 未完成 section 排除已展示的；已完成不受影响
   const showUncompleted = cfg.daily_include_uncompleted
     ? allTodos.filter((t) => t.done === 0 && !excludeIds.has(t.id))
     : [];
@@ -411,7 +411,7 @@ async function runDailyMode(
 
   const sections: EmailSection[] = [];
   const displayedIds: string[] = [];
-  // 有排除时（timed/priority 已展示部分未完成）标题用「其余未完成」表明已去重
+  // 有排除时标题用「其余未完成」表明已去重
   const uncompletedTitle = excludeIds.size > 0 ? '其余未完成' : '今日未完成';
 
   if (cfg.daily_include_uncompleted) {
@@ -433,7 +433,7 @@ async function runDailyMode(
     showCompleted.forEach((t) => displayedIds.push(t.id));
   }
 
-  // 标题格式：汇总(未完成/总数) — 显示今日整体状态分布，不受去重影响
+  // 标题格式：汇总(未完成/总数)
   const summary = `汇总(${totalUncompleted}/${totalCount})`;
   return {
     mode: 'daily', enabled: true, sections, displayedIds, checked: totalCount, skipped: false,
@@ -450,7 +450,7 @@ async function runPriorityMode(
   if (!cfg.priority_enabled) return { mode: 'priority', enabled: false, sections: [], displayedIds: [], checked: 0, skipped: true, reason: 'disabled' };
 
   const allTodos = await fetchTodayTodos(db, todayStr, { includeDone: false, minPriority: cfg.priority_min_level });
-  // 排除已在 timed 展示的
+  // 排除已展示的
   const showTodos = allTodos.filter((t) => !excludeIds.has(t.id));
   if (showTodos.length === 0) {
     return { mode: 'priority', enabled: true, sections: [], displayedIds: [], checked: 0, skipped: false, reason: 'no_matching_todos' };
@@ -462,7 +462,7 @@ async function runPriorityMode(
     items: showTodos.map(dueTodoToItem),
     listStyle: 'cards',
   }];
-  // 标题用短标签：高优3 / 中优5 / 全优8（去掉「优先级」冗余，保留级别信息）
+  // 标题用短标签：高优3 / 中优5 / 全优8
   const shortLevel = cfg.priority_min_level === 'high' ? '高优' : cfg.priority_min_level === 'med' ? '中优' : '全优';
   return {
     mode: 'priority', enabled: true, sections, checked: allTodos.length, skipped: false,
@@ -489,8 +489,7 @@ export async function runScheduledReminders(env: Env): Promise<ReminderRunResult
   const state = await getState(db);
   state.last_run = nowUtcMs;
 
-  // 1. 按顺序运行所有启用的模式（timed → priority → daily），后续模式排除已展示的 todo
-  //    顺序原因：timed 最紧迫先展示，priority 次之，daily 兜底展示「其余」未完成 + 已完成
+  // 按顺序运行所有启用的模式（timed → priority → daily），后续模式排除已展示的 todo
   const displayedIds = new Set<string>();
   const results: ModeResult[] = [];
 
@@ -506,21 +505,19 @@ export async function runScheduledReminders(env: Env): Promise<ReminderRunResult
   results.push(dailyResult);
   dailyResult.displayedIds.forEach((id) => displayedIds.add(id));
 
-  // 2. 合并所有 sections（按模式顺序拼接）
   const mergedSections: EmailSection[] = [];
   for (const r of results) {
     mergedSections.push(...r.sections);
   }
 
-  // 3. 附加搜索词 section（所有模式共享，从今日全部 todo 聚合，按来源 todo 分组）
-  //    只在有模式贡献了内容时才附加，避免空邮件带搜索词
+  // 附加搜索词 section（所有模式共享，按来源 todo 分组）
   if (mergedSections.length > 0 && cfg.daily_include_search !== 'off') {
     const allTodosForSearch = await fetchTodayTodos(db, todayStr, {});
     const searchSections = buildSearchSections(allTodosForSearch, cfg.daily_include_search);
     mergedSections.push(...searchSections);
   }
 
-  // 4. 无内容则不发邮件（但仍保存 state）
+  // 无内容则不发邮件（仍保存 state）
   if (mergedSections.length === 0) {
     await saveState(db, pruneState(state, nowUtcMs));
     return { skipped: false, sent: 0, failed: 0, modes: results };
@@ -541,14 +538,14 @@ export async function runScheduledReminders(env: Env): Promise<ReminderRunResult
     appUrl: cfg.app_url,
   });
 
-  // 6. 幂等键：15s 时间桶 + sections 内容哈希（内容不变则 15s 内去重）
+  // 幂等键：15s 时间桶 + sections 内容哈希
   const idemParts = mergedSections.map((s) => `${s.title}|${s.items.length}`).join('|');
   const idempotencyKey = `cf-todo:digest:${idemBucket()}:${(await sha256Hex(idemParts)).slice(0, 16)}`;
   const result = await sendEmail(env.RESEND_API_KEY, {
     from: cfg.from, to: cfg.recipient, subject, html, text, idempotencyKey,
   });
 
-  // 7. 发送成功才追加 timed 模式的 sentEntries（去重表）
+  // 发送成功才追加 timed 的 sentEntries（去重表）
   if (result.ok) {
     for (const r of results) {
       if (r.sentEntries) state.sent.push(...r.sentEntries);
@@ -585,7 +582,7 @@ export async function sendTestEmail(env: Env, cfg: ReminderConfig): Promise<{ ok
   const localNow = new Date(nowUtcMs + tzOffsetMs);
   const todayStr = getLocalDateStr(localNow);
 
-  // 用真实数据运行各模式（空 state，不写入 sent 去重表）
+  // 用真实数据运行各模式（空 state，不写去重表）
   const emptyState: ReminderState = { last_run: nowUtcMs, sent: [] };
   const displayedIds = new Set<string>();
   const results: ModeResult[] = [];
@@ -615,7 +612,7 @@ export async function sendTestEmail(env: Env, cfg: ReminderConfig): Promise<{ ok
     mergedSections.push(...buildSearchSections(allTodosForSearch, cfg.daily_include_search));
   }
 
-  // 无内容时补一个占位 section，让用户至少收到一封邮件确认连通性
+  // 无内容时补占位 section 确认连通性
   if (mergedSections.length === 0) {
     mergedSections.push({ title: '当前无待办数据', items: [], emptyMessage: '今日无待办，连通测试正常', listStyle: 'cards' });
   }
