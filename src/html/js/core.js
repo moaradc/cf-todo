@@ -945,22 +945,18 @@ export const core = `
     }
 
     // pill 切换：点击切换 active 状态，并与今日汇总开关联动
-    // 两个 pill 都取消 → 自动取消今日汇总开关；至少一个选中 → 保持/激活开关
+    // 两个 pill 都取消 → 自动取消今日汇总开关；至少一个选中 → 自动勾选今日汇总
     function toggleReminderPill(el) {
       el.classList.toggle('active');
       var uncompPill = document.getElementById('reminder-daily-uncompleted');
       var compPill = document.getElementById('reminder-daily-completed');
       var anyActive = (uncompPill && uncompPill.classList.contains('active')) ||
                       (compPill && compPill.classList.contains('active'));
-      // 同步 reminderConfig 与开关 UI
       reminderConfig.daily_include_uncompleted = uncompPill ? uncompPill.classList.contains('active') : false;
       reminderConfig.daily_include_completed = compPill ? compPill.classList.contains('active') : false;
-      // 两个都关时自动关闭 daily；至少一个选中时不自动开启（让用户手动控制开关）
-      if (!anyActive) {
-        reminderConfig.daily_enabled = false;
-        var box = document.getElementById('reminder-daily-box');
-        if (box) box.classList.remove('checked');
-      }
+      reminderConfig.daily_enabled = anyActive;
+      var box = document.getElementById('reminder-daily-box');
+      if (box) box.classList.toggle('checked', anyActive);
     }
 
     function _selectReminderSetting(type, value) {
