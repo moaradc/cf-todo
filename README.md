@@ -585,8 +585,6 @@ html.bg-dark #modal-changelog.modal-overlay{background:rgba(0,0,0,.42)!important
 .reminder-opt-label{color:var(--ycy-t2)!important}
 .reminder-pill{color:var(--ycy-t2)!important;background:var(--ycy-panel-s)!important;border:1px solid var(--ycy-bd)!important;box-shadow:none!important}
 .reminder-pill.active{color:#fff!important;background:var(--ycy-gn)!important;border-color:var(--ycy-gn)!important}
-/* 「提醒模式」小节标题与 .detail-label 统一 */
-.settings-card .settings-text[style*="font-weight:bold"]{font-size:.75rem!important;text-transform:uppercase!important;letter-spacing:.5px!important;color:var(--ycy-t3)!important;margin-bottom:5px!important}
 </style>
 ```
 </details>
