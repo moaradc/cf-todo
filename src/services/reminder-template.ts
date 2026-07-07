@@ -216,11 +216,11 @@ export function renderModeEmail(params: RenderEmailParams): { html: string; text
       <td align="center" style="padding:32px 12px;">
         <table role="presentation" width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%;">
 
-          <!-- ArchiveHeader：REMINDER_LOG 黑块 + 横线 -->
+          <!-- ArchiveHeader：REMINDER_LOG 黑块 + 虚线 -->
           <tr><td style="padding-bottom:8px;">
             <table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr>
               <td style="white-space:nowrap;padding-right:10px;">${darkTag('REMINDER_LOG')}</td>
-              <td style="height:1px;background:${C.dark};width:100%;"></td>
+              <td style="border-bottom:1px dashed ${C.dark}55;width:100%;"></td>
             </tr></table>
           </td></tr>
 
