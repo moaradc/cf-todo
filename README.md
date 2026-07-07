@@ -33,7 +33,7 @@
 
 第3步：在 GitHub 仓库中配置 Secrets
 
-进入仓库 → **Settings** → **Secrets and variables** → **Actions** → **New repository secret**，添加以下 4 个：
+进入仓库 → **Settings** → **Secrets and variables** → **Actions** → **New repository secret**，添加以下 5 个：
 
 | Secret 名称 | 必填 | 说明 |
 | :--- | :---: | :--- |
@@ -41,6 +41,7 @@
 | `CLOUDFLARE_ACCOUNT_ID` | **是** | 上一步获取的账户 ID |
 | `ADMIN_PASSWORD` | **是** | 登录密码，建议强密码 |
 | `JWT_SECRET` | **是** | JWT 签名密钥，随机字符串即可，可到 [jwtsecrets](https://jwtsecrets.com/#generator) 生成 |
+| `RESEND_API_KEY` | 否 | 邮件提醒功能用，前往 [Resend](https://resend.com/api-keys) 创建（需自备域名）。不添加则不发送邮件 |
 
 第4步：一键部署
 
