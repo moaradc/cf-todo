@@ -551,7 +551,7 @@ export function getBody(isAuthorized) {
           </div>
           <div id="reminder-status-text" class="settings-text" style="margin:0 0 8px 0; min-height:0;"></div>
           <div class="settings-text" style="border-top: 1px dashed #333; padding-top: 10px; margin-top: 0;">
-            <strong>使用方式：</strong>填写收发件邮箱 → 开启需要的提醒模式 → 点击「保存配置」生效。可随时点击「连通测试」发送一封当前数据的邮件验证配置。
+            <strong>使用方式：</strong>前往 <a href="https://resend.com/api-keys" target="_blank" style="color: var(--accent); text-decoration: none;">Resend</a> 创建 API Key（需自备域名）→ 在 Cloudflare Worker 设置中添加环境变量 <span class="md-code">RESEND_API_KEY</span> → 填写收发件邮箱 → 开启提醒模式 → 保存配置。
           </div>
       </div>
 
