@@ -446,9 +446,9 @@ export function getBody(isAuthorized) {
               </div>
           </div>
           <div class="detail-label" style="margin-top: 6px;">收件人邮箱</div>
-          <input type="email" id="reminder-recipient-input" placeholder="user@example.com" style="margin-bottom: 12px;" autocomplete="email">
+          <input type="email" id="reminder-recipient-input" placeholder="user@example.com" style="margin:0 0 12px 0;" autocomplete="email">
           <div class="detail-label">发件人邮箱</div>
-          <input type="text" id="reminder-from-input" placeholder="cf-todo &lt;noreply@yourdomain.com&gt;" style="margin-bottom: 12px;" autocomplete="off">
+          <input type="text" id="reminder-from-input" placeholder="cf-todo &lt;noreply@yourdomain.com&gt;" style="margin:0 0 12px 0;" autocomplete="off">
           <div class="detail-label">时间跳过</div>
           <div style="display:flex; gap:6px; align-items:center; margin-bottom: 12px;">
               <div class="fake-input" onclick="openReminderSkipPicker('start')" style="width: 80px; padding: 6px 10px; justify-content: space-between; border-radius: 4px;">
@@ -472,7 +472,7 @@ export function getBody(isAuthorized) {
 
             <div class="reminder-mode-block">
               <div class="reminder-mode-head">
-                <span class="reminder-mode-title">开始/到期提醒</span>
+                <span class="reminder-mode-title">起止提醒</span>
                 <div class="switch-label" onclick="toggleReminderMode('timed')" style="margin-bottom: 0;">
                     <div class="switch-box" id="reminder-timed-box"></div>
                 </div>
