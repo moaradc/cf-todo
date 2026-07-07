@@ -551,7 +551,7 @@ export function getBody(isAuthorized) {
           </div>
           <div id="reminder-status-text" class="settings-text" style="margin:0 0 8px 0; min-height:0;"></div>
           <div class="settings-text" style="border-top: 1px dashed #333; padding-top: 10px; margin-top: 0;">
-            <strong>使用方式：</strong>前往 <a href="https://resend.com/api-keys" target="_blank" style="color: var(--accent); text-decoration: none;">Resend</a> 创建 API Key（需自备域名）→ 在 GitHub 仓库 Settings → Secrets → Actions 添加 <span class="md-code">RESEND_API_KEY</span>（可选，不添加则不发送邮件）→ 重新部署 → 填写收发件邮箱 → 开启提醒模式 → 保存配置。
+            <strong>使用方式：</strong>前往 <a href="https://resend.com/api-keys" target="_blank" style="color: var(--accent); text-decoration: none;">Resend</a>（参考 <a href="https://github.com/moaradc/cf-todo/blob/main/API_Wiki.md" target="_blank" style="color: var(--accent); text-decoration: none;">API Wiki</a>）添加自备域名，创建 API Key → 在 GitHub 仓库或 Cloudflare 添加 <span class="md-code">RESEND_API_KEY</span> → 填写收发件邮箱 → 开启提醒模式 → 保存配置。
           </div>
       </div>
 
