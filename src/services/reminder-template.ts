@@ -139,13 +139,14 @@ function renderListItem(item: EmailItem): string {
   </td></tr>`;
 }
 
-// ── keywords 样式（ECHO #tag 胶囊） ──
-function renderKeywordItem(item: EmailItem, index: number): string {
-  const num = index + 1;
-  const numColor = num <= 3 ? C.red : num <= 10 ? C.primary : C.textMuted;
-  return `<tr><td style="padding:5px 0;">
-    ${hashTag(`${num} ${item.text}`, numColor)}
-    ${item.done ? ` ${colorTag(C.green, 'DONE')}` : ''}
+// ── keywords 样式（无编号无颜色区分，用 done 状态区分） ──
+function renderKeywordItem(item: EmailItem): string {
+  const bg = item.done ? C.panel : C.paper;
+  const border = item.done ? C.textMuted : C.dark;
+  const color = item.done ? C.textMuted : C.dark;
+  const doneMark = item.done ? ' <span style="font-size:9px;">&#x2713;</span>' : '';
+  return `<tr><td style="padding:3px 0;">
+    <span style="display:inline-block;padding:3px 10px;background:${bg};border:1px solid ${border};border-radius:999px;font-family:'Courier New',monospace;font-size:12px;color:${color};font-weight:700;${item.done ? 'text-decoration:line-through;' : ''}">${escapeHtml(item.text)}${doneMark}</span>
   </td></tr>`;
 }
 
@@ -180,7 +181,7 @@ function renderSection(section: EmailSection, sectionIndex: number): string {
   } else if (style === 'list') {
     itemsHtml = section.items.map(renderListItem).join('');
   } else {
-    itemsHtml = section.items.map((i, idx) => renderKeywordItem(i, idx)).join('');
+    itemsHtml = section.items.map(renderKeywordItem).join('');
   }
 
   html += `<tr><td style="padding:10px 0;">
