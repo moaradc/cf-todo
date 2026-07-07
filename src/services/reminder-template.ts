@@ -234,11 +234,9 @@ export function renderModeEmail(params: RenderEmailParams): { html: string; text
             <div style="font-family:'Courier New',monospace;font-size:13px;color:${C.ink};letter-spacing:0.05em;">${escapeHtml(subtitle)}</div>
           </td></tr>
 
-          <!-- ═══ LOGGED BY 黄色条（ECHO 模式） ═══ -->
+          <!-- TZ 信息（低调显示） -->
           <tr><td style="padding:0 0 20px 0;">
-            <div style="display:inline-block;background:${C.yellow};border:2px solid ${C.dark};padding:6px 14px;box-shadow:2px 2px 0 ${C.dark};">
-              <span style="font-family:'Courier New',monospace;font-size:11px;font-weight:700;color:${C.dark};letter-spacing:0.1em;text-transform:uppercase;">&#x25CF; TZ: ${escapeHtml(timezoneLabel)}</span>
-            </div>
+            <span style="font-family:'Courier New',monospace;font-size:11px;color:${C.textMuted};letter-spacing:0.05em;">TZ: ${escapeHtml(timezoneLabel)}</span>
           </td></tr>
 
           <!-- ═══ SECTIONS ═══ -->

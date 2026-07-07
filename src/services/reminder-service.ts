@@ -350,7 +350,7 @@ function buildSearchSections(allTodos: DueTodo[], mode: SearchIncludeMode): Emai
     // 排序：未完成在前
     showTerms.sort((a, b) => Number(a.done) - Number(b.done));
     sections.push({
-      title: `${todo.text} 的搜索词 (${showTerms.length})`,
+      title: `${todo.text} 的搜索词`,
       items: showTerms.map((t) => ({ text: t.text, done: t.done })),
       listStyle: 'keywords',
     });
@@ -541,7 +541,8 @@ export async function runScheduledReminders(env: Env): Promise<ReminderRunResult
   // 组合邮件主题：各模式紧凑标签用「·」拼接（即将到期2 · 高优3 · 汇总(9/10)）
   const summaries = results.filter((r) => r.summary).map((r) => r.summary!);
   const subject = summaries.join(' · ');
-  const subtitle = `${mergedSections.length} 个板块 · ${getLocalDateStr(localNow)} ${pad2(localNow.getUTCHours())}:${pad2(localNow.getUTCMinutes())} ${timezoneLabel(cfg.timezone_offset)}`;
+  const modeSectionCount = results.reduce((acc, r) => acc + r.sections.length, 0);
+  const subtitle = `${modeSectionCount} 个板块 · ${getLocalDateStr(localNow)} ${pad2(localNow.getUTCHours())}:${pad2(localNow.getUTCMinutes())}`;
   const tzLbl = timezoneLabel(cfg.timezone_offset);
 
   const { html, text } = renderModeEmail({
