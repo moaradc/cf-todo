@@ -313,6 +313,16 @@ function dueTodoToItem(t: DueTodo): EmailItem {
   };
 }
 
+/** 排序：优先级降序（高→中→低），同优先级按时间升序（早的在前） */
+function sortTodos(todos: DueTodo[]): DueTodo[] {
+  return [...todos].sort((a, b) => {
+    const pa = PRIORITY_RANK[a.priority ?? 'low'] ?? 0;
+    const pb = PRIORITY_RANK[b.priority ?? 'low'] ?? 0;
+    if (pa !== pb) return pb - pa;
+    return (a.time || '99:99').localeCompare(b.time || '99:99');
+  });
+}
+
 // ==================== search_terms 解析（供各模式附加 section 用） ====================
 
 function parseSearchTerms(raw: string): Array<{ text: string; done: boolean }> {
@@ -387,7 +397,7 @@ async function runTimedMode(
 
   const sections: EmailSection[] = [{
     title: `未来 ${cfg.timed_lead_minutes} 分钟内即将到期`,
-    items: dueTodos.map(dueTodoToItem),
+    items: sortTodos(dueTodos).map(dueTodoToItem),
     listStyle: 'cards',
   }];
   return {
@@ -425,7 +435,7 @@ async function runDailyMode(
   if (cfg.daily_include_uncompleted) {
     sections.push({
       title: uncompletedTitle,
-      items: showUncompleted.map(dueTodoToItem),
+      items: sortTodos(showUncompleted).map(dueTodoToItem),
       emptyMessage: '无其余未完成待办',
       listStyle: 'cards',
     });
@@ -434,7 +444,7 @@ async function runDailyMode(
   if (cfg.daily_include_completed) {
     sections.push({
       title: '今日已完成',
-      items: showCompleted.map(dueTodoToItem),
+      items: sortTodos(showCompleted).map(dueTodoToItem),
       emptyMessage: '今日无已完成待办',
       listStyle: 'cards',
     });
@@ -467,7 +477,7 @@ async function runPriorityMode(
   const levelLabel = cfg.priority_min_level === 'high' ? '高' : cfg.priority_min_level === 'med' ? '中及以上' : '全部';
   const sections: EmailSection[] = [{
     title: `${levelLabel}优先级未完成`,
-    items: showTodos.map(dueTodoToItem),
+    items: sortTodos(showTodos).map(dueTodoToItem),
     listStyle: 'cards',
   }];
   // 标题用短标签：高优3 / 中优5 / 全优8
