@@ -450,7 +450,7 @@ export function getBody(isAuthorized) {
           <div class="detail-label">发件人邮箱</div>
           <input type="text" id="reminder-from-input" placeholder="cf-todo &lt;noreply@yourdomain.com&gt;" style="margin-bottom: 12px;" autocomplete="off">
           <div class="detail-label">时间跳过</div>
-          <div style="display:flex; gap:6px; align-items:center; margin-bottom: 12px;">
+          <div style="display:flex; gap:6px; align-items:center; margin-bottom: 0;">
               <div class="fake-input" onclick="openReminderSkipPicker('start')" style="width: 80px; padding: 6px 10px; justify-content: space-between; border-radius: 4px;">
                   <span id="set-disp-reminderSkipStart">--:--</span>
                   <span style="font-size:0.75rem; margin-left: 4px; color:#888;">▼</span>
@@ -472,7 +472,7 @@ export function getBody(isAuthorized) {
 
             <div class="reminder-mode-block">
               <div class="reminder-mode-head">
-                <span class="reminder-mode-title">开始/到期提醒</span>
+                <span class="reminder-mode-title">起止提醒</span>
                 <div class="switch-label" onclick="toggleReminderMode('timed')" style="margin-bottom: 0;">
                     <div class="switch-box" id="reminder-timed-box"></div>
                 </div>
