@@ -347,6 +347,8 @@ function buildSearchSections(allTodos: DueTodo[], mode: SearchIncludeMode): Emai
     if (terms.length === 0) continue;
     const showTerms = mode === 'uncompleted' ? terms.filter((t) => !t.done) : terms;
     if (showTerms.length === 0) continue;
+    // 排序：未完成在前
+    showTerms.sort((a, b) => Number(a.done) - Number(b.done));
     sections.push({
       title: `${todo.text} 的搜索词`,
       items: showTerms.map((t) => ({ text: t.text, done: t.done })),

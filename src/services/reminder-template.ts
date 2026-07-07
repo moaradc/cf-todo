@@ -1,15 +1,17 @@
 /**
- * 提醒邮件 HTML 模板 —— ECHO 复古未来终端风格。
+ * 提醒邮件 HTML 模板 —— ECHO 复古未来终端风格（完整版）。
  *
- * 参考 echo.lubeiluchen.cc 设计语言：
- *   - 背景：retro-grid 网格 + halftone 半色调点阵
- *   - ArchiveHeader：黑标签 + 横线 + REC_DATE + 大标题（橙色 textShadow）
+ * 参考 echo.lubeiluchen.cc 完整网站设计语言：
+ *   - ArchiveHeader：黑色标签 + 横线 + REC_DATE + 大标题（橙色阴影）
  *   - SectionHeader：彩色方块 + 标题 + 虚线延伸
- *   - Card：2px 黑边框 + hard shadow (3px 3px 0) + 白底
- *   - 标签：黑底白字方块 + 彩色方块标签
+ *   - Card：2px 黑边框 + hard shadow (4px 4px 0) + 白底
+ *   - 标签：bg-dark text-bg 小方块标签 + #tag 胶囊
+ *   - LOGGED BY：黄色条 + 倾斜
  *   - 终端式正文：> 前缀 + Courier 等宽
- *   - [ END OF LOG ] 标记 + STATUS 状态行
- *   - 搜索词：#tag 胶囊（flex-wrap 布局，无序号无优先级）
+ *   - [ END OF LOG ] / [ ACCESS FILE ] 等标记
+ *   - STATUS: 绿色状态值 + 虚线分隔
+ *
+ * 邮件兼容：内联 CSS + 表格布局，600px 宽度。
  */
 
 export interface EmailItem {
@@ -48,7 +50,7 @@ const C = {
   paper: '#ffffff',
   dark: '#1c1917',
   ink: '#292524',
-  muted: '#78716c',
+  textMuted: '#8A8A8A',
   yellow: '#eab308',
   green: '#65a30d',
   red: '#dc2626',
@@ -57,54 +59,64 @@ const C = {
 const PRIORITY_TAG: Record<string, { bg: string; label: string }> = {
   high: { bg: C.red, label: 'HIGH' },
   med: { bg: C.yellow, label: 'MED' },
-  low: { bg: C.muted, label: 'LOW' },
+  low: { bg: C.textMuted, label: 'LOW' },
 };
 
-function esc(s: string): string {
+function escapeHtml(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 }
 
 function pad2(n: number): string { return String(n).padStart(2, '0'); }
 
-function fmtDate(d: Date): string {
+function formatRunTimestamp(d: Date): string {
   return `${d.getUTCFullYear()}-${pad2(d.getUTCMonth() + 1)}-${pad2(d.getUTCDate())} ${pad2(d.getUTCHours())}:${pad2(d.getUTCMinutes())}`;
 }
 
+/** ECHO 小标签：黑底白字方块 */
 function darkTag(text: string): string {
-  return `<span style="display:inline-block;padding:2px 8px;background:${C.dark};color:${C.bg};font-family:'Courier New',monospace;font-size:10px;font-weight:700;letter-spacing:0.1em;text-transform:uppercase;">${esc(text)}</span>`;
+  return `<span style="display:inline-block;padding:2px 8px;background:${C.dark};color:${C.bg};font-family:'Courier New',monospace;font-size:10px;font-weight:700;letter-spacing:0.1em;text-transform:uppercase;">${escapeHtml(text)}</span>`;
 }
 
+/** ECHO 彩色标签 */
 function colorTag(bg: string, text: string): string {
-  return `<span style="display:inline-block;padding:2px 8px;background:${bg};color:#FFFFFF;font-family:'Courier New',monospace;font-size:10px;font-weight:700;letter-spacing:0.1em;text-transform:uppercase;">${esc(text)}</span>`;
+  return `<span style="display:inline-block;padding:2px 8px;background:${bg};color:#FFFFFF;font-family:'Courier New',monospace;font-size:10px;font-weight:700;letter-spacing:0.1em;text-transform:uppercase;">${escapeHtml(text)}</span>`;
 }
 
+/** ECHO #tag 胶囊 */
+function hashTag(text: string, color: string): string {
+  return `<span style="display:inline-block;padding:3px 10px;background:${C.panel};border:1px solid ${color};border-radius:999px;font-family:'Courier New',monospace;font-size:11px;color:${color};font-weight:700;">${escapeHtml(text)}</span>`;
+}
+
+/** ECHO 彩色方块（SectionHeader 用） */
 function colorSquare(color: string): string {
-  return `<span style="display:inline-block;width:12px;height:12px;background:${color};vertical-align:middle;margin-right:8px;"></span>`;
+  return `<span style="display:inline-block;width:14px;height:14px;background:${color};vertical-align:middle;margin-right:8px;"></span>`;
 }
 
-// ── cards（ECHO Card：黑边框 + hard shadow + 编号条） ──
+// ── cards 样式（ECHO Card 组件模式） ──
 function renderItemCard(item: EmailItem, index: number): string {
   const prio = PRIORITY_TAG[item.priority ?? 'low'] ?? PRIORITY_TAG.low;
   const doneMark = item.done ? '<span style="color:#65a30d;font-size:14px;margin-right:4px;">&#x2713;</span>' : '';
-  const desc = item.desc ? `<p style="margin:6px 0 0 0;font-size:13px;color:${C.ink};line-height:1.6;font-family:'Courier New',monospace;">${esc(item.desc)}</p>` : '';
+  const desc = item.desc ? `<p style="margin:6px 0 0 0;font-size:13px;color:${C.ink};line-height:1.6;font-family:'Courier New',monospace;">${escapeHtml(item.desc)}</p>` : '';
   const urlLink = item.url
-    ? `<p style="margin:6px 0 0 0;font-size:12px;"><a href="${esc(item.url)}" style="color:${C.primary};text-decoration:none;font-family:'Courier New',monospace;word-break:break-all;">${esc(item.url)}</a></p>`
+    ? `<p style="margin:6px 0 0 0;font-size:12px;"><a href="${escapeHtml(item.url)}" style="color:${C.primary};text-decoration:none;font-family:'Courier New',monospace;word-break:break-all;">${escapeHtml(item.url)}</a></p>`
     : '';
   const catDot = item.categoryColor
-    ? `<span style="display:inline-block;width:8px;height:8px;background:${esc(item.categoryColor)};border-radius:50%;margin-right:4px;vertical-align:middle;"></span>`
+    ? `<span style="display:inline-block;width:8px;height:8px;background:${escapeHtml(item.categoryColor)};border-radius:50%;margin-right:4px;vertical-align:middle;"></span>`
     : '';
-  const catName = item.categoryName ? `<span style="color:${C.muted};font-size:11px;font-family:'Courier New',monospace;">${esc(item.categoryName)}</span>` : '';
-  const num = String(index + 1).padStart(2, '0');
+  const catName = item.categoryName ? `<span style="color:${C.textMuted};font-size:11px;font-family:'Courier New',monospace;">${escapeHtml(item.categoryName)}</span>` : '';
 
+  const num = String(index + 1).padStart(2, '0');
   return `<tr><td style="padding:0 0 12px 0;">
     <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:${C.paper};border:2px solid ${C.dark};box-shadow:3px 3px 0 ${C.dark};${item.done ? 'opacity:0.6;' : ''}">
+      <!-- 黑色编号条 -->
       <tr><td style="background:${C.dark};padding:5px 14px;">
         <span style="font-family:'Courier New',monospace;font-size:12px;font-weight:700;color:${C.primaryLight};letter-spacing:0.15em;">${num}</span>
-        ${item.time ? `<span style="float:right;font-family:'Courier New',monospace;font-size:11px;color:rgba(255,255,255,0.4);letter-spacing:0.1em;">${esc(item.time)}</span>` : ''}
+        ${item.time ? `<span style="float:right;font-family:'Courier New',monospace;font-size:11px;color:rgba(255,255,255,0.4);letter-spacing:0.1em;">${escapeHtml(item.time)}</span>` : ''}
       </td></tr>
+      <!-- 内容区 -->
       <tr><td style="padding:14px 16px;">
-        <div style="font-size:15px;color:${C.dark};line-height:1.5;font-weight:500;${item.done ? `text-decoration:line-through;color:${C.muted};` : ''}">${doneMark}${esc(item.text)}</div>
+        <div style="font-size:15px;color:${C.dark};line-height:1.5;font-weight:500;${item.done ? `text-decoration:line-through;color:${C.textMuted};` : ''}">${doneMark}${escapeHtml(item.text)}</div>
         ${desc}${urlLink}
         <div style="margin-top:8px;">
           ${item.priority ? colorTag(prio.bg, prio.label) : ''}
@@ -116,49 +128,46 @@ function renderItemCard(item: EmailItem, index: number): string {
   </td></tr>`;
 }
 
-// ── list ──
+// ── list 样式 ──
 function renderListItem(item: EmailItem): string {
-  const pColor = PRIORITY_TAG[item.priority ?? 'low']?.bg ?? C.muted;
+  const pColor = PRIORITY_TAG[item.priority ?? 'low']?.bg ?? C.textMuted;
   const doneMark = item.done ? '<span style="color:#65a30d;margin-right:6px;">&#x2713;</span>' : '';
-  const timeTag = item.time ? `<span style="color:${C.muted};font-size:11px;margin-right:8px;font-family:'Courier New',monospace;">${esc(item.time)}</span>` : '';
-  return `<tr><td style="padding:7px 0;border-bottom:1px dashed ${C.dark}22;">
+  const timeTag = item.time ? `<span style="color:${C.textMuted};font-size:11px;margin-right:8px;font-family:'Courier New',monospace;">${escapeHtml(item.time)}</span>` : '';
+  return `<tr><td style="padding:7px 0;border-bottom:1px dashed ${C.dark}33;">
     <span style="display:inline-block;width:6px;height:6px;background:${pColor};margin-right:8px;vertical-align:middle;"></span>
-    ${timeTag}${doneMark}<span style="font-size:14px;color:${C.dark};${item.done ? `text-decoration:line-through;color:${C.muted};` : ''}">${esc(item.text)}</span>
+    ${timeTag}${doneMark}<span style="font-size:14px;color:${C.dark};${item.done ? `text-decoration:line-through;color:${C.textMuted};` : ''}">${escapeHtml(item.text)}</span>
   </td></tr>`;
 }
 
-// ── keywords（ECHO #tag 胶囊，无序号无优先级，flex-wrap 布局） ──
-function renderKeywords(items: EmailItem[]): string {
-  const tags = items.map((item) => {
-    const bg = item.done ? C.green + '22' : C.panel;
-    const border = item.done ? C.green : C.dark;
-    const color = item.done ? C.green : C.dark;
-    const doneMark = item.done ? ' <span style="font-size:9px;">&#x2713;</span>' : '';
-    return `<td style="padding:3px 4px 3px 0;">
-      <span style="display:inline-block;padding:3px 10px;background:${bg};border:1px solid ${border};border-radius:999px;font-family:'Courier New',monospace;font-size:12px;color:${color};font-weight:700;white-space:nowrap;">${esc(item.text)}${doneMark}</span>
-    </td>`;
-  }).join('');
-  // 用 table 模拟 flex-wrap（每行容纳多个胶囊）
-  return `<tr><td><table role="presentation" cellpadding="0" cellspacing="0"><tr>${tags}</tr></table></td></tr>`;
+// ── keywords 样式（ECHO #tag 胶囊） ──
+function renderKeywordItem(item: EmailItem, index: number): string {
+  const num = index + 1;
+  const numColor = num <= 3 ? C.red : num <= 10 ? C.primary : C.textMuted;
+  return `<tr><td style="padding:5px 0;">
+    ${hashTag(`${num} ${item.text}`, numColor)}
+    ${item.done ? ` ${colorTag(C.green, 'DONE')}` : ''}
+  </td></tr>`;
 }
 
 function renderSection(section: EmailSection, sectionIndex: number): string {
   const count = section.items.length;
+  // section 标题颜色轮换（ECHO SectionHeader 模式）
   const colors = [C.primary, C.red, C.green, C.dark, C.yellow];
   const secColor = colors[sectionIndex % colors.length];
 
+  // SectionHeader：彩色方块 + 标题 + 虚线延伸（ECHO 模式）
   let html = `<tr><td style="padding:16px 0 0 0;">
     <table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr>
       <td style="padding-right:8px;white-space:nowrap;">${colorSquare(secColor)}</td>
-      <td style="font-family:'Courier New',monospace;font-size:13px;font-weight:700;color:${C.dark};letter-spacing:0.1em;text-transform:uppercase;white-space:nowrap;padding-right:10px;">${esc(section.title)}${count > 0 ? ` (${count})` : ''}</td>
-      <td style="border-bottom:2px dashed ${C.dark}22;width:100%;height:1px;"></td>
+      <td style="font-family:'Courier New',monospace;font-size:13px;font-weight:700;color:${C.dark};letter-spacing:0.1em;text-transform:uppercase;white-space:nowrap;padding-right:10px;">${escapeHtml(section.title)}${count > 0 ? ` (${count})` : ''}</td>
+      <td style="border-bottom:2px dashed ${C.dark}33;width:100%;height:1px;"></td>
     </tr></table>
   </td></tr>`;
 
   if (count === 0 && section.emptyMessage) {
     html += `<tr><td style="padding:12px 0;">
       <div style="background:${C.paper};border:2px solid ${C.dark};box-shadow:2px 2px 0 ${C.dark};padding:16px;text-align:center;">
-        <span style="font-family:'Courier New',monospace;font-size:13px;color:${C.muted};font-style:italic;">${esc(section.emptyMessage)}</span>
+        <span style="font-family:'Courier New',monospace;font-size:13px;color:${C.textMuted};font-style:italic;">${escapeHtml(section.emptyMessage)}</span>
       </div>
     </td></tr>`;
     return html;
@@ -171,7 +180,7 @@ function renderSection(section: EmailSection, sectionIndex: number): string {
   } else if (style === 'list') {
     itemsHtml = section.items.map(renderListItem).join('');
   } else {
-    itemsHtml = renderKeywords(section.items);
+    itemsHtml = section.items.map((i, idx) => renderKeywordItem(i, idx)).join('');
   }
 
   html += `<tr><td style="padding:10px 0;">
@@ -183,13 +192,13 @@ function renderSection(section: EmailSection, sectionIndex: number): string {
 
 export function renderModeEmail(params: RenderEmailParams): { html: string; text: string; subject: string } {
   const { title, subtitle, sections, runAt, timezoneLabel, appUrl, footerNote } = params;
-  const runStr = fmtDate(runAt);
+  const runStr = formatRunTimestamp(runAt);
   const subject = title;
   const sectionsHtml = sections.map((s, i) => renderSection(s, i)).join('');
 
   const footerLink = appUrl
-    ? `<a href="${esc(appUrl)}" style="color:${C.primary};text-decoration:none;font-family:'Courier New',monospace;font-size:11px;font-weight:700;letter-spacing:0.1em;text-transform:uppercase;">&#x23FB; cf-todo</a>`
-    : `<span style="color:${C.muted};font-family:'Courier New',monospace;font-size:11px;">cf-todo</span>`;
+    ? `<a href="${escapeHtml(appUrl)}" style="color:${C.primary};text-decoration:none;font-family:'Courier New',monospace;font-size:11px;font-weight:700;letter-spacing:0.1em;text-transform:uppercase;">&#x23FB; cf-todo</a>`
+    : `<span style="color:${C.textMuted};font-family:'Courier New',monospace;font-size:11px;">cf-todo</span>`;
   const footer = footerNote ?? '本邮件由 cf-todo 定时提醒服务自动发送。';
 
   const html = `<!DOCTYPE html>
@@ -198,62 +207,57 @@ export function renderModeEmail(params: RenderEmailParams): { html: string; text
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <meta http-equiv="X-UA-Compatible" content="IE=edge">
-  <title>${esc(subject)}</title>
+  <title>${escapeHtml(subject)}</title>
 </head>
 <body style="margin:0;padding:0;background:${C.bg};font-family:'Space Grotesk','Noto Sans SC',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;">
-  <!-- ECHO retro-grid 背景：网格线 -->
-  <div style="position:fixed;top:0;left:0;width:100%;height:100%;z-index:0;pointer-events:none;background-size:60px 60px;background-image:linear-gradient(to right,${C.dark}11 1px,transparent 1px),linear-gradient(to bottom,${C.dark}11 1px,transparent 1px);"></div>
-  <!-- ECHO halftone 背景：半色调点阵 -->
-  <div style="position:fixed;top:0;left:0;width:100%;height:100%;z-index:0;pointer-events:none;background-image:radial-gradient(${C.primary}11 1px,transparent 0);background-size:24px 24px;"></div>
-
-  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="min-height:100%;position:relative;z-index:1;">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="min-height:100%;">
     <tr>
       <td align="center" style="padding:32px 12px;">
         <table role="presentation" width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%;">
 
-          <!-- ArchiveHeader -->
+          <!-- ═══ ArchiveHeader（ECHO 模式：黑标签 + 横线 + REC_DATE + 大标题） ═══ -->
           <tr><td style="padding-bottom:8px;">
             <table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr>
               <td style="white-space:nowrap;padding-right:10px;">${darkTag('REMINDER_LOG')}</td>
-              <td style="height:2px;background:${C.dark};width:100%;"></td>
-              <td style="white-space:nowrap;padding-left:10px;font-family:'Courier New',monospace;font-size:11px;font-weight:700;color:${C.muted};letter-spacing:0.1em;">REC_DATE: ${esc(runStr)}</td>
+              <td style="height:1px;background:${C.dark};width:100%;"></td>
+              <td style="white-space:nowrap;padding-left:10px;font-family:'Courier New',monospace;font-size:11px;font-weight:700;color:${C.textMuted};letter-spacing:0.1em;">REC_DATE: ${escapeHtml(runStr)}</td>
             </tr></table>
           </td></tr>
 
-          <!-- 大标题（橙色 textShadow） -->
+          <!-- 大标题（橙色 textShadow，ECHO 模式） -->
           <tr><td style="padding:0 0 4px 0;">
-            <div style="font-family:'Space Grotesk','Noto Sans SC',sans-serif;font-size:32px;font-weight:900;color:${C.dark};letter-spacing:-0.02em;line-height:1;text-shadow:3px 3px 0 ${C.primary};">${esc(title)}</div>
+            <div style="font-family:'Space Grotesk','Noto Sans SC',sans-serif;font-size:32px;font-weight:900;color:${C.dark};letter-spacing:-0.02em;line-height:1;text-shadow:3px 3px 0 ${C.primary};">${escapeHtml(title)}</div>
           </td></tr>
 
           <!-- 副标题 -->
-          <tr><td style="padding:0 0 4px 0;">
-            <div style="font-family:'Courier New',monospace;font-size:13px;color:${C.ink};letter-spacing:0.05em;">${esc(subtitle)}</div>
+          <tr><td style="padding:0 0 16px 0;">
+            <div style="font-family:'Courier New',monospace;font-size:13px;color:${C.ink};letter-spacing:0.05em;">${escapeHtml(subtitle)}</div>
           </td></tr>
 
-          <!-- TZ 信息 -->
+          <!-- TZ 信息（低调显示） -->
           <tr><td style="padding:0 0 20px 0;">
-            <span style="font-family:'Courier New',monospace;font-size:11px;color:${C.muted};letter-spacing:0.05em;">TZ: ${esc(timezoneLabel)}</span>
+            <span style="font-family:'Courier New',monospace;font-size:11px;color:${C.textMuted};letter-spacing:0.05em;">TZ: ${escapeHtml(timezoneLabel)}</span>
           </td></tr>
 
-          <!-- SECTIONS -->
+          <!-- ═══ SECTIONS ═══ -->
           ${sectionsHtml}
 
-          <!-- FOOTER -->
+          <!-- ═══ FOOTER（ECHO 模式：虚线分隔 + STATUS + [ END OF LOG ]） ═══ -->
           <tr><td style="padding:20px 0 0 0;">
-            <div style="border-top:2px dashed ${C.dark}22;padding-top:12px;">
+            <div style="border-top:2px dashed ${C.dark}33;padding-top:12px;">
               <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
                 <tr>
-                  <td style="font-family:'Courier New',monospace;font-size:10px;font-weight:700;color:${C.muted};letter-spacing:0.1em;text-transform:uppercase;">STATUS:</td>
+                  <td style="font-family:'Courier New',monospace;font-size:10px;font-weight:700;color:${C.textMuted};letter-spacing:0.1em;text-transform:uppercase;">STATUS:</td>
                   <td style="text-align:right;"><span style="background:${C.green};color:#FFFFFF;padding:1px 6px;font-family:'Courier New',monospace;font-size:10px;font-weight:700;letter-spacing:0.1em;text-transform:uppercase;">SENT</span></td>
                 </tr>
               </table>
             </div>
           </td></tr>
           <tr><td style="padding:8px 0;">
-            <div style="font-size:11px;color:${C.muted};line-height:1.6;font-family:'Courier New',monospace;">${esc(footer)}<br>${footerLink}</div>
+            <div style="font-size:11px;color:${C.textMuted};line-height:1.6;font-family:'Courier New',monospace;">${escapeHtml(footer)}<br>${footerLink}</div>
           </td></tr>
           <tr><td style="text-align:right;padding:4px 0 0 0;">
-            <span style="font-family:'Courier New',monospace;font-size:10px;color:${C.muted};letter-spacing:0.15em;text-transform:uppercase;opacity:0.5;">[ END OF LOG ]</span>
+            <span style="font-family:'Courier New',monospace;font-size:10px;color:${C.textMuted};letter-spacing:0.15em;text-transform:uppercase;opacity:0.5;">[ END OF LOG ]</span>
           </td></tr>
 
         </table>
