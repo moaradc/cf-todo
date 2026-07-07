@@ -540,7 +540,7 @@ export async function runScheduledReminders(env: Env): Promise<ReminderRunResult
   const summaries = results.filter((r) => r.summary).map((r) => r.summary!);
   const subject = summaries.join(' · ');
   const modeSectionCount = results.reduce((acc, r) => acc + r.sections.length, 0);
-  const subtitle = `${modeSectionCount} 个板块 · ${getLocalDateStr(localNow)} ${pad2(localNow.getUTCHours())}:${pad2(localNow.getUTCMinutes())}`;
+  const subtitle = `${modeSectionCount} 个板块 · ${getLocalDateStr(localNow)} ${pad2(localNow.getUTCHours())}:${pad2(localNow.getUTCMinutes())} ${timezoneLabel(cfg.timezone_offset)}`;
   const tzLbl = timezoneLabel(cfg.timezone_offset);
 
   const { html, text } = renderModeEmail({

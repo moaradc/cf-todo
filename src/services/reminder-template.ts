@@ -216,10 +216,9 @@ export function renderModeEmail(params: RenderEmailParams): { html: string; text
       <td align="center" style="padding:32px 12px;">
         <table role="presentation" width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%;">
 
-          <!-- ═══ ArchiveHeader（ECHO 模式：黑标签 + 横线 + REC_DATE + 大标题） ═══ -->
+          <!-- ArchiveHeader：横线 + REC_DATE + 大标题 -->
           <tr><td style="padding-bottom:8px;">
             <table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr>
-              <td style="white-space:nowrap;padding-right:10px;">${darkTag('REMINDER_LOG')}</td>
               <td style="height:1px;background:${C.dark};width:100%;"></td>
               <td style="white-space:nowrap;padding-left:10px;font-family:'Courier New',monospace;font-size:11px;font-weight:700;color:${C.textMuted};letter-spacing:0.1em;">REC_DATE: ${escapeHtml(runStr)}</td>
             </tr></table>
