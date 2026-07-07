@@ -70,7 +70,7 @@ function escapeHtml(s: string): string {
 function pad2(n: number): string { return String(n).padStart(2, '0'); }
 
 function formatRunTimestamp(d: Date): string {
-  return `${d.getUTCFullYear()}-${pad2(d.getUTCMonth() + 1)}-${pad2(d.getUTCDate())} ${pad2(d.getUTCHours())}:${pad2(d.getUTCMinutes())}`;
+  return `${d.getUTCFullYear()}-${pad2(d.getUTCMonth() + 1)}-${pad2(d.getUTCDate())} ${pad2(d.getUTCHours())}:${pad2(d.getUTCMinutes())}:${pad2(d.getUTCSeconds())}`;
 }
 
 /** ECHO 小标签：黑底白字方块 */
@@ -197,11 +197,6 @@ export function renderModeEmail(params: RenderEmailParams): { html: string; text
   const subject = title;
   const sectionsHtml = sections.map((s, i) => renderSection(s, i)).join('');
 
-  const footerLink = appUrl
-    ? `<a href="${escapeHtml(appUrl)}" style="color:${C.primary};text-decoration:none;font-family:'Courier New',monospace;font-size:11px;font-weight:700;letter-spacing:0.1em;text-transform:uppercase;">&#x23FB; cf-todo</a>`
-    : `<span style="color:${C.textMuted};font-family:'Courier New',monospace;font-size:11px;">cf-todo</span>`;
-  const footer = footerNote ?? '本邮件由 cf-todo 定时提醒服务自动发送。';
-
   const html = `<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
@@ -216,12 +211,12 @@ export function renderModeEmail(params: RenderEmailParams): { html: string; text
       <td align="center" style="padding:32px 12px;">
         <table role="presentation" width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%;">
 
-          <!-- ═══ ArchiveHeader（ECHO 模式：黑标签 + 横线 + REC_DATE + 大标题） ═══ -->
+          <!-- ArchiveHeader：黑标签 + 横线 + REC_DATE（含时区，精确到秒） -->
           <tr><td style="padding-bottom:8px;">
             <table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr>
               <td style="white-space:nowrap;padding-right:10px;">${darkTag('REMINDER_LOG')}</td>
               <td style="height:1px;background:${C.dark};width:100%;"></td>
-              <td style="white-space:nowrap;padding-left:10px;font-family:'Courier New',monospace;font-size:11px;font-weight:700;color:${C.textMuted};letter-spacing:0.1em;">REC_DATE: ${escapeHtml(runStr)}</td>
+              <td style="white-space:nowrap;padding-left:10px;font-family:'Courier New',monospace;font-size:11px;font-weight:700;color:${C.textMuted};letter-spacing:0.1em;">REC_DATE: ${escapeHtml(runStr)} ${escapeHtml(timezoneLabel)}</td>
             </tr></table>
           </td></tr>
 
@@ -231,33 +226,29 @@ export function renderModeEmail(params: RenderEmailParams): { html: string; text
           </td></tr>
 
           <!-- 副标题 -->
-          <tr><td style="padding:0 0 16px 0;">
-            <div style="font-family:'Courier New',monospace;font-size:13px;color:${C.ink};letter-spacing:0.05em;">${escapeHtml(subtitle)}</div>
-          </td></tr>
-
-          <!-- TZ 信息（低调显示） -->
           <tr><td style="padding:0 0 20px 0;">
-            <span style="font-family:'Courier New',monospace;font-size:11px;color:${C.textMuted};letter-spacing:0.05em;">TZ: ${escapeHtml(timezoneLabel)}</span>
+            <div style="font-family:'Courier New',monospace;font-size:13px;color:${C.ink};letter-spacing:0.05em;">${escapeHtml(subtitle)}</div>
           </td></tr>
 
           <!-- ═══ SECTIONS ═══ -->
           ${sectionsHtml}
 
-          <!-- ═══ FOOTER（ECHO 模式：虚线分隔 + STATUS + [ END OF LOG ]） ═══ -->
+          <!-- FOOTER（ECHO 模式：虚线分隔 + STATUS/VER + [ END OF LOG ]） -->
           <tr><td style="padding:20px 0 0 0;">
-            <div style="border-top:2px dashed ${C.dark}33;padding-top:12px;">
+            <div style="border-top:2px dashed ${C.dark}30;padding-top:12px;font-family:'Courier New',monospace;font-size:10px;color:${C.textMuted};letter-spacing:0.1em;text-transform:uppercase;">
               <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
                 <tr>
-                  <td style="font-family:'Courier New',monospace;font-size:10px;font-weight:700;color:${C.textMuted};letter-spacing:0.1em;text-transform:uppercase;">STATUS:</td>
-                  <td style="text-align:right;"><span style="background:${C.green};color:#FFFFFF;padding:1px 6px;font-family:'Courier New',monospace;font-size:10px;font-weight:700;letter-spacing:0.1em;text-transform:uppercase;">SENT</span></td>
+                  <td style="padding-bottom:2px;">STATUS:</td>
+                  <td style="text-align:right;padding-bottom:2px;"><span style="background:${C.green};color:#FFFFFF;padding:1px 6px;font-weight:700;">SENT</span></td>
+                </tr>
+                <tr>
+                  <td>SYS:</td>
+                  <td style="text-align:right;">cf-todo</td>
                 </tr>
               </table>
             </div>
           </td></tr>
-          <tr><td style="padding:8px 0;">
-            <div style="font-size:11px;color:${C.textMuted};line-height:1.6;font-family:'Courier New',monospace;">${escapeHtml(footer)}<br>${footerLink}</div>
-          </td></tr>
-          <tr><td style="text-align:right;padding:4px 0 0 0;">
+          <tr><td style="text-align:right;padding:8px 0 0 0;">
             <span style="font-family:'Courier New',monospace;font-size:10px;color:${C.textMuted};letter-spacing:0.15em;text-transform:uppercase;opacity:0.5;">[ END OF LOG ]</span>
           </td></tr>
 
@@ -269,7 +260,7 @@ export function renderModeEmail(params: RenderEmailParams): { html: string; text
 </html>`;
 
   // 纯文本回退
-  const textParts: string[] = [`cf-todo ${title}`, subtitle, `REC_DATE: ${runStr} (TZ: ${timezoneLabel})`, ''];
+  const textParts: string[] = [`cf-todo ${title}`, subtitle, `REC_DATE: ${runStr} ${timezoneLabel}`, ''];
   sections.forEach((s, i) => {
     textParts.push(`[${String(i + 1).padStart(2, '0')}] ${s.title} (${s.items.length})`);
     if (s.items.length === 0 && s.emptyMessage) {
