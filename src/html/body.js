@@ -449,28 +449,22 @@ export function getBody(isAuthorized) {
           <input type="email" id="reminder-recipient-input" placeholder="user@example.com" style="margin-bottom: 12px;" autocomplete="email">
           <div class="detail-label">发件人邮箱</div>
           <input type="text" id="reminder-from-input" placeholder="cf-todo &lt;noreply@yourdomain.com&gt;" style="margin-bottom: 12px;" autocomplete="off">
-          <div style="display:flex; gap:16px; margin-bottom: 12px; align-items:flex-start;">
-            <div style="flex:0 0 auto; min-width:150px;">
-              <div class="detail-label">时区偏移</div>
-              <div class="fake-input" onclick="toggleSettingPopover('reminderTz', this)" style="width: 70px; padding: 6px 10px; justify-content: space-between; border-radius: 4px;">
-                  <span id="set-disp-reminderTz">UTC+8</span>
+          <div class="detail-label">时区偏移</div>
+          <div class="fake-input" onclick="toggleSettingPopover('reminderTz', this)" style="width: 70px; margin-bottom: 12px; padding: 6px 10px; justify-content: space-between; border-radius: 4px;">
+              <span id="set-disp-reminderTz">UTC+8</span>
+              <span style="font-size:0.75rem; margin-left: 4px; color:#888;">▼</span>
+          </div>
+          <div class="detail-label">时间跳过</div>
+          <div style="display:flex; gap:6px; align-items:center; margin-bottom: 12px;">
+              <div class="fake-input" onclick="openReminderSkipPicker('start')" style="width: 70px; padding: 6px 10px; justify-content: space-between; border-radius: 4px;">
+                  <span id="set-disp-reminderSkipStart">--:--</span>
                   <span style="font-size:0.75rem; margin-left: 4px; color:#888;">▼</span>
               </div>
-            </div>
-            <div style="flex:1; min-width:0;">
-              <div class="detail-label">时间跳过</div>
-              <div style="display:flex; gap:6px; align-items:center;">
-                  <div class="fake-input" onclick="openReminderSkipPicker('start')" style="width: 70px; padding: 6px 10px; justify-content: space-between; border-radius: 4px;">
-                      <span id="set-disp-reminderSkipStart">--:--</span>
-                      <span style="font-size:0.75rem; margin-left: 4px; color:#888;">▼</span>
-                  </div>
-                  <span style="font-size:0.75rem; color:#888; align-self:center; line-height:1;">—</span>
-                  <div class="fake-input" onclick="openReminderSkipPicker('end')" style="width: 70px; padding: 6px 10px; justify-content: space-between; border-radius: 4px;">
-                      <span id="set-disp-reminderSkipEnd">--:--</span>
-                      <span style="font-size:0.75rem; margin-left: 4px; color:#888;">▼</span>
-                  </div>
+              <span style="font-size:0.75rem; color:#888;">—</span>
+              <div class="fake-input" onclick="openReminderSkipPicker('end')" style="width: 70px; padding: 6px 10px; justify-content: space-between; border-radius: 4px;">
+                  <span id="set-disp-reminderSkipEnd">--:--</span>
+                  <span style="font-size:0.75rem; margin-left: 4px; color:#888;">▼</span>
               </div>
-            </div>
           </div>
 
           <div style="border-top: 1px dashed #333; margin: 10px 0; padding-top: 10px;">
