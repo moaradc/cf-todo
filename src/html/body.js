@@ -471,7 +471,7 @@ export function getBody(isAuthorized) {
               </div>
           </div>
 
-          <div style="border-top: 1px dashed #333; margin: 16px 0 12px 0; padding-top: 12px;">
+          <div style="border-top: 1px dashed #333; margin: 10px 0; padding-top: 10px;">
             <div class="settings-text" style="font-weight:bold; margin-bottom: 10px;">提醒模式</div>
 
             <div class="reminder-mode-block">
