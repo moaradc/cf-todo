@@ -451,9 +451,9 @@ export function getBody(isAuthorized) {
           <input type="text" id="reminder-from-input" placeholder="cf-todo &lt;noreply@yourdomain.com&gt;" style="margin-bottom: 12px;" autocomplete="off">
           <div class="setting-item" style="margin-bottom: 4px; border: none; padding: 0;">
               <span class="settings-text" style="margin:0;">时区偏移</span>
-              <div class="fake-input" onclick="toggleSettingPopover('reminderTz', this)" style="width: 70px; margin-bottom: 0; padding: 6px 10px; justify-content: space-between; border-radius: 4px;">
+              <div class="fake-input" onclick="toggleSettingPopover('reminderTz', this)" style="width: 110px; margin-bottom: 0; padding: 6px 10px; justify-content: space-between; border-radius: 4px;">
                   <span id="set-disp-reminderTz">UTC+8</span>
-                  <span style="font-size:0.75rem; margin-left: 4px; color:#888;">▼</span>
+                  <span style="font-size:0.8rem; margin-right: 4px;">▼</span>
               </div>
           </div>
           <div class="setting-item" style="margin-bottom: 4px; border: none; padding: 0;">
