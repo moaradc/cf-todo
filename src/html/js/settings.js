@@ -182,26 +182,17 @@ export const settings = `
     }
 
     // 将 popover 限制在父容器宽度内：若右侧溢出则向左对齐到右边界；若左侧仍溢出则压缩宽度
-    // 窄父容器（如 flex 子项）会向上找更宽的祖先作为参考
     function _clampPopoverWithinParent(popover, triggerEl) {
       try {
         var parent = triggerEl.parentNode;
-        var popW = popover.offsetWidth;
-        // 父容器比 popover 还窄时，向上找更宽的祖先（避免窄 flex 子项收窄 popover）
         var parentW = parent.clientWidth;
-        if (parentW < popW + 8) {
-          var ancestor = parent.parentNode;
-          while (ancestor && ancestor.clientWidth < popW + 8 && ancestor !== document.body) {
-            ancestor = ancestor.parentNode;
-          }
-          if (ancestor && ancestor.clientWidth >= popW + 8) {
-            parentW = ancestor.clientWidth;
-          }
-        }
+        var popW = popover.offsetWidth;
         var left = parseInt(popover.style.left, 10) || 0;
+        // 右溢出：贴右边
         if (left + popW > parentW - 4) {
           popover.style.left = 'auto';
           popover.style.right = '4px';
+          // 重新测量，若仍超出（极窄屏），强制收窄宽度
           var newLeft = parentW - popover.offsetWidth - 4;
           if (newLeft < 0) {
             popover.style.right = 'auto';
