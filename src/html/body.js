@@ -551,7 +551,7 @@ export function getBody(isAuthorized) {
           </div>
           <div id="reminder-status-text" class="settings-text" style="margin:0 0 8px 0; min-height:0;"></div>
           <div class="settings-text" style="border-top: 1px dashed #333; padding-top: 10px; margin-top: 0;">
-            <strong>说明：</strong>配置保存在 D1 数据库。所有模式由 Cron 触发（每 4 小时）；15s 内重复触发自动去重。
+            <strong>使用方式：</strong>填写收发件邮箱 → 开启需要的提醒模式 → 点击「保存配置」生效。可随时点击「连通测试」发送一封当前数据的邮件验证配置。
           </div>
       </div>
 
