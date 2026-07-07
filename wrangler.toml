@@ -11,10 +11,9 @@ database_name = "todo-db"
 database_id = "af077718-dfdd-476b-8e5c-136a776a97a7"
 migrations_dir = "drizzle"
 
-# Cron 触发器：每 5 分钟扫描一次即将到期的待办并发送邮件提醒。
-# 频率权衡：1 分钟过密（Resend 限流 + Workers 调度配额），10 分钟以上错过准点提醒。
+# Cron 触发器：每 4 小时执行一次提醒扫描并发送邮件。
 # 修改后需 `wrangler deploy` 才生效；可在 Cloudflare 控制台查看 Cron Events 历史。
 [triggers]
-crons = ["*/5 * * * *"]
+crons = ["0 */4 * * *"]
 
 # RESEND_API_KEY 通过 `wrangler secret put RESEND_API_KEY` 配置，不入仓库。

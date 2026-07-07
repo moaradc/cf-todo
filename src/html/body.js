@@ -449,22 +449,22 @@ export function getBody(isAuthorized) {
           <input type="email" id="reminder-recipient-input" placeholder="user@example.com" style="margin-bottom: 12px;" autocomplete="email">
           <div class="detail-label">发件人邮箱</div>
           <input type="text" id="reminder-from-input" placeholder="cf-todo &lt;noreply@yourdomain.com&gt;" style="margin-bottom: 12px;" autocomplete="off">
-          <div class="detail-label">时区偏移</div>
-          <div class="fake-input" onclick="toggleSettingPopover('reminderTz', this)" style="width: 75px; margin-bottom: 12px; padding: 6px 10px; justify-content: space-between; border-radius: 4px;">
-              <span id="set-disp-reminderTz">UTC+8</span>
-              <span style="font-size:0.75rem; margin-left: 4px; color:#888;">▼</span>
-          </div>
           <div class="detail-label">时间跳过</div>
           <div style="display:flex; gap:6px; align-items:center; margin-bottom: 12px;">
-              <div class="fake-input" onclick="openReminderSkipPicker('start')" style="width: 75px; padding: 6px 10px; justify-content: space-between; border-radius: 4px;">
+              <div class="fake-input" onclick="openReminderSkipPicker('start')" style="width: 80px; padding: 6px 10px; justify-content: space-between; border-radius: 4px;">
                   <span id="set-disp-reminderSkipStart">--:--</span>
                   <span style="font-size:0.75rem; margin-left: 4px; color:#888;">▼</span>
               </div>
               <span style="font-size:0.75rem; color:#888;">—</span>
-              <div class="fake-input" onclick="openReminderSkipPicker('end')" style="width: 75px; padding: 6px 10px; justify-content: space-between; border-radius: 4px;">
+              <div class="fake-input" onclick="openReminderSkipPicker('end')" style="width: 80px; padding: 6px 10px; justify-content: space-between; border-radius: 4px;">
                   <span id="set-disp-reminderSkipEnd">--:--</span>
                   <span style="font-size:0.75rem; margin-left: 4px; color:#888;">▼</span>
               </div>
+          </div>
+          <div class="detail-label">时区偏移</div>
+          <div class="fake-input" onclick="toggleSettingPopover('reminderTz', this)" style="width: 80px; margin-bottom: 12px; padding: 6px 10px; justify-content: space-between; border-radius: 4px;">
+              <span id="set-disp-reminderTz">UTC+8</span>
+              <span style="font-size:0.75rem; margin-left: 4px; color:#888;">▼</span>
           </div>
 
           <div style="border-top: 1px dashed #333; margin: 10px 0; padding-top: 10px;">
@@ -551,7 +551,7 @@ export function getBody(isAuthorized) {
           </div>
           <div id="reminder-status-text" class="settings-text" style="margin:0 0 8px 0; min-height:0;"></div>
           <div class="settings-text" style="border-top: 1px dashed #333; padding-top: 10px; margin-top: 0;">
-            <strong>说明：</strong>配置保存在 D1 数据库。所有模式由 Cron 触发（每 5 分钟）；15s 内重复触发自动去重。
+            <strong>说明：</strong>配置保存在 D1 数据库。所有模式由 Cron 触发（每 4 小时）；15s 内重复触发自动去重。
           </div>
       </div>
 
