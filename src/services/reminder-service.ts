@@ -59,6 +59,7 @@ export interface DueTodo {
   id: string;
   text: string;
   time: string;
+  end_time: string;
   priority: string;
   done: number;
   desc: string;
@@ -264,7 +265,7 @@ async function fetchTodayTodos(
 
   const rows = await db
     .select({
-      id: todos.id, text: todos.text, time: todos.time, priority: todos.priority,
+      id: todos.id, text: todos.text, time: todos.time, end_time: todos.end_time, priority: todos.priority,
       done: todos.done, desc: todos.desc, url: todos.url, category_id: todos.category_id,
       search_terms: todos.search_terms,
     })
@@ -296,7 +297,7 @@ async function fetchTodayTodos(
   return filtered.map((r) => {
     const cat = r.category_id ? categoryMap.get(r.category_id) : undefined;
     return {
-      id: r.id, text: r.text, time: r.time ?? '', priority: r.priority ?? 'low',
+      id: r.id, text: r.text, time: r.time ?? '', end_time: r.end_time ?? '', priority: r.priority ?? 'low',
       done: r.done, desc: r.desc ?? '', url: r.url ?? '',
       categoryName: cat?.name ?? '', categoryColor: cat?.color ?? '',
       search_terms: r.search_terms ?? '[]',
@@ -376,34 +377,62 @@ async function runTimedMode(
   if (!cfg.timed_enabled) return { mode: 'timed', enabled: false, sections: [], displayedIds: [], checked: 0, skipped: true, reason: 'disabled' };
 
   const allTodos = await fetchTodayTodos(db, todayStr, { includeDone: false });
-  const timed = allTodos.filter((t) => t.time && /^\d{1,2}:\d{2}$/.test(t.time) && !excludeIds.has(t.id));
+  const timed = allTodos.filter((t) => !excludeIds.has(t.id));
   if (timed.length === 0) return { mode: 'timed', enabled: true, sections: [], displayedIds: [], checked: 0, skipped: false, reason: 'no_timed_todos' };
 
   const windowStartMs = nowUtcMs - LOOKBACK_MINUTES * 60 * 1000;
   const windowEndMs = nowUtcMs + cfg.timed_lead_minutes * 60 * 1000;
 
+  // 即将到期：有 end_time 且 end_time 在窗口内
   const dueTodos: DueTodo[] = [];
+  // 即将开始：有 time 且 time 在窗口内（排除已归入到期的）
+  const startingTodos: DueTodo[] = [];
+  const dueIds = new Set<string>();
+
   for (const t of timed) {
-    const dueUtcMs = dueUtcMsFor(t.time, localNow, tzOffsetMs);
-    if (dueUtcMs === null) continue;
-    if (dueUtcMs > windowStartMs && dueUtcMs <= windowEndMs) {
-      dueTodos.push(t);
+    if (t.end_time && /^\d{1,2}:\d{2}$/.test(t.end_time)) {
+      const dueUtcMs = dueUtcMsFor(t.end_time, localNow, tzOffsetMs);
+      if (dueUtcMs !== null && dueUtcMs > windowStartMs && dueUtcMs <= windowEndMs) {
+        dueTodos.push(t);
+        dueIds.add(t.id);
+      }
+    }
+  }
+  for (const t of timed) {
+    if (dueIds.has(t.id)) continue;
+    if (t.time && /^\d{1,2}:\d{2}$/.test(t.time)) {
+      const startUtcMs = dueUtcMsFor(t.time, localNow, tzOffsetMs);
+      if (startUtcMs !== null && startUtcMs > windowStartMs && startUtcMs <= windowEndMs) {
+        startingTodos.push(t);
+      }
     }
   }
 
-  if (dueTodos.length === 0) {
+  const allDue = [...dueTodos, ...startingTodos];
+  if (allDue.length === 0) {
     return { mode: 'timed', enabled: true, sections: [], displayedIds: [], checked: timed.length, skipped: false, reason: 'no_due_in_window' };
   }
 
-  const sections: EmailSection[] = [{
-    title: `未来 ${cfg.timed_lead_minutes} 分钟内即将到期`,
-    items: sortTodos(dueTodos).map(dueTodoToItem),
-    listStyle: 'cards',
-  }];
+  const sections: EmailSection[] = [];
+  if (dueTodos.length > 0) {
+    sections.push({
+      title: `未来 ${cfg.timed_lead_minutes} 分钟内即将到期`,
+      items: sortTodos(dueTodos).map(dueTodoToItem),
+      listStyle: 'cards',
+    });
+  }
+  if (startingTodos.length > 0) {
+    sections.push({
+      title: `未来 ${cfg.timed_lead_minutes} 分钟内即将开始`,
+      items: sortTodos(startingTodos).map(dueTodoToItem),
+      listStyle: 'cards',
+    });
+  }
+
   return {
     mode: 'timed', enabled: true, sections, checked: timed.length, skipped: false,
-    summary: `即将到期${dueTodos.length}`,
-    displayedIds: dueTodos.map((t) => t.id),
+    summary: `即将${dueTodos.length + startingTodos.length}`,
+    displayedIds: allDue.map((t) => t.id),
   };
 }
 
