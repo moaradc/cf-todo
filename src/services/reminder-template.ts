@@ -70,7 +70,7 @@ function escapeHtml(s: string): string {
 function pad2(n: number): string { return String(n).padStart(2, '0'); }
 
 function formatRunTimestamp(d: Date): string {
-  return `${d.getUTCFullYear()}-${pad2(d.getUTCMonth() + 1)}-${pad2(d.getUTCDate())} ${pad2(d.getUTCHours())}:${pad2(d.getUTCMinutes())}`;
+  return `${d.getUTCFullYear()}-${pad2(d.getUTCMonth() + 1)}-${pad2(d.getUTCDate())} ${pad2(d.getUTCHours())}:${pad2(d.getUTCMinutes())}:${pad2(d.getUTCSeconds())}`;
 }
 
 /** ECHO 小标签：黑底白字方块 */
@@ -216,11 +216,11 @@ export function renderModeEmail(params: RenderEmailParams): { html: string; text
       <td align="center" style="padding:32px 12px;">
         <table role="presentation" width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%;">
 
-          <!-- ArchiveHeader：横线 + REC_DATE + 大标题 -->
+          <!-- ArchiveHeader：REMINDER_LOG 黑块 + 横线 -->
           <tr><td style="padding-bottom:8px;">
             <table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr>
+              <td style="white-space:nowrap;padding-right:10px;">${darkTag('REMINDER_LOG')}</td>
               <td style="height:1px;background:${C.dark};width:100%;"></td>
-              <td style="white-space:nowrap;padding-left:10px;font-family:'Courier New',monospace;font-size:11px;font-weight:700;color:${C.textMuted};letter-spacing:0.1em;">REC_DATE: ${escapeHtml(runStr)}</td>
             </tr></table>
           </td></tr>
 
@@ -229,14 +229,9 @@ export function renderModeEmail(params: RenderEmailParams): { html: string; text
             <div style="font-family:'Space Grotesk','Noto Sans SC',sans-serif;font-size:32px;font-weight:900;color:${C.dark};letter-spacing:-0.02em;line-height:1;text-shadow:3px 3px 0 ${C.primary};">${escapeHtml(title)}</div>
           </td></tr>
 
-          <!-- 副标题 -->
-          <tr><td style="padding:0 0 16px 0;">
-            <div style="font-family:'Courier New',monospace;font-size:13px;color:${C.ink};letter-spacing:0.05em;">${escapeHtml(subtitle)}</div>
-          </td></tr>
-
-          <!-- TZ 信息（低调显示） -->
+          <!-- 副标题（含时间+时区，精确到秒） -->
           <tr><td style="padding:0 0 20px 0;">
-            <span style="font-family:'Courier New',monospace;font-size:11px;color:${C.textMuted};letter-spacing:0.05em;">TZ: ${escapeHtml(timezoneLabel)}</span>
+            <div style="font-family:'Courier New',monospace;font-size:13px;color:${C.ink};letter-spacing:0.05em;">${escapeHtml(subtitle)}</div>
           </td></tr>
 
           <!-- ═══ SECTIONS ═══ -->
