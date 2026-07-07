@@ -181,6 +181,11 @@ export const io = `
               var colorsVal = await colorsRes.json();
               writeLine(JSON.stringify({ _type: 'customColors', data: colorsVal }));
             }
+            var reminderCfgRes = await fetch('/api/reminder/config');
+            if (reminderCfgRes.ok) {
+              var reminderCfgVal = await reminderCfgRes.json();
+              writeLine(JSON.stringify({ _type: 'reminder_config', data: reminderCfgVal }));
+            }
           }
 
           if (incCategories) {
@@ -609,6 +614,7 @@ export const io = `
           var settingsBuf = {};
           var categoriesBuf = null;
           var customColorsBuf = null;
+          var reminderConfigBuf = null;
 
           if (useChunked) {
             var firstChunk = file.slice(0, 1024);
@@ -683,6 +689,7 @@ export const io = `
                     if (cobj._type === 'custom_header') { settingsBuf.custom_header = cobj.data; continue; }
                     if (cobj._type === 'custom_content') { settingsBuf.custom_content = cobj.data; continue; }
                     if (cobj._type === 'customColors') { customColorsBuf = cobj.data; continue; }
+                    if (cobj._type === 'reminder_config') { reminderConfigBuf = cobj.data; continue; }
                     if (cobj._type === 'categories') { categoriesBuf = cobj.data; continue; }
                   } catch(cpe) {}
                 }
@@ -703,6 +710,7 @@ export const io = `
                   else if (cobj._type === 'custom_header') { settingsBuf.custom_header = cobj.data; }
                   else if (cobj._type === 'custom_content') { settingsBuf.custom_content = cobj.data; }
                   else if (cobj._type === 'customColors') { customColorsBuf = cobj.data; }
+                  else if (cobj._type === 'reminder_config') { reminderConfigBuf = cobj.data; }
                   else if (cobj._type === 'categories') { categoriesBuf = cobj.data; }
                   else { chunkBuf.push(trimmed); }
                 } catch(cpe) { chunkBuf.push(trimmed); }
@@ -761,6 +769,7 @@ export const io = `
                     if (obj._type === 'custom_header') { settingsBuf.custom_header = obj.data; continue; }
                     if (obj._type === 'custom_content') { settingsBuf.custom_content = obj.data; continue; }
                     if (obj._type === 'customColors') { customColorsBuf = obj.data; continue; }
+                    if (obj._type === 'reminder_config') { reminderConfigBuf = obj.data; continue; }
                     if (obj._type === 'categories') { categoriesBuf = obj.data; continue; }
                   } catch(pe) {}
                 }
@@ -784,6 +793,7 @@ export const io = `
                   else if (obj._type === 'custom_header') { settingsBuf.custom_header = obj.data; }
                   else if (obj._type === 'custom_content') { settingsBuf.custom_content = obj.data; }
                   else if (obj._type === 'customColors') { customColorsBuf = obj.data; }
+                  else if (obj._type === 'reminder_config') { reminderConfigBuf = obj.data; }
                   else if (obj._type === 'categories') { categoriesBuf = obj.data; }
                   else { await writer.write(encoder.encode(trimmed + '\\n')); }
                 } catch(pe) { await writer.write(encoder.encode(trimmed + '\\n')); }
@@ -889,6 +899,7 @@ export const io = `
             settingsBuf.custom_content = data.custom_content;
             categoriesBuf = data.categories;
             customColorsBuf = data.customColors;
+            reminderConfigBuf = data.reminder_config || null;
           }
 
           if (settingsBuf.settings && document.getElementById('export-settings').checked) {
@@ -906,6 +917,7 @@ export const io = `
           if (settingsBuf.custom_content !== undefined && document.getElementById('export-settings').checked) finalBody.custom_content = settingsBuf.custom_content;
           if (categoriesBuf && Array.isArray(categoriesBuf) && document.getElementById('export-categories').checked) finalBody.categories = categoriesBuf;
           if (customColorsBuf && Array.isArray(customColorsBuf) && document.getElementById('export-settings').checked) finalBody.customColors = customColorsBuf;
+          if (reminderConfigBuf && document.getElementById('export-settings').checked) finalBody.reminder_config = reminderConfigBuf;
           var finalRes = await fetch('/api/import', {
             method: 'POST',
             body: JSON.stringify(finalBody),
