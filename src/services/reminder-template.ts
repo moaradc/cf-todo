@@ -197,10 +197,7 @@ export function renderModeEmail(params: RenderEmailParams): { html: string; text
   const subject = title;
   const sectionsHtml = sections.map((s, i) => renderSection(s, i)).join('');
 
-  const footerLink = appUrl
-    ? `<a href="${escapeHtml(appUrl)}" style="color:${C.primary};text-decoration:none;font-family:'Courier New',monospace;font-size:11px;font-weight:700;letter-spacing:0.1em;text-transform:uppercase;">&#x23FB; cf-todo</a>`
-    : `<span style="color:${C.textMuted};font-family:'Courier New',monospace;font-size:11px;">cf-todo</span>`;
-  const footer = footerNote ?? '本邮件由 cf-todo 定时提醒服务自动发送。';
+  const footer = footerNote ?? '本邮件由 cf-todo 定时提醒服务自动发送';
 
   const html = `<!DOCTYPE html>
 <html lang="zh-CN">
@@ -248,7 +245,7 @@ export function renderModeEmail(params: RenderEmailParams): { html: string; text
             </div>
           </td></tr>
           <tr><td style="padding:8px 0;">
-            <div style="font-size:11px;color:${C.textMuted};line-height:1.6;font-family:'Courier New',monospace;">${escapeHtml(footer)}<br>${footerLink}</div>
+            <div style="font-size:11px;color:${C.textMuted};line-height:1.6;font-family:'Courier New',monospace;">${escapeHtml(footer)}</div>
           </td></tr>
           <tr><td style="text-align:right;padding:4px 0 0 0;">
             <span style="font-family:'Courier New',monospace;font-size:10px;color:${C.textMuted};letter-spacing:0.15em;text-transform:uppercase;opacity:0.5;">[ END OF LOG ]</span>
