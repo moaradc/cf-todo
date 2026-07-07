@@ -455,7 +455,7 @@ export function getBody(isAuthorized) {
                   <span id="set-disp-reminderSkipStart">--:--</span>
                   <span style="font-size:0.75rem; margin-left: 4px; color:#888;">▼</span>
               </div>
-              <div style="width:12px;height:2px;background:#888;flex-shrink:0;align-self:center;"></div>
+              <div style="width:12px;height:2px;background:#888;flex-shrink:0;"></div>
               <div class="fake-input" onclick="openReminderSkipPicker('end')" style="width: 80px; padding: 6px 10px; justify-content: space-between; border-radius: 4px;">
                   <span id="set-disp-reminderSkipEnd">--:--</span>
                   <span style="font-size:0.75rem; margin-left: 4px; color:#888;">▼</span>
