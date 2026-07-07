@@ -551,7 +551,10 @@ export function getBody(isAuthorized) {
           </div>
           <div id="reminder-status-text" class="settings-text" style="margin:0 0 8px 0; min-height:0;"></div>
           <div class="settings-text" style="border-top: 1px dashed #333; padding-top: 10px; margin-top: 0;">
-            <strong>使用方式：</strong>前往 <a href="https://resend.com/api-keys" target="_blank" style="color: var(--accent); text-decoration: none;">Resend</a>（参考 <a href="https://github.com/moaradc/cf-todo/blob/main/API_Wiki.md" target="_blank" style="color: var(--accent); text-decoration: none;">API Wiki</a>）添加自备域名，创建 API Key → 在 GitHub 仓库或 Cloudflare 添加 <span class="md-code">RESEND_API_KEY</span> → 填写收发件邮箱 → 开启提醒模式 → 保存配置。
+            <strong>使用方式：</strong>前往 <span class="md-code"><a href="https://resend.com/api-keys" target="_blank" style="color: var(--accent); text-decoration: none;">Resend</a></span> 添加自备域名，创建 API Key → 在 GitHub 仓库或 Cloudflare 添加 <span class="md-code">RESEND_API_KEY</span> → 填写收发件邮箱 → 开启提醒模式 → 保存配置。
+          </div>
+          <div class="settings-text" style="margin-top: 6px;">
+            通过邮件定时提醒即将到期的待办、今日汇总、优先级待办及搜索词。
           </div>
       </div>
 
