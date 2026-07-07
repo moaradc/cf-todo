@@ -211,13 +211,9 @@ export function renderModeEmail(params: RenderEmailParams): { html: string; text
       <td align="center" style="padding:32px 12px;">
         <table role="presentation" width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%;">
 
-          <!-- ArchiveHeader：黑标签 + 横线 + REC_DATE（含时区，精确到秒） -->
+          <!-- 横线分隔 -->
           <tr><td style="padding-bottom:8px;">
-            <table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr>
-              <td style="white-space:nowrap;padding-right:10px;">${darkTag('REMINDER_LOG')}</td>
-              <td style="height:1px;background:${C.dark};width:100%;"></td>
-              <td style="white-space:nowrap;padding-left:10px;font-family:'Courier New',monospace;font-size:11px;font-weight:700;color:${C.textMuted};letter-spacing:0.1em;">REC_DATE: ${escapeHtml(runStr)} ${escapeHtml(timezoneLabel)}</td>
-            </tr></table>
+            <div style="height:2px;background:${C.dark};width:100%;"></div>
           </td></tr>
 
           <!-- 大标题（橙色 textShadow，ECHO 模式） -->
@@ -225,7 +221,7 @@ export function renderModeEmail(params: RenderEmailParams): { html: string; text
             <div style="font-family:'Space Grotesk','Noto Sans SC',sans-serif;font-size:32px;font-weight:900;color:${C.dark};letter-spacing:-0.02em;line-height:1;text-shadow:3px 3px 0 ${C.primary};">${escapeHtml(title)}</div>
           </td></tr>
 
-          <!-- 副标题 -->
+          <!-- 副标题（含时间+时区） -->
           <tr><td style="padding:0 0 20px 0;">
             <div style="font-family:'Courier New',monospace;font-size:13px;color:${C.ink};letter-spacing:0.05em;">${escapeHtml(subtitle)}</div>
           </td></tr>
@@ -260,7 +256,7 @@ export function renderModeEmail(params: RenderEmailParams): { html: string; text
 </html>`;
 
   // 纯文本回退
-  const textParts: string[] = [`cf-todo ${title}`, subtitle, `REC_DATE: ${runStr} ${timezoneLabel}`, ''];
+  const textParts: string[] = [`cf-todo ${title}`, subtitle, ''];
   sections.forEach((s, i) => {
     textParts.push(`[${String(i + 1).padStart(2, '0')}] ${s.title} (${s.items.length})`);
     if (s.items.length === 0 && s.emptyMessage) {
