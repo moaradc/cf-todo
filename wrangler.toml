@@ -9,8 +9,8 @@ command = "npm run build"
 binding = "DB"
 database_name = "todo-db"
 database_id = ""
-# D1 读副本：启用后，配合代码里的 env.DB.withSession('first-primary') 可路由读查询到就近副本。如需启用：将read_replication改为 true 并在 CF Dashboard → D1 → Settings → 读取复制 中启用。
-read_replication = false
+# D1 读副本开关在 CF Dashboard → D1 → Settings → 读取复制（不在 wrangler.toml 里）。
+# 启用后配合代码里的 env.DB.withSession('first-primary') 路由读查询到就近副本。
 migrations_dir = "drizzle"
 
 # Cron 触发器：每 4 小时执行一次提醒扫描并发送邮件。
