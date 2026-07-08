@@ -16,7 +16,7 @@
 
 import { Hono } from 'hono';
 import { apiError } from '../../utils.js';
-import { createDb } from '../../db/client';
+import { createDb, createReadDb } from '../../db/client';
 import {
   getAppSettings,
   setAppSettings,
@@ -36,7 +36,7 @@ export const settingsApp = new Hono<V0AppEnv>();
 // ==================== /api/settings ====================
 
 settingsApp.get('/settings', async (c) => {
-  const db = createDb(c.env.DB);
+  const db = createReadDb(c.env.DB);
   const settingsObj = await getAppSettings(db);
   return new Response(JSON.stringify(settingsObj), {
     headers: { 'Content-Type': 'application/json' },
@@ -63,7 +63,7 @@ settingsApp.post('/settings', async (c) => {
 // ==================== /api/custom-code ====================
 
 settingsApp.get('/custom-code', async (c) => {
-  const db = createDb(c.env.DB);
+  const db = createReadDb(c.env.DB);
   const { customHeader, customContent } = await getCustomCode(db);
   return new Response(JSON.stringify({ customHeader, customContent }), {
     headers: { 'Content-Type': 'application/json' },
@@ -87,7 +87,7 @@ settingsApp.post('/custom-code', async (c) => {
 // ==================== /api/custom-colors ====================
 
 settingsApp.get('/custom-colors', async (c) => {
-  const db = createDb(c.env.DB);
+  const db = createReadDb(c.env.DB);
   const customColors = await getCustomColors(db);
   return new Response(JSON.stringify(customColors), {
     headers: { 'Content-Type': 'application/json' },
@@ -114,7 +114,7 @@ settingsApp.post('/custom-colors', async (c) => {
 // ==================== /api/custom-header ====================
 
 settingsApp.get('/custom-header', async (c) => {
-  const db = createDb(c.env.DB);
+  const db = createReadDb(c.env.DB);
   const value = await getSettingRaw(db, 'custom_header');
   return new Response(value, {
     headers: { 'Content-Type': 'text/plain' },
@@ -124,7 +124,7 @@ settingsApp.get('/custom-header', async (c) => {
 // ==================== /api/custom-content ====================
 
 settingsApp.get('/custom-content', async (c) => {
-  const db = createDb(c.env.DB);
+  const db = createReadDb(c.env.DB);
   const value = await getSettingRaw(db, 'custom_content');
   return new Response(value, {
     headers: { 'Content-Type': 'text/plain' },

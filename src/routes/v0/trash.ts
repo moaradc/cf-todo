@@ -16,7 +16,7 @@
 
 import { Hono } from 'hono';
 import { apiError } from '../../utils.js';
-import { createDb } from '../../db/client';
+import { createDb, createReadDb } from '../../db/client';
 import {
   listTrash,
   restoreTrash,
@@ -37,7 +37,7 @@ export const trashApp = new Hono<V0AppEnv>();
  */
 trashApp.get('/trash', async (c) => {
 
-  const db = createDb(c.env.DB);
+  const db = createReadDb(c.env.DB);
   const rows = await listTrash(db);
   return new Response(JSON.stringify(rows), {
     headers: { 'Content-Type': 'application/json' },

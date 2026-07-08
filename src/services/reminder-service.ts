@@ -16,7 +16,7 @@
 
 import { and, eq, inArray } from 'drizzle-orm';
 import type { Env } from '../env';
-import { createDb } from '../db/client';
+import { createDb, createReadDb } from '../db/client';
 import type { Db } from '../db/client';
 import { todos, categories } from '../db/schema';
 import { getSettingJson, setSettingJson } from './settings-service';
@@ -616,7 +616,7 @@ export async function sendTestEmail(env: Env, cfg: ReminderConfig): Promise<{ ok
   if (!env.RESEND_API_KEY) return { ok: false, error: 'RESEND_API_KEY not set' };
   if (!cfg.recipient || !cfg.from) return { ok: false, error: 'recipient or from not configured' };
 
-  const db = createDb(env.DB);
+  const db = createReadDb(env.DB);
   const tzOffsetMs = cfg.timezone_offset * 60 * 1000;
   const nowUtcMs = Date.now();
   const localNow = new Date(nowUtcMs + tzOffsetMs);

@@ -10,7 +10,7 @@
 
 import { Hono } from 'hono';
 import { apiError } from '../../utils.js';
-import { createDb } from '../../db/client';
+import { createDb, createReadDb } from '../../db/client';
 import { getStats } from '../../services/stats-service';
 import type { V0AppEnv } from './index';
 
@@ -23,7 +23,7 @@ statsApp.get('/stats', async (c) => {
   const start = url.searchParams.get('start');
   const end = url.searchParams.get('end');
 
-  const db = createDb(c.env.DB);
+  const db = createReadDb(c.env.DB);
   const result = await getStats(db, start, end);
   if (!result.ok) {
     return apiError(result.error, 400);

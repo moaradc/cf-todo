@@ -18,7 +18,7 @@
 
 import { Hono } from 'hono';
 import { normalizePriority, parseJsonField } from '../../utils.js';
-import { createDb } from '../../db/client';
+import { createDb, createReadDb } from '../../db/client';
 import { v1Ok, v1OkNoData, v1Err, formatTodo } from '../../services/v1-response';
 import { withTodosDateLock } from '../../middleware/per-date-lock';
 import {
@@ -202,7 +202,7 @@ v1TodosApp.post('/todos', async (c) => {
 // ==================== GET /api/v1/todos/:id ====================
 
 v1TodosApp.get('/todos/:id', async (c) => {
-  const d = d1(createDb(c.env.DB));
+  const d = d1(createReadDb(c.env.DB));
   const todo_id = c.req.param('id');
   const row = await d.prepare('SELECT * FROM todos WHERE id = ?').bind(todo_id).first<Record<string, unknown>>();
   if (!row) return v1Err('Todo 不存在', 404);

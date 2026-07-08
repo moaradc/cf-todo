@@ -10,7 +10,7 @@
 
 import { Hono } from 'hono';
 import { apiError } from '../../utils.js';
-import { createDb } from '../../db/client';
+import { createDb, createReadDb } from '../../db/client';
 import { getTimeRecords } from '../../services/time-records-service';
 import type { V0AppEnv } from './index';
 
@@ -23,7 +23,7 @@ timeRecordsApp.get('/time-records', async (c) => {
   const todo_id = url.searchParams.get('todo_id');
   const parent_id = url.searchParams.get('parent_id');
 
-  const db = createDb(c.env.DB);
+  const db = createReadDb(c.env.DB);
   const result = await getTimeRecords(db, { todo_id, parent_id });
   if (!result.ok) {
     return apiError(result.error, 400);
