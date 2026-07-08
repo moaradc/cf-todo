@@ -403,7 +403,13 @@ export async function updateTodo(db: Db, body: TodoActionBody): Promise<ActionRe
             let rrule = tpl_row.rrule.replace(/;UNTIL=[^;]+/i, '');
             rrule = rrule + ';UNTIL=' + prev_date.replace(/-/g, '') + 'T235959Z';
             const sanitized = sanitizeRRule(rrule);
-            if (sanitized) await d.prepare('UPDATE todo_templates SET rrule = ? WHERE parent_id = ?').bind(sanitized, parent_id).run();
+            if (sanitized) {
+              await d.prepare('UPDATE todo_templates SET rrule = ? WHERE parent_id = ?').bind(sanitized, parent_id).run();
+              // 同步历史实例的 rrule（追加 UNTIL），使卡片/详情显示"每天·至yyyy-mm-dd"
+              // 对齐 main-bak：旧架构直接更新每行 repeat_end，新架构每行实例自带 rrule 快照需同步
+              // 轻量优化：跳过已带 UNTIL 的历史行，减少写入量（重复操作时几乎零写入）
+              await d.prepare('UPDATE todos SET rrule = ? WHERE parent_id = ? AND date < ? AND type = ? AND deleted = 0 AND rrule NOT LIKE ?').bind(sanitized, parent_id, date, 'recurring', '%UNTIL=%').run();
+            }
           }
         } catch { /* 静默 */ }
       } else if (tmpl.type === 'update_all') {
@@ -483,7 +489,12 @@ export async function deleteTodo(db: Db, body: TodoActionBody): Promise<ActionRe
             let rrule = tpl_row.rrule.replace(/;UNTIL=[^;]+/i, '');
             rrule = rrule + ';UNTIL=' + prev_date.replace(/-/g, '') + 'T235959Z';
             const sanitized = sanitizeRRule(rrule);
-            if (sanitized) await d.prepare('UPDATE todo_templates SET rrule = ? WHERE parent_id = ?').bind(sanitized, parent_id).run();
+            if (sanitized) {
+              await d.prepare('UPDATE todo_templates SET rrule = ? WHERE parent_id = ?').bind(sanitized, parent_id).run();
+              // 同步历史实例的 rrule（追加 UNTIL），使卡片/详情显示"每天·至yyyy-mm-dd"
+              // 轻量优化：跳过已带 UNTIL 的历史行，减少写入量
+              await d.prepare('UPDATE todos SET rrule = ? WHERE parent_id = ? AND date < ? AND type = ? AND deleted = 0 AND rrule NOT LIKE ?').bind(sanitized, parent_id, date, 'recurring', '%UNTIL=%').run();
+            }
           }
         } catch { /* 静默 */ }
       } else if (tmpl.type === 'delete_all') {

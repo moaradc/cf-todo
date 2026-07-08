@@ -18,7 +18,7 @@
 
 import { Hono } from 'hono';
 import { normalizePriority, parseJsonField } from '../../utils.js';
-import { createDb } from '../../db/client';
+import { createDb, createReadDb } from '../../db/client';
 import { v1Ok, v1OkNoData, v1Err, formatTodo } from '../../services/v1-response';
 import { withTodosDateLock } from '../../middleware/per-date-lock';
 import {
@@ -202,7 +202,7 @@ v1TodosApp.post('/todos', async (c) => {
 // ==================== GET /api/v1/todos/:id ====================
 
 v1TodosApp.get('/todos/:id', async (c) => {
-  const d = d1(createDb(c.env.DB));
+  const d = d1(createReadDb(c.env.DB));
   const todo_id = c.req.param('id');
   const row = await d.prepare('SELECT * FROM todos WHERE id = ?').bind(todo_id).first<Record<string, unknown>>();
   if (!row) return v1Err('Todo 不存在', 404);
@@ -312,7 +312,7 @@ v1TodosApp.put('/todos/:id', async (c) => {
     if (actions.template) {
       const tmpl = actions.template as Record<string, string>;
       if (tmpl.type === 'add_exdate') { const tpl = await d.prepare('SELECT exdates FROM todo_templates WHERE parent_id = ?').bind(parent_id).first<{ exdates: string }>(); if (tpl) { const ne = addExdate(tpl.exdates || '[]', date); await d.prepare('UPDATE todo_templates SET exdates = ? WHERE parent_id = ?').bind(ne, parent_id).run(); } }
-      else if (tmpl.type === 'set_repeat_end') { const pd = getPreviousDate(date); try { const tr = await d.prepare('SELECT rrule FROM todo_templates WHERE parent_id = ?').bind(parent_id).first<{ rrule: string }>(); if (tr?.rrule) { let r = tr.rrule.replace(/;UNTIL=[^;]+/i, ''); r = r + ';UNTIL=' + pd.replace(/-/g, '') + 'T235959Z'; const s = sanitizeRRule(r); if (s) await d.prepare('UPDATE todo_templates SET rrule = ? WHERE parent_id = ?').bind(s, parent_id).run(); } } catch { /* 静默 */ } }
+      else if (tmpl.type === 'set_repeat_end') { const pd = getPreviousDate(date); try { const tr = await d.prepare('SELECT rrule FROM todo_templates WHERE parent_id = ?').bind(parent_id).first<{ rrule: string }>(); if (tr?.rrule) { let r = tr.rrule.replace(/;UNTIL=[^;]+/i, ''); r = r + ';UNTIL=' + pd.replace(/-/g, '') + 'T235959Z'; const s = sanitizeRRule(r); if (s) { await d.prepare('UPDATE todo_templates SET rrule = ? WHERE parent_id = ?').bind(s, parent_id).run(); await d.prepare('UPDATE todos SET rrule = ? WHERE parent_id = ? AND date < ? AND type = ? AND deleted = 0 AND rrule NOT LIKE ?').bind(s, parent_id, date, 'recurring', '%UNTIL=%').run(); } } } catch { /* 静默 */ } }
       else if (tmpl.type === 'update_all') { if (type === 'recurring') { let ee = '[]', etr = '[]'; try { const et = await d.prepare('SELECT exdates, time_records FROM todo_templates WHERE parent_id = ?').bind(parent_id).first<{ exdates: string; time_records: string }>(); if (et) { ee = et.exdates || '[]'; etr = et.time_records || '[]'; } } catch { /* 静默 */ } await d.prepare('INSERT OR REPLACE INTO todo_templates (parent_id, text, time, priority, desc, url, copy_text, subtasks, search_terms, type, end_time, anchor_date, exdates, category_id, time_records, rrule) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').bind(parent_id, new_values.text, new_values.time, new_values.priority, new_values.desc, new_values.url, new_values.copy_text, subtasks_str, search_terms_str, 'recurring', end_time, patchAnchorDate, ee, category_id, etr, patchRRule).run(); } }
       else if (tmpl.type === 'delete') await d.prepare('DELETE FROM todo_templates WHERE parent_id=?').bind(parent_id).run();
     }
@@ -344,7 +344,7 @@ v1TodosApp.delete('/todos/:id', async (c) => {
     if (actions.updateTemplate) {
       const tmpl = actions.updateTemplate as Record<string, unknown>;
       if (tmpl.type === 'add_exdate') { const tpl = await d.prepare('SELECT exdates FROM todo_templates WHERE parent_id = ?').bind(parent_id).first<{ exdates: string }>(); if (tpl) { const ne = addExdate(tpl.exdates || '[]', date); await d.prepare('UPDATE todo_templates SET exdates = ? WHERE parent_id = ?').bind(ne, parent_id).run(); } }
-      else if (tmpl.type === 'set_repeat_end') { const pd = getPreviousDate(date); if (tmpl.also_delete_future) await d.prepare('UPDATE todos SET deleted = 1, type=?, rrule=?, anchor_date=?, exdates=?, parent_id=id, time_records=? WHERE parent_id=? AND date >= ?').bind('none', '', '', '[]', '[]', parent_id, date).run(); try { const tr = await d.prepare('SELECT rrule FROM todo_templates WHERE parent_id = ?').bind(parent_id).first<{ rrule: string }>(); if (tr?.rrule) { let r = tr.rrule.replace(/;UNTIL=[^;]+/i, ''); r = r + ';UNTIL=' + pd.replace(/-/g, '') + 'T235959Z'; const s = sanitizeRRule(r); if (s) await d.prepare('UPDATE todo_templates SET rrule = ? WHERE parent_id = ?').bind(s, parent_id).run(); } } catch { /* 静默 */ } }
+      else if (tmpl.type === 'set_repeat_end') { const pd = getPreviousDate(date); if (tmpl.also_delete_future) await d.prepare('UPDATE todos SET deleted = 1, type=?, rrule=?, anchor_date=?, exdates=?, parent_id=id, time_records=? WHERE parent_id=? AND date >= ?').bind('none', '', '', '[]', '[]', parent_id, date).run(); try { const tr = await d.prepare('SELECT rrule FROM todo_templates WHERE parent_id = ?').bind(parent_id).first<{ rrule: string }>(); if (tr?.rrule) { let r = tr.rrule.replace(/;UNTIL=[^;]+/i, ''); r = r + ';UNTIL=' + pd.replace(/-/g, '') + 'T235959Z'; const s = sanitizeRRule(r); if (s) { await d.prepare('UPDATE todo_templates SET rrule = ? WHERE parent_id = ?').bind(s, parent_id).run(); await d.prepare('UPDATE todos SET rrule = ? WHERE parent_id = ? AND date < ? AND type = ? AND deleted = 0 AND rrule NOT LIKE ?').bind(s, parent_id, date, 'recurring', '%UNTIL=%').run(); } } } catch { /* 静默 */ } }
       else if (tmpl.type === 'delete_all') { await d.prepare('UPDATE todos SET deleted = 1, type=?, rrule=?, anchor_date=?, exdates=?, parent_id=id, time_records=? WHERE parent_id=?').bind('none', '', '', '[]', '[]', parent_id).run(); await d.prepare('DELETE FROM todo_templates WHERE parent_id=?').bind(parent_id).run(); }
     }
     if (actions.deleteTemplate) await d.prepare('DELETE FROM todo_templates WHERE parent_id=?').bind(parent_id).run();

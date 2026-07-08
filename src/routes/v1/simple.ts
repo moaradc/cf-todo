@@ -13,7 +13,7 @@ import {
   validateStatsDateRange,
   DEFAULT_CATEGORY_COLOR,
 } from '../../utils.js';
-import { createDb } from '../../db/client';
+import { createDb, createReadDb } from '../../db/client';
 import { v1Ok, v1OkNoData, v1Err, formatTodo, formatCategory } from '../../services/v1-response';
 import { removeExdate } from '../../recurring-engine.js';
 import type { V1AppEnv } from './index';
@@ -42,7 +42,7 @@ export const v1SimpleApp = new Hono<V1AppEnv>();
 // ==================== Categories ====================
 
 v1SimpleApp.get('/categories', async (c) => {
-  const d = d1(createDb(c.env.DB));
+  const d = d1(createReadDb(c.env.DB));
   const { results } = await d.prepare('SELECT id, name, color FROM categories ORDER BY id').all();
   return v1Ok((results || []).map(formatCategory));
 });
@@ -62,7 +62,7 @@ v1SimpleApp.post('/categories', async (c) => {
 });
 
 v1SimpleApp.get('/categories/:id', async (c) => {
-  const d = d1(createDb(c.env.DB));
+  const d = d1(createReadDb(c.env.DB));
   const catId = c.req.param('id');
   const row = await d.prepare('SELECT id, name, color FROM categories WHERE id = ?').bind(catId).first<Record<string, unknown>>();
   if (!row) return v1Err('分类不存在', 404);
@@ -130,7 +130,7 @@ v1SimpleApp.post('/categories/batch', async (c) => {
 // ==================== Trash ====================
 
 v1SimpleApp.get('/trash', async (c) => {
-  const d = d1(createDb(c.env.DB));
+  const d = d1(createReadDb(c.env.DB));
   const url = new URL(c.req.url);
   const limit = Math.min(Math.max(parseInt(url.searchParams.get('limit') || '100', 10) || 100, 1), 500);
   const offset = Math.min(Math.max(parseInt(url.searchParams.get('offset') || '0', 10) || 0, 0), 10000);
@@ -215,7 +215,7 @@ v1SimpleApp.post('/trash-action', async (c) => {
 // ==================== Stats ====================
 
 v1SimpleApp.get('/stats', async (c) => {
-  const d = d1(createDb(c.env.DB));
+  const d = d1(createReadDb(c.env.DB));
   const url = new URL(c.req.url);
   const start = url.searchParams.get('start');
   const end = url.searchParams.get('end');
@@ -261,7 +261,7 @@ v1SimpleApp.get('/stats', async (c) => {
 // ==================== Settings + Custom-* ====================
 
 v1SimpleApp.get('/settings', async (c) => {
-  const d = d1(createDb(c.env.DB));
+  const d = d1(createReadDb(c.env.DB));
   const record = await d.prepare("SELECT value FROM settings WHERE key = 'app_settings'").first<{ value: string }>();
   let settingsObj: unknown = {};
   if (record && record.value) {
@@ -291,7 +291,7 @@ v1SimpleApp.post('/settings', async (c) => {
 });
 
 v1SimpleApp.get('/custom-code', async (c) => {
-  const d = d1(createDb(c.env.DB));
+  const d = d1(createReadDb(c.env.DB));
   const [headerRecord, contentRecord] = await Promise.all([
     d.prepare("SELECT value FROM settings WHERE key = 'custom_header'").first<{ value: string }>(),
     d.prepare("SELECT value FROM settings WHERE key = 'custom_content'").first<{ value: string }>(),
@@ -311,19 +311,19 @@ v1SimpleApp.post('/custom-code', async (c) => {
 });
 
 v1SimpleApp.get('/custom-header', async (c) => {
-  const d = d1(createDb(c.env.DB));
+  const d = d1(createReadDb(c.env.DB));
   const record = await d.prepare("SELECT value FROM settings WHERE key = 'custom_header'").first<{ value: string }>();
   return new Response(record?.value || '', { headers: { 'Content-Type': 'text/plain', 'Cache-Control': 'no-store' } });
 });
 
 v1SimpleApp.get('/custom-content', async (c) => {
-  const d = d1(createDb(c.env.DB));
+  const d = d1(createReadDb(c.env.DB));
   const record = await d.prepare("SELECT value FROM settings WHERE key = 'custom_content'").first<{ value: string }>();
   return new Response(record?.value || '', { headers: { 'Content-Type': 'text/plain', 'Cache-Control': 'no-store' } });
 });
 
 v1SimpleApp.get('/custom-colors', async (c) => {
-  const d = d1(createDb(c.env.DB));
+  const d = d1(createReadDb(c.env.DB));
   const record = await d.prepare("SELECT value FROM settings WHERE key = 'customColors'").first<{ value: string }>();
   let customColors: unknown[] = [];
   if (record && record.value) { try { customColors = JSON.parse(record.value); } catch { /* 静默 */ } }

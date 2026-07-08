@@ -11,7 +11,7 @@
 
 import { Hono } from 'hono';
 import { apiError } from '../../utils.js';
-import { createDb } from '../../db/client';
+import { createDb, createReadDb } from '../../db/client';
 import {
   getReminderConfig,
   setReminderConfig,
@@ -30,7 +30,7 @@ function jsonBody(body: unknown, status = 200): Response {
 }
 
 reminderApp.get('/reminder/config', async (c) => {
-  const db = createDb(c.env.DB);
+  const db = createReadDb(c.env.DB);
   const cfg = await getReminderConfig(db);
   return jsonBody(cfg);
 });

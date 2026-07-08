@@ -11,7 +11,7 @@
 
 import { Hono } from 'hono';
 import { apiError } from '../../utils.js';
-import { createDb } from '../../db/client';
+import { createDb, createReadDb } from '../../db/client';
 import { exportPage, exportSession, exportStream, importNdjson, importPhase, importBackup } from '../../services/io-service';
 import type { V0AppEnv } from './index';
 
@@ -25,7 +25,7 @@ ioApp.get('/export', async (c) => {
 
   const url = new URL(c.req.url);
   const mode = url.searchParams.get('mode');
-  const db = createDb(c.env.DB);
+  const db = createReadDb(c.env.DB);
 
   if (mode === 'page') {
     return exportPage(
