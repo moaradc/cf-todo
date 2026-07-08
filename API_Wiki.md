@@ -2468,7 +2468,7 @@ data = response.json()
 7. **`priority` 规范化**：`priority` 接受 `low`、`med`、`high`，`medium` 会自动转为 `med`，其它非法值回退为 `low`。V0 和 V1 均在所有写入点（CREATE / UPDATE / 模板展开）统一走 `normalizePriority` 函数（`src/utils.js`），保证 DB 不会出现 `medium` 等非标准值，stats 聚合（`priCounts` 仅识别 `low/med/high`）不会漏统计。
 8. **批量接口**（`BATCH_TOGGLE_DONE` / `BATCH_DELETE` / `BATCH_RESTORE` / `BATCH_DELETE_PERMANENT` / category `BATCH_DELETE`）按 99 一组自动分片。响应含 `chunked`（是否分片）和 `chunkCount`（分片数）字段。`affected`/`restored`/`deleted` 为实际改动行数（非 `ids.length`）
 9. `GET /api/v1/todos?date=X` 支持 `expand=false` 参数，跳过服务端重复任务展开，响应附带 `templates` 数组（`todo_templates` 表 `SELECT *` 原始行，`subtasks`/`exdates` 已归一化，`search_terms`/`time_records` 保留字符串形式，v3.0 含 `rrule`/`anchor_date`/`type`）供调用方自算。`templates` 只含 `type='recurring'` 模板，碎时记（`fragment`）无模板直接出现在 `data` 里
-10. 后端代码适配 D1 读副本会话 API（`env.DB.withSession('first-primary')`）。**默认关闭**（`wrangler.toml` 中 `read_replication = false`），需手动启用 wrangler 配置并在 Cloudflare 控制台开启读副本后才生效。详见 [D1 Read Replication](https://developers.cloudflare.com/d1/best-practices/read-replication)
+10. 后端代码适配 D1 读副本会话 API（`env.DB.withSession('first-primary')`）。代码永远开着 withSession，副本开关由 Cloudflare 控制台（Dashboard → D1 → Settings → 读取复制）控制，wrangler.toml 无需配置；未启用读副本时 withSession 自动退化为走主库，行为与 createDb 一致。详见 [D1 Read Replication](https://developers.cloudflare.com/d1/best-practices/read-replication)
 11. **字段命名规则**：
     - **Todo / Category 对象**：统一 snake_case（如 `copy_text`、`type`、`rrule`、`anchor_date`、`exdates`、`category_id`、`parent_id`、`is_series`、`time_records`、`last_completed_at`、`is_zero_duration`、`fragment_anchor`）。
     - **API Key 管理端点**（`GET/POST /api/v1/keys`）：camelCase，字段为 `keyPrefix` / `createdAt` / `lastUsedAt` / `disabled`。
