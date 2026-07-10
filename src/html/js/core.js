@@ -360,33 +360,16 @@ export const core = `
 
     function parseMarkdown(text) {
       if (!text) return '';
-      let lines = text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').split('\\n');
-      let html = '';
-      let inList = false;
-
-      const formatInline = (str) => {
-        return str
-          .replace(/\\*\\*([^*]+)\\*\\*/g, '<strong>$1</strong>')
-          .replace(/\\*([^*]+)\\*/g, '<em>$1</em>')
-          .replace(/_([^_]+)_/g, '<em>$1</em>')
-          .replace(/~~([^~]+)~~/g, '<del>$1</del>')
-          .replace(/\`([^\`]+)\`/g, '<code class="md-code">$1</code>');
-      };
-
-      for (let i = 0; i < lines.length; i++) {
-        let line = lines[i];
-        let isList = /^(\\s*[-*]\\s+)(.*)$/.exec(line);
-        if (isList) {
-          if (!inList) { html += '<ul class="md-ul">'; inList = true; }
-          let content = isList[2];
-          html += '<li>' + formatInline(content) + '</li>';
-          continue;
-        } else {
-          if (inList) { html += '</ul>'; inList = false; }
-        }
-        html += formatInline(line) + (i === lines.length - 1 ? '' : '<br>');
-      }
-      if (inList) html += '</ul>';
+      // 前置转义 HTML 特殊字符（snarkdown 不做转义，防 XSS）
+      const escaped = text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+      // snarkdown 解析（全局函数，由 index.js 构建时注入）
+      let html = snarkdown(escaped);
+      // 给 <code> 加 md-code class（与现有 CSS 样式对齐）
+      html = html.replace(/<code>/g, '<code class="md-code">');
+      // 给 <ul> 加 md-ul class（与现有 CSS 样式对齐）
+      html = html.replace(/<ul>/g, '<ul class="md-ul">');
+      // 链接强制新窗口打开 + 安全属性
+      html = html.replace(/<a href=/g, '<a target="_blank" rel="noopener noreferrer" href=');
       return html;
     }
 
