@@ -478,7 +478,7 @@ export function getBody(isAuthorized) {
                     <div class="switch-box" id="reminder-skip-empty-box"></div>
                 </div>
               </div>
-              <div class="reminder-mode-desc">今日无任何待办时 Cron 不发邮件，避免空汇总打扰</div>
+              <div class="reminder-mode-desc">今日无任何待办时 Cron 不发邮件</div>
             </div>
 
             <div class="reminder-mode-block">
@@ -486,7 +486,7 @@ export function getBody(isAuthorized) {
                 <span class="reminder-mode-title">提醒日</span>
                 <span class="reminder-opt-label" style="font-size:0.7rem;">当前：<span id="set-disp-reminderWeekly">不限</span></span>
               </div>
-              <div class="reminder-mode-desc">仅在选定的星期几发送；不选 = 每天都可能发送</div>
+              <div class="reminder-mode-desc">仅在所选日发送，未选则每日发送</div>
               <div class="reminder-mode-opts">
                 <div class="weekday-chip-group">
                   <span class="weekday-chip" id="reminder-weekly-1" onclick="toggleReminderWeeklyDay(1)">一</span>
