@@ -779,7 +779,7 @@ export function getBody(isAuthorized) {
     <button onclick="selectSetting('reminderTz', '-300', 'UTC-5')">UTC-5（东部）</button>
     <button onclick="selectSetting('reminderTz', '60', 'UTC+1')">UTC+1（中欧）</button>
   </div>
-  <!-- reminderPriorityLevel / reminderSearchMode 已改为 pill 单选，不再需要 popover -->
+  <!-- reminderPriorityLevel / reminderSearchMode 已改为 pill 单选 -->
 
   <div id="modal-calendar" class="modal-overlay" style="z-index:65;" onclick="if(event.target===this) closeCalendar()">
     <div class="modal-content">

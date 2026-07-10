@@ -1,16 +1,5 @@
 /**
  * 定时提醒服务 —— digest 模式：所有启用的模式合并为一封邮件发送。
- *
- * 流程：
- *   1. 每次 Cron 触发，运行所有启用的模式（timed / daily / priority）
- *   2. 每个模式返回 EmailSection[]（不直接发邮件）
- *   3. 合并所有 sections + 附加搜索词 section（所有模式共享）
- *   4. 若合并后有内容则发一封 digest 邮件；无内容则不发
- *   5. 主题由各模式 summary 用「·」拼接，如「即将到期 2 项 · 今日汇总 5 项」
- *
- * 去重：15s 时间桶 + sections 内容哈希幂等键，防 Cron 抖动重发。
- * 不再按 todo_id 应用层去重——每次 Cron 扫描到窗口内的待办都发。
- *
  * 时区：用 tzOffsetMs 把「现在」位移到目标时区后用 UTC getter 读取年月日。
  */
 
@@ -35,23 +24,19 @@ export interface ReminderConfig {
   from: string;
   timezone_offset: number;
   app_url?: string;
-  // timed 模式
   timed_enabled: boolean;
   timed_lead_minutes: number;
-  // daily 模式
   daily_enabled: boolean;
   daily_include_completed: boolean;
   daily_include_uncompleted: boolean;
   daily_include_search: SearchIncludeMode;
-  // priority 模式
   priority_enabled: boolean;
   priority_min_level: PriorityLevel;
-  // 时间跳过（hh:mm 格式，空表示不跳过；同时设置时在该时段内不发邮件）
+  /** hh:mm 格式，空表示不跳过；同时设置时在该时段内不发邮件 */
   skip_start: string;
   skip_end: string;
-  // 无待办时跳过：true 时若今日 todos 表无任何未删除记录则不发邮件
   skip_if_no_todos: boolean;
-  // 提醒日（ISO 周几，1=周一..7=周日）；空数组表示不限制（每天都可发）
+  /** ISO 周几 1=周一..7=周日；空数组=不限制 */
   weekly_days: number[];
 }
 
@@ -76,13 +61,11 @@ export interface DueTodo {
 export interface ModeResult {
   mode: string;
   enabled: boolean;
-  /** 本模式贡献的邮件 section（可能为空，表示无内容可发） */
   sections: EmailSection[];
-  /** 简短描述，用于拼邮件主题，如「即将到期2」「汇总(9/10)」「优先级3」 */
+  /** 用于拼邮件主题，如「即将到期2」「汇总(9/10)」 */
   summary?: string;
   /** 本模式展示的 todo id（供后续模式去重） */
   displayedIds: string[];
-  /** 统计：检查的待办数 */
   checked: number;
   skipped: boolean;
   reason?: string;
@@ -91,12 +74,10 @@ export interface ModeResult {
 export interface ReminderRunResult {
   skipped: boolean;
   reason?: string;
-  /** 合并发送结果 */
   sent: number;
   failed: number;
   resendId?: string;
   error?: string;
-  /** 各模式执行情况（不单独发邮件，仅记录 sections 贡献） */
   modes: ModeResult[];
 }
 
@@ -153,15 +134,11 @@ function parseHHMM(v: unknown): string {
   return `${String(h).padStart(2, '0')}:${String(mm).padStart(2, '0')}`;
 }
 
-/**
- * 解析 weekly_days：接收数组 / 逗号分隔字符串 / Set，输出严格 1..7 的去重升序数组。
- * 任何非法元素被丢弃，全部非法时返回空数组（=不限制）。
- */
+/** 接收数组/逗号分隔字符串/Set，输出严格 1..7 的去重升序数组；非法输入返回空数组 */
 export function parseWeeklyDays(v: unknown): number[] {
   let arr: unknown[] | null = null;
   if (Array.isArray(v)) arr = v;
   else if (typeof v === 'string') {
-    // 容忍 "1,3,5" / "1 3 5" / "1，3，5"（中文逗号）等格式
     const parts = v.split(/[,，\s]+/).map((s) => s.trim()).filter(Boolean);
     if (parts.length === 0) return [];
     arr = parts;
@@ -183,12 +160,8 @@ export function parseWeeklyDays(v: unknown): number[] {
   return Array.from(seen).sort((a, b) => a - b);
 }
 
-/**
- * 取目标时区壁钟日期对应的 ISO 周几：1=周一..7=周日。
- * 输入的 Date 应为 tzOffsetMs 位移后的「本地」Date（用 UTC getter 读取）。
- */
+/** 输入应为 tzOffsetMs 位移后的「本地」Date（用 UTC getter 读取） */
 export function getLocalIsoWeekday(localNow: Date): number {
-  // JS getUTCDay: 0=Sunday..6=Saturday → ISO 1=Monday..7=Sunday
   const jsDay = localNow.getUTCDay();
   return jsDay === 0 ? 7 : jsDay;
 }
@@ -196,7 +169,7 @@ export function getLocalIsoWeekday(localNow: Date): number {
 export function normalizeConfig(input: unknown): ReminderConfig {
   if (!input || typeof input !== 'object') return { ...DEFAULT_CONFIG };
   const r = input as Record<string, unknown>;
-  // 旧配置迁移：hot_search_enabled → daily_include_search
+  // 兼容旧字段 hot_search_enabled
   let migratedSearch: SearchIncludeMode = 'off';
   if (r.daily_include_search !== undefined) {
     migratedSearch = parseSearchIncludeMode(r.daily_include_search);
@@ -213,7 +186,6 @@ export function normalizeConfig(input: unknown): ReminderConfig {
     app_url: typeof r.app_url === 'string' ? r.app_url.trim() : undefined,
     timed_enabled: r.timed_enabled === true || (r.lead_minutes !== undefined && r.enabled === true && r.timed_enabled === undefined),
     timed_lead_minutes: clamp(r.timed_lead_minutes ?? r.lead_minutes, 1, 1440, DEFAULT_LEAD_MINUTES),
-    // daily 启用要求至少包含未完成/已完成之一
     daily_enabled: r.daily_enabled === true && (dailyIncludeUncompleted || dailyIncludeCompleted),
     daily_include_completed: dailyIncludeCompleted,
     daily_include_uncompleted: dailyIncludeUncompleted,
@@ -280,12 +252,12 @@ async function sha256Hex(input: string): Promise<string> {
   return Array.from(new Uint8Array(digest)).map((b) => b.toString(16).padStart(2, '0')).join('');
 }
 
-/** 15 秒时间桶：用于 Resend Idempotency-Key。同一桶内重复请求被去重，跨桶允许新发。 */
+/** 15s 时间桶，用于 Resend Idempotency-Key 去重 */
 function idemBucket(): number {
   return Math.floor(Date.now() / 15000);
 }
 
-/** 检查当前时间（目标时区壁钟）是否在跳过范围内。支持跨午夜（如 23:00-07:00）。 */
+/** 支持跨午夜（如 23:00-07:00） */
 function isInSkipWindow(localNow: Date, skipStart: string, skipEnd: string): boolean {
   if (!skipStart || !skipEnd) return false;
   const [sh, sm] = skipStart.split(':').map(Number);
@@ -293,20 +265,13 @@ function isInSkipWindow(localNow: Date, skipStart: string, skipEnd: string): boo
   const cur = localNow.getUTCHours() * 60 + localNow.getUTCMinutes();
   const start = sh * 60 + sm;
   const end = eh * 60 + em;
-  // 同日：start < end，cur 在 [start, end) 内
-  // 跨午夜：start > end，cur >= start 或 cur < end
   if (start < end) return cur >= start && cur < end;
   if (start > end) return cur >= start || cur < end;
-  // start === end：不跳过（避免全天跳过）
   return false;
 }
 
 // ==================== 查询 ====================
 
-/**
- * 统计今日未删除的待办总数（用于 skip_if_no_todos 早退判断）。
- * 仅做 count(*)，不读业务字段，开销 ~5-10ms。
- */
 async function countTodayTodos(db: Db, todayStr: string): Promise<number> {
   try {
     const row = await db
@@ -316,7 +281,7 @@ async function countTodayTodos(db: Db, todayStr: string): Promise<number> {
       .get();
     return row?.c ?? 0;
   } catch {
-    // 容错：查询失败时不阻塞后续流程，按「有待办」处理（避免误跳过）
+    // 查询失败按「有待办」处理，避免误跳过
     return 1;
   }
 }
@@ -390,7 +355,7 @@ function sortTodos(todos: DueTodo[]): DueTodo[] {
   });
 }
 
-// ==================== search_terms 解析（供各模式附加 section 用） ====================
+// ==================== search_terms 解析 ====================
 
 function parseSearchTerms(raw: string): Array<{ text: string; done: boolean }> {
   if (!raw) return [];
@@ -433,7 +398,7 @@ function buildSearchSections(allTodos: DueTodo[], mode: SearchIncludeMode): Emai
   return sections;
 }
 
-// ==================== 模式: timed（返回 sections，不直接发邮件） ====================
+// ==================== 模式: timed ====================
 
 async function runTimedMode(
   db: Db, cfg: ReminderConfig,
@@ -449,9 +414,7 @@ async function runTimedMode(
   const windowStartMs = nowUtcMs - LOOKBACK_MINUTES * 60 * 1000;
   const windowEndMs = nowUtcMs + cfg.timed_lead_minutes * 60 * 1000;
 
-  // 即将到期：有 end_time 且 end_time 在窗口内
   const dueTodos: DueTodo[] = [];
-  // 即将开始：有 time 且 time 在窗口内（排除已归入到期的）
   const startingTodos: DueTodo[] = [];
   const dueIds = new Set<string>();
 
@@ -502,7 +465,7 @@ async function runTimedMode(
   };
 }
 
-// ==================== 模式: daily（返回 sections） ====================
+// ==================== 模式: daily ====================
 
 async function runDailyMode(
   db: Db, cfg: ReminderConfig, todayStr: string,
@@ -514,7 +477,6 @@ async function runDailyMode(
   const totalUncompleted = allTodos.filter((t) => t.done === 0).length;
   const totalCount = allTodos.length;
 
-  // 未完成 section 排除已展示的；已完成不受影响
   const showUncompleted = cfg.daily_include_uncompleted
     ? allTodos.filter((t) => t.done === 0 && !excludeIds.has(t.id))
     : [];
@@ -524,7 +486,6 @@ async function runDailyMode(
 
   const sections: EmailSection[] = [];
   const displayedIds: string[] = [];
-  // 有排除时标题用「其余未完成」表明已去重
   const uncompletedTitle = excludeIds.size > 0 ? '其余未完成' : '今日未完成';
 
   if (cfg.daily_include_uncompleted) {
@@ -546,7 +507,6 @@ async function runDailyMode(
     showCompleted.forEach((t) => displayedIds.push(t.id));
   }
 
-  // 标题格式：汇总(未完成/总数)
   const summary = `汇总(${totalUncompleted}/${totalCount})`;
   return {
     mode: 'daily', enabled: true, sections, displayedIds, checked: totalCount, skipped: false,
@@ -554,7 +514,7 @@ async function runDailyMode(
   };
 }
 
-// ==================== 模式: priority（返回 sections） ====================
+// ==================== 模式: priority ====================
 
 async function runPriorityMode(
   db: Db, cfg: ReminderConfig, todayStr: string,
@@ -563,7 +523,6 @@ async function runPriorityMode(
   if (!cfg.priority_enabled) return { mode: 'priority', enabled: false, sections: [], displayedIds: [], checked: 0, skipped: true, reason: 'disabled' };
 
   const allTodos = await fetchTodayTodos(db, todayStr, { includeDone: false, minPriority: cfg.priority_min_level });
-  // 排除已展示的
   const showTodos = allTodos.filter((t) => !excludeIds.has(t.id));
   if (showTodos.length === 0) {
     return { mode: 'priority', enabled: true, sections: [], displayedIds: [], checked: 0, skipped: false, reason: 'no_matching_todos' };
@@ -575,7 +534,6 @@ async function runPriorityMode(
     items: sortTodos(showTodos).map(dueTodoToItem),
     listStyle: 'cards',
   }];
-  // 标题用短标签：高优3 / 中优5 / 全优8
   const shortLevel = cfg.priority_min_level === 'high' ? '高优' : cfg.priority_min_level === 'med' ? '中优' : '全优';
   return {
     mode: 'priority', enabled: true, sections, checked: allTodos.length, skipped: false,
@@ -584,7 +542,7 @@ async function runPriorityMode(
   };
 }
 
-// ==================== 主入口：合并所有模式为一封 digest 邮件 ====================
+// ==================== 主入口：合并为一封 digest 邮件 ====================
 
 export async function runScheduledReminders(env: Env): Promise<ReminderRunResult> {
   const db = createDb(env.DB);
@@ -599,7 +557,6 @@ export async function runScheduledReminders(env: Env): Promise<ReminderRunResult
   const localNow = new Date(nowUtcMs + tzOffsetMs);
   const todayStr = getLocalDateStr(localNow);
 
-  // 提醒日过滤：空数组 = 不限制；非空 = 仅在指定 ISO 周几（1..7）发送
   if (cfg.weekly_days.length > 0) {
     const isoDay = getLocalIsoWeekday(localNow);
     if (!cfg.weekly_days.includes(isoDay)) {
@@ -607,12 +564,10 @@ export async function runScheduledReminders(env: Env): Promise<ReminderRunResult
     }
   }
 
-  // 时间跳过：在跳过时段内不发送任何邮件
   if (isInSkipWindow(localNow, cfg.skip_start, cfg.skip_end)) {
     return { skipped: true, reason: `skip_window ${cfg.skip_start}-${cfg.skip_end}`, sent: 0, failed: 0, modes: [] };
   }
 
-  // 无待办时跳过：仅做一次 count(*) 早退，避免后续 3 次模式查询
   if (cfg.skip_if_no_todos) {
     const todayCount = await countTodayTodos(db, todayStr);
     if (todayCount === 0) {
@@ -623,7 +578,6 @@ export async function runScheduledReminders(env: Env): Promise<ReminderRunResult
   const state = await getState(db);
   state.last_run = nowUtcMs;
 
-  // 按顺序运行所有启用的模式（timed → priority → daily），后续模式排除已展示的 todo
   const displayedIds = new Set<string>();
   const results: ModeResult[] = [];
 
@@ -644,20 +598,17 @@ export async function runScheduledReminders(env: Env): Promise<ReminderRunResult
     mergedSections.push(...r.sections);
   }
 
-  // 附加搜索词 section（所有模式共享，按来源 todo 分组）
   if (mergedSections.length > 0 && cfg.daily_include_search !== 'off') {
     const allTodosForSearch = await fetchTodayTodos(db, todayStr, {});
     const searchSections = buildSearchSections(allTodosForSearch, cfg.daily_include_search);
     mergedSections.push(...searchSections);
   }
 
-  // 无内容则不发邮件（仍保存 state）
   if (mergedSections.length === 0) {
     await saveState(db, state);
     return { skipped: false, sent: 0, failed: 0, modes: results };
   }
 
-  // 组合邮件主题：各模式紧凑标签用「·」拼接（即将到期2 · 高优3 · 汇总(9/10)）
   const summaries = results.filter((r) => r.summary).map((r) => r.summary!);
   const subject = summaries.join(' · ');
   const modeSectionCount = results.reduce((acc, r) => acc + r.sections.length, 0);
@@ -673,7 +624,6 @@ export async function runScheduledReminders(env: Env): Promise<ReminderRunResult
     appUrl: cfg.app_url,
   });
 
-  // 幂等键：15s 时间桶 + sections 内容哈希
   const idemParts = mergedSections.map((s) => `${s.title}|${s.items.length}`).join('|');
   const idempotencyKey = `cf-todo:digest:${idemBucket()}:${(await sha256Hex(idemParts)).slice(0, 16)}`;
   const result = await sendEmail(env.RESEND_API_KEY, {
@@ -692,7 +642,7 @@ export async function runScheduledReminders(env: Env): Promise<ReminderRunResult
   };
 }
 
-// ==================== 连通测试（用真实数据发一封 digest，不修改 state） ====================
+// ==================== 连通测试 ====================
 
 export async function sendTestEmail(env: Env, cfg: ReminderConfig): Promise<{ ok: boolean; id?: string; error?: string }> {
   if (!env.RESEND_API_KEY) return { ok: false, error: 'RESEND_API_KEY not set' };
@@ -704,7 +654,6 @@ export async function sendTestEmail(env: Env, cfg: ReminderConfig): Promise<{ ok
   const localNow = new Date(nowUtcMs + tzOffsetMs);
   const todayStr = getLocalDateStr(localNow);
 
-  // 用真实数据运行各模式（空 state，不写去重表）
   const displayedIds = new Set<string>();
   const results: ModeResult[] = [];
 
@@ -727,13 +676,11 @@ export async function sendTestEmail(env: Env, cfg: ReminderConfig): Promise<{ ok
     return { ok: false, error: '当前无符合条件的数据可发送（今日无待办或模式都未启用）' };
   }
 
-  // 附加搜索词
   if (mergedSections.length > 0 && cfg.daily_include_search !== 'off') {
     const allTodosForSearch = await fetchTodayTodos(db, todayStr, {});
     mergedSections.push(...buildSearchSections(allTodosForSearch, cfg.daily_include_search));
   }
 
-  // 无内容时补占位 section 确认连通性
   if (mergedSections.length === 0) {
     mergedSections.push({ title: '当前无待办数据', items: [], emptyMessage: '今日无待办，连通测试正常', listStyle: 'cards' });
   }

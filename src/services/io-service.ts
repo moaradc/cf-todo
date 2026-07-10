@@ -280,7 +280,7 @@ export function exportStream(
             let reminderCfgObj: unknown = null;
             try { reminderCfgObj = reminderCfgRecord?.value ? JSON.parse(reminderCfgRecord.value) : null; } catch { /* 静默 */ }
             controller.enqueue(encoder.encode(encodeNdjsonLine({ _type: 'reminder_config', data: reminderCfgObj })));
-            // reminder_state 不导出：内部只写不读的死字段（last_run 仅供调试，无业务依赖）
+            // reminder_state 不导出：只写不读的死字段
           }
           if (incCategories) {
             const { results: catRes } = await d.prepare('SELECT id, name, color FROM categories ORDER BY id').all();
@@ -642,7 +642,7 @@ export async function importPhase(db: Db, impBody: Record<string, unknown>): Pro
       if (impBody.reminder_config) {
         await d.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('reminder_config', ?)").bind(JSON.stringify(impBody.reminder_config)).run();
       }
-      // reminder_state 不导入：内部只写不读的死字段，前端也不解析该 _type，老备份里的该行会被静默忽略
+      // reminder_state 不导入：前端不解析该 _type，老备份里的该行会被静默忽略
       await d.prepare('DELETE FROM import_sessions WHERE id = ?').bind(importId).run();
       return new Response(JSON.stringify({ success: true }), { headers: { 'Content-Type': 'application/json' } });
     }

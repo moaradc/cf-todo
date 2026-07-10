@@ -873,7 +873,6 @@ export const core = `
     let tempReminderSkipStart = '';
     let tempReminderSkipEnd = '';
     let tempReminderSkipIfNoTodos = false;
-    // ISO 周几：1=周一..7=周日；空数组=不限制
     let tempReminderWeeklyDays = [];
 
     function _reminderTzLabel(offset) {
@@ -892,7 +891,7 @@ export const core = `
       return mode === 'all' ? '全部' : mode === 'uncompleted' ? '仅未完成' : '关闭';
     }
 
-    // 周几标签：周一..周日 / 不限
+    // 周几标签
     var _WEEKLY_DAY_LABELS = ['一', '二', '三', '四', '五', '六', '日'];
     function _weeklyDaysLabel(arr) {
       if (!arr || arr.length === 0) return '不限';
@@ -989,7 +988,7 @@ export const core = `
       renderReminderConfig();
     }
 
-    // 前端兜底归一化 weekly_days：保证为 1..7 整数去重升序数组
+    // 前端兜底归一化 weekly_days
     function _normalizeWeeklyDays(v) {
       if (!v) return [];
       var arr = Array.isArray(v) ? v : String(v).split(/[,，\s]+/);
@@ -1029,9 +1028,7 @@ export const core = `
       if (el('set-disp-reminderSkipEnd')) el('set-disp-reminderSkipEnd').innerText = tempReminderSkipEnd || '--:--';
       if (el('reminder-daily-uncompleted')) el('reminder-daily-uncompleted').classList.toggle('active', reminderConfig.daily_include_uncompleted);
       if (el('reminder-daily-completed')) el('reminder-daily-completed').classList.toggle('active', reminderConfig.daily_include_completed);
-      // 无待办时跳过
       if (el('reminder-skip-empty-box')) el('reminder-skip-empty-box').classList.toggle('checked', tempReminderSkipIfNoTodos);
-      // 提醒日 pills（1..7）
       for (var d = 1; d <= 7; d++) {
         var pill = el('reminder-weekly-' + d);
         if (pill) pill.classList.toggle('active', tempReminderWeeklyDays.indexOf(d) >= 0);
@@ -1039,7 +1036,7 @@ export const core = `
       if (el('set-disp-reminderWeekly')) el('set-disp-reminderWeekly').innerText = _weeklyDaysLabel(tempReminderWeeklyDays);
     }
 
-    // pill 与今日汇总开关联动：两个都取消→关闭，至少一个选中→开启
+    // 今日汇总多选：两个都取消→关闭，至少一个选中→开启
     function toggleReminderPill(el) {
       el.classList.toggle('active');
       var uncompPill = document.getElementById('reminder-daily-uncompleted');
@@ -1066,7 +1063,7 @@ export const core = `
       if (pop) pop.style.display = 'none';
     }
 
-    // 单选 pill：点击即选中（取消同组其他 pill 的 active），与今日汇总的 toggleReminderPill 多选区分
+    // 单选 pill（优先级/搜索词），与今日汇总的 toggleReminderPill 多选区分
     function selectReminderPill(type, value) {
       if (type === 'reminderPriorityLevel') {
         tempReminderPriorityLevel = value;
@@ -1089,14 +1086,12 @@ export const core = `
       if (box) box.classList.toggle('checked', reminderConfig[key]);
     }
 
-    // 无待办时跳过开关：仅切换本地 temp 状态，保存时一并提交
     function toggleReminderSkipIfNoTodos() {
       tempReminderSkipIfNoTodos = !tempReminderSkipIfNoTodos;
       var box = document.getElementById('reminder-skip-empty-box');
       if (box) box.classList.toggle('checked', tempReminderSkipIfNoTodos);
     }
 
-    // 切换某周的提醒日（1..7），再次点击同一日则取消
     function toggleReminderWeeklyDay(day) {
       day = parseInt(day, 10);
       if (!Number.isFinite(day) || day < 1 || day > 7) return;
