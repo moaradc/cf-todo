@@ -3,7 +3,7 @@
   "private": true,
   "version": "1.0.0",
   "scripts": {
-    "build": "esbuild src/index.ts --bundle --format=esm --platform=browser --outfile=dist/worker.mjs --banner:js=\"/* eslint-disable */\"",
+    "build": "node tools/gen-snarkdown-source.js && esbuild src/index.ts --bundle --format=esm --platform=browser --outfile=dist/worker.mjs --banner:js=\"/* eslint-disable */\"",
     "dev": "npm run db:migrate:local && wrangler dev --test-scheduled",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
@@ -16,7 +16,8 @@
   "dependencies": {
     "drizzle-orm": "^0.38.2",
     "hono": "^4.6.14",
-    "ical.js": "2.2.1"
+    "ical.js": "2.2.1",
+    "snarkdown": "^2.0.0"
   },
   "devDependencies": {
     "@cloudflare/vitest-pool-workers": "^0.8.0",

@@ -387,7 +387,28 @@ export const css = `
 
     .md-code { background: #222; padding: 2px 4px; border-radius: 2px; color: var(--crt); font-family: var(--font-main); }
     .md-ul { padding-left: 20px; margin: 5px 0; }
-    del { opacity: 0.6; }
+    del, s { opacity: 0.6; }
+
+    /* Markdown 块级元素（snarkdown 输出，用于备注/changelog） */
+    .detail-value h1, .detail-value h2, .detail-value h3,
+    .detail-value h4, .detail-value h5, .detail-value h6,
+    .changelog-notes h1, .changelog-notes h2, .changelog-notes h3,
+    .changelog-notes h4, .changelog-notes h5, .changelog-notes h6 {
+      font-size: 0.95rem; font-weight: 700; margin: 8px 0 4px; color: var(--fg);
+    }
+    .detail-value h1, .changelog-notes h1 { font-size: 1.05rem; }
+    .detail-value blockquote, .changelog-notes blockquote {
+      border-left: 3px solid var(--crt); margin: 6px 0; padding: 2px 10px; opacity: 0.85;
+    }
+    .detail-value pre, .changelog-notes pre {
+      background: rgba(0,0,0,0.3); padding: 8px 10px; border-radius: 4px; overflow-x: auto; margin: 6px 0;
+    }
+    .detail-value pre code, .changelog-notes pre code { background: none; padding: 0; color: var(--crt); }
+    .detail-value img, .changelog-notes img {
+      max-width: 100%; height: auto; border-radius: 4px; margin: 4px 0;
+    }
+    .detail-value ol, .changelog-notes ol { padding-left: 20px; margin: 5px 0; }
+    [data-theme="light"] .detail-value pre, [data-theme="light"] .changelog-notes pre { background: #F0EEE2; }
 
     .stats-grid { display: grid; grid-template-columns: 1fr; gap: 20px; }
     .stats-row-bottom { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; }
