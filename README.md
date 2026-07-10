@@ -584,6 +584,9 @@ html.bg-dark #modal-changelog.modal-overlay{background:rgba(0,0,0,.42)!important
 .reminder-opt-label{color:var(--ycy-t2)!important}
 .reminder-pill{color:var(--ycy-t2)!important;background:var(--ycy-panel-s)!important;border:1px solid var(--ycy-bd)!important;box-shadow:none!important}
 .reminder-pill.active{color:#fff!important;background:var(--ycy-gn)!important;border-color:var(--ycy-gn)!important}
+.weekday-chip{color:var(--ycy-t2)!important;background:var(--ycy-panel-s)!important;border:1px solid var(--ycy-bd)!important;box-shadow:none!important}
+.weekday-chip:hover{border-color:var(--ycy-t3)!important}
+.weekday-chip.active{color:#fff!important;background:var(--ycy-gn)!important;border-color:var(--ycy-gn)!important;font-weight:600!important}
 </style>
 ```
 </details>
