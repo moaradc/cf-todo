@@ -389,7 +389,7 @@ export const css = `
     .md-ul { padding-left: 20px; margin: 5px 0; }
     del, s { opacity: 0.6; }
 
-    /* 备注 / changelog 里的 Markdown 块级元素（snarkdown 输出） */
+    /* Markdown 块级元素（snarkdown 输出，用于备注/changelog） */
     .detail-value h1, .detail-value h2, .detail-value h3,
     .detail-value h4, .detail-value h5, .detail-value h6,
     .changelog-notes h1, .changelog-notes h2, .changelog-notes h3,

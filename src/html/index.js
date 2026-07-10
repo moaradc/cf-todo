@@ -45,7 +45,7 @@ ${getBody(isAuthorized)}
     // 由后端 src/utils.js 中 MAX_BROWSER_UA 注入，前端统一引用此变量。
     var MAX_BROWSER_UA = ${MAX_BROWSER_UA};
 
-    // snarkdown: 轻量 Markdown 解析器（~1KB），构建时从 npm 读取源码内联注入
+    // snarkdown Markdown 解析器源码（构建时从 npm 读取内联注入）
     ${snarkdownSource}
 
 ${router}

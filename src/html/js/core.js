@@ -360,15 +360,12 @@ export const core = `
 
     function parseMarkdown(text) {
       if (!text) return '';
-      // 前置转义 HTML 特殊字符（snarkdown 不做转义，防 XSS）
+      // 前置转义 HTML 特殊字符防 XSS（snarkdown 原生不转义），> 转义会破坏引用语法但安全优先
       const escaped = text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-      // snarkdown 解析（全局函数，由 index.js 构建时注入）
       let html = snarkdown(escaped);
-      // 给 <code> 加 md-code class（与现有 CSS 样式对齐）
+      // 对齐现有 CSS class + 链接安全属性
       html = html.replace(/<code>/g, '<code class="md-code">');
-      // 给 <ul> 加 md-ul class（与现有 CSS 样式对齐）
       html = html.replace(/<ul>/g, '<ul class="md-ul">');
-      // 链接强制新窗口打开 + 安全属性
       html = html.replace(/<a href=/g, '<a target="_blank" rel="noopener noreferrer" href=');
       return html;
     }
