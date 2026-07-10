@@ -11,6 +11,7 @@
 
 import { Hono } from 'hono';
 import { getApiKeys, saveApiKeys, cookieAuth, type ApiKeyRecord } from '../../middleware/auth';
+import { createDb } from '../../db/client';
 import type { V1AppEnv } from './index';
 
 export const keysApp = new Hono<V1AppEnv>();
@@ -29,8 +30,9 @@ function generateApiKey(): string {
 }
 
 keysApp.all('/keys', async (c) => {
+  const db = createDb(c.env.DB);
   if (c.req.method === 'GET') {
-    const keys = await getApiKeys(c.env.DB);
+    const keys = await getApiKeys(db);
     // 返回时隐藏完整 key，只显示前8位 + 掩码
     const safe = keys.map((k) => ({
       id: k.id,
@@ -58,7 +60,7 @@ keysApp.all('/keys', async (c) => {
     const { action, id, name } = parsed;
 
     if (action === 'CREATE') {
-      const keys = await getApiKeys(c.env.DB);
+      const keys = await getApiKeys(db);
       if (keys.length >= 10) {
         return new Response(JSON.stringify({ error: '最多创建10个API Key' }), {
           status: 400,
@@ -76,7 +78,7 @@ keysApp.all('/keys', async (c) => {
         disabled: false,
       };
       keys.push(record);
-      await saveApiKeys(c.env.DB, keys);
+      await saveApiKeys(db, keys);
       // 仅在创建时返回完整 key
       return new Response(JSON.stringify({ success: true, id: keyId, key: newKey, name: record.name }), {
         headers: { 'Content-Type': 'application/json' },
@@ -85,29 +87,29 @@ keysApp.all('/keys', async (c) => {
 
     if (action === 'DELETE') {
       if (!id) return new Response(JSON.stringify({ error: '缺少 id' }), { status: 400, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' } });
-      let keys = await getApiKeys(c.env.DB);
+      let keys = await getApiKeys(db);
       keys = keys.filter((k) => k.id !== id);
-      await saveApiKeys(c.env.DB, keys);
+      await saveApiKeys(db, keys);
       return new Response(JSON.stringify({ success: true }), { headers: { 'Content-Type': 'application/json' } });
     }
 
     if (action === 'TOGGLE') {
       if (!id) return new Response(JSON.stringify({ error: '缺少 id' }), { status: 400, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' } });
-      const keys = await getApiKeys(c.env.DB);
+      const keys = await getApiKeys(db);
       const target = keys.find((k) => k.id === id);
       if (!target) return new Response(JSON.stringify({ error: 'Key 不存在' }), { status: 404, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' } });
       target.disabled = !target.disabled;
-      await saveApiKeys(c.env.DB, keys);
+      await saveApiKeys(db, keys);
       return new Response(JSON.stringify({ success: true, disabled: target.disabled }), { headers: { 'Content-Type': 'application/json' } });
     }
 
     if (action === 'RENAME') {
       if (!id) return new Response(JSON.stringify({ error: '缺少 id' }), { status: 400, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' } });
-      const keys = await getApiKeys(c.env.DB);
+      const keys = await getApiKeys(db);
       const target = keys.find((k) => k.id === id);
       if (!target) return new Response(JSON.stringify({ error: 'Key 不存在' }), { status: 404, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' } });
       target.name = (name || '').trim().slice(0, 50) || 'Default';
-      await saveApiKeys(c.env.DB, keys);
+      await saveApiKeys(db, keys);
       return new Response(JSON.stringify({ success: true }), { headers: { 'Content-Type': 'application/json' } });
     }
 
