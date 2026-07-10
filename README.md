@@ -73,7 +73,7 @@
   --ycy-r:14px;--ycy-r-s:10px;--ycy-r-xs:6px;
   --ycy-t:#1a1a1a;--ycy-t2:#555;--ycy-t3:#999;
   --ycy-ac:#e8453c;--ycy-ac-l:rgba(232,69,60,.10);
-  --ycy-gn:#2d8f5e;--ycy-wn:#d4940a;--ycy-bl:#3a7bd5;
+  --ycy-gn:#2d8f5e;--ycy-gn-l:rgba(45,143,94,.10);--ycy-wn:#d4940a;--ycy-bl:#3a7bd5;
   --bg:transparent;--fg:var(--ycy-t);--accent:var(--ycy-ac);
   --crt:var(--ycy-gn);--warn:var(--ycy-wn);--panel:var(--ycy-panel);
   --font-main: 'Courier New', Courier, monospace;
@@ -88,7 +88,7 @@ html.bg-dark{
   --ycy-sh-lg:0 6px 28px rgba(0,0,0,.28);
   --ycy-t:#f0f0f0;--ycy-t2:#bbb;--ycy-t3:#777;
   --ycy-ac:#ff6b5e;--ycy-ac-l:rgba(255,107,94,.14);
-  --ycy-gn:#4ade80;--ycy-wn:#fbbf24;--ycy-bl:#60a5fa;
+  --ycy-gn:#4ade80;--ycy-gn-l:rgba(74,222,128,.14);--ycy-wn:#fbbf24;--ycy-bl:#60a5fa;
 }
 
 /* ── bg ── */
@@ -582,11 +582,12 @@ html.bg-dark #modal-changelog.modal-overlay{background:rgba(0,0,0,.42)!important
 .reminder-mode-desc{color:var(--ycy-t3)!important}
 .reminder-opt-row{border-top-color:var(--ycy-bd2)!important}
 .reminder-opt-label{color:var(--ycy-t2)!important}
-.reminder-pill{color:var(--ycy-t2)!important;background:var(--ycy-panel-s)!important;border:1px solid var(--ycy-bd)!important;box-shadow:none!important}
-.reminder-pill.active{color:#fff!important;background:var(--ycy-gn)!important;border-color:var(--ycy-gn)!important}
-.weekday-chip{color:var(--ycy-t2)!important;background:var(--ycy-panel-s)!important;border:1px solid var(--ycy-bd)!important;box-shadow:none!important}
-.weekday-chip:hover{border-color:var(--ycy-t3)!important}
-.weekday-chip.active{color:#fff!important;background:var(--ycy-gn)!important;border-color:var(--ycy-gn)!important;font-weight:600!important}
+.reminder-pill{color:var(--ycy-t2)!important;background:transparent!important;border:1px solid var(--ycy-bd)!important;box-shadow:none!important;transition:background .15s,border-color .15s,color .15s!important}
+.reminder-pill:hover{background:var(--ycy-gn-l)!important;color:var(--ycy-gn)!important;border-color:var(--ycy-gn)!important}
+.reminder-pill.active{background:var(--ycy-gn-l)!important;color:var(--ycy-gn)!important;border-color:var(--ycy-gn)!important;font-weight:600!important}
+.weekday-chip{color:var(--ycy-t2)!important;background:transparent!important;border:1px solid var(--ycy-bd)!important;box-shadow:none!important;transition:background .15s,border-color .15s,color .15s!important}
+.weekday-chip:hover{background:var(--ycy-gn-l)!important;color:var(--ycy-gn)!important;border-color:var(--ycy-gn)!important}
+.weekday-chip.active{background:var(--ycy-gn-l)!important;color:var(--ycy-gn)!important;border-color:var(--ycy-gn)!important;font-weight:600!important}
 </style>
 ```
 </details>
