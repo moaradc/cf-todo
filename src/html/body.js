@@ -462,34 +462,43 @@ export function getBody(isAuthorized) {
               </div>
           </div>
 
-          <div class="setting-item" style="margin-bottom: 12px; border: none; padding: 0;">
-              <span class="settings-text" style="margin:0;"><strong>无待办时跳过</strong></span>
-              <div class="switch-label" onclick="toggleReminderSkipIfNoTodos()" style="margin-bottom: 0;">
-                  <div class="switch-box" id="reminder-skip-empty-box"></div>
-              </div>
-          </div>
-          <div class="settings-text" style="margin: -8px 0 12px 0; font-size: 0.72rem; color:#888; line-height: 1.4;">
-              启用后，今日无任何待办时 Cron 不发邮件（避免空汇总打扰）。
-          </div>
-
-          <div class="detail-label">提醒日</div>
-          <div style="display:flex; flex-wrap: wrap; gap:6px; align-items:center; margin-bottom: 6px;">
-              <span class="reminder-pill" id="reminder-weekly-1" onclick="toggleReminderWeeklyDay(1)">一</span>
-              <span class="reminder-pill" id="reminder-weekly-2" onclick="toggleReminderWeeklyDay(2)">二</span>
-              <span class="reminder-pill" id="reminder-weekly-3" onclick="toggleReminderWeeklyDay(3)">三</span>
-              <span class="reminder-pill" id="reminder-weekly-4" onclick="toggleReminderWeeklyDay(4)">四</span>
-              <span class="reminder-pill" id="reminder-weekly-5" onclick="toggleReminderWeeklyDay(5)">五</span>
-              <span class="reminder-pill" id="reminder-weekly-6" onclick="toggleReminderWeeklyDay(6)">六</span>
-              <span class="reminder-pill" id="reminder-weekly-7" onclick="toggleReminderWeeklyDay(7)">日</span>
-          </div>
-          <div class="settings-text" style="margin: 0 0 12px 0; font-size: 0.72rem; color:#888; line-height: 1.4;">
-              当前：<span id="set-disp-reminderWeekly">不限</span>。不选任何一天 = 每天都可能发送。
-          </div>
-
           <div class="detail-label">时区偏移</div>
           <div class="fake-input" onclick="toggleSettingPopover('reminderTz', this)" style="width: 80px; margin-bottom: 12px; padding: 6px 10px; justify-content: space-between; border-radius: 4px;">
               <span id="set-disp-reminderTz">UTC+8</span>
               <span style="font-size:0.75rem; margin-left: 4px; color:#888;">▼</span>
+          </div>
+
+          <div style="border-top: 1px dashed #333; margin: 10px 0; padding-top: 10px;">
+            <div class="detail-label">发送规则</div>
+
+            <div class="reminder-mode-block">
+              <div class="reminder-mode-head">
+                <span class="reminder-mode-title">无待办时跳过</span>
+                <div class="switch-label" onclick="toggleReminderSkipIfNoTodos()" style="margin-bottom: 0;">
+                    <div class="switch-box" id="reminder-skip-empty-box"></div>
+                </div>
+              </div>
+              <div class="reminder-mode-desc">今日无任何待办时 Cron 不发邮件，避免空汇总打扰</div>
+            </div>
+
+            <div class="reminder-mode-block">
+              <div class="reminder-mode-head">
+                <span class="reminder-mode-title">提醒日</span>
+                <span class="reminder-opt-label" style="font-size:0.7rem;">当前：<span id="set-disp-reminderWeekly">不限</span></span>
+              </div>
+              <div class="reminder-mode-desc">仅在选定的星期几发送；不选 = 每天都可能发送</div>
+              <div class="reminder-mode-opts">
+                <div class="weekday-chip-group">
+                  <span class="weekday-chip" id="reminder-weekly-1" onclick="toggleReminderWeeklyDay(1)">一</span>
+                  <span class="weekday-chip" id="reminder-weekly-2" onclick="toggleReminderWeeklyDay(2)">二</span>
+                  <span class="weekday-chip" id="reminder-weekly-3" onclick="toggleReminderWeeklyDay(3)">三</span>
+                  <span class="weekday-chip" id="reminder-weekly-4" onclick="toggleReminderWeeklyDay(4)">四</span>
+                  <span class="weekday-chip" id="reminder-weekly-5" onclick="toggleReminderWeeklyDay(5)">五</span>
+                  <span class="weekday-chip" id="reminder-weekly-6" onclick="toggleReminderWeeklyDay(6)">六</span>
+                  <span class="weekday-chip" id="reminder-weekly-7" onclick="toggleReminderWeeklyDay(7)">日</span>
+                </div>
+              </div>
+            </div>
           </div>
 
           <div style="border-top: 1px dashed #333; margin: 10px 0; padding-top: 10px;">
