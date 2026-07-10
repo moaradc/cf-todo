@@ -366,8 +366,19 @@ export const css = `
     .reminder-pill { display: inline-block; padding: 4px 12px; font-size: 0.78rem; color: #888; background: rgba(0,0,0,0.25); border: 1px solid #444; border-radius: 999px; cursor: pointer; user-select: none; transition: all 0.15s; }
     .reminder-pill.active { color: var(--crt); background: rgba(0,255,65,0.12); border-color: var(--crt); }
     .reminder-pill:active { transform: scale(0.96); }
+
+    /* weekday-chip: 等宽方形选择器 */
+    .weekday-chip-group { display: flex; gap: 6px; flex-wrap: wrap; }
+    .weekday-chip { display: inline-flex; align-items: center; justify-content: center; width: 36px; height: 36px; font-size: 0.82rem; font-weight: 500; color: #888; background: rgba(0,0,0,0.25); border: 1px solid #444; border-radius: 8px; cursor: pointer; user-select: none; transition: all 0.15s; }
+    .weekday-chip.active { color: var(--crt); background: rgba(0,255,65,0.15); border-color: var(--crt); font-weight: 600; }
+    .weekday-chip:hover { border-color: #666; }
+    .weekday-chip:active { transform: scale(0.92); }
+
     [data-theme="light"] .reminder-pill { background: #F0EEE2; border-color: #C8C5B8; color: #6B6757; }
     [data-theme="light"] .reminder-pill.active { color: #5C960B; background: rgba(92,150,11,0.12); border-color: #5C960B; }
+    [data-theme="light"] .weekday-chip { background: #F0EEE2; border-color: #C8C5B8; color: #6B6757; }
+    [data-theme="light"] .weekday-chip.active { color: #5C960B; background: rgba(92,150,11,0.15); border-color: #5C960B; }
+    [data-theme="light"] .weekday-chip:hover { border-color: #6B6757; }
     [data-theme="light"] .reminder-mode-block { background: #FAFAF7; border: 1px solid #D8D5C8; }
     [data-theme="light"] .reminder-mode-desc { color: #6B6757; }
     [data-theme="light"] .reminder-opt-row { border-top-color: rgba(0,0,0,0.06); }

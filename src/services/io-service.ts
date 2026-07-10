@@ -256,13 +256,12 @@ export function exportStream(
         if (!headerEmitted) {
           controller.enqueue(encoder.encode('ndjson\n'));
           if (incSettings) {
-            const [settingsRes, headerRes, contentRes, customColorsRes, reminderCfgRes, reminderStateRes] = await d.batch([
+            const [settingsRes, headerRes, contentRes, customColorsRes, reminderCfgRes] = await d.batch([
               d.prepare("SELECT value FROM settings WHERE key = 'app_settings'"),
               d.prepare("SELECT value FROM settings WHERE key = 'custom_header'"),
               d.prepare("SELECT value FROM settings WHERE key = 'custom_content'"),
               d.prepare("SELECT value FROM settings WHERE key = 'customColors'"),
               d.prepare("SELECT value FROM settings WHERE key = 'reminder_config'"),
-              d.prepare("SELECT value FROM settings WHERE key = 'reminder_state'"),
             ]);
             queryCount++;
             const settingsRecord = settingsRes.results?.[0] as { value?: string } | undefined;
@@ -281,10 +280,7 @@ export function exportStream(
             let reminderCfgObj: unknown = null;
             try { reminderCfgObj = reminderCfgRecord?.value ? JSON.parse(reminderCfgRecord.value) : null; } catch { /* 静默 */ }
             controller.enqueue(encoder.encode(encodeNdjsonLine({ _type: 'reminder_config', data: reminderCfgObj })));
-            const reminderStateRecord = reminderStateRes.results?.[0] as { value?: string } | undefined;
-            let reminderStateObj: unknown = null;
-            try { reminderStateObj = reminderStateRecord?.value ? JSON.parse(reminderStateRecord.value) : null; } catch { /* 静默 */ }
-            controller.enqueue(encoder.encode(encodeNdjsonLine({ _type: 'reminder_state', data: reminderStateObj })));
+            // reminder_state 不导出：只写不读的死字段
           }
           if (incCategories) {
             const { results: catRes } = await d.prepare('SELECT id, name, color FROM categories ORDER BY id').all();
@@ -646,9 +642,7 @@ export async function importPhase(db: Db, impBody: Record<string, unknown>): Pro
       if (impBody.reminder_config) {
         await d.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('reminder_config', ?)").bind(JSON.stringify(impBody.reminder_config)).run();
       }
-      if (impBody.reminder_state) {
-        await d.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('reminder_state', ?)").bind(JSON.stringify(impBody.reminder_state)).run();
-      }
+      // reminder_state 不导入：前端不解析该 _type，老备份里的该行会被静默忽略
       await d.prepare('DELETE FROM import_sessions WHERE id = ?').bind(importId).run();
       return new Response(JSON.stringify({ success: true }), { headers: { 'Content-Type': 'application/json' } });
     }

@@ -863,6 +863,8 @@ export const core = `
       daily_enabled: false, daily_include_completed: false, daily_include_uncompleted: true, daily_include_search: 'off',
       priority_enabled: false, priority_min_level: 'high',
       skip_start: '', skip_end: '',
+      skip_if_no_todos: false,
+      weekly_days: [],
     };
     let tempReminderLead = 15;
     let tempReminderTz = 480;
@@ -870,6 +872,8 @@ export const core = `
     let tempReminderSearchMode = 'off';
     let tempReminderSkipStart = '';
     let tempReminderSkipEnd = '';
+    let tempReminderSkipIfNoTodos = false;
+    let tempReminderWeeklyDays = [];
 
     function _reminderTzLabel(offset) {
       var sign = offset >= 0 ? '+' : '-';
@@ -885,6 +889,15 @@ export const core = `
 
     function _searchModeLabel(mode) {
       return mode === 'all' ? '全部' : mode === 'uncompleted' ? '仅未完成' : '关闭';
+    }
+
+    // 周几标签
+    var _WEEKLY_DAY_LABELS = ['一', '二', '三', '四', '五', '六', '日'];
+    function _weeklyDaysLabel(arr) {
+      if (!arr || arr.length === 0) return '不限';
+      return arr.slice().sort(function(a, b) { return a - b; })
+        .map(function(d) { return _WEEKLY_DAY_LABELS[d - 1] || ('?' + d); })
+        .join('、');
     }
 
     // 把分钟数格式化为「H 时 M 分」/「M 分」显示，配合时间选择模态框
@@ -927,6 +940,8 @@ export const core = `
           priority_min_level: data.priority_min_level || 'high',
           skip_start: data.skip_start || '',
           skip_end: data.skip_end || '',
+          skip_if_no_todos: !!data.skip_if_no_todos,
+          weekly_days: _normalizeWeeklyDays(data.weekly_days),
         };
         tempReminderLead = reminderConfig.timed_lead_minutes;
         tempReminderTz = reminderConfig.timezone_offset;
@@ -934,6 +949,8 @@ export const core = `
         tempReminderSearchMode = reminderConfig.daily_include_search;
         tempReminderSkipStart = reminderConfig.skip_start;
         tempReminderSkipEnd = reminderConfig.skip_end;
+        tempReminderSkipIfNoTodos = reminderConfig.skip_if_no_todos;
+        tempReminderWeeklyDays = reminderConfig.weekly_days.slice();
         _saveReminderSnapshot();
       } catch (e) {
         console.error('Load reminder config error:', e);
@@ -945,26 +962,48 @@ export const core = `
     var _savedReminderSnapshot = null;
     function _saveReminderSnapshot() {
       _savedReminderSnapshot = {
-        cfg: Object.assign({}, reminderConfig),
+        cfg: Object.assign({}, reminderConfig, { weekly_days: reminderConfig.weekly_days.slice() }),
         lead: tempReminderLead,
         tz: tempReminderTz,
         pri: tempReminderPriorityLevel,
         search: tempReminderSearchMode,
         skipS: tempReminderSkipStart,
         skipE: tempReminderSkipEnd,
+        skipEmpty: tempReminderSkipIfNoTodos,
+        weekly: tempReminderWeeklyDays.slice(),
       };
     }
     // 关闭设置页时重置未保存的修改
     function resetReminderToSaved() {
       if (!_savedReminderSnapshot) return;
-      reminderConfig = Object.assign({}, _savedReminderSnapshot.cfg);
+      reminderConfig = Object.assign({}, _savedReminderSnapshot.cfg, { weekly_days: _savedReminderSnapshot.cfg.weekly_days.slice() });
       tempReminderLead = _savedReminderSnapshot.lead;
       tempReminderTz = _savedReminderSnapshot.tz;
       tempReminderPriorityLevel = _savedReminderSnapshot.pri;
       tempReminderSearchMode = _savedReminderSnapshot.search;
       tempReminderSkipStart = _savedReminderSnapshot.skipS;
       tempReminderSkipEnd = _savedReminderSnapshot.skipE;
+      tempReminderSkipIfNoTodos = _savedReminderSnapshot.skipEmpty;
+      tempReminderWeeklyDays = _savedReminderSnapshot.weekly.slice();
       renderReminderConfig();
+    }
+
+    // 前端兜底归一化 weekly_days
+    function _normalizeWeeklyDays(v) {
+      if (!v) return [];
+      var arr = Array.isArray(v) ? v : String(v).split(/[,，\s]+/);
+      var seen = {};
+      var out = [];
+      for (var i = 0; i < arr.length; i++) {
+        var n = parseInt(arr[i], 10);
+        if (!Number.isFinite(n)) continue;
+        n = Math.trunc(n);
+        if (n < 1 || n > 7) continue;
+        if (seen[n]) continue;
+        seen[n] = true;
+        out.push(n);
+      }
+      return out.sort(function(a, b) { return a - b; });
     }
 
     function renderReminderConfig() {
@@ -977,15 +1016,27 @@ export const core = `
       if (el('reminder-timed-box')) el('reminder-timed-box').classList.toggle('checked', reminderConfig.timed_enabled);
       if (el('reminder-daily-box')) el('reminder-daily-box').classList.toggle('checked', reminderConfig.daily_enabled);
       if (el('reminder-priority-box')) el('reminder-priority-box').classList.toggle('checked', reminderConfig.priority_enabled);
-      if (el('set-disp-reminderPriorityLevel')) el('set-disp-reminderPriorityLevel').innerText = _priorityLabel(tempReminderPriorityLevel);
-      if (el('set-disp-reminderSearchMode')) el('set-disp-reminderSearchMode').innerText = _searchModeLabel(tempReminderSearchMode);
+      // 优先级阈值 pill（单选）
+      if (el('reminder-priority-high')) el('reminder-priority-high').classList.toggle('active', tempReminderPriorityLevel === 'high');
+      if (el('reminder-priority-med')) el('reminder-priority-med').classList.toggle('active', tempReminderPriorityLevel === 'med');
+      if (el('reminder-priority-low')) el('reminder-priority-low').classList.toggle('active', tempReminderPriorityLevel === 'low');
+      // 搜索词范围 pill（单选）
+      if (el('reminder-search-off')) el('reminder-search-off').classList.toggle('active', tempReminderSearchMode === 'off');
+      if (el('reminder-search-uncompleted')) el('reminder-search-uncompleted').classList.toggle('active', tempReminderSearchMode === 'uncompleted');
+      if (el('reminder-search-all')) el('reminder-search-all').classList.toggle('active', tempReminderSearchMode === 'all');
       if (el('set-disp-reminderSkipStart')) el('set-disp-reminderSkipStart').innerText = tempReminderSkipStart || '--:--';
       if (el('set-disp-reminderSkipEnd')) el('set-disp-reminderSkipEnd').innerText = tempReminderSkipEnd || '--:--';
       if (el('reminder-daily-uncompleted')) el('reminder-daily-uncompleted').classList.toggle('active', reminderConfig.daily_include_uncompleted);
       if (el('reminder-daily-completed')) el('reminder-daily-completed').classList.toggle('active', reminderConfig.daily_include_completed);
+      if (el('reminder-skip-empty-box')) el('reminder-skip-empty-box').classList.toggle('checked', tempReminderSkipIfNoTodos);
+      for (var d = 1; d <= 7; d++) {
+        var pill = el('reminder-weekly-' + d);
+        if (pill) pill.classList.toggle('active', tempReminderWeeklyDays.indexOf(d) >= 0);
+      }
+      if (el('set-disp-reminderWeekly')) el('set-disp-reminderWeekly').innerText = _weeklyDaysLabel(tempReminderWeeklyDays);
     }
 
-    // pill 与今日汇总开关联动：两个都取消→关闭，至少一个选中→开启
+    // 今日汇总多选：两个都取消→关闭，至少一个选中→开启
     function toggleReminderPill(el) {
       el.classList.toggle('active');
       var uncompPill = document.getElementById('reminder-daily-uncompleted');
@@ -1012,6 +1063,16 @@ export const core = `
       if (pop) pop.style.display = 'none';
     }
 
+    // 单选 pill（优先级/搜索词），与今日汇总的 toggleReminderPill 多选区分
+    function selectReminderPill(type, value) {
+      if (type === 'reminderPriorityLevel') {
+        tempReminderPriorityLevel = value;
+      } else if (type === 'reminderSearchMode') {
+        tempReminderSearchMode = value;
+      }
+      renderReminderConfig();
+    }
+
     function toggleReminderEnabled() {
       reminderConfig.enabled = !reminderConfig.enabled;
       var box = document.getElementById('reminder-enabled-box');
@@ -1023,6 +1084,22 @@ export const core = `
       reminderConfig[key] = !reminderConfig[key];
       var box = document.getElementById('reminder-' + mode + '-box');
       if (box) box.classList.toggle('checked', reminderConfig[key]);
+    }
+
+    function toggleReminderSkipIfNoTodos() {
+      tempReminderSkipIfNoTodos = !tempReminderSkipIfNoTodos;
+      var box = document.getElementById('reminder-skip-empty-box');
+      if (box) box.classList.toggle('checked', tempReminderSkipIfNoTodos);
+    }
+
+    function toggleReminderWeeklyDay(day) {
+      day = parseInt(day, 10);
+      if (!Number.isFinite(day) || day < 1 || day > 7) return;
+      var idx = tempReminderWeeklyDays.indexOf(day);
+      if (idx >= 0) tempReminderWeeklyDays.splice(idx, 1);
+      else tempReminderWeeklyDays.push(day);
+      tempReminderWeeklyDays.sort(function(a, b) { return a - b; });
+      renderReminderConfig();
     }
 
     function _collectReminderForm() {
@@ -1040,6 +1117,8 @@ export const core = `
       reminderConfig.priority_min_level = tempReminderPriorityLevel;
       reminderConfig.skip_start = tempReminderSkipStart;
       reminderConfig.skip_end = tempReminderSkipEnd;
+      reminderConfig.skip_if_no_todos = tempReminderSkipIfNoTodos;
+      reminderConfig.weekly_days = tempReminderWeeklyDays.slice();
       if (!reminderConfig.app_url) reminderConfig.app_url = window.location.origin + '/';
     }
 
@@ -1063,13 +1142,17 @@ export const core = `
         var data = await res.json();
         if (res.ok && data.success) {
           if (data.config) {
-            reminderConfig = Object.assign(reminderConfig, data.config);
+            reminderConfig = Object.assign(reminderConfig, data.config, {
+              weekly_days: _normalizeWeeklyDays(data.config.weekly_days),
+            });
             tempReminderLead = reminderConfig.timed_lead_minutes;
             tempReminderTz = reminderConfig.timezone_offset;
             tempReminderPriorityLevel = reminderConfig.priority_min_level;
             tempReminderSearchMode = reminderConfig.daily_include_search;
             tempReminderSkipStart = reminderConfig.skip_start;
             tempReminderSkipEnd = reminderConfig.skip_end;
+            tempReminderSkipIfNoTodos = !!reminderConfig.skip_if_no_todos;
+            tempReminderWeeklyDays = reminderConfig.weekly_days.slice();
             _saveReminderSnapshot();
             renderReminderConfig();
           }
@@ -1104,7 +1187,11 @@ export const core = `
           return;
         }
         if (saveData.config) {
-          reminderConfig = Object.assign(reminderConfig, saveData.config);
+          reminderConfig = Object.assign(reminderConfig, saveData.config, {
+            weekly_days: _normalizeWeeklyDays(saveData.config.weekly_days),
+          });
+          tempReminderSkipIfNoTodos = !!reminderConfig.skip_if_no_todos;
+          tempReminderWeeklyDays = reminderConfig.weekly_days.slice();
           renderReminderConfig();
         }
         var testRes = await fetch('/api/reminder/test', { method: 'POST' });

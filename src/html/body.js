@@ -461,10 +461,44 @@ export function getBody(isAuthorized) {
                   <span style="font-size:0.75rem; margin-left: 4px; color:#888;">▼</span>
               </div>
           </div>
+
           <div class="detail-label">时区偏移</div>
           <div class="fake-input" onclick="toggleSettingPopover('reminderTz', this)" style="width: 80px; margin-bottom: 12px; padding: 6px 10px; justify-content: space-between; border-radius: 4px;">
               <span id="set-disp-reminderTz">UTC+8</span>
               <span style="font-size:0.75rem; margin-left: 4px; color:#888;">▼</span>
+          </div>
+
+          <div style="border-top: 1px dashed #333; margin: 10px 0; padding-top: 10px;">
+            <div class="detail-label">发送规则</div>
+
+            <div class="reminder-mode-block">
+              <div class="reminder-mode-head">
+                <span class="reminder-mode-title">无待办时跳过</span>
+                <div class="switch-label" onclick="toggleReminderSkipIfNoTodos()" style="margin-bottom: 0;">
+                    <div class="switch-box" id="reminder-skip-empty-box"></div>
+                </div>
+              </div>
+              <div class="reminder-mode-desc">今日无任何待办时 Cron 不发邮件</div>
+            </div>
+
+            <div class="reminder-mode-block">
+              <div class="reminder-mode-head">
+                <span class="reminder-mode-title">提醒日</span>
+                <span class="reminder-opt-label" style="font-size:0.7rem;">当前：<span id="set-disp-reminderWeekly">不限</span></span>
+              </div>
+              <div class="reminder-mode-desc">仅在所选日发送，未选则每日发送</div>
+              <div class="reminder-mode-opts">
+                <div class="weekday-chip-group">
+                  <span class="weekday-chip" id="reminder-weekly-1" onclick="toggleReminderWeeklyDay(1)">一</span>
+                  <span class="weekday-chip" id="reminder-weekly-2" onclick="toggleReminderWeeklyDay(2)">二</span>
+                  <span class="weekday-chip" id="reminder-weekly-3" onclick="toggleReminderWeeklyDay(3)">三</span>
+                  <span class="weekday-chip" id="reminder-weekly-4" onclick="toggleReminderWeeklyDay(4)">四</span>
+                  <span class="weekday-chip" id="reminder-weekly-5" onclick="toggleReminderWeeklyDay(5)">五</span>
+                  <span class="weekday-chip" id="reminder-weekly-6" onclick="toggleReminderWeeklyDay(6)">六</span>
+                  <span class="weekday-chip" id="reminder-weekly-7" onclick="toggleReminderWeeklyDay(7)">日</span>
+                </div>
+              </div>
+            </div>
           </div>
 
           <div style="border-top: 1px dashed #333; margin: 10px 0; padding-top: 10px;">
@@ -519,9 +553,10 @@ export function getBody(isAuthorized) {
               <div class="reminder-mode-opts">
                 <div class="reminder-opt-row">
                   <span class="reminder-opt-label">阈值</span>
-                  <div class="fake-input" onclick="toggleSettingPopover('reminderPriorityLevel', this)" style="margin-bottom: 0; padding: 6px 12px; justify-content: space-between; border-radius: 4px;">
-                      <span id="set-disp-reminderPriorityLevel">高</span>
-                      <span style="font-size:0.75rem; margin-left: 8px; color:#888;">▼</span>
+                  <div style="display:flex; gap:6px; align-items:center; flex-wrap: wrap;">
+                    <span class="reminder-pill" id="reminder-priority-high" onclick="selectReminderPill('reminderPriorityLevel', 'high')">高</span>
+                    <span class="reminder-pill" id="reminder-priority-med" onclick="selectReminderPill('reminderPriorityLevel', 'med')">中及以上</span>
+                    <span class="reminder-pill" id="reminder-priority-low" onclick="selectReminderPill('reminderPriorityLevel', 'low')">全部</span>
                   </div>
                 </div>
               </div>
@@ -536,9 +571,10 @@ export function getBody(isAuthorized) {
               <div class="reminder-mode-opts">
                 <div class="reminder-opt-row">
                   <span class="reminder-opt-label">包含范围</span>
-                  <div class="fake-input" onclick="toggleSettingPopover('reminderSearchMode', this)" style="margin-bottom: 0; padding: 6px 12px; justify-content: space-between; border-radius: 4px;">
-                      <span id="set-disp-reminderSearchMode">关闭</span>
-                      <span style="font-size:0.75rem; margin-left: 8px; color:#888;">▼</span>
+                  <div style="display:flex; gap:6px; align-items:center; flex-wrap: wrap;">
+                    <span class="reminder-pill" id="reminder-search-off" onclick="selectReminderPill('reminderSearchMode', 'off')">关闭</span>
+                    <span class="reminder-pill" id="reminder-search-uncompleted" onclick="selectReminderPill('reminderSearchMode', 'uncompleted')">仅未完成</span>
+                    <span class="reminder-pill" id="reminder-search-all" onclick="selectReminderPill('reminderSearchMode', 'all')">全部</span>
                   </div>
                 </div>
               </div>
@@ -743,16 +779,7 @@ export function getBody(isAuthorized) {
     <button onclick="selectSetting('reminderTz', '-300', 'UTC-5')">UTC-5（东部）</button>
     <button onclick="selectSetting('reminderTz', '60', 'UTC+1')">UTC+1（中欧）</button>
   </div>
-  <div id="popover-set-reminderPriorityLevel" class="popover-menu">
-    <button onclick="selectSetting('reminderPriorityLevel', 'high', '高')">仅高优先级</button>
-    <button onclick="selectSetting('reminderPriorityLevel', 'med', '中及以上')">中及以上</button>
-    <button onclick="selectSetting('reminderPriorityLevel', 'low', '全部')">全部</button>
-  </div>
-  <div id="popover-set-reminderSearchMode" class="popover-menu">
-    <button onclick="selectSetting('reminderSearchMode', 'off', '关闭')">关闭</button>
-    <button onclick="selectSetting('reminderSearchMode', 'uncompleted', '仅未完成')">仅未完成</button>
-    <button onclick="selectSetting('reminderSearchMode', 'all', '全部')">全部</button>
-  </div>
+  <!-- reminderPriorityLevel / reminderSearchMode 已改为 pill 单选 -->
 
   <div id="modal-calendar" class="modal-overlay" style="z-index:65;" onclick="if(event.target===this) closeCalendar()">
     <div class="modal-content">
