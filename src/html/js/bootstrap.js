@@ -232,6 +232,7 @@ export const bootstrap = `
       toggleReminderEnabled: toggleReminderEnabled,
       toggleReminderMode: toggleReminderMode,
       toggleReminderPill: toggleReminderPill,
+      selectReminderPill: selectReminderPill,
       toggleReminderSkipIfNoTodos: toggleReminderSkipIfNoTodos,
       toggleReminderWeeklyDay: toggleReminderWeeklyDay,
       openReminderLeadPicker: openReminderLeadPicker,

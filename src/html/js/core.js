@@ -1017,8 +1017,14 @@ export const core = `
       if (el('reminder-timed-box')) el('reminder-timed-box').classList.toggle('checked', reminderConfig.timed_enabled);
       if (el('reminder-daily-box')) el('reminder-daily-box').classList.toggle('checked', reminderConfig.daily_enabled);
       if (el('reminder-priority-box')) el('reminder-priority-box').classList.toggle('checked', reminderConfig.priority_enabled);
-      if (el('set-disp-reminderPriorityLevel')) el('set-disp-reminderPriorityLevel').innerText = _priorityLabel(tempReminderPriorityLevel);
-      if (el('set-disp-reminderSearchMode')) el('set-disp-reminderSearchMode').innerText = _searchModeLabel(tempReminderSearchMode);
+      // 优先级阈值 pill（单选）
+      if (el('reminder-priority-high')) el('reminder-priority-high').classList.toggle('active', tempReminderPriorityLevel === 'high');
+      if (el('reminder-priority-med')) el('reminder-priority-med').classList.toggle('active', tempReminderPriorityLevel === 'med');
+      if (el('reminder-priority-low')) el('reminder-priority-low').classList.toggle('active', tempReminderPriorityLevel === 'low');
+      // 搜索词范围 pill（单选）
+      if (el('reminder-search-off')) el('reminder-search-off').classList.toggle('active', tempReminderSearchMode === 'off');
+      if (el('reminder-search-uncompleted')) el('reminder-search-uncompleted').classList.toggle('active', tempReminderSearchMode === 'uncompleted');
+      if (el('reminder-search-all')) el('reminder-search-all').classList.toggle('active', tempReminderSearchMode === 'all');
       if (el('set-disp-reminderSkipStart')) el('set-disp-reminderSkipStart').innerText = tempReminderSkipStart || '--:--';
       if (el('set-disp-reminderSkipEnd')) el('set-disp-reminderSkipEnd').innerText = tempReminderSkipEnd || '--:--';
       if (el('reminder-daily-uncompleted')) el('reminder-daily-uncompleted').classList.toggle('active', reminderConfig.daily_include_uncompleted);
@@ -1058,6 +1064,16 @@ export const core = `
       renderReminderConfig();
       var pop = document.getElementById('popover-set-' + type);
       if (pop) pop.style.display = 'none';
+    }
+
+    // 单选 pill：点击即选中（取消同组其他 pill 的 active），与今日汇总的 toggleReminderPill 多选区分
+    function selectReminderPill(type, value) {
+      if (type === 'reminderPriorityLevel') {
+        tempReminderPriorityLevel = value;
+      } else if (type === 'reminderSearchMode') {
+        tempReminderSearchMode = value;
+      }
+      renderReminderConfig();
     }
 
     function toggleReminderEnabled() {
