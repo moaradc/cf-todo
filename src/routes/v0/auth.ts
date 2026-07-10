@@ -1,17 +1,9 @@
 /**
  * V0 鉴权路由：login / logout / sessions / session-action
  *
- *
- * 搬迁来源：
- *   - POST /api/login
- *   - POST /api/logout
- *   - GET  /api/sessions
- *   - POST /api/session-action
- *
  * 关键保留（审计警告）：
- *     （scaleByBrowser / fontSizeByBrowser / displayScaleByBrowser）
  *   - login 的 5 次锁定 + 15 分钟封禁逻辑
- *   - login 成功时同步初始化三个 per-UA 数组（）
+ *   - login 成功时同步初始化三个 per-UA 数组
  *   - logout 清 session + 清 cookie（Max-Age=0）
  *
  * 鉴权策略：
@@ -19,8 +11,6 @@
  *   - /api/logout：公开（即使 cookie 失效也要能清 cookie）
  *   - /api/sessions：需要 cookie 鉴权
  *   - /api/session-action：需要 cookie 鉴权
- *
- * 挂载：在 v0App 注册。
  */
 
 import { Hono } from 'hono';
@@ -32,33 +22,59 @@ import {
   secureCompare,
   apiError,
 } from '../../utils.js';
-import { checkCookieAuth, v0Auth, type SessionEntry } from '../../middleware/auth';
+import {
+  checkCookieAuth,
+  v0Auth,
+  type SessionEntry,
+  getLoginAttempt,
+  resetLoginAttempt,
+  recordLoginFailure,
+} from '../../middleware/auth';
+import { createDb } from '../../db/client';
+import { eq } from 'drizzle-orm';
+import { settings } from '../../db/schema';
+import { getSettingRaw, setSettingRaw, getAppSettings, setAppSettings } from '../../services/settings-service';
 import type { V0AppEnv } from './index';
 
 /** 鉴权路由 Hono app。 */
 export const authApp = new Hono<V0AppEnv>();
 
 // sessions / session-action 需要 API Key 或 Cookie 鉴权
-// login / logout 保持公开
 authApp.use('/sessions', v0Auth);
 authApp.use('/session-action', v0Auth);
 
+/** 读取 active_session_token 并解析为 SessionEntry[]（容错：JSON 解析失败返回空数组）。 */
+async function loadSessions(db: ReturnType<typeof createDb>): Promise<SessionEntry[]> {
+  const value = await getSettingRaw(db, 'active_session_token');
+  if (!value) return [];
+  try {
+    const parsed = JSON.parse(value);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+/** 写入 sessions（空数组时删除行，避免残留空 JSON）。 */
+async function saveSessions(db: ReturnType<typeof createDb>, sessions: SessionEntry[]): Promise<void> {
+  if (sessions.length > 0) {
+    await setSettingRaw(db, 'active_session_token', JSON.stringify(sessions));
+  } else {
+    await db.delete(settings).where(eq(settings.key, 'active_session_token')).run();
+  }
+}
+
 // ==================== POST /api/login ====================
 
-/**
- * 登录：5 次锁定 + 15 分钟封禁 + session 创建 + per-UA 数组初始化。
- *
- */
 authApp.post('/login', async (c) => {
   const env = c.env;
   const request = c.req.raw;
   const clientIp = request.headers.get('cf-connecting-ip') || 'unknown';
   const now = Date.now();
+  const db = createDb(env.DB);
 
   // 检查 IP 封禁
-  const attemptRecord = await env.DB.prepare('SELECT * FROM login_attempts WHERE ip = ?')
-    .bind(clientIp)
-    .first<{ lock_until: number }>();
+  const attemptRecord = await getLoginAttempt(db, clientIp);
   if (attemptRecord && attemptRecord.lock_until > now) {
     return apiError('ACCOUNT LOCKED', 429);
   }
@@ -77,30 +93,12 @@ authApp.post('/login', async (c) => {
 
   if (isAdmin) {
     // 登录成功：清零失败计数
-    await env.DB.prepare(
-      `INSERT INTO login_attempts (ip, attempts, lock_until) VALUES (?, 0, 0)
-       ON CONFLICT(ip) DO UPDATE SET attempts = 0, lock_until = 0`,
-    )
-      .bind(clientIp)
-      .run();
+    await resetLoginAttempt(db, clientIp);
 
     const loginUA = request.headers.get('User-Agent') || '';
 
-    // 读取现有 sessions
-    let sessions: SessionEntry[] = [];
-    const sessionRecord = await env.DB.prepare(
-      "SELECT value FROM settings WHERE key = 'active_session_token'",
-    ).first<{ value: string }>();
-    if (sessionRecord && sessionRecord.value) {
-      try {
-        const parsed = JSON.parse(sessionRecord.value);
-        if (Array.isArray(parsed)) sessions = parsed;
-      } catch {
-        sessions = [];
-      }
-    }
-
-    // 生成新 token + 签名
+    // 读取现有 sessions + 生成新 token
+    let sessions = await loadSessions(db);
     const token = generateSessionToken();
     const sig = await sign(token, env.JWT_SECRET);
 
@@ -109,25 +107,11 @@ authApp.post('/login', async (c) => {
     sessions.push({ token, ua: loginUA });
     while (sessions.length > MAX_BROWSER_UA) sessions.shift();
 
-    await env.DB.prepare(
-      "INSERT OR REPLACE INTO settings (key, value) VALUES ('active_session_token', ?)",
-    )
-      .bind(JSON.stringify(sessions))
-      .run();
+    await saveSessions(db, sessions);
 
-    // 初始化三个 per-UA 数组（）
+    // 初始化三个 per-UA 数组
     if (loginUA) {
-      const appSettingsRecord = await env.DB.prepare(
-        "SELECT value FROM settings WHERE key = 'app_settings'",
-      ).first<{ value: string }>();
-      let appSettingsObj: Record<string, unknown> = {};
-      if (appSettingsRecord && appSettingsRecord.value) {
-        try {
-          appSettingsObj = JSON.parse(appSettingsRecord.value);
-        } catch {
-          // 静默
-        }
-      }
+      const appSettingsObj = await getAppSettings(db);
       if (!Array.isArray(appSettingsObj.scaleByBrowser)) {
         appSettingsObj.scaleByBrowser = [];
       }
@@ -139,50 +123,27 @@ authApp.post('/login', async (c) => {
       }
 
       // scaleByBrowser
-      let uaExists = false;
       const scaleByBrowser = appSettingsObj.scaleByBrowser as Array<{ ua: string; scale: number }>;
-      for (let i = 0; i < scaleByBrowser.length; i++) {
-        if (scaleByBrowser[i].ua === loginUA) {
-          uaExists = true;
-          break;
-        }
-      }
-      if (!uaExists) {
+      if (!scaleByBrowser.some((item) => item.ua === loginUA)) {
         scaleByBrowser.push({ ua: loginUA, scale: 1.0 });
         while (scaleByBrowser.length > MAX_BROWSER_UA) scaleByBrowser.shift();
       }
 
       // fontSizeByBrowser
-      let uaExistsFontSize = false;
       const fontSizeByBrowser = appSettingsObj.fontSizeByBrowser as Array<{ ua: string; fontSize: number }>;
-      for (let i = 0; i < fontSizeByBrowser.length; i++) {
-        if (fontSizeByBrowser[i].ua === loginUA) {
-          uaExistsFontSize = true;
-          break;
-        }
-      }
-      if (!uaExistsFontSize) {
+      if (!fontSizeByBrowser.some((item) => item.ua === loginUA)) {
         fontSizeByBrowser.push({ ua: loginUA, fontSize: 16 });
         while (fontSizeByBrowser.length > MAX_BROWSER_UA) fontSizeByBrowser.shift();
       }
 
       // displayScaleByBrowser
-      let uaExistsDisplayScale = false;
       const displayScaleByBrowser = appSettingsObj.displayScaleByBrowser as Array<{ ua: string; displayScale: number }>;
-      for (let i = 0; i < displayScaleByBrowser.length; i++) {
-        if (displayScaleByBrowser[i].ua === loginUA) {
-          uaExistsDisplayScale = true;
-          break;
-        }
-      }
-      if (!uaExistsDisplayScale) {
+      if (!displayScaleByBrowser.some((item) => item.ua === loginUA)) {
         displayScaleByBrowser.push({ ua: loginUA, displayScale: 1.0 });
         while (displayScaleByBrowser.length > MAX_BROWSER_UA) displayScaleByBrowser.shift();
       }
 
-      await env.DB.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('app_settings', ?)")
-        .bind(JSON.stringify(appSettingsObj))
-        .run();
+      await setAppSettings(db, appSettingsObj);
     }
 
     // 设置 cookie + 返回成功
@@ -193,56 +154,24 @@ authApp.post('/login', async (c) => {
     return new Response(JSON.stringify({ success: true }), { headers });
   } else {
     // 登录失败：累加失败计数，5 次后封禁 15 分钟
-    await env.DB.prepare(
-      `INSERT INTO login_attempts (ip, attempts, lock_until) VALUES (?, 1, 0)
-       ON CONFLICT(ip) DO UPDATE SET
-         attempts = attempts + 1,
-         lock_until = CASE WHEN attempts + 1 >= 5 THEN ? ELSE 0 END`,
-    )
-      .bind(clientIp, now + 15 * 60 * 1000)
-      .run();
+    await recordLoginFailure(db, clientIp, now + 15 * 60 * 1000);
     return apiError('ACCESS DENIED', 401);
   }
 });
 
 // ==================== POST /api/logout ====================
 
-/**
- * 登出：清 session + 清 cookie。
- *
- * 公开路由（即使 cookie 失效也要能清 cookie）。
- */
 authApp.post('/logout', async (c) => {
-  const env = c.env;
   const cookies = parseCookies(c.req.raw);
 
   if (cookies.auth_token) {
-    const record = await env.DB.prepare(
-      "SELECT value FROM settings WHERE key = 'active_session_token'",
-    ).first<{ value: string }>();
-    if (record && record.value) {
-      try {
-        let sessions: SessionEntry[] = [];
-        try {
-          const parsed = JSON.parse(record.value);
-          if (Array.isArray(parsed)) sessions = parsed;
-        } catch {
-          // 静默
-        }
-        if (sessions.length > 0) {
-          sessions = sessions.filter((s) => s.token !== cookies.auth_token);
-          if (sessions.length > 0) {
-            await env.DB.prepare(
-              "INSERT OR REPLACE INTO settings (key, value) VALUES ('active_session_token', ?)",
-            )
-              .bind(JSON.stringify(sessions))
-              .run();
-          } else {
-            await env.DB.prepare("DELETE FROM settings WHERE key = 'active_session_token'").run();
-          }
-        }
-      } catch {
-        // 静默
+    const db = createDb(c.env.DB);
+    const sessions = await loadSessions(db);
+    if (sessions.length > 0) {
+      const remaining = sessions.filter((s) => s.token !== cookies.auth_token);
+      // 只在实际有变化时写回（remaining 与 sessions 长度不同，或过滤后不同）
+      if (remaining.length !== sessions.length) {
+        await saveSessions(db, remaining);
       }
     }
   }
@@ -255,30 +184,12 @@ authApp.post('/logout', async (c) => {
 
 // ==================== GET /api/sessions ====================
 
-/**
- * 返回安全 sessions 列表（不带 token）。
- *
- * 需要 cookie 鉴权。
- */
 authApp.get('/sessions', async (c) => {
-  const env = c.env;
   const request = c.req.raw;
+  const db = createDb(c.env.DB);
 
-  // v0Auth 中间件已鉴权（API Key 优先，回退 Cookie），此处直接使用
-  // 如果鉴权失败，v0Auth 已返回 401，不会走到这里
-
-  const record = await env.DB.prepare(
-    "SELECT value FROM settings WHERE key = 'active_session_token'",
-  ).first<{ value: string }>();
-  let sessions: SessionEntry[] = [];
-  if (record && record.value) {
-    try {
-      const parsed = JSON.parse(record.value);
-      if (Array.isArray(parsed)) sessions = parsed;
-    } catch {
-      // 静默
-    }
-  }
+  // v0Auth 中间件已鉴权，此处直接使用
+  const sessions = await loadSessions(db);
   const clientUA = request.headers.get('User-Agent') || '';
   const safeSessions = sessions.map((s) => ({
     ua: s.ua,
@@ -292,18 +203,9 @@ authApp.get('/sessions', async (c) => {
 
 // ==================== POST /api/session-action ====================
 
-/**
- * 会话操作：DELETE（踢指定 UA）/ DELETE_ALL（踢全部）。
- *
- *
- * 需要 cookie 鉴权。
- */
 authApp.post('/session-action', async (c) => {
-  const env = c.env;
   const request = c.req.raw;
-
-  // v0Auth 中间件已鉴权（API Key 优先，回退 Cookie），此处直接使用
-  // 如果鉴权失败，v0Auth 已返回 401，不会走到这里
+  const db = createDb(c.env.DB);
 
   // 解析 body
   let sessionParsedBody: { action?: string; ua?: string };
@@ -320,21 +222,8 @@ authApp.post('/session-action', async (c) => {
     return apiError('DELETE 操作需要 ua 参数', 400);
   }
 
-  // 读取 sessions
-  const record = await env.DB.prepare(
-    "SELECT value FROM settings WHERE key = 'active_session_token'",
-  ).first<{ value: string }>();
-  let sessions: SessionEntry[] = [];
-  if (record && record.value) {
-    try {
-      const parsed = JSON.parse(record.value);
-      if (Array.isArray(parsed)) sessions = parsed;
-    } catch {
-      // 静默
-    }
-  }
-
-  // 执行删除
+  // 读取 sessions + 执行删除
+  let sessions = await loadSessions(db);
   if (action === 'DELETE' && ua) {
     sessions = sessions.filter((s) => s.ua !== ua);
   } else if (action === 'DELETE_ALL') {
@@ -342,61 +231,35 @@ authApp.post('/session-action', async (c) => {
   }
 
   // 写回 sessions
-  if (sessions.length > 0) {
-    await env.DB.prepare(
-      "INSERT OR REPLACE INTO settings (key, value) VALUES ('active_session_token', ?)",
-    )
-      .bind(JSON.stringify(sessions))
-      .run();
-  } else {
-    await env.DB.prepare("DELETE FROM settings WHERE key = 'active_session_token'").run();
-  }
+  await saveSessions(db, sessions);
 
+  // 同步清理 app_settings 里的 per-UA 数组
   if (action === 'DELETE' || action === 'DELETE_ALL') {
     try {
-      const appSettingsRecord = await env.DB.prepare(
-        "SELECT value FROM settings WHERE key = 'app_settings'",
-      ).first<{ value: string }>();
-      if (appSettingsRecord && appSettingsRecord.value) {
-        const appSettingsObj = JSON.parse(appSettingsRecord.value) as Record<string, unknown>;
-        const remainingUAs = sessions.map((s) => s.ua);
-        let changed = false;
+      const appSettingsObj = await getAppSettings(db);
+      const remainingUAs = sessions.map((s) => s.ua);
+      let changed = false;
 
-        if (Array.isArray(appSettingsObj.scaleByBrowser)) {
-          if (action === 'DELETE_ALL') {
-            appSettingsObj.scaleByBrowser = [];
-          } else {
-            appSettingsObj.scaleByBrowser = (
-              appSettingsObj.scaleByBrowser as Array<{ ua: string }>
-            ).filter((item) => remainingUAs.includes(item.ua));
-          }
-          changed = true;
-        }
-        if (Array.isArray(appSettingsObj.fontSizeByBrowser)) {
-          if (action === 'DELETE_ALL') {
-            appSettingsObj.fontSizeByBrowser = [];
-          } else {
-            appSettingsObj.fontSizeByBrowser = (
-              appSettingsObj.fontSizeByBrowser as Array<{ ua: string }>
-            ).filter((item) => remainingUAs.includes(item.ua));
-          }
-          changed = true;
-        }
-        if (Array.isArray(appSettingsObj.displayScaleByBrowser)) {
-          if (action === 'DELETE_ALL') {
-            appSettingsObj.displayScaleByBrowser = [];
-          } else {
-            appSettingsObj.displayScaleByBrowser = (
-              appSettingsObj.displayScaleByBrowser as Array<{ ua: string }>
-            ).filter((item) => remainingUAs.includes(item.ua));
-          }
-          changed = true;
-        }
-        if (changed) {
-          await env.DB.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('app_settings', ?)")
-            .bind(JSON.stringify(appSettingsObj))
-            .run();
-        }
+      if (Array.isArray(appSettingsObj.scaleByBrowser)) {
+        appSettingsObj.scaleByBrowser = action === 'DELETE_ALL'
+          ? []
+          : (appSettingsObj.scaleByBrowser as Array<{ ua: string }>).filter((item) => remainingUAs.includes(item.ua));
+        changed = true;
+      }
+      if (Array.isArray(appSettingsObj.fontSizeByBrowser)) {
+        appSettingsObj.fontSizeByBrowser = action === 'DELETE_ALL'
+          ? []
+          : (appSettingsObj.fontSizeByBrowser as Array<{ ua: string }>).filter((item) => remainingUAs.includes(item.ua));
+        changed = true;
+      }
+      if (Array.isArray(appSettingsObj.displayScaleByBrowser)) {
+        appSettingsObj.displayScaleByBrowser = action === 'DELETE_ALL'
+          ? []
+          : (appSettingsObj.displayScaleByBrowser as Array<{ ua: string }>).filter((item) => remainingUAs.includes(item.ua));
+        changed = true;
+      }
+      if (changed) {
+        await setAppSettings(db, appSettingsObj);
       }
     } catch {
       // 静默
