@@ -3,7 +3,7 @@
  * 与多模式配置的正确性。完整集成测试需要 wrangler dev + miniflare。
  */
 import { describe, it, expect } from 'vitest';
-import { normalizeConfig } from '../../src/services/reminder-service';
+import { normalizeConfig, parseWeeklyDays, getLocalIsoWeekday } from '../../src/services/reminder-service';
 import { validatePayload } from '../../src/services/resend';
 
 describe('normalizeConfig', () => {
@@ -20,6 +20,10 @@ describe('normalizeConfig', () => {
     expect(cfg.daily_include_search).toBe('off');
     expect(cfg.priority_enabled).toBe(false);
     expect(cfg.priority_min_level).toBe('high');
+    // 新增字段默认值
+    expect(cfg.skip_if_no_todos).toBe(false);
+    expect(Array.isArray(cfg.weekly_days)).toBe(true);
+    expect(cfg.weekly_days).toEqual([]);
   });
 
   it('clamps timed_lead_minutes to [1, 1440] range', () => {
@@ -96,6 +100,117 @@ describe('normalizeConfig', () => {
     expect(cfg).not.toHaveProperty('priority_time');
     expect(cfg).not.toHaveProperty('hot_search_time');
     expect(cfg).not.toHaveProperty('hot_search_enabled');
+  });
+
+  it('skip_if_no_todos: only true when explicitly true', () => {
+    expect(normalizeConfig({ skip_if_no_todos: true }).skip_if_no_todos).toBe(true);
+    expect(normalizeConfig({ skip_if_no_todos: false }).skip_if_no_todos).toBe(false);
+    expect(normalizeConfig({ skip_if_no_todos: 'true' }).skip_if_no_todos).toBe(false);
+    expect(normalizeConfig({ skip_if_no_todos: 1 }).skip_if_no_todos).toBe(false);
+    expect(normalizeConfig({}).skip_if_no_todos).toBe(false);
+    expect(normalizeConfig(null).skip_if_no_todos).toBe(false);
+  });
+
+  it('weekly_days: roundtrips valid array through normalizeConfig', () => {
+    expect(normalizeConfig({ weekly_days: [1, 3, 5] }).weekly_days).toEqual([1, 3, 5]);
+    // 周日 = 7
+    expect(normalizeConfig({ weekly_days: [6, 7] }).weekly_days).toEqual([6, 7]);
+    // 全部 7 天
+    expect(normalizeConfig({ weekly_days: [1, 2, 3, 4, 5, 6, 7] }).weekly_days).toEqual([1, 2, 3, 4, 5, 6, 7]);
+  });
+
+  it('weekly_days: defaults to empty array when missing or wrong type', () => {
+    expect(normalizeConfig({}).weekly_days).toEqual([]);
+    expect(normalizeConfig(null).weekly_days).toEqual([]);
+    expect(normalizeConfig({ weekly_days: null }).weekly_days).toEqual([]);
+    expect(normalizeConfig({ weekly_days: 'abc' }).weekly_days).toEqual([]);
+    expect(normalizeConfig({ weekly_days: 42 }).weekly_days).toEqual([]);
+    expect(normalizeConfig({ weekly_days: {} }).weekly_days).toEqual([]);
+  });
+});
+
+describe('parseWeeklyDays', () => {
+  it('accepts a valid array of 1..7', () => {
+    expect(parseWeeklyDays([1, 2, 3])).toEqual([1, 2, 3]);
+    expect(parseWeeklyDays([7, 6, 5])).toEqual([5, 6, 7]); // 排序
+  });
+
+  it('deduplicates repeated entries', () => {
+    expect(parseWeeklyDays([1, 1, 2, 2, 3])).toEqual([1, 2, 3]);
+    expect(parseWeeklyDays([7, 7, 7])).toEqual([7]);
+  });
+
+  it('drops out-of-range values (0, 8, negative)', () => {
+    expect(parseWeeklyDays([0, 1, 8, -1, 4])).toEqual([1, 4]);
+    expect(parseWeeklyDays([0, 8, 100])).toEqual([]);
+  });
+
+  it('drops non-numeric / NaN entries', () => {
+    expect(parseWeeklyDays([1, 'abc', null, undefined, {}, 3])).toEqual([1, 3]);
+    expect(parseWeeklyDays(['abc', null, undefined, {}])).toEqual([]);
+  });
+
+  it('accepts numeric strings', () => {
+    expect(parseWeeklyDays(['1', '3', '5'])).toEqual([1, 3, 5]);
+  });
+
+  it('accepts comma-separated string (incl. Chinese comma and whitespace)', () => {
+    expect(parseWeeklyDays('1,3,5')).toEqual([1, 3, 5]);
+    expect(parseWeeklyDays('1，3，5')).toEqual([1, 3, 5]);
+    expect(parseWeeklyDays('1 3 5')).toEqual([1, 3, 5]);
+    expect(parseWeeklyDays('  2 , 4 , 6  ')).toEqual([2, 4, 6]);
+  });
+
+  it('empty / whitespace string returns empty array', () => {
+    expect(parseWeeklyDays('')).toEqual([]);
+    expect(parseWeeklyDays('   ')).toEqual([]);
+    expect(parseWeeklyDays(',')).toEqual([]);
+  });
+
+  it('truncates float values to integer', () => {
+    expect(parseWeeklyDays([1.9, 3.1, 5.5])).toEqual([1, 3, 5]);
+  });
+
+  it('accepts Set input', () => {
+    expect(parseWeeklyDays(new Set([2, 4, 6]))).toEqual([2, 4, 6]);
+    expect(parseWeeklyDays(new Set([1, 1, 2, 2]))).toEqual([1, 2]);
+  });
+
+  it('returns empty array for non-array / non-string / non-Set input', () => {
+    expect(parseWeeklyDays(42)).toEqual([]);
+    expect(parseWeeklyDays(true)).toEqual([]);
+    expect(parseWeeklyDays({})).toEqual([]);
+    expect(parseWeeklyDays(undefined)).toEqual([]);
+    expect(parseWeeklyDays(null)).toEqual([]);
+  });
+});
+
+describe('getLocalIsoWeekday', () => {
+  // localNow 是 tzOffsetMs 位移后的 Date，用 UTC getter 读年月日 / 周几
+  it('returns 1 for Monday (2024-01-01, UTC)', () => {
+    const monday = new Date(Date.UTC(2024, 0, 1, 0, 0, 0));
+    expect(getLocalIsoWeekday(monday)).toBe(1);
+  });
+
+  it('returns 7 for Sunday (2024-01-07, UTC)', () => {
+    const sunday = new Date(Date.UTC(2024, 0, 7, 0, 0, 0));
+    expect(getLocalIsoWeekday(sunday)).toBe(7);
+  });
+
+  it('returns 5 for Friday (2024-01-05, UTC)', () => {
+    const friday = new Date(Date.UTC(2024, 0, 5, 0, 0, 0));
+    expect(getLocalIsoWeekday(friday)).toBe(5);
+  });
+
+  it('returns 6 for Saturday (2024-01-06, UTC)', () => {
+    const saturday = new Date(Date.UTC(2024, 0, 6, 12, 30, 0));
+    expect(getLocalIsoWeekday(saturday)).toBe(6);
+  });
+
+  it('handles mid-week correctly (Tuesday=2, Wednesday=3, Thursday=4)', () => {
+    expect(getLocalIsoWeekday(new Date(Date.UTC(2024, 0, 2)))).toBe(2);
+    expect(getLocalIsoWeekday(new Date(Date.UTC(2024, 0, 3)))).toBe(3);
+    expect(getLocalIsoWeekday(new Date(Date.UTC(2024, 0, 4)))).toBe(4);
   });
 });
 

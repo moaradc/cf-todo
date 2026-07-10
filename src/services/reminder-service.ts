@@ -14,7 +14,7 @@
  * 时区：用 tzOffsetMs 把「现在」位移到目标时区后用 UTC getter 读取年月日。
  */
 
-import { and, eq, inArray } from 'drizzle-orm';
+import { and, eq, inArray, count } from 'drizzle-orm';
 import type { Env } from '../env';
 import { createDb, createReadDb } from '../db/client';
 import type { Db } from '../db/client';
@@ -49,6 +49,10 @@ export interface ReminderConfig {
   // 时间跳过（hh:mm 格式，空表示不跳过；同时设置时在该时段内不发邮件）
   skip_start: string;
   skip_end: string;
+  // 无待办时跳过：true 时若今日 todos 表无任何未删除记录则不发邮件
+  skip_if_no_todos: boolean;
+  // 提醒日（ISO 周几，1=周一..7=周日）；空数组表示不限制（每天都可发）
+  weekly_days: number[];
 }
 
 interface ReminderState {
@@ -120,6 +124,8 @@ const DEFAULT_CONFIG: ReminderConfig = {
   priority_min_level: 'high',
   skip_start: '',
   skip_end: '',
+  skip_if_no_todos: false,
+  weekly_days: [],
 };
 
 function clamp(v: unknown, min: number, max: number, fallback: number): number {
@@ -145,6 +151,46 @@ function parseHHMM(v: unknown): string {
   const mm = parseInt(m[2], 10);
   if (h < 0 || h > 23 || mm < 0 || mm > 59) return '';
   return `${String(h).padStart(2, '0')}:${String(mm).padStart(2, '0')}`;
+}
+
+/**
+ * 解析 weekly_days：接收数组 / 逗号分隔字符串 / Set，输出严格 1..7 的去重升序数组。
+ * 任何非法元素被丢弃，全部非法时返回空数组（=不限制）。
+ */
+export function parseWeeklyDays(v: unknown): number[] {
+  let arr: unknown[] | null = null;
+  if (Array.isArray(v)) arr = v;
+  else if (typeof v === 'string') {
+    // 容忍 "1,3,5" / "1 3 5" / "1，3，5"（中文逗号）等格式
+    const parts = v.split(/[,，\s]+/).map((s) => s.trim()).filter(Boolean);
+    if (parts.length === 0) return [];
+    arr = parts;
+  } else if (v instanceof Set) arr = Array.from(v);
+
+  if (!arr) return [];
+
+  const seen = new Set<number>();
+  for (const item of arr) {
+    let n: number;
+    if (typeof item === 'number') n = item;
+    else if (typeof item === 'string') n = parseInt(item, 10);
+    else continue;
+    if (!Number.isFinite(n)) continue;
+    n = Math.trunc(n);
+    if (n < 1 || n > 7) continue;
+    seen.add(n);
+  }
+  return Array.from(seen).sort((a, b) => a - b);
+}
+
+/**
+ * 取目标时区壁钟日期对应的 ISO 周几：1=周一..7=周日。
+ * 输入的 Date 应为 tzOffsetMs 位移后的「本地」Date（用 UTC getter 读取）。
+ */
+export function getLocalIsoWeekday(localNow: Date): number {
+  // JS getUTCDay: 0=Sunday..6=Saturday → ISO 1=Monday..7=Sunday
+  const jsDay = localNow.getUTCDay();
+  return jsDay === 0 ? 7 : jsDay;
 }
 
 export function normalizeConfig(input: unknown): ReminderConfig {
@@ -176,6 +222,8 @@ export function normalizeConfig(input: unknown): ReminderConfig {
     priority_min_level: parsePriorityLevel(r.priority_min_level),
     skip_start: parseHHMM(r.skip_start),
     skip_end: parseHHMM(r.skip_end),
+    skip_if_no_todos: r.skip_if_no_todos === true,
+    weekly_days: parseWeeklyDays(r.weekly_days),
   };
 }
 
@@ -254,6 +302,24 @@ function isInSkipWindow(localNow: Date, skipStart: string, skipEnd: string): boo
 }
 
 // ==================== 查询 ====================
+
+/**
+ * 统计今日未删除的待办总数（用于 skip_if_no_todos 早退判断）。
+ * 仅做 count(*)，不读业务字段，开销 ~5-10ms。
+ */
+async function countTodayTodos(db: Db, todayStr: string): Promise<number> {
+  try {
+    const row = await db
+      .select({ c: count() })
+      .from(todos)
+      .where(and(eq(todos.date, todayStr), eq(todos.deleted, 0)))
+      .get();
+    return row?.c ?? 0;
+  } catch {
+    // 容错：查询失败时不阻塞后续流程，按「有待办」处理（避免误跳过）
+    return 1;
+  }
+}
 
 async function fetchTodayTodos(
   db: Db,
@@ -533,9 +599,25 @@ export async function runScheduledReminders(env: Env): Promise<ReminderRunResult
   const localNow = new Date(nowUtcMs + tzOffsetMs);
   const todayStr = getLocalDateStr(localNow);
 
+  // 提醒日过滤：空数组 = 不限制；非空 = 仅在指定 ISO 周几（1..7）发送
+  if (cfg.weekly_days.length > 0) {
+    const isoDay = getLocalIsoWeekday(localNow);
+    if (!cfg.weekly_days.includes(isoDay)) {
+      return { skipped: true, reason: `weekly_day ${isoDay} not in [${cfg.weekly_days.join(',')}]`, sent: 0, failed: 0, modes: [] };
+    }
+  }
+
   // 时间跳过：在跳过时段内不发送任何邮件
   if (isInSkipWindow(localNow, cfg.skip_start, cfg.skip_end)) {
     return { skipped: true, reason: `skip_window ${cfg.skip_start}-${cfg.skip_end}`, sent: 0, failed: 0, modes: [] };
+  }
+
+  // 无待办时跳过：仅做一次 count(*) 早退，避免后续 3 次模式查询
+  if (cfg.skip_if_no_todos) {
+    const todayCount = await countTodayTodos(db, todayStr);
+    if (todayCount === 0) {
+      return { skipped: true, reason: 'no_todos_today', sent: 0, failed: 0, modes: [] };
+    }
   }
 
   const state = await getState(db);
