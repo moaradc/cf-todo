@@ -243,6 +243,11 @@ export class ReminderDO extends DurableObject<Env> {
    *     避免 6 次重试耗尽
    *   - 单个事件发送失败不阻塞其他事件；事件仍从 storage 清除（幂等键兜底重发）
    *   - 配置关闭 / 在 skip 窗口内 / 缺凭证 → 事件仍清除（不重试，避免死循环）
+   *
+   * 死事件自检：
+   *   alarm 触发说明 DO 仍可执行。处理完 due 事件后，顺手扫描残留的
+   *   runAt <= now 死事件并清理（理论上 due 已覆盖，但防御性兜底）。
+   *   这样不需要额外 Cron，每次 alarm 都顺便 GC 一次。
    */
   async alarm(): Promise<void> {
     try {
@@ -250,15 +255,21 @@ export class ReminderDO extends DurableObject<Env> {
       const events = await this.ctx.storage.list<PreciseEvent>({ prefix: 'event:' });
 
       const due: PreciseEvent[] = [];
+      const deadKeys: string[] = []; // 防御性兜底：理论上 due 已覆盖所有 runAt <= now
       let nextAlarm: number | null = null;
 
       for (const [key, event] of events) {
         if (event.runAt <= now) {
           due.push(event);
-          await this.ctx.storage.delete(key);
+          deadKeys.push(key); // 收集后批量删，减少 storage 调用
         } else if (nextAlarm === null || event.runAt < nextAlarm) {
           nextAlarm = event.runAt;
         }
+      }
+
+      // 批量删除到期/死事件
+      if (deadKeys.length > 0) {
+        await this.ctx.storage.delete(deadKeys);
       }
 
       if (due.length > 0) {
