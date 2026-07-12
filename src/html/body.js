@@ -499,6 +499,35 @@ export function getBody(isAuthorized) {
                 </div>
               </div>
             </div>
+
+            <div class="reminder-mode-block">
+              <div class="reminder-mode-head">
+                <span class="reminder-mode-title">精确到分钟</span>
+                <div class="switch-label" onclick="toggleReminderMode('precise')" style="margin-bottom: 0;">
+                    <div class="switch-box" id="reminder-precise-box"></div>
+                </div>
+              </div>
+              <div class="reminder-mode-desc">单条待办到点单独发邮件（DO Alarm，与下方 digest 模式独立）</div>
+              <div class="reminder-mode-opts">
+                <div class="reminder-opt-row">
+                  <span class="reminder-opt-label">提前量</span>
+                  <div class="fake-input" onclick="openReminderPreciseLeadPicker()" style="margin-bottom: 0; padding: 6px 12px; justify-content: space-between; border-radius: 4px;">
+                      <span id="set-disp-reminderPreciseLead">15 分</span>
+                      <span style="font-size:0.75rem; margin-left: 8px; color:#888;">▼</span>
+                  </div>
+                </div>
+                <div class="reminder-opt-row" style="margin-top: 8px;">
+                  <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+                    <span style="font-size:0.7rem; color:#888; line-height: 1.5;">
+                      <strong style="color:#c2410c;">手动清理</strong> DO 残留事件
+                    </span>
+                    <span class="reminder-pill" style="font-size:0.7rem; padding:2px 10px;" onclick="executePreciseCleanup('past')">清理过期</span>
+                    <span class="reminder-pill" style="font-size:0.7rem; padding:2px 10px;" onclick="executePreciseCleanup('all')">清空全部</span>
+                  </div>
+                </div>
+              </div>
+              <div id="precise-cleanup-status" style="font-size:0.7rem; color:#888; margin: 6px 14px 0 14px; min-height:0;"></div>
+            </div>
           </div>
 
           <div style="border-top: 1px dashed #333; margin: 10px 0; padding-top: 10px;">
@@ -578,40 +607,6 @@ export function getBody(isAuthorized) {
                   </div>
                 </div>
               </div>
-            </div>
-          </div>
-
-          <div style="border-top: 1px dashed #333; margin: 10px 0; padding-top: 10px;">
-            <div class="detail-label">精确提醒（DO Alarm）<span style="font-size:0.65rem; color:#888; margin-left:6px;">与上方 digest 独立</span></div>
-
-            <div class="reminder-mode-block">
-              <div class="reminder-mode-head">
-                <span class="reminder-mode-title">精确到分钟</span>
-                <div class="switch-label" onclick="toggleReminderMode('precise')" style="margin-bottom: 0;">
-                    <div class="switch-box" id="reminder-precise-box"></div>
-                </div>
-              </div>
-              <div class="reminder-mode-desc">单条待办到点单独发邮件，每条独立（不合并 digest）</div>
-              <div class="reminder-mode-opts">
-                <div class="reminder-opt-row">
-                  <span class="reminder-opt-label">提前量</span>
-                  <div class="fake-input" onclick="openReminderPreciseLeadPicker()" style="margin-bottom: 0; padding: 6px 12px; justify-content: space-between; border-radius: 4px;">
-                      <span id="set-disp-reminderPreciseLead">15 分</span>
-                      <span style="font-size:0.75rem; margin-left: 8px; color:#888;">▼</span>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            <div style="border: 1px dashed #5a3a3a; margin: 14px 0 4px 0; padding: 10px 12px; border-radius: 4px;">
-              <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-bottom: 6px;">
-                <span style="font-size:0.7rem; color:#888; line-height: 1.5;">
-                  <strong style="color:#c2410c;">手动清理</strong> DO 残留事件
-                </span>
-                <span class="reminder-pill" style="font-size:0.7rem; padding:2px 10px;" onclick="executePreciseCleanup('past')">清理过期</span>
-                <span class="reminder-pill" style="font-size:0.7rem; padding:2px 10px;" onclick="executePreciseCleanup('all')">清空全部</span>
-              </div>
-              <div id="precise-cleanup-status" style="font-size:0.7rem; color:#888; min-height:0;"></div>
             </div>
           </div>
 
