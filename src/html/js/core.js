@@ -845,6 +845,9 @@ export const core = `
       skip_start: '', skip_end: '',
       skip_if_no_todos: false,
       weekly_days: [],
+      // 精确提醒（DO Alarm），与 digest 完全独立
+      precise_enabled: false,
+      precise_lead_minutes: 15,
     };
     let tempReminderLead = 15;
     let tempReminderTz = 480;
@@ -854,6 +857,7 @@ export const core = `
     let tempReminderSkipEnd = '';
     let tempReminderSkipIfNoTodos = false;
     let tempReminderWeeklyDays = [];
+    let tempReminderPreciseLead = 15;
 
     function _reminderTzLabel(offset) {
       var sign = offset >= 0 ? '+' : '-';
@@ -894,6 +898,11 @@ export const core = `
       openTimePicker('edit', 'reminderLead');
     }
 
+    // 复用时间选择模态框选精确提醒提前量
+    function openReminderPreciseLeadPicker() {
+      openTimePicker('edit', 'preciseLead');
+    }
+
     // 复用时间选择模态框选跳过时段起止
     function openReminderSkipPicker(which) {
       openTimePicker('edit', which === 'start' ? 'skipStart' : 'skipEnd');
@@ -922,6 +931,9 @@ export const core = `
           skip_end: data.skip_end || '',
           skip_if_no_todos: !!data.skip_if_no_todos,
           weekly_days: _normalizeWeeklyDays(data.weekly_days),
+          // 精确提醒字段
+          precise_enabled: !!data.precise_enabled,
+          precise_lead_minutes: Number.isFinite(data.precise_lead_minutes) ? data.precise_lead_minutes : 15,
         };
         tempReminderLead = reminderConfig.timed_lead_minutes;
         tempReminderTz = reminderConfig.timezone_offset;
@@ -931,6 +943,7 @@ export const core = `
         tempReminderSkipEnd = reminderConfig.skip_end;
         tempReminderSkipIfNoTodos = reminderConfig.skip_if_no_todos;
         tempReminderWeeklyDays = reminderConfig.weekly_days.slice();
+        tempReminderPreciseLead = reminderConfig.precise_lead_minutes;
         _saveReminderSnapshot();
       } catch (e) {
         console.error('Load reminder config error:', e);
@@ -951,6 +964,7 @@ export const core = `
         skipE: tempReminderSkipEnd,
         skipEmpty: tempReminderSkipIfNoTodos,
         weekly: tempReminderWeeklyDays.slice(),
+        preciseLead: tempReminderPreciseLead,
       };
     }
     // 关闭设置页时重置未保存的修改
@@ -965,6 +979,7 @@ export const core = `
       tempReminderSkipEnd = _savedReminderSnapshot.skipE;
       tempReminderSkipIfNoTodos = _savedReminderSnapshot.skipEmpty;
       tempReminderWeeklyDays = _savedReminderSnapshot.weekly.slice();
+      tempReminderPreciseLead = _savedReminderSnapshot.preciseLead;
       renderReminderConfig();
     }
 
@@ -1014,6 +1029,9 @@ export const core = `
         if (pill) pill.classList.toggle('active', tempReminderWeeklyDays.indexOf(d) >= 0);
       }
       if (el('set-disp-reminderWeekly')) el('set-disp-reminderWeekly').innerText = _weeklyDaysLabel(tempReminderWeeklyDays);
+      // 精确提醒（DO Alarm）
+      if (el('reminder-precise-box')) el('reminder-precise-box').classList.toggle('checked', reminderConfig.precise_enabled);
+      if (el('set-disp-reminderPreciseLead')) el('set-disp-reminderPreciseLead').innerText = _leadLabel(tempReminderPreciseLead);
     }
 
     // 今日汇总多选：两个都取消→关闭，至少一个选中→开启
@@ -1099,6 +1117,7 @@ export const core = `
       reminderConfig.skip_end = tempReminderSkipEnd;
       reminderConfig.skip_if_no_todos = tempReminderSkipIfNoTodos;
       reminderConfig.weekly_days = tempReminderWeeklyDays.slice();
+      reminderConfig.precise_lead_minutes = tempReminderPreciseLead;
       if (!reminderConfig.app_url) reminderConfig.app_url = window.location.origin + '/';
     }
 
@@ -1132,6 +1151,7 @@ export const core = `
             tempReminderSkipStart = reminderConfig.skip_start;
             tempReminderSkipEnd = reminderConfig.skip_end;
             tempReminderSkipIfNoTodos = !!reminderConfig.skip_if_no_todos;
+            tempReminderPreciseLead = reminderConfig.precise_lead_minutes;
             tempReminderWeeklyDays = reminderConfig.weekly_days.slice();
             _saveReminderSnapshot();
             renderReminderConfig();
@@ -1172,6 +1192,7 @@ export const core = `
           });
           tempReminderSkipIfNoTodos = !!reminderConfig.skip_if_no_todos;
           tempReminderWeeklyDays = reminderConfig.weekly_days.slice();
+          tempReminderPreciseLead = reminderConfig.precise_lead_minutes;
           renderReminderConfig();
         }
         var testRes = await fetch('/api/reminder/test', { method: 'POST' });

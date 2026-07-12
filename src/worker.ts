@@ -1,14 +1,16 @@
 /**
- * cf-todo Worker 入口 —— 纯 Hono app（1.0 纯净状态）
+ * cf-todo Worker 入口 —— 纯 Hono app + DO Alarm 精确提醒
  *
  * 架构：
  *   request → 迁移就绪检查 → 路由匹配
  *     ├ /api/v1/*  → v1App（V1 RESTful API）
- *     ├ /api/*     → v0App（V0 Web API）
+ *     ├ /api/*     → v0App（V0 Web API，含 /api/reminder/precise/* DO 调度路由）
  *     ├ /          → staticApp（manifest / sw / SPA fallback）
  *     └ *          → 404
  *
- * 技术栈：TypeScript + Hono + Drizzle ORM
+ * Cron digest（每 4 小时）与 DO Alarm 精确提醒（单条到点）并行独立运行。
+ *
+ * 技术栈：TypeScript + Hono + Drizzle ORM + Durable Objects
  */
 
 import { Hono } from 'hono';
@@ -20,6 +22,17 @@ import { v0App } from './routes/v0';
 import { v1App } from './routes/v1';
 import { staticApp } from './routes/v0/static';
 import { runScheduledReminders } from './services/reminder-service';
+import { ReminderDO } from './do/reminder-do';
+
+/**
+ * Durable Object 类必须从 Worker 入口 re-export，CF 平台才能实例化。
+ * wrangler.toml 中 [[durable_objects.bindings]] class_name = "ReminderDO" 引用此类。
+ *
+ * 注意：esbuild 会 tree-shake 未使用的 class 导出。这里通过 globalThis 赋值的
+ * side-effect 强制保留 ReminderDO 在 bundle 中，确保 `export { ReminderDO }` 生效。
+ */
+;(globalThis as unknown as { __ReminderDO?: unknown }).__ReminderDO = ReminderDO;
+export { ReminderDO };
 
 /** Hono app 类型。 */
 export type AppEnv = {

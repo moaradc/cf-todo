@@ -581,6 +581,29 @@ export function getBody(isAuthorized) {
             </div>
           </div>
 
+          <div style="border-top: 1px dashed #333; margin: 10px 0; padding-top: 10px;">
+            <div class="detail-label">精确提醒（DO Alarm）<span style="font-size:0.65rem; color:#888; margin-left:6px;">与上方 digest 独立</span></div>
+
+            <div class="reminder-mode-block">
+              <div class="reminder-mode-head">
+                <span class="reminder-mode-title">精确到分钟</span>
+                <div class="switch-label" onclick="toggleReminderMode('precise')" style="margin-bottom: 0;">
+                    <div class="switch-box" id="reminder-precise-box"></div>
+                </div>
+              </div>
+              <div class="reminder-mode-desc">单条待办到点单独发邮件，每条独立（不合并 digest）</div>
+              <div class="reminder-mode-opts">
+                <div class="reminder-opt-row">
+                  <span class="reminder-opt-label">提前量</span>
+                  <div class="fake-input" onclick="openReminderPreciseLeadPicker()" style="margin-bottom: 0; padding: 6px 12px; justify-content: space-between; border-radius: 4px;">
+                      <span id="set-disp-reminderPreciseLead">15 分</span>
+                      <span style="font-size:0.75rem; margin-left: 8px; color:#888;">▼</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
           <div class="row" style="margin-bottom: 10px;">
               <button class="flex-1" onclick="saveReminderConfig()">保存配置</button>
               <button id="reminder-test-btn" class="flex-1" onclick="sendTestReminder()">连通测试</button>

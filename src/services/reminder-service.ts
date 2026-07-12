@@ -38,6 +38,11 @@ export interface ReminderConfig {
   skip_if_no_todos: boolean;
   /** ISO 周几 1=周一..7=周日；空数组=不限制 */
   weekly_days: number[];
+  // —— 新增：精确提醒（DO Alarm），与 digest 完全并行独立 ——
+  /** 是否启用 DO Alarm 精确提醒（每条待办到点单独发邮件） */
+  precise_enabled: boolean;
+  /** 精确提醒提前量（分钟），1..1440，默认 15 */
+  precise_lead_minutes: number;
 }
 
 interface ReminderState {
@@ -107,6 +112,9 @@ const DEFAULT_CONFIG: ReminderConfig = {
   skip_end: '',
   skip_if_no_todos: false,
   weekly_days: [],
+  // 新增字段默认值：精确提醒默认关闭
+  precise_enabled: false,
+  precise_lead_minutes: DEFAULT_LEAD_MINUTES,
 };
 
 function clamp(v: unknown, min: number, max: number, fallback: number): number {
@@ -196,6 +204,9 @@ export function normalizeConfig(input: unknown): ReminderConfig {
     skip_end: parseHHMM(r.skip_end),
     skip_if_no_todos: r.skip_if_no_todos === true,
     weekly_days: parseWeeklyDays(r.weekly_days),
+    // 新增：精确提醒字段，旧 reminder_config 经 normalizeConfig 后默认 false / 15
+    precise_enabled: r.precise_enabled === true,
+    precise_lead_minutes: clamp(r.precise_lead_minutes, 1, 1440, DEFAULT_LEAD_MINUTES),
   };
 }
 
@@ -224,13 +235,15 @@ async function saveState(db: Db, state: ReminderState): Promise<void> {
 
 // ==================== 时间工具 ====================
 
-function pad2(n: number): string { return String(n).padStart(2, '0'); }
+/** 两位补零。导出供 DO 共享。 */
+export function pad2(n: number): string { return String(n).padStart(2, '0'); }
 
 function getLocalDateStr(d: Date): string {
   return `${d.getUTCFullYear()}-${pad2(d.getUTCMonth() + 1)}-${pad2(d.getUTCDate())}`;
 }
 
-function timezoneLabel(offsetMinutes: number): string {
+/** 时区标签（如 UTC+08:00）。导出供 DO 共享。 */
+export function timezoneLabel(offsetMinutes: number): string {
   const sign = offsetMinutes >= 0 ? '+' : '-';
   const abs = Math.abs(offsetMinutes);
   const h = Math.floor(abs / 60);
@@ -238,7 +251,12 @@ function timezoneLabel(offsetMinutes: number): string {
   return `UTC${sign}${pad2(h)}${m > 0 ? ':' + pad2(m) : ''}`;
 }
 
-function dueUtcMsFor(todoTime: string, localNow: Date, tzOffsetMs: number): number | null {
+/**
+ * 计算某日某时刻对应的 UTC 毫秒时间戳。
+ * localNow 是 tzOffsetMs 位移后的「本地」Date（用 UTC getter 读年月日）。
+ * 返回 UTC ms，或解析失败时 null。导出供 DO 计算 runAt 复用。
+ */
+export function dueUtcMsFor(todoTime: string, localNow: Date, tzOffsetMs: number): number | null {
   const [hh, mm] = todoTime.split(':').map(Number);
   if (!Number.isFinite(hh) || !Number.isFinite(mm)) return null;
   return Date.UTC(
@@ -257,8 +275,12 @@ function idemBucket(): number {
   return Math.floor(Date.now() / 15000);
 }
 
-/** 支持跨午夜（如 23:00-07:00） */
-function isInSkipWindow(localNow: Date, skipStart: string, skipEnd: string): boolean {
+/**
+ * 判断 localNow 是否在 skip 窗口内（支持跨午夜，如 23:00-07:00）。
+ * localNow 应为 tzOffsetMs 位移后的「本地」Date（用 UTC getter 读时分）。
+ * 导出供 DO 触发时共享时区跳过逻辑。
+ */
+export function isInSkipWindow(localNow: Date, skipStart: string, skipEnd: string): boolean {
   if (!skipStart || !skipEnd) return false;
   const [sh, sm] = skipStart.split(':').map(Number);
   const [eh, em] = skipEnd.split(':').map(Number);

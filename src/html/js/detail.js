@@ -805,6 +805,7 @@ export const detail = `
       if (titleEl) {
         if (target === 'end') titleEl.textContent = '选择结束时间';
         else if (target === 'reminderLead') titleEl.textContent = '选择扫描范围';
+        else if (target === 'preciseLead') titleEl.textContent = '选择精确提醒提前量';
         else if (target === 'skipStart') titleEl.textContent = '选择跳过起始时间';
         else if (target === 'skipEnd') titleEl.textContent = '选择跳过结束时间';
         else titleEl.textContent = '选择开始时间';
@@ -814,6 +815,9 @@ export const detail = `
       if (target === 'reminderLead') {
         timePickerHour = Math.floor(tempReminderLead / 60);
         timePickerMin = tempReminderLead % 60;
+      } else if (target === 'preciseLead') {
+        timePickerHour = Math.floor(tempReminderPreciseLead / 60);
+        timePickerMin = tempReminderPreciseLead % 60;
       } else if (target === 'skipStart' || target === 'skipEnd') {
         var skipVal = (target === 'skipStart') ? tempReminderSkipStart : tempReminderSkipEnd;
         if (skipVal) { const [h, m] = skipVal.split(':').map(Number); timePickerHour = h; timePickerMin = m; }
@@ -862,6 +866,15 @@ export const detail = `
         closeTimePicker();
         return;
       }
+      if (timePickerTarget === 'preciseLead') {
+        var pLead = timePickerHour * 60 + timePickerMin;
+        if (pLead < 1) pLead = 15;
+        if (pLead > 1440) pLead = 1440;
+        tempReminderPreciseLead = pLead;
+        renderReminderConfig();
+        closeTimePicker();
+        return;
+      }
       if (timePickerTarget === 'skipStart' || timePickerTarget === 'skipEnd') {
         if (timePickerTarget === 'skipStart') tempReminderSkipStart = selectedTime;
         else tempReminderSkipEnd = selectedTime;
@@ -889,6 +902,12 @@ export const detail = `
     function clearTime() {
       if (timePickerTarget === 'reminderLead') {
         tempReminderLead = 15;
+        renderReminderConfig();
+        closeTimePicker();
+        return;
+      }
+      if (timePickerTarget === 'preciseLead') {
+        tempReminderPreciseLead = 15;
         renderReminderConfig();
         closeTimePicker();
         return;

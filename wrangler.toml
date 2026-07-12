@@ -13,6 +13,16 @@ database_id = ""
 # 启用后配合代码里的 env.DB.withSession('first-primary') 路由读查询到就近副本。
 migrations_dir = "drizzle"
 
-# Cron 触发器：每 4 小时执行一次提醒扫描并发送邮件。
+# Cron 触发器：每 4 小时执行一次 digest 提醒扫描并发送邮件（保持不变）。
 [triggers]
 crons = ["0 */4 * * *"]
+
+# Durable Objects 绑定：精确提醒（与 Cron digest 并行）。
+# 单实例 DO（id='reminder'），用 SQLite 后端（new_sqlite_classes 是现代推荐）。
+[[durable_objects.bindings]]
+name = "REMINDER_DO"
+class_name = "ReminderDO"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["ReminderDO"]

@@ -69,7 +69,8 @@ function escapeHtml(s: string): string {
 
 function pad2(n: number): string { return String(n).padStart(2, '0'); }
 
-function formatRunTimestamp(d: Date): string {
+/** 格式化运行时间戳（YYYY-MM-DD HH:MM:SS，UTC 视角）。导出供 DO 共享。 */
+export function formatRunTimestamp(d: Date): string {
   return `${d.getUTCFullYear()}-${pad2(d.getUTCMonth() + 1)}-${pad2(d.getUTCDate())} ${pad2(d.getUTCHours())}:${pad2(d.getUTCMinutes())}:${pad2(d.getUTCSeconds())}`;
 }
 
