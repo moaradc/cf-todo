@@ -606,7 +606,7 @@ export function getBody(isAuthorized) {
             <div style="border: 1px dashed #5a3a3a; margin: 14px 0 4px 0; padding: 10px 12px; border-radius: 4px;">
               <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-bottom: 6px;">
                 <span style="font-size:0.7rem; color:#888; line-height: 1.5;">
-                  <strong style="color:#c2410c;">维护</strong> · 手动清理 DO 残留事件
+                  <strong style="color:#c2410c;">手动清理</strong> DO 残留事件
                 </span>
                 <span class="reminder-pill" style="font-size:0.7rem; padding:2px 10px;" onclick="executePreciseCleanup('past')">清理过期</span>
                 <span class="reminder-pill" style="font-size:0.7rem; padding:2px 10px;" onclick="executePreciseCleanup('all')">清空全部</span>
