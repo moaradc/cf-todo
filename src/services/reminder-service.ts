@@ -354,7 +354,8 @@ async function fetchTodayTodos(
 
 function dueTodoToItem(t: DueTodo): EmailItem {
   return {
-    text: t.text, time: t.time || undefined, priority: t.priority,
+    text: t.text, time: t.time || undefined, end_time: t.end_time || undefined,
+    priority: t.priority,
     desc: t.desc || undefined, url: t.url || undefined,
     categoryName: t.categoryName || undefined, categoryColor: t.categoryColor || undefined,
     done: t.done === 1,
