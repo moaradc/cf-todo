@@ -1390,13 +1390,11 @@ export const core = `
       if (!isBatchMode) {
         if (todo.url) {
           var linkBtn = document.createElement('a');
-          // 仅允许 http(s)/ftp 协议，阻断 javascript:/data: 等 XSS 向量
+          // 阻断 javascript:/vbscript:/data:/file:/about: 等 XSS 向量；允许 http(s)/ftp/mailto/tel/相对路径，
+          // 同时允许自定义 App Scheme（如 bing://、bilibili://、weixin://、tg:// 等深度链接）
           var safeUrl = String(todo.url).trim();
-          if (/^(https?:|ftp:|mailto:|tel:|\\/|\\.\\/|\\.\\.\\/|#)/i.test(safeUrl)) {
-            linkBtn.href = safeUrl;
-          } else {
-            linkBtn.href = '#';
-          }
+          var isDangerous = /^(javascript|vbscript|data|file|about):/i.test(safeUrl);
+          linkBtn.href = isDangerous ? '#' : safeUrl;
           linkBtn.target = '_blank';
           linkBtn.rel = 'noopener noreferrer';
           linkBtn.className = 'btn-link';
