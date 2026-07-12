@@ -345,12 +345,12 @@ export class ReminderDO extends DurableObject<Env> {
     });
   }
 
-  /** 将事件转为邮件 item。 */
+  /** 将事件转为邮件 item。同时携带 time 和 end_time，让卡片渲染完整时间范围。 */
   private eventToItem(ev: PreciseEvent): EmailItem {
-    const itemTime = ev.type === 'start' ? ev.time : ev.end_time;
     return {
       text: ev.text,
-      time: itemTime || undefined,
+      time: ev.time || undefined,
+      end_time: ev.end_time || undefined,
       priority: ev.priority,
       desc: ev.desc || undefined,
       url: ev.url || undefined,

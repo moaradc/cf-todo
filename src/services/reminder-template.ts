@@ -17,6 +17,8 @@
 export interface EmailItem {
   text: string;
   time?: string;
+  /** 结束时间（hh:mm）。若同时有 time，卡片渲染为 `time - end_time` 范围。 */
+  end_time?: string;
   priority?: string;
   desc?: string;
   url?: string;
@@ -69,6 +71,22 @@ function escapeHtml(s: string): string {
 
 function pad2(n: number): string { return String(n).padStart(2, '0'); }
 
+/**
+ * 格式化时间显示：
+ *   - 都有 → `14:23 - 15:50`
+ *   - 只有 time → `14:23`
+ *   - 只有 end_time → `15:50`
+ *   - 都没有 → 空串
+ */
+function formatTimeRange(time?: string, endTime?: string): string {
+  const t = time && /^\d{1,2}:\d{2}$/.test(time) ? time : '';
+  const e = endTime && /^\d{1,2}:\d{2}$/.test(endTime) ? endTime : '';
+  if (t && e) return `${t} - ${e}`;
+  if (t) return t;
+  if (e) return e;
+  return '';
+}
+
 /** 格式化运行时间戳（YYYY-MM-DD HH:MM:SS，UTC 视角）。导出供 DO 共享。 */
 export function formatRunTimestamp(d: Date): string {
   return `${d.getUTCFullYear()}-${pad2(d.getUTCMonth() + 1)}-${pad2(d.getUTCDate())} ${pad2(d.getUTCHours())}:${pad2(d.getUTCMinutes())}:${pad2(d.getUTCSeconds())}`;
@@ -107,13 +125,16 @@ function renderItemCard(item: EmailItem, index: number): string {
     : '';
   const catName = item.categoryName ? `<span style="color:${C.textMuted};font-size:11px;font-family:'Courier New',monospace;">${escapeHtml(item.categoryName)}</span>` : '';
 
+  // 时间范围：优先使用 time + end_time 拼接，回退到单 time
+  const timeRange = formatTimeRange(item.time, item.end_time);
+
   const num = String(index + 1).padStart(2, '0');
   return `<tr><td style="padding:0 0 12px 0;">
     <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:${C.paper};border:2px solid ${C.dark};box-shadow:3px 3px 0 ${C.dark};${item.done ? 'opacity:0.6;' : ''}">
       <!-- 黑色编号条 -->
       <tr><td style="background:${C.dark};padding:5px 14px;">
         <span style="font-family:'Courier New',monospace;font-size:12px;font-weight:700;color:${C.primaryLight};letter-spacing:0.15em;">${num}</span>
-        ${item.time ? `<span style="float:right;font-family:'Courier New',monospace;font-size:11px;color:rgba(255,255,255,0.4);letter-spacing:0.1em;">${escapeHtml(item.time)}</span>` : ''}
+        ${timeRange ? `<span style="float:right;font-family:'Courier New',monospace;font-size:11px;color:rgba(255,255,255,0.4);letter-spacing:0.1em;">${escapeHtml(timeRange)}</span>` : ''}
       </td></tr>
       <!-- 内容区 -->
       <tr><td style="padding:14px 16px;">
@@ -133,7 +154,8 @@ function renderItemCard(item: EmailItem, index: number): string {
 function renderListItem(item: EmailItem): string {
   const pColor = PRIORITY_TAG[item.priority ?? 'low']?.bg ?? C.textMuted;
   const doneMark = item.done ? '<span style="color:#65a30d;margin-right:6px;">&#x2713;</span>' : '';
-  const timeTag = item.time ? `<span style="color:${C.textMuted};font-size:11px;margin-right:8px;font-family:'Courier New',monospace;">${escapeHtml(item.time)}</span>` : '';
+  const timeRange = formatTimeRange(item.time, item.end_time);
+  const timeTag = timeRange ? `<span style="color:${C.textMuted};font-size:11px;margin-right:8px;font-family:'Courier New',monospace;">${escapeHtml(timeRange)}</span>` : '';
   return `<tr><td style="padding:7px 0;border-bottom:1px dashed ${C.dark}33;">
     <span style="display:inline-block;width:6px;height:6px;background:${pColor};margin-right:8px;vertical-align:middle;"></span>
     ${timeTag}${doneMark}<span style="font-size:14px;color:${C.dark};${item.done ? `text-decoration:line-through;color:${C.textMuted};` : ''}">${escapeHtml(item.text)}</span>
@@ -271,7 +293,8 @@ export function renderModeEmail(params: RenderEmailParams): { html: string; text
     } else {
       s.items.forEach((item, j) => {
         const bits = [`  [${String(j + 1).padStart(2, '0')}]`];
-        if (item.time) bits.push(item.time);
+        const timeRange = formatTimeRange(item.time, item.end_time);
+        if (timeRange) bits.push(timeRange);
         bits.push(item.text);
         if (item.done) bits.push('[DONE]');
         textParts.push(bits.join(' '));
