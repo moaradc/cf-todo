@@ -241,8 +241,6 @@ export const bootstrap = `
       saveReminderConfig: saveReminderConfig,
       sendTestReminder: sendTestReminder,
       // DO 事件清理（手动维护）
-      openPreciseCleanupConfirm: openPreciseCleanupConfirm,
-      closePreciseCleanupConfirm: closePreciseCleanupConfirm,
       executePreciseCleanup: executePreciseCleanup,
       onScaleSliderChange: onScaleSliderChange,
       setScalePreset: setScalePreset,
