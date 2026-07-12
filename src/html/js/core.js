@@ -1210,6 +1210,71 @@ export const core = `
       }
     }
 
+    // ==================== DO 事件清理（手动维护） ====================
+
+    var _preciseCleanupMode = null; // 'past' | 'all'
+
+    /**
+     * 打开清理确认模态框。
+     * @param mode 'past' = 清理过期事件；'all' = 清空全部事件
+     */
+    function openPreciseCleanupConfirm(mode) {
+      _preciseCleanupMode = mode;
+      var titleEl = document.getElementById('precise-cleanup-title');
+      var bodyEl = document.getElementById('precise-cleanup-body');
+      var btnEl = document.getElementById('precise-cleanup-confirm-btn');
+      if (!titleEl || !bodyEl || !btnEl) return;
+
+      if (mode === 'all') {
+        titleEl.textContent = '>> 确认清空全部事件';
+        bodyEl.innerHTML = '此操作将删除 DO 中<strong style="color:#dc2626;">所有</strong>精确提醒事件，包括尚未触发的有效提醒。<br><br>已调度但未到点的待办将不再收到提醒邮件。<br><br>仅在 DO 状态异常时使用，正常情况无需此操作。';
+        btnEl.textContent = '确认清空';
+        btnEl.style.color = '#dc2626';
+        btnEl.style.borderColor = '#dc2626';
+      } else {
+        titleEl.textContent = '>> 确认清理过期事件';
+        bodyEl.innerHTML = '此操作将删除 DO 中所有 <code style="background:#222; padding:1px 4px;">runAt &lt;= now</code> 的死事件。<br><br>未来事件不受影响。<br><br>通常无需手动操作——alarm 触发时会自动清理。仅在 alarm 失败 6 次后停止、或测试残留时使用。';
+        btnEl.textContent = '确认清理';
+        btnEl.style.color = '#c2410c';
+        btnEl.style.borderColor = '#c2410c';
+      }
+      document.getElementById('modal-precise-cleanup').classList.add('active');
+    }
+
+    function closePreciseCleanupConfirm() {
+      document.getElementById('modal-precise-cleanup').classList.remove('active');
+      _preciseCleanupMode = null;
+    }
+
+    async function executePreciseCleanup() {
+      var mode = _preciseCleanupMode;
+      if (!mode) return;
+      var statusEl = document.getElementById('precise-cleanup-status');
+      var btnEl = document.getElementById('precise-cleanup-confirm-btn');
+      if (btnEl) { btnEl.disabled = true; btnEl.textContent = '执行中...'; }
+      if (statusEl) statusEl.textContent = '执行中...';
+      closePreciseCleanupConfirm();
+
+      try {
+        var endpoint = mode === 'all' ? '/api/reminder/precise/clear-all' : '/api/reminder/precise/clear-past';
+        var res = await fetch(endpoint, { method: 'POST' });
+        var data = await res.json();
+        if (res.ok && data.success) {
+          if (mode === 'all') {
+            if (statusEl) statusEl.textContent = '✓ 已清空 ' + (data.cleared || 0) + ' 个事件';
+          } else {
+            if (statusEl) statusEl.textContent = '✓ 已清理 ' + (data.cleared || 0) + ' 个过期事件，剩余 ' + (data.remaining || 0) + ' 个';
+          }
+        } else {
+          if (statusEl) statusEl.textContent = '✗ ' + (data.error || '清理失败');
+        }
+      } catch (e) {
+        if (statusEl) statusEl.textContent = '✗ ' + e.message;
+      } finally {
+        if (btnEl) { btnEl.disabled = false; btnEl.textContent = mode === 'all' ? '确认清空' : '确认清理'; }
+      }
+    }
+
 
     
     let tempAppScale = 1.0;

@@ -602,6 +602,17 @@ export function getBody(isAuthorized) {
                 </div>
               </div>
             </div>
+
+            <div style="border: 1px dashed #5a3a3a; margin: 14px 0 4px 0; padding: 10px 12px; border-radius: 4px;">
+              <div style="font-size:0.7rem; color:#888; margin-bottom: 8px; line-height: 1.5;">
+                <strong style="color:#c2410c;">维护</strong> · 清理 DO 中残留的事件。alarm 触发时已自动清理到期事件，此处用于手动处理异常残留。
+              </div>
+              <div style="display:flex; gap:6px; flex-wrap:wrap;">
+                <button onclick="openPreciseCleanupConfirm('past')" style="flex:1; min-width:120px; padding:6px 10px; font-size:0.72rem; background:transparent; color:#c2410c; border:1px solid #c2410c; text-transform:none; letter-spacing:0;">清理过期事件</button>
+                <button onclick="openPreciseCleanupConfirm('all')" style="flex:1; min-width:120px; padding:6px 10px; font-size:0.72rem; background:transparent; color:#dc2626; border:1px solid #dc2626; text-transform:none; letter-spacing:0;">清空全部事件</button>
+              </div>
+              <div id="precise-cleanup-status" style="font-size:0.7rem; color:#888; margin-top:6px; min-height:0;"></div>
+            </div>
           </div>
 
           <div class="row" style="margin-bottom: 10px;">
@@ -848,6 +859,17 @@ export function getBody(isAuthorized) {
       <div class="row">
         <button class="flex-1" onclick="resetInterval()">重置</button>
         <button class="flex-1 btn-primary" onclick="confirmInterval()">确认</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="modal-precise-cleanup" class="modal-overlay" style="z-index:88;" onclick="if(event.target===this) closePreciseCleanupConfirm()">
+    <div class="modal-content" style="max-width:380px; display:flex; flex-direction:column;">
+      <h3 id="precise-cleanup-title" style="margin-bottom:12px; padding-bottom:5px; flex-shrink:0;">>> 确认清理</h3>
+      <div id="precise-cleanup-body" style="font-size:0.85rem; line-height:1.6; margin-bottom:16px; flex-shrink:0;"></div>
+      <div style="display:flex; gap:8px; flex-shrink:0;">
+        <button onclick="closePreciseCleanupConfirm()" style="flex:1;">取消</button>
+        <button id="precise-cleanup-confirm-btn" onclick="executePreciseCleanup()" style="flex:1; background:transparent; color:#dc2626; border:1px solid #dc2626;">确认清理</button>
       </div>
     </div>
   </div>
