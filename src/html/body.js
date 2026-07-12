@@ -530,7 +530,7 @@ export function getBody(isAuthorized) {
                     <div class="switch-box" id="reminder-precise-box"></div>
                 </div>
               </div>
-              <div class="reminder-mode-desc">单条待办到点单独发邮件，与上方 digest 模式独立</div>
+              <div class="reminder-mode-desc">单条待办到点单独发邮件，与其他模式独立</div>
               <div class="reminder-mode-opts">
                 <div class="reminder-opt-row">
                   <span class="reminder-opt-label">提前发送时间</span>
