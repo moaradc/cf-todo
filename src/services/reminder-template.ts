@@ -131,10 +131,12 @@ function renderItemCard(item: EmailItem, index: number): string {
   const num = String(index + 1).padStart(2, '0');
   return `<tr><td style="padding:0 0 12px 0;">
     <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:${C.paper};border:2px solid ${C.dark};box-shadow:3px 3px 0 ${C.dark};${item.done ? 'opacity:0.6;' : ''}">
-      <!-- 黑色编号条 -->
-      <tr><td style="background:${C.dark};padding:5px 14px;">
-        <span style="font-family:'Courier New',monospace;font-size:12px;font-weight:700;color:${C.primaryLight};letter-spacing:0.15em;">${num}</span>
-        ${timeRange ? `<span style="float:right;font-family:'Courier New',monospace;font-size:11px;color:rgba(255,255,255,0.4);letter-spacing:0.1em;">${escapeHtml(timeRange)}</span>` : ''}
+      <!-- 黑色编号条：用 table 双 td 对齐编号和时间，避免 float 基线问题 -->
+      <tr><td style="background:${C.dark};padding:7px 14px;">
+        <table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr>
+          <td style="font-family:'Courier New',monospace;font-size:13px;font-weight:700;color:${C.primaryLight};letter-spacing:0.15em;">${num}</td>
+          ${timeRange ? `<td style="text-align:right;font-family:'Courier New',monospace;font-size:12px;font-weight:600;color:rgba(255,255,255,0.75);letter-spacing:0.05em;">${escapeHtml(timeRange)}</td>` : ''}
+        </tr></table>
       </td></tr>
       <!-- 内容区 -->
       <tr><td style="padding:14px 16px;">
@@ -155,7 +157,7 @@ function renderListItem(item: EmailItem): string {
   const pColor = PRIORITY_TAG[item.priority ?? 'low']?.bg ?? C.textMuted;
   const doneMark = item.done ? '<span style="color:#65a30d;margin-right:6px;">&#x2713;</span>' : '';
   const timeRange = formatTimeRange(item.time, item.end_time);
-  const timeTag = timeRange ? `<span style="color:${C.textMuted};font-size:11px;margin-right:8px;font-family:'Courier New',monospace;">${escapeHtml(timeRange)}</span>` : '';
+  const timeTag = timeRange ? `<span style="color:${C.ink};font-size:12px;font-weight:600;margin-right:8px;font-family:'Courier New',monospace;">${escapeHtml(timeRange)}</span>` : '';
   return `<tr><td style="padding:7px 0;border-bottom:1px dashed ${C.dark}33;">
     <span style="display:inline-block;width:6px;height:6px;background:${pColor};margin-right:8px;vertical-align:middle;"></span>
     ${timeTag}${doneMark}<span style="font-size:14px;color:${C.dark};${item.done ? `text-decoration:line-through;color:${C.textMuted};` : ''}">${escapeHtml(item.text)}</span>
