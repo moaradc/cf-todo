@@ -506,25 +506,6 @@ export function getBody(isAuthorized) {
 
             <div class="reminder-mode-block">
               <div class="reminder-mode-head">
-                <span class="reminder-mode-title">起止提醒</span>
-                <div class="switch-label" onclick="toggleReminderMode('timed')" style="margin-bottom: 0;">
-                    <div class="switch-box" id="reminder-timed-box"></div>
-                </div>
-              </div>
-              <div class="reminder-mode-desc">每次 Cron 扫描窗口内即将开始和到期的待办</div>
-              <div class="reminder-mode-opts">
-                <div class="reminder-opt-row">
-                  <span class="reminder-opt-label">扫描范围</span>
-                  <div class="fake-input" onclick="openReminderLeadPicker()" style="margin-bottom: 0; padding: 6px 12px; justify-content: space-between; border-radius: 4px;">
-                      <span id="set-disp-reminderLead">15 分</span>
-                      <span style="font-size:0.75rem; margin-left: 8px; color:#888;">▼</span>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            <div class="reminder-mode-block">
-              <div class="reminder-mode-head">
                 <span class="reminder-mode-title">精确提醒</span>
                 <div class="switch-label" onclick="toggleReminderMode('precise')" style="margin-bottom: 0;">
                     <div class="switch-box" id="reminder-precise-box"></div>
@@ -544,6 +525,25 @@ export function getBody(isAuthorized) {
                   <div style="display:flex; gap:6px; align-items:center;">
                     <span class="reminder-pill" onclick="executePreciseCleanup('past')">清理过期</span>
                     <span class="reminder-pill" onclick="executePreciseCleanup('all')">清空全部</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div class="reminder-mode-block">
+              <div class="reminder-mode-head">
+                <span class="reminder-mode-title">起止提醒</span>
+                <div class="switch-label" onclick="toggleReminderMode('timed')" style="margin-bottom: 0;">
+                    <div class="switch-box" id="reminder-timed-box"></div>
+                </div>
+              </div>
+              <div class="reminder-mode-desc">每次 Cron 扫描窗口内即将开始和到期的待办</div>
+              <div class="reminder-mode-opts">
+                <div class="reminder-opt-row">
+                  <span class="reminder-opt-label">扫描范围</span>
+                  <div class="fake-input" onclick="openReminderLeadPicker()" style="margin-bottom: 0; padding: 6px 12px; justify-content: space-between; border-radius: 4px;">
+                      <span id="set-disp-reminderLead">15 分</span>
+                      <span style="font-size:0.75rem; margin-left: 8px; color:#888;">▼</span>
                   </div>
                 </div>
               </div>
