@@ -546,8 +546,8 @@ export function getBody(isAuthorized) {
                     <span class="reminder-pill" onclick="executePreciseCleanup('all')">清空全部</span>
                   </div>
                 </div>
+                <div id="precise-cleanup-status" class="reminder-opt-label" style="padding: 8px 0 0 0; min-height:0;"></div>
               </div>
-              <div id="precise-cleanup-status" style="font-size:0.7rem; color:#888; padding: 0 14px 10px 14px; min-height:0;"></div>
             </div>
 
             <div class="reminder-mode-block">
