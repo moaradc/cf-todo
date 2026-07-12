@@ -1218,8 +1218,8 @@ export const core = `
      */
     async function executePreciseCleanup(mode) {
       var msg = mode === 'all'
-        ? '确认清空 DO 中所有精确提醒事件？\\n\\n包括尚未触发的有效提醒，已调度的待办将不再收到提醒邮件。'
-        : '确认清理 DO 中的过期死事件？\\n\\n未来事件不受影响。';
+        ? '确认清空 DO 中所有精确提醒事件？\\n包括尚未触发的有效提醒，已调度的待办将不再收到提醒邮件。'
+        : '确认清理 DO 中的过期死事件？\\n未来事件不受影响。';
       if (!confirm(msg)) return;
 
       var statusEl = document.getElementById('precise-cleanup-status');
