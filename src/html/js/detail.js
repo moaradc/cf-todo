@@ -868,7 +868,7 @@ export const detail = `
       }
       if (timePickerTarget === 'preciseLead') {
         var pLead = timePickerHour * 60 + timePickerMin;
-        if (pLead < 1) pLead = 15;
+        // 允许 0（到点准时触发），仅上限 clamp；下限不强制改 15
         if (pLead > 1440) pLead = 1440;
         tempReminderPreciseLead = pLead;
         renderReminderConfig();

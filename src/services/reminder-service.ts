@@ -41,7 +41,7 @@ export interface ReminderConfig {
   // —— 新增：精确提醒（DO Alarm），与 digest 完全并行独立 ——
   /** 是否启用 DO Alarm 精确提醒（每条待办到点单独发邮件） */
   precise_enabled: boolean;
-  /** 精确提醒提前量（分钟），1..1440，默认 15 */
+  /** 精确提醒提前量（分钟），0..1440，默认 15；0 表示到点准时触发 */
   precise_lead_minutes: number;
 }
 
@@ -205,8 +205,9 @@ export function normalizeConfig(input: unknown): ReminderConfig {
     skip_if_no_todos: r.skip_if_no_todos === true,
     weekly_days: parseWeeklyDays(r.weekly_days),
     // 新增：精确提醒字段，旧 reminder_config 经 normalizeConfig 后默认 false / 15
+    // precise_lead_minutes 下限为 0（到点准时触发），上限 1440（24h）
     precise_enabled: r.precise_enabled === true,
-    precise_lead_minutes: clamp(r.precise_lead_minutes, 1, 1440, DEFAULT_LEAD_MINUTES),
+    precise_lead_minutes: clamp(r.precise_lead_minutes, 0, 1440, DEFAULT_LEAD_MINUTES),
   };
 }
 

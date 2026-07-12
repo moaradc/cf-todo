@@ -38,9 +38,9 @@ describe('normalizeConfig', () => {
     expect(normalizeConfig(null).precise_enabled).toBe(false);
   });
 
-  it('precise_lead_minutes: clamps to [1, 1440] range with default 15', () => {
-    expect(normalizeConfig({ precise_lead_minutes: -5 }).precise_lead_minutes).toBe(1);
-    expect(normalizeConfig({ precise_lead_minutes: 0 }).precise_lead_minutes).toBe(1);
+  it('precise_lead_minutes: clamps to [0, 1440] range with default 15', () => {
+    expect(normalizeConfig({ precise_lead_minutes: -5 }).precise_lead_minutes).toBe(0);
+    expect(normalizeConfig({ precise_lead_minutes: 0 }).precise_lead_minutes).toBe(0);
     expect(normalizeConfig({ precise_lead_minutes: 30 }).precise_lead_minutes).toBe(30);
     expect(normalizeConfig({ precise_lead_minutes: 1440 }).precise_lead_minutes).toBe(1440);
     expect(normalizeConfig({ precise_lead_minutes: 99999 }).precise_lead_minutes).toBe(1440);

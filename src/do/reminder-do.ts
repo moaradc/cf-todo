@@ -224,13 +224,20 @@ export class ReminderDO extends DurableObject<Env> {
   // ==================== 私有：邮件发送 ====================
 
   /**
-   * 批量发送到期事件邮件（每条一封独立邮件）。
+   * 批量发送到期事件邮件（同一 alarm 触发的所有事件合并为一封邮件）。
+   *
+   * 合并策略（零配置）：
+   *   - 同一 alarm() 触发中处理的所有 due 事件 → 合并为一封邮件
+   *   - 按 type 分组为 section：start 事件 → 「即将开始」section；end 事件 → 「即将到期」section
+   *   - 单事件：保持原格式 `[开始] <text>` / `[到期] <text>`
+   *   - 多事件同类型：`[开始] <text1>、<text2>` / `[到期] <text1>、<text2>`
+   *   - 多事件混合类型：`[精确提醒] <text1> 等${N}条`
    *
    * 设计：
    *   - 仅在 alarm 触发时读一次 D1 reminder_config（settings 表单行，~5-20ms）
    *   - 不读 todos 表 —— 用 scheduleEvent 时的快照
-   *   - 多事件并行发信（Promise.all），失败不抛出（事件已从 storage 清除，幂等键兜底）
    *   - skip 窗口 / 配置关闭 / 缺凭证 → 直接 return，事件已被 alarm 清除
+   *   - 幂等键：所有事件的 `todoId:type:runAt` 拼接后 SHA-256，保证同批次稳定
    */
   private async sendPreciseEmails(events: PreciseEvent[]): Promise<void> {
     const db = createDb(this.env.DB);
@@ -248,21 +255,20 @@ export class ReminderDO extends DurableObject<Env> {
     const tzLbl = timezoneLabel(cfg.timezone_offset);
     const runStr = formatRunTimestamp(localNow);
 
-    // 并行发信：单事件失败不影响其他
-    await Promise.all(
-      events.map(async (ev) => {
-        try {
-          await this.sendOneEmail(ev, cfg, tzLbl, runStr, localNow);
-        } catch (e) {
-          const msg = e instanceof Error ? e.message : String(e);
-          console.error(`[ReminderDO] send email failed todoId=${ev.todoId} type=${ev.type}:`, msg);
-        }
-      }),
-    );
+    try {
+      await this.sendBatchEmail(events, cfg, tzLbl, runStr, localNow);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      console.error(`[ReminderDO] send batch email failed (${events.length} events):`, msg);
+    }
   }
 
-  private async sendOneEmail(
-    ev: PreciseEvent,
+  /**
+   * 将一批到期事件合并为一封邮件发送。
+   * 单事件走原始格式；多事件按 type 分组为 section。
+   */
+  private async sendBatchEmail(
+    events: PreciseEvent[],
     cfg: {
       recipient: string;
       from: string;
@@ -272,8 +278,77 @@ export class ReminderDO extends DurableObject<Env> {
     runStr: string,
     localNow: Date,
   ): Promise<void> {
+    // 按类型分组（保持事件顺序稳定：按 runAt 升序，同 runAt 按 todoId）
+    const sorted = [...events].sort((a, b) =>
+      a.runAt !== b.runAt ? a.runAt - b.runAt : a.todoId.localeCompare(b.todoId),
+    );
+    const startEvents = sorted.filter((e) => e.type === 'start');
+    const endEvents = sorted.filter((e) => e.type === 'end');
+
+    // 构建 section
+    const sections: EmailSection[] = [];
+    if (startEvents.length > 0) {
+      sections.push({
+        title: startEvents.length === 1 ? '即将开始' : `即将开始（${startEvents.length} 条）`,
+        items: startEvents.map((ev) => this.eventToItem(ev)),
+        listStyle: 'cards',
+      });
+    }
+    if (endEvents.length > 0) {
+      sections.push({
+        title: endEvents.length === 1 ? '即将到期' : `即将到期（${endEvents.length} 条）`,
+        items: endEvents.map((ev) => this.eventToItem(ev)),
+        listStyle: 'cards',
+      });
+    }
+
+    // 构建主题
+    const subject = this.buildBatchSubject(sorted, startEvents.length, endEvents.length);
+
+    // 构建副标题
+    const subtitleParts: string[] = [];
+    if (startEvents.length > 0) subtitleParts.push(`START×${startEvents.length}`);
+    if (endEvents.length > 0) subtitleParts.push(`DUE×${endEvents.length}`);
+    const subtitle = `${subtitleParts.join(' ')} · ${runStr} ${tzLbl}`;
+
+    const { html, text } = renderModeEmail({
+      title: subject,
+      subtitle,
+      sections,
+      runAt: localNow,
+      timezoneLabel: tzLbl,
+      appUrl: cfg.app_url,
+      footerNote: '本邮件由 cf-todo 精确提醒（DO Alarm）自动发送。',
+    });
+
+    // 幂等键：单事件用原始格式；多事件用 SHA-256（保证稳定 + 长度可控）
+    let idempotencyKey: string;
+    if (events.length === 1) {
+      const ev = events[0];
+      idempotencyKey = `cf-todo:precise:${ev.todoId}:${ev.type}:${ev.runAt}`;
+    } else {
+      // 多事件：拼接所有事件 key → SHA-256 → 稳定短串
+      const keyParts = sorted
+        .map((e) => `${e.todoId}:${e.type}:${e.runAt}`)
+        .join('|');
+      const hash = await sha256Hex(keyParts);
+      idempotencyKey = `cf-todo:precise-batch:${hash.slice(0, 16)}`;
+    }
+
+    await sendEmail(this.env.RESEND_API_KEY, {
+      from: cfg.from,
+      to: cfg.recipient,
+      subject,
+      html,
+      text,
+      idempotencyKey,
+    });
+  }
+
+  /** 将事件转为邮件 item。 */
+  private eventToItem(ev: PreciseEvent): EmailItem {
     const itemTime = ev.type === 'start' ? ev.time : ev.end_time;
-    const item: EmailItem = {
+    return {
       text: ev.text,
       time: itemTime || undefined,
       priority: ev.priority,
@@ -282,34 +357,50 @@ export class ReminderDO extends DurableObject<Env> {
       categoryName: ev.categoryName || undefined,
       categoryColor: ev.categoryColor || undefined,
     };
-    const section: EmailSection = {
-      title: ev.type === 'start' ? '即将开始' : '即将到期',
-      items: [item],
-      listStyle: 'cards',
-    };
+  }
 
-    const subject = `${ev.type === 'start' ? '[开始]' : '[到期]'} ${ev.text}`;
-    const subtitle = `${ev.type === 'start' ? 'START' : 'DUE'} · ${runStr} ${tzLbl}`;
+  /**
+   * 构建邮件主题：
+   *   - 单事件：`[开始] <text>` / `[到期] <text>`（保持原格式）
+   *   - 多事件同类型：`[开始] <text1>、<text2>` / `[到期] <text1>、<text2>`
+   *   - 多事件混合类型：`[精确提醒] <text1> 等${N}条`
+   *
+   * 主题长度上限 100 字符，超出时截断为 `<前缀>...等N条`。
+   */
+  private buildBatchSubject(
+    sorted: PreciseEvent[],
+    startCount: number,
+    endCount: number,
+  ): string {
+    const MAX_LEN = 100;
 
-    const { html, text } = renderModeEmail({
-      title: subject,
-      subtitle,
-      sections: [section],
-      runAt: localNow,
-      timezoneLabel: tzLbl,
-      appUrl: cfg.app_url,
-      footerNote: '本邮件由 cf-todo 精确提醒（DO Alarm）自动发送。',
-    });
+    if (sorted.length === 1) {
+      const ev = sorted[0];
+      return `${ev.type === 'start' ? '[开始]' : '[到期]'} ${ev.text}`;
+    }
 
-    // 幂等键：每条事件独立，同 todoId+type+runAt 24h 内不重发
-    await sendEmail(this.env.RESEND_API_KEY, {
-      from: cfg.from,
-      to: cfg.recipient,
-      subject,
-      html,
-      text,
-      idempotencyKey: `cf-todo:precise:${ev.todoId}:${ev.type}:${ev.runAt}`,
-    });
+    if (startCount > 0 && endCount === 0) {
+      // 全部 start
+      const tag = '[开始]';
+      const texts = sorted.map((e) => e.text).join('、');
+      if (texts.length > MAX_LEN - tag.length - 10) {
+        return `${tag} ${sorted[0].text} 等${sorted.length}条`;
+      }
+      return `${tag} ${texts}`;
+    }
+
+    if (endCount > 0 && startCount === 0) {
+      // 全部 end
+      const tag = '[到期]';
+      const texts = sorted.map((e) => e.text).join('、');
+      if (texts.length > MAX_LEN - tag.length - 10) {
+        return `${tag} ${sorted[0].text} 等${sorted.length}条`;
+      }
+      return `${tag} ${texts}`;
+    }
+
+    // 混合类型
+    return `[精确提醒] ${sorted[0].text} 等${sorted.length}条`;
   }
 
   // ==================== 私有：调度工具 ====================
@@ -327,4 +418,12 @@ export class ReminderDO extends DurableObject<Env> {
     }
     return { earliest, count };
   }
+}
+
+/** SHA-256 hex（用于多事件幂等键）。DO 内部用，不导出。 */
+async function sha256Hex(input: string): Promise<string> {
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(input));
+  return Array.from(new Uint8Array(digest))
+    .map((b) => b.toString(16).padStart(2, '0'))
+    .join('');
 }

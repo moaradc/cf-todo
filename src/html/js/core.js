@@ -886,6 +886,7 @@ export const core = `
 
     // 把分钟数格式化为「H 时 M 分」/「M 分」显示，配合时间选择模态框
     function _leadLabel(mins) {
+      if (mins === 0) return '到点触发';
       var h = Math.floor(mins / 60);
       var m = mins % 60;
       if (h > 0 && m > 0) return h + ' 时 ' + m + ' 分';
