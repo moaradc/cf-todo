@@ -89,12 +89,6 @@ describe('normalizeConfig', () => {
     expect(cfg.app_url).toBe('https://example.com');
   });
 
-  it('backward compat: migrates old lead_minutes to timed_lead_minutes when enabled', () => {
-    const cfg = normalizeConfig({ enabled: true, lead_minutes: 30 });
-    expect(cfg.timed_enabled).toBe(true);
-    expect(cfg.timed_lead_minutes).toBe(30);
-  });
-
   it('parses priority level including low', () => {
     expect(normalizeConfig({ priority_min_level: 'high' }).priority_min_level).toBe('high');
     expect(normalizeConfig({ priority_min_level: 'med' }).priority_min_level).toBe('med');
@@ -110,11 +104,6 @@ describe('normalizeConfig', () => {
     expect(normalizeConfig({}).daily_include_search).toBe('off');
   });
 
-  it('backward compat: migrates old hot_search_enabled to daily_include_search', () => {
-    expect(normalizeConfig({ hot_search_enabled: true }).daily_include_search).toBe('all');
-    expect(normalizeConfig({ hot_search_enabled: false }).daily_include_search).toBe('off');
-  });
-
   it('handles daily include flags', () => {
     const cfg = normalizeConfig({
       daily_include_completed: true,
@@ -125,18 +114,6 @@ describe('normalizeConfig', () => {
     const cfg2 = normalizeConfig({});
     expect(cfg2.daily_include_uncompleted).toBe(true);
     expect(cfg2.daily_include_completed).toBe(false);
-  });
-
-  it('drops legacy time fields (daily_time, priority_time, hot_search_time)', () => {
-    const cfg = normalizeConfig({
-      daily_time: '10:00',
-      priority_time: '11:00',
-      hot_search_time: '12:00',
-    });
-    expect(cfg).not.toHaveProperty('daily_time');
-    expect(cfg).not.toHaveProperty('priority_time');
-    expect(cfg).not.toHaveProperty('hot_search_time');
-    expect(cfg).not.toHaveProperty('hot_search_enabled');
   });
 
   it('skip_if_no_todos: only true when explicitly true', () => {

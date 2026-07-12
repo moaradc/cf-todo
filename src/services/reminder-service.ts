@@ -177,13 +177,6 @@ export function getLocalIsoWeekday(localNow: Date): number {
 export function normalizeConfig(input: unknown): ReminderConfig {
   if (!input || typeof input !== 'object') return { ...DEFAULT_CONFIG };
   const r = input as Record<string, unknown>;
-  // 兼容旧字段 hot_search_enabled
-  let migratedSearch: SearchIncludeMode = 'off';
-  if (r.daily_include_search !== undefined) {
-    migratedSearch = parseSearchIncludeMode(r.daily_include_search);
-  } else if (r.hot_search_enabled === true) {
-    migratedSearch = 'all';
-  }
   const dailyIncludeCompleted = r.daily_include_completed === true;
   const dailyIncludeUncompleted = r.daily_include_uncompleted !== false;
   return {
@@ -192,12 +185,12 @@ export function normalizeConfig(input: unknown): ReminderConfig {
     from: typeof r.from === 'string' ? r.from.trim() : '',
     timezone_offset: clamp(r.timezone_offset, -720, 720, DEFAULT_TZ_OFFSET),
     app_url: typeof r.app_url === 'string' ? r.app_url.trim() : undefined,
-    timed_enabled: r.timed_enabled === true || (r.lead_minutes !== undefined && r.enabled === true && r.timed_enabled === undefined),
-    timed_lead_minutes: clamp(r.timed_lead_minutes ?? r.lead_minutes, 1, 1440, DEFAULT_LEAD_MINUTES),
+    timed_enabled: r.timed_enabled === true,
+    timed_lead_minutes: clamp(r.timed_lead_minutes, 1, 1440, DEFAULT_LEAD_MINUTES),
     daily_enabled: r.daily_enabled === true && (dailyIncludeUncompleted || dailyIncludeCompleted),
     daily_include_completed: dailyIncludeCompleted,
     daily_include_uncompleted: dailyIncludeUncompleted,
-    daily_include_search: migratedSearch,
+    daily_include_search: parseSearchIncludeMode(r.daily_include_search),
     priority_enabled: r.priority_enabled === true,
     priority_min_level: parsePriorityLevel(r.priority_min_level),
     skip_start: parseHHMM(r.skip_start),
