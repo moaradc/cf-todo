@@ -1222,8 +1222,7 @@ export const core = `
         : '确认清理 DO 中的过期死事件？\\n未来事件不受影响。';
       if (!confirm(msg)) return;
 
-      var statusEl = document.getElementById('precise-cleanup-status');
-      if (statusEl) statusEl.textContent = '执行中...';
+      _setReminderStatus('清理中...', false);
 
       try {
         var endpoint = mode === 'all' ? '/api/reminder/precise/clear-all' : '/api/reminder/precise/clear-past';
@@ -1231,15 +1230,15 @@ export const core = `
         var data = await res.json();
         if (res.ok && data.success) {
           if (mode === 'all') {
-            if (statusEl) statusEl.textContent = '✓ 已清空 ' + (data.cleared || 0) + ' 个事件';
+            _setReminderStatus('✓ 已清空 ' + (data.cleared || 0) + ' 个事件', false);
           } else {
-            if (statusEl) statusEl.textContent = '✓ 已清理 ' + (data.cleared || 0) + ' 个，剩余 ' + (data.remaining || 0) + ' 个';
+            _setReminderStatus('✓ 已清理 ' + (data.cleared || 0) + ' 个，剩余 ' + (data.remaining || 0) + ' 个', false);
           }
         } else {
-          if (statusEl) statusEl.textContent = '✗ ' + (data.error || '清理失败');
+          _setReminderStatus('✗ ' + (data.error || '清理失败'), true);
         }
       } catch (e) {
-        if (statusEl) statusEl.textContent = '✗ ' + e.message;
+        _setReminderStatus('✗ ' + e.message, true);
       }
     }
 
