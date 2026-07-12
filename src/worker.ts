@@ -138,4 +138,20 @@ async function handleScheduled(env: Env): Promise<void> {
     const msg = err instanceof Error ? err.message : String(err);
     console.error('[cf-todo][cron] reminder run failed:', msg);
   }
+
+  // 顺便清理 DO 中的死事件（runAt 已过期但仍在 storage）。
+  // 死事件来源：alarm() 失败 6 次后停止重试、手动测试残留等。
+  // 每 4 小时清理一次，开销极小（一次 storage.list + delete）。
+  // 失败不影响 digest 主流程。
+  try {
+    const id = env.REMINDER_DO.idFromName('reminder');
+    const stub = env.REMINDER_DO.get(id);
+    const cleanup = await stub.clearPast();
+    if (cleanup.cleared > 0) {
+      console.log(`[cf-todo][cron] DO clearPast: cleared=${cleanup.cleared} remaining=${cleanup.remaining}`);
+    }
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error('[cf-todo][cron] DO clearPast failed:', msg);
+  }
 }

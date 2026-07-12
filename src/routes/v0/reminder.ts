@@ -337,3 +337,40 @@ reminderApp.get('/reminder/precise/alarms', async (c) => {
     now: Date.now(),
   });
 });
+
+/**
+ * POST /api/reminder/precise/clear-past
+ *
+ * 清理死事件：删除所有 runAt 已过期但仍在 storage 中的事件。
+ * 死事件来源：alarm() 失败 6 次后停止重试、手动测试残留等。
+ * 安全：只删 runAt <= now 的事件，不影响未来事件。
+ *
+ * 也会在 Cron digest 每 4 小时自动调用一次，此路由用于手动触发。
+ */
+reminderApp.post('/reminder/precise/clear-past', async (c) => {
+  const stub = getReminderDO(c.env);
+  const result = await stub.clearPast();
+  return jsonBody({
+    success: true,
+    cleared: result.cleared,
+    remaining: result.remaining,
+    alarm: result.alarm,
+    now: Date.now(),
+  });
+});
+
+/**
+ * POST /api/reminder/precise/clear-all
+ *
+ * 清空所有事件 + 取消 alarm（调试用，谨慎调用）。
+ * 用于完全重置 DO 状态。会删除所有未来事件，包括尚未触发的有效提醒。
+ */
+reminderApp.post('/reminder/precise/clear-all', async (c) => {
+  const stub = getReminderDO(c.env);
+  const result = await stub.clearAll();
+  return jsonBody({
+    success: true,
+    cleared: result.cleared,
+    now: Date.now(),
+  });
+});

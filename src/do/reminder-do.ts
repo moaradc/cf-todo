@@ -173,6 +173,66 @@ export class ReminderDO extends DurableObject<Env> {
     return await this.ctx.storage.getAlarm();
   }
 
+  /**
+   * 清理死事件：删除所有 runAt 已过期但仍在 storage 中的事件。
+   *
+   * 死事件来源：
+   *   - alarm() 失败 6 次后停止重试，事件残留在 storage（极小概率）
+   *   - alarm() 内部异常路径未正确清理（理论上已被 try/catch 覆盖）
+   *   - 手动测试产生的过期事件
+   *
+   * 安全性：只删 runAt <= now 的事件，不影响未来事件。
+   * 清理后重新调度 alarm 到剩余事件中最早的 runAt。
+   *
+   * @returns { cleared: number, remaining: number, alarm: number | null }
+   */
+  async clearPast(): Promise<{ cleared: number; remaining: number; alarm: number | null }> {
+    const now = Date.now();
+    const events = await this.ctx.storage.list<PreciseEvent>({ prefix: 'event:' });
+
+    const deadKeys: string[] = [];
+    let earliest: number | null = null;
+    let remaining = 0;
+
+    for (const [key, event] of events) {
+      if (event.runAt <= now) {
+        deadKeys.push(key);
+      } else {
+        remaining++;
+        if (earliest === null || event.runAt < earliest) {
+          earliest = event.runAt;
+        }
+      }
+    }
+
+    if (deadKeys.length > 0) {
+      await this.ctx.storage.delete(deadKeys);
+    }
+
+    // 重新调度 alarm
+    if (earliest !== null) {
+      await this.ctx.storage.setAlarm(earliest);
+    } else {
+      await this.ctx.storage.deleteAlarm();
+    }
+
+    return { cleared: deadKeys.length, remaining, alarm: earliest };
+  }
+
+  /**
+   * 清空所有事件 + 取消 alarm（调试用，谨慎调用）。
+   * 用于完全重置 DO 状态。
+   */
+  async clearAll(): Promise<{ cleared: number }> {
+    const events = await this.ctx.storage.list<PreciseEvent>({ prefix: 'event:' });
+    const keys = Array.from(events.keys());
+    if (keys.length > 0) {
+      await this.ctx.storage.delete(keys);
+    }
+    await this.ctx.storage.deleteAlarm();
+    return { cleared: keys.length };
+  }
+
   // ==================== alarm handler ====================
 
   /**
