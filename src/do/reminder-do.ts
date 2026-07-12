@@ -1,39 +1,11 @@
 /**
- * ReminderDO —— Durable Object 精确提醒（DO Alarm）
+ * ReminderDO —— 精确提醒 Durable Object
  *
- * 设计要点（与 Cron digest 完全并行独立）：
- *   1. 单实例 DO（worker 中通过 `env.REMINDER_DO.idFromName('reminder')` 获取）。
- *      个人应用无需按用户分片。
- *   2. 每个 DO 仅支持 1 个 alarm；本 DO 把多条待办事件存为 storage 行
- *      (`event:<todoId>:<type>` → PreciseEvent)，alarm 触发时批量处理所有到期事件，
- *      然后用最近一个未到期事件重新 setAlarm。
- *   3. 事件类型：`start`（开始时间到点）、`end`（结束时间到点）。
- *   4. 待办详情在 `scheduleEvent` 时快照进 storage；alarm 触发只读一次 D1
- *      `reminder_config`（settings 表单行）以保证配置变更即时生效，
- *      但不回头读 todos 表（避免 D1 延迟 + 已删除数据风险）。
- *   5. 快照新鲜度由 CRUD 联动保证：
- *      - 编辑待办 → cancelEvent + scheduleEvent（刷新快照）
- *      - 删除 / 完成 → cancelEvent（出队）
- *   6. alarm handler 必须 catch 所有异常，否则 CF 6 次重试后停止。
- *      catch 后重新调度 1 分钟后重试。
- *   7. 时区跳过与 Cron 共享：触发时若在 skip_window 内，跳过本次发送
- *      （事件仍清理，不重试，避免下次 alarm 再次触发同样的过期事件）。
- *   8. 幂等键：`cf-todo:precise:<todoId>:<type>:<runAt>`，Resend 24h 内同 key 不重发。
- *   9. alarm handler 内不调用 waitUntil —— 直接 await；DO 在 I/O pending 时保持存活。
- *
- * 与 Cron digest 的边界（必须明确）：
- *   - 配置独立：`precise_enabled` 与 `timed_enabled` 是两个独立开关
- *   - 调度独立：DO Alarm 由 setAlarm(runAt) 精确触发，不依赖 Cron 周期
- *   - 触发独立：DO 只发对应单条待办邮件，不参与 digest 合并
- *   - 数据独立：DO 用自身 storage 存事件队列；Cron 用 D1 settings 存 reminder_state
- *   - 失败独立：DO Alarm 失败不影响 Cron；反之亦然
- *   - 代码复用而非耦合：DO 通过 import 复用 sendEmail / renderModeEmail /
- *     getReminderConfig，但这些函数本身不持有状态，复用安全
- *
- * 与原方案的差异：
- *   - 使用现代 RPC 模式（`extends DurableObject<Env>` + `await stub.scheduleEvent(...)`）
- *   - 使用 `new_sqlite_classes` 而非 legacy `new_classes`（CF 现代推荐）
- *   - 单 alarm 调度策略：取所有事件中最早的 runAt 设为下次 alarm
+ * 单实例（id='reminder'），与 Cron digest 完全独立。
+ * 多事件共享单个 alarm：storage 存事件队列，alarm 触发时批量处理到期事件。
+ * 事件类型：start（开始到点）/ end（结束到点）。
+ * 待办详情在 scheduleEvent 时快照，alarm 触发不读 todos 表。
+ * alarm() 内 try/catch + 60s 兜底重试，避免 6 次重试耗尽。
  */
 
 import { DurableObject } from 'cloudflare:workers';
@@ -91,14 +63,7 @@ export interface ScheduleEventInput {
 // ==================== DO 实现 ====================
 
 export class ReminderDO extends DurableObject<Env> {
-  /**
-   * 调度一条精确提醒事件。
-   *
-   * - 写入 `event:<todoId>:<type>` storage 行（覆盖同 todoId+type 的旧事件）
-   * - 若新 runAt 比当前 alarm 早，则提前 alarm 到新 runAt
-   *
-   * @returns 写入后的 alarm 时刻（UTC ms），或 null 表示无 alarm
-   */
+  /** 调度一条精确提醒事件。覆盖同 todoId+type 的旧事件，必要时提前 alarm。 */
   async scheduleEvent(input: ScheduleEventInput): Promise<{ alarm: number | null }> {
     const { todoId, runAt, type, data } = input;
     if (!todoId || !Number.isFinite(runAt) || (type !== 'start' && type !== 'end')) {
@@ -116,12 +81,7 @@ export class ReminderDO extends DurableObject<Env> {
     return { alarm: currentAlarm };
   }
 
-  /**
-   * 取消某待办的所有精确提醒事件（start + end）。
-   * 编辑 / 删除 / 完成时调用。完成后重新调度 alarm 到剩余事件中最早的 runAt。
-   *
-   * @returns 剩余事件数量
-   */
+  /** 取消某待办的所有事件（start + end），重新调度 alarm。 */
   async cancelEvent(todoId: string): Promise<{ remaining: number; alarm: number | null }> {
     if (!todoId) return { remaining: 0, alarm: await this.getCurrentAlarm() };
 
@@ -140,9 +100,7 @@ export class ReminderDO extends DurableObject<Env> {
     return { remaining: count, alarm: earliest };
   }
 
-  /**
-   * 取消某待办的特定类型事件（如编辑时只改了 time 不改 end_time，只清 start）。
-   */
+  /** 取消某待办的特定类型事件。 */
   async cancelEventByType(todoId: string, type: PreciseEventType): Promise<{ remaining: number; alarm: number | null }> {
     if (!todoId) return { remaining: 0, alarm: await this.getCurrentAlarm() };
 
@@ -157,35 +115,18 @@ export class ReminderDO extends DurableObject<Env> {
     return { remaining: count, alarm: earliest };
   }
 
-  /**
-   * 调试用：列出所有当前调度的事件。
-   * 不在 alarm 路径上调用，仅供 /api/reminder/precise/alarms 路由使用。
-   */
+  /** 调试用：列出所有事件。 */
   async listEvents(): Promise<PreciseEvent[]> {
     const map = await this.ctx.storage.list<PreciseEvent>({ prefix: 'event:' });
     return Array.from(map.values()).sort((a, b) => a.runAt - b.runAt);
   }
 
-  /**
-   * 调试用：返回当前 alarm 时刻（UTC ms），无 alarm 时为 null。
-   */
+  /** 调试用：当前 alarm 时刻（UTC ms）。 */
   async getCurrentAlarm(): Promise<number | null> {
     return await this.ctx.storage.getAlarm();
   }
 
-  /**
-   * 清理死事件：删除所有 runAt 已过期但仍在 storage 中的事件。
-   *
-   * 死事件来源：
-   *   - alarm() 失败 6 次后停止重试，事件残留在 storage（极小概率）
-   *   - alarm() 内部异常路径未正确清理（理论上已被 try/catch 覆盖）
-   *   - 手动测试产生的过期事件
-   *
-   * 安全性：只删 runAt <= now 的事件，不影响未来事件。
-   * 清理后重新调度 alarm 到剩余事件中最早的 runAt。
-   *
-   * @returns { cleared: number, remaining: number, alarm: number | null }
-   */
+  /** 清理死事件：删除 runAt <= now 的事件，重新调度 alarm。 */
   async clearPast(): Promise<{ cleared: number; remaining: number; alarm: number | null }> {
     const now = Date.now();
     const events = await this.ctx.storage.list<PreciseEvent>({ prefix: 'event:' });
@@ -219,10 +160,7 @@ export class ReminderDO extends DurableObject<Env> {
     return { cleared: deadKeys.length, remaining, alarm: earliest };
   }
 
-  /**
-   * 清空所有事件 + 取消 alarm（调试用，谨慎调用）。
-   * 用于完全重置 DO 状态。
-   */
+  /** 清空所有事件 + 取消 alarm（调试用）。 */
   async clearAll(): Promise<{ cleared: number }> {
     const events = await this.ctx.storage.list<PreciseEvent>({ prefix: 'event:' });
     const keys = Array.from(events.keys());
@@ -235,20 +173,7 @@ export class ReminderDO extends DurableObject<Env> {
 
   // ==================== alarm handler ====================
 
-  /**
-   * alarm 触发处理：批量发送所有到期事件 → 重新调度下次 alarm。
-   *
-   * 容错策略：
-   *   - 整个 handler 包 try/catch；异常时重新 setAlarm(Date.now() + 60_000)
-   *     避免 6 次重试耗尽
-   *   - 单个事件发送失败不阻塞其他事件；事件仍从 storage 清除（幂等键兜底重发）
-   *   - 配置关闭 / 在 skip 窗口内 / 缺凭证 → 事件仍清除（不重试，避免死循环）
-   *
-   * 死事件自检：
-   *   alarm 触发说明 DO 仍可执行。处理完 due 事件后，顺手扫描残留的
-   *   runAt <= now 死事件并清理（理论上 due 已覆盖，但防御性兜底）。
-   *   这样不需要额外 Cron，每次 alarm 都顺便 GC 一次。
-   */
+  /** alarm 触发：批量处理到期事件 → 发邮件 → 重新调度。异常时 60s 后重试。 */
   async alarm(): Promise<void> {
     try {
       const now = Date.now();
@@ -294,22 +219,7 @@ export class ReminderDO extends DurableObject<Env> {
 
   // ==================== 私有：邮件发送 ====================
 
-  /**
-   * 批量发送到期事件邮件（同一 alarm 触发的所有事件合并为一封邮件）。
-   *
-   * 合并策略（零配置）：
-   *   - 同一 alarm() 触发中处理的所有 due 事件 → 合并为一封邮件
-   *   - 按 type 分组为 section：start 事件 → 「即将开始」section；end 事件 → 「即将到期」section
-   *   - 单事件：保持原格式 `[开始] <text>` / `[到期] <text>`
-   *   - 多事件同类型：`[开始] <text1>、<text2>` / `[到期] <text1>、<text2>`
-   *   - 多事件混合类型：`[精确提醒] <text1> 等${N}条`
-   *
-   * 设计：
-   *   - 仅在 alarm 触发时读一次 D1 reminder_config（settings 表单行，~5-20ms）
-   *   - 不读 todos 表 —— 用 scheduleEvent 时的快照
-   *   - skip 窗口 / 配置关闭 / 缺凭证 → 直接 return，事件已被 alarm 清除
-   *   - 幂等键：所有事件的 `todoId:type:runAt` 拼接后 SHA-256，保证同批次稳定
-   */
+  /** 批量发送到期事件邮件（同一 alarm 内合并为一封）。 */
   private async sendPreciseEmails(events: PreciseEvent[]): Promise<void> {
     const db = createDb(this.env.DB);
     const cfg = await getReminderConfig(db);
@@ -334,10 +244,7 @@ export class ReminderDO extends DurableObject<Env> {
     }
   }
 
-  /**
-   * 将一批到期事件合并为一封邮件发送。
-   * 单事件走原始格式；多事件按 type 分组为 section。
-   */
+  /** 将一批事件合并为一封邮件发送。 */
   private async sendBatchEmail(
     events: PreciseEvent[],
     cfg: {
@@ -389,7 +296,7 @@ export class ReminderDO extends DurableObject<Env> {
       runAt: localNow,
       timezoneLabel: tzLbl,
       appUrl: cfg.app_url,
-      footerNote: '本邮件由 cf-todo 精确提醒（DO Alarm）自动发送。',
+      footerNote: '本邮件由 cf-todo 精确提醒服务自动发送。',
     });
 
     // 幂等键：单事件用原始格式；多事件用 SHA-256（保证稳定 + 长度可控）
@@ -430,14 +337,7 @@ export class ReminderDO extends DurableObject<Env> {
     };
   }
 
-  /**
-   * 构建邮件主题：
-   *   - 单事件：`[开始] <text>` / `[到期] <text>`（保持原格式）
-   *   - 多事件同类型：`[开始] <text1>、<text2>` / `[到期] <text1>、<text2>`
-   *   - 多事件混合类型：`[精确提醒] <text1> 等${N}条`
-   *
-   * 主题长度上限 100 字符，超出时截断为 `<前缀>...等N条`。
-   */
+  /** 构建邮件主题。单事件 `[开始] text`；多事件按类型拼接，超 100 字符截断。 */
   private buildBatchSubject(
     sorted: PreciseEvent[],
     startCount: number,
@@ -474,8 +374,6 @@ export class ReminderDO extends DurableObject<Env> {
     return `[精确提醒] ${sorted[0].text} 等${sorted.length}条`;
   }
 
-  // ==================== 私有：调度工具 ====================
-
   /** 扫描所有事件，返回最早 runAt 与事件总数。 */
   private async findEarliest(): Promise<{ earliest: number | null; count: number }> {
     const events = await this.ctx.storage.list<PreciseEvent>({ prefix: 'event:' });
@@ -491,7 +389,7 @@ export class ReminderDO extends DurableObject<Env> {
   }
 }
 
-/** SHA-256 hex（用于多事件幂等键）。DO 内部用，不导出。 */
+/** SHA-256 hex（用于多事件幂等键）。 */
 async function sha256Hex(input: string): Promise<string> {
   const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(input));
   return Array.from(new Uint8Array(digest))

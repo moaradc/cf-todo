@@ -1,23 +1,9 @@
 /**
- * V0 提醒路由：digest 配置 + 精确提醒调度（DO Alarm）。
+ * V0 提醒路由：digest 配置 + 精确提醒调度。
  *
- * 路由（v0 authedApp 下，前缀 /api）：
- *   digest 配置（保持不变）：
- *     - GET  /api/reminder/config   读取当前 digest 配置
- *     - POST /api/reminder/config   更新配置（含 precise_* 字段）
- *     - POST /api/reminder/test     发送一封 digest 测试邮件
- *
- *   精确提醒调度（新增，与 digest 完全独立）：
- *     - POST /api/reminder/precise/schedule   调度单条待办的精确提醒
- *     - POST /api/reminder/precise/cancel     取消某待办的所有精确提醒
- *     - GET  /api/reminder/precise/alarms     查看当前调度的 alarm（调试用）
- *
- * 鉴权：cookie / API Key（挂载在 v0 authedApp 下）。
- *
- * 设计：
- *   - 路由层不读 todos 表 —— 调用方传入快照数据（text / time / end_time / 优先级 等）
- *   - 路由层计算 runAt = dueUtcMs - leadMinutes（开始 / 到期两种事件）
- *   - DO 内部不回头读 todos，仅读 reminder_config（settings 单行）
+ * digest: GET/POST /api/reminder/config, POST /api/reminder/test
+ * precise: POST /api/reminder/precise/schedule|cancel|clear-past|clear-all,
+ *          GET /api/reminder/precise/alarms
  */
 
 import { Hono } from 'hono';
@@ -37,10 +23,7 @@ export const reminderApp = new Hono<V0AppEnv>();
 
 // ==================== DO 单例获取 ====================
 
-/**
- * 获取 ReminderDO 单例 stub（RPC 模式）。
- * 单实例 DO：id = 'reminder'。个人应用无需按用户分片。
- */
+/** 获取 ReminderDO 单例 stub。 */
 function getReminderDO(env: V0AppEnv['Bindings']) {
   const id = env.REMINDER_DO.idFromName('reminder');
   return env.REMINDER_DO.get(id);
@@ -105,28 +88,17 @@ reminderApp.post('/reminder/test', async (c) => {
 
 // ==================== 精确提醒调度路由（新增） ====================
 
-/**
- * 校验 hh:mm 格式（与 utils 中的 validateTimeFormat 保持一致）。
- */
+/** 校验 hh:mm 格式。 */
 function isValidTimeFormat(v: unknown): boolean {
   return typeof v === 'string' && /^\d{1,2}:\d{2}$/.test(v);
 }
 
-/**
- * 校验 YYYY-MM-DD 格式。
- */
+/** 校验 YYYY-MM-DD 格式。 */
 function isValidDateFormat(v: unknown): boolean {
   return typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v);
 }
 
-/**
- * 从 YYYY-MM-DD + hh:mm + timezoneOffset 构造「本地」Date（UTC 视角）。
- * 用于 dueUtcMsFor：把 (date, time, tzOffset) → UTC ms。
- *
- * 思路：把 date + time 拼成 UTC 时间戳，再减去 tzOffsetMs，得到该本地时刻对应的 UTC ms。
- * 与 reminder-service.ts 中 dueUtcMsFor 的用法一致：
- *   localNow 是 tzOffsetMs 位移后的「本地」Date（用 UTC getter 读年月日）
- */
+/** 从 date + time 构造本地 Date（tzOffsetMs 位移后的 UTC 视角）。 */
 function parseLocalDateAtTime(dateStr: string, timeStr: string, tzOffsetMinutes: number): Date {
   const [y, mo, d] = dateStr.split('-').map(Number);
   const [h, mi] = timeStr.split(':').map(Number);
@@ -152,18 +124,8 @@ interface ScheduleBody {
 
 /**
  * POST /api/reminder/precise/schedule
- *
- * 调度单条待办的精确提醒。会同时调度 start 和 end 两种事件（如果时间有效）。
- * 已存在的同 todoId+type 事件会被覆盖（编辑场景的刷新）。
- *
- * body 字段：
- *   - todoId (必填) 待办 ID
- *   - date   (必填) YYYY-MM-DD，待办所属日期
- *   - time   (可选) hh:mm，开始时间。为空则不调度 start 事件
- *   - endTime (可选) hh:mm，结束时间。为空则不调度 end 事件
- *   - leadMinutes (可选) 提前量分钟，1..1440，缺省时读 reminder_config.precise_lead_minutes
- *   - timezoneOffset (可选) 分钟，缺省时读 reminder_config.timezone_offset
- *   - text / priority / desc / url / categoryName / categoryColor (快照字段)
+ * 调度单条待办的精确提醒。body: { todoId, date, time?, endTime?, leadMinutes?, timezoneOffset?, text, ...snapshot }
+ * runAt 过期但 todo 未到期时兜底立即触发。
  */
 reminderApp.post('/reminder/precise/schedule', async (c) => {
   let body: ScheduleBody;
@@ -230,13 +192,7 @@ reminderApp.post('/reminder/precise/schedule', async (c) => {
   const skippedPast: Array<{ type: 'start' | 'end'; runAt: number }> = [];
   const immediateFallback: Array<{ type: 'start' | 'end'; originalRunAt: number; newRunAt: number }> = [];
 
-  /**
-   * 计算最终 runAt：
-   *   - 默认 runAt = dueMs - leadMs
-   *   - 若 runAt 已过期但 todo 实际到期时间仍在未来 → 兜底为 now + 1s 立即触发
-   *     （场景：lead 配置增大后原 runAt 落在过去，但 todo 还没到点）
-   *   - 若 todo 实际到期时间也已过去 → 跳过（避免发"已过期"邮件）
-   */
+  /** 计算 runAt：过期但未到期则兜底 now+1s，已过期则跳过。 */
   function computeRunAt(dueMs: number): { runAt: number; fallback: boolean } | null {
     const rawRunAt = dueMs - leadMs;
     if (rawRunAt > now) return { runAt: rawRunAt, fallback: false };
@@ -293,11 +249,7 @@ reminderApp.post('/reminder/precise/schedule', async (c) => {
 
 /**
  * POST /api/reminder/precise/cancel
- *
- * 取消某待办的所有精确提醒事件（start + end）。
- * 编辑 / 删除 / 完成时调用。
- *
- * body: { todoId: string }
+ * 取消某待办的所有精确提醒事件。body: { todoId }
  */
 reminderApp.post('/reminder/precise/cancel', async (c) => {
   let body: { todoId?: string };
@@ -319,11 +271,7 @@ reminderApp.post('/reminder/precise/cancel', async (c) => {
   return jsonBody({ success: true, todoId: body.todoId, remaining: result.remaining, alarm: result.alarm });
 });
 
-/**
- * GET /api/reminder/precise/alarms
- *
- * 调试用：列出当前 DO 中所有调度的精确提醒事件 + 当前 alarm 时刻。
- */
+/** GET /api/reminder/precise/alarms — 调试用：列出所有事件 + 当前 alarm。 */
 reminderApp.get('/reminder/precise/alarms', async (c) => {
   const stub = getReminderDO(c.env);
   const [events, alarm] = await Promise.all([
@@ -340,12 +288,7 @@ reminderApp.get('/reminder/precise/alarms', async (c) => {
 
 /**
  * POST /api/reminder/precise/clear-past
- *
- * 清理死事件：删除所有 runAt 已过期但仍在 storage 中的事件。
- * 死事件来源：alarm() 失败 6 次后停止重试、手动测试残留等。
- * 安全：只删 runAt <= now 的事件，不影响未来事件。
- *
- * 也会在 Cron digest 每 4 小时自动调用一次，此路由用于手动触发。
+ * 清理 runAt <= now 的死事件。安全，不影响未来事件。
  */
 reminderApp.post('/reminder/precise/clear-past', async (c) => {
   const stub = getReminderDO(c.env);
@@ -361,9 +304,7 @@ reminderApp.post('/reminder/precise/clear-past', async (c) => {
 
 /**
  * POST /api/reminder/precise/clear-all
- *
- * 清空所有事件 + 取消 alarm（调试用，谨慎调用）。
- * 用于完全重置 DO 状态。会删除所有未来事件，包括尚未触发的有效提醒。
+ * 清空所有事件 + 取消 alarm（调试用）。
  */
 reminderApp.post('/reminder/precise/clear-all', async (c) => {
   const stub = getReminderDO(c.env);

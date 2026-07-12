@@ -1,22 +1,9 @@
 /**
  * Precise Reminder Service —— DO Alarm 精确提醒的 CRUD 联动层。
  *
- * 职责：在 todo CREATE / UPDATE / DELETE / TOGGLE_DONE / BATCH_* 之后，
- * 自动同步该 todo 在 DO 中的精确提醒事件。
- *
- * 设计原则：
- *   1. 仅在 `precise_enabled === true` 时才访问 DO（避免无谓 DO 调用）
- *   2. CRUD 后调用 `syncPreciseReminderForTodo(env, todoId)` 即可统一处理所有场景：
- *      - todo 不存在 / 已删除 / 已完成 → cancelEvent
- *      - 无 time / end_time → cancelEvent
- *      - 有有效 time / end_time 且 runAt > now → scheduleEvent
- *      - 旧的过期事件 → 自动覆盖或清理
- *   3. 不读 reminder_config 的所有字段，只读 precise_* / timezone_offset
- *   4. 不在 todo-service 内部调用（保持 todo-service 纯数据层）；
- *      由 routes/v0/todo-action.ts 在 CRUD 成功后调用
- *
- * 与 Cron digest 的关系：完全独立。Cron 仍按 4 小时周期扫描 D1，
- * 不感知 DO 中的事件队列。
+ * 在 todo CRUD 后同步 DO 中的精确提醒事件。仅在 precise_enabled 时访问 DO。
+ * syncPreciseReminderForTodo 统一处理所有场景：不存在/删除/完成 → cancel；
+ * 有效时间 → schedule；过期但未到期 → 兜底立即触发。
  */
 
 import { eq } from 'drizzle-orm';
@@ -39,10 +26,7 @@ export interface SyncResult {
 
 // ==================== DO 单例获取 ====================
 
-/**
- * 获取 ReminderDO 单例 stub（RPC 模式）。
- * 单实例 DO：id = 'reminder'。个人应用无需按用户分片。
- */
+/** 获取 ReminderDO 单例 stub。 */
 function getReminderStub(env: Env) {
   const id = env.REMINDER_DO.idFromName('reminder');
   return env.REMINDER_DO.get(id);
@@ -65,16 +49,10 @@ function makeLocalDate(dateStr: string, timeStr: string): Date {
 /**
  * 同步某待办的精确提醒事件。在 todo CRUD 后调用。
  *
- * 流程：
- *   1. 读 reminder_config，若 precise_enabled=false → 跳过（不调 DO）
- *   2. 读 todo + category（D1）
- *   3. 决策：
- *      - todo 不存在 / 已删除 / 已完成 → cancelEvent
- *      - 无 date 或无 (time && endTime) → cancelEvent
- *      - 有效 → 对 start / end 分别计算 runAt，runAt > now 则 scheduleEvent
- *   4. 对未调度的事件类型 → cancelEventByType（清理旧事件）
- *
- * 容错：DO 调用失败不抛出（log + 返回 cancelled），避免影响主 CRUD。
+ * 读 todo 状态决定 schedule vs cancel：
+ *   - 不存在/删除/完成 → cancel
+ *   - 有效 time/end_time → schedule（runAt 过期但未到期则兜底立即触发）
+ *   - 无 time/end_time → cancel
  */
 export async function syncPreciseReminderForTodo(
   env: Env,
@@ -173,12 +151,11 @@ export async function syncPreciseReminderForTodo(
 
   /**
    * 计算最终 runAt：
-   *   - 默认 runAt = dueMs - leadMs
-   *   - 若 runAt 已过期但 todo 实际到期时间仍在未来 → 兜底为 now + 1s 立即触发
-   *     （场景：lead 配置增大后原 runAt 落在过去，但 todo 还没到点）
-   *   - 若 todo 实际到期时间也已过去 → 返回 null（不调度，避免发"已过期"邮件）
+   *   - runAt > now → 正常调度
+   *   - runAt <= now 但 todo 未到期 → 兜底 now+1s
+   *   - todo 已过期 → null（不调度）
    */
-  function computeRunAt(dueMs: number, now: number, leadMs: number): number | null {
+  function computeRunAt(dueMs: number): number | null {
     const rawRunAt = dueMs - leadMs;
     if (rawRunAt > now) return rawRunAt;
     // runAt 已过期；检查 todo 实际到期时间是否仍在未来
@@ -191,7 +168,7 @@ export async function syncPreciseReminderForTodo(
     const localDate = makeLocalDate(todo.date, todo.time);
     const dueMs = dueUtcMsFor(todo.time, localDate, tzOffsetMs);
     if (dueMs !== null) {
-      const runAt = computeRunAt(dueMs, now, leadMs);
+      const runAt = computeRunAt(dueMs);
       if (runAt !== null) {
         try {
           await stub.scheduleEvent({ todoId, runAt, type: 'start', data: snapshot });
@@ -209,7 +186,7 @@ export async function syncPreciseReminderForTodo(
     const localDate = makeLocalDate(todo.date, todo.end_time);
     const dueMs = dueUtcMsFor(todo.end_time, localDate, tzOffsetMs);
     if (dueMs !== null) {
-      const runAt = computeRunAt(dueMs, now, leadMs);
+      const runAt = computeRunAt(dueMs);
       if (runAt !== null) {
         try {
           await stub.scheduleEvent({ todoId, runAt, type: 'end', data: snapshot });
