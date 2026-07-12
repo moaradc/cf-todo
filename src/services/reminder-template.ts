@@ -74,16 +74,16 @@ function pad2(n: number): string { return String(n).padStart(2, '0'); }
 /**
  * 格式化时间显示：
  *   - 都有 → `14:23 - 15:50`
- *   - 只有 time → `14:23`
- *   - 只有 end_time → `15:50`
+ *   - 只有 time → `开始 14:23`
+ *   - 只有 end_time → `结束 15:50`
  *   - 都没有 → 空串
  */
 function formatTimeRange(time?: string, endTime?: string): string {
   const t = time && /^\d{1,2}:\d{2}$/.test(time) ? time : '';
   const e = endTime && /^\d{1,2}:\d{2}$/.test(endTime) ? endTime : '';
   if (t && e) return `${t} - ${e}`;
-  if (t) return t;
-  if (e) return e;
+  if (t) return `开始 ${t}`;
+  if (e) return `结束 ${e}`;
   return '';
 }
 
