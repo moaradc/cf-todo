@@ -539,17 +539,8 @@ export function getBody(isAuthorized) {
                       <span style="font-size:0.75rem; margin-left: 8px; color:#888;">▼</span>
                   </div>
                 </div>
-              </div>
-            </div>
-
-            <div class="reminder-mode-block">
-              <div class="reminder-mode-head">
-                <span class="reminder-mode-title">DO 残留事件</span>
-              </div>
-              <div class="reminder-mode-desc">手动清理异常残留的精确提醒事件</div>
-              <div class="reminder-mode-opts">
                 <div class="reminder-opt-row">
-                  <span class="reminder-opt-label">操作</span>
+                  <span class="reminder-opt-label">DO 残留事件</span>
                   <div style="display:flex; gap:6px; align-items:center;">
                     <span class="reminder-pill" onclick="executePreciseCleanup('past')">清理过期</span>
                     <span class="reminder-pill" onclick="executePreciseCleanup('all')">清空全部</span>
