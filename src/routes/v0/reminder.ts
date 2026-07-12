@@ -228,18 +228,37 @@ reminderApp.post('/reminder/precise/schedule', async (c) => {
   const scheduled: Array<{ type: 'start' | 'end'; runAt: number }> = [];
   const now = Date.now();
   const skippedPast: Array<{ type: 'start' | 'end'; runAt: number }> = [];
+  const immediateFallback: Array<{ type: 'start' | 'end'; originalRunAt: number; newRunAt: number }> = [];
+
+  /**
+   * 计算最终 runAt：
+   *   - 默认 runAt = dueMs - leadMs
+   *   - 若 runAt 已过期但 todo 实际到期时间仍在未来 → 兜底为 now + 1s 立即触发
+   *     （场景：lead 配置增大后原 runAt 落在过去，但 todo 还没到点）
+   *   - 若 todo 实际到期时间也已过去 → 跳过（避免发"已过期"邮件）
+   */
+  function computeRunAt(dueMs: number): { runAt: number; fallback: boolean } | null {
+    const rawRunAt = dueMs - leadMs;
+    if (rawRunAt > now) return { runAt: rawRunAt, fallback: false };
+    // runAt 已过期；检查 todo 实际到期时间是否仍在未来
+    if (dueMs > now) return { runAt: now + 1000, fallback: true };
+    return null; // todo 已过期，跳过
+  }
 
   // 调度 start 事件
   if (body.time) {
     const localDate = parseLocalDateAtTime(body.date, body.time, tzOffsetMinutes);
     const dueMs = dueUtcMsFor(body.time, localDate, tzOffsetMs);
     if (dueMs !== null) {
-      const runAt = dueMs - leadMs;
-      if (runAt > now) {
-        await stub.scheduleEvent({ todoId: body.todoId, runAt, type: 'start', data: snapshot });
-        scheduled.push({ type: 'start', runAt });
+      const result = computeRunAt(dueMs);
+      if (result) {
+        await stub.scheduleEvent({ todoId: body.todoId, runAt: result.runAt, type: 'start', data: snapshot });
+        scheduled.push({ type: 'start', runAt: result.runAt });
+        if (result.fallback) {
+          immediateFallback.push({ type: 'start', originalRunAt: dueMs - leadMs, newRunAt: result.runAt });
+        }
       } else {
-        skippedPast.push({ type: 'start', runAt });
+        skippedPast.push({ type: 'start', runAt: dueMs - leadMs });
       }
     }
   }
@@ -249,12 +268,15 @@ reminderApp.post('/reminder/precise/schedule', async (c) => {
     const localDate = parseLocalDateAtTime(body.date, body.endTime, tzOffsetMinutes);
     const dueMs = dueUtcMsFor(body.endTime, localDate, tzOffsetMs);
     if (dueMs !== null) {
-      const runAt = dueMs - leadMs;
-      if (runAt > now) {
-        await stub.scheduleEvent({ todoId: body.todoId, runAt, type: 'end', data: snapshot });
-        scheduled.push({ type: 'end', runAt });
+      const result = computeRunAt(dueMs);
+      if (result) {
+        await stub.scheduleEvent({ todoId: body.todoId, runAt: result.runAt, type: 'end', data: snapshot });
+        scheduled.push({ type: 'end', runAt: result.runAt });
+        if (result.fallback) {
+          immediateFallback.push({ type: 'end', originalRunAt: dueMs - leadMs, newRunAt: result.runAt });
+        }
       } else {
-        skippedPast.push({ type: 'end', runAt });
+        skippedPast.push({ type: 'end', runAt: dueMs - leadMs });
       }
     }
   }
@@ -263,6 +285,7 @@ reminderApp.post('/reminder/precise/schedule', async (c) => {
     success: true,
     scheduled,
     skippedPast,
+    immediateFallback,
     leadMinutes,
     timezoneOffset: tzOffsetMinutes,
   });

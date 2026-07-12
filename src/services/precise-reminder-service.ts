@@ -171,13 +171,28 @@ export async function syncPreciseReminderForTodo(
   const events: Array<{ type: PreciseEventType; runAt: number }> = [];
   const scheduledTypes = new Set<PreciseEventType>();
 
+  /**
+   * 计算最终 runAt：
+   *   - 默认 runAt = dueMs - leadMs
+   *   - 若 runAt 已过期但 todo 实际到期时间仍在未来 → 兜底为 now + 1s 立即触发
+   *     （场景：lead 配置增大后原 runAt 落在过去，但 todo 还没到点）
+   *   - 若 todo 实际到期时间也已过去 → 返回 null（不调度，避免发"已过期"邮件）
+   */
+  function computeRunAt(dueMs: number, now: number, leadMs: number): number | null {
+    const rawRunAt = dueMs - leadMs;
+    if (rawRunAt > now) return rawRunAt;
+    // runAt 已过期；检查 todo 实际到期时间是否仍在未来
+    if (dueMs > now) return now + 1000; // 立即触发（1 秒后）
+    return null; // todo 已过期，不调度
+  }
+
   // 调度 start 事件
   if (todo.time && /^\d{1,2}:\d{2}$/.test(todo.time)) {
     const localDate = makeLocalDate(todo.date, todo.time);
     const dueMs = dueUtcMsFor(todo.time, localDate, tzOffsetMs);
     if (dueMs !== null) {
-      const runAt = dueMs - leadMs;
-      if (runAt > now) {
+      const runAt = computeRunAt(dueMs, now, leadMs);
+      if (runAt !== null) {
         try {
           await stub.scheduleEvent({ todoId, runAt, type: 'start', data: snapshot });
           events.push({ type: 'start', runAt });
@@ -194,8 +209,8 @@ export async function syncPreciseReminderForTodo(
     const localDate = makeLocalDate(todo.date, todo.end_time);
     const dueMs = dueUtcMsFor(todo.end_time, localDate, tzOffsetMs);
     if (dueMs !== null) {
-      const runAt = dueMs - leadMs;
-      if (runAt > now) {
+      const runAt = computeRunAt(dueMs, now, leadMs);
+      if (runAt !== null) {
         try {
           await stub.scheduleEvent({ todoId, runAt, type: 'end', data: snapshot });
           events.push({ type: 'end', runAt });
@@ -207,7 +222,7 @@ export async function syncPreciseReminderForTodo(
     }
   }
 
-  // 清理未调度的事件类型（如旧 start 事件，新 todo 已无 time）
+  // 清理未调度的事件类型（如旧 start 事件，新 todo 已无 time 或 todo 已过期）
   if (!scheduledTypes.has('start')) {
     try {
       await stub.cancelEventByType(todoId, 'start');
