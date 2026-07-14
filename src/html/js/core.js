@@ -845,6 +845,9 @@ export const core = `
       skip_start: '', skip_end: '',
       skip_if_no_todos: false,
       weekly_days: [],
+      // 精确提醒（DO Alarm），与 digest 完全独立
+      precise_enabled: false,
+      precise_lead_minutes: 15,
     };
     let tempReminderLead = 15;
     let tempReminderTz = 480;
@@ -854,6 +857,7 @@ export const core = `
     let tempReminderSkipEnd = '';
     let tempReminderSkipIfNoTodos = false;
     let tempReminderWeeklyDays = [];
+    let tempReminderPreciseLead = 15;
 
     function _reminderTzLabel(offset) {
       var sign = offset >= 0 ? '+' : '-';
@@ -882,6 +886,7 @@ export const core = `
 
     // 把分钟数格式化为「H 时 M 分」/「M 分」显示，配合时间选择模态框
     function _leadLabel(mins) {
+      if (mins === 0) return '到点触发';
       var h = Math.floor(mins / 60);
       var m = mins % 60;
       if (h > 0 && m > 0) return h + ' 时 ' + m + ' 分';
@@ -892,6 +897,11 @@ export const core = `
     // 复用「选择开始时间」模态框选提前分钟数
     function openReminderLeadPicker() {
       openTimePicker('edit', 'reminderLead');
+    }
+
+    // 复用时间选择模态框选精确提醒提前量
+    function openReminderPreciseLeadPicker() {
+      openTimePicker('edit', 'preciseLead');
     }
 
     // 复用时间选择模态框选跳过时段起止
@@ -922,6 +932,9 @@ export const core = `
           skip_end: data.skip_end || '',
           skip_if_no_todos: !!data.skip_if_no_todos,
           weekly_days: _normalizeWeeklyDays(data.weekly_days),
+          // 精确提醒字段
+          precise_enabled: !!data.precise_enabled,
+          precise_lead_minutes: Number.isFinite(data.precise_lead_minutes) ? data.precise_lead_minutes : 15,
         };
         tempReminderLead = reminderConfig.timed_lead_minutes;
         tempReminderTz = reminderConfig.timezone_offset;
@@ -931,6 +944,7 @@ export const core = `
         tempReminderSkipEnd = reminderConfig.skip_end;
         tempReminderSkipIfNoTodos = reminderConfig.skip_if_no_todos;
         tempReminderWeeklyDays = reminderConfig.weekly_days.slice();
+        tempReminderPreciseLead = reminderConfig.precise_lead_minutes;
         _saveReminderSnapshot();
       } catch (e) {
         console.error('Load reminder config error:', e);
@@ -951,6 +965,7 @@ export const core = `
         skipE: tempReminderSkipEnd,
         skipEmpty: tempReminderSkipIfNoTodos,
         weekly: tempReminderWeeklyDays.slice(),
+        preciseLead: tempReminderPreciseLead,
       };
     }
     // 关闭设置页时重置未保存的修改
@@ -965,6 +980,7 @@ export const core = `
       tempReminderSkipEnd = _savedReminderSnapshot.skipE;
       tempReminderSkipIfNoTodos = _savedReminderSnapshot.skipEmpty;
       tempReminderWeeklyDays = _savedReminderSnapshot.weekly.slice();
+      tempReminderPreciseLead = _savedReminderSnapshot.preciseLead;
       renderReminderConfig();
     }
 
@@ -1014,6 +1030,9 @@ export const core = `
         if (pill) pill.classList.toggle('active', tempReminderWeeklyDays.indexOf(d) >= 0);
       }
       if (el('set-disp-reminderWeekly')) el('set-disp-reminderWeekly').innerText = _weeklyDaysLabel(tempReminderWeeklyDays);
+      // 精确提醒（DO Alarm）
+      if (el('reminder-precise-box')) el('reminder-precise-box').classList.toggle('checked', reminderConfig.precise_enabled);
+      if (el('set-disp-reminderPreciseLead')) el('set-disp-reminderPreciseLead').innerText = _leadLabel(tempReminderPreciseLead);
     }
 
     // 今日汇总多选：两个都取消→关闭，至少一个选中→开启
@@ -1099,6 +1118,7 @@ export const core = `
       reminderConfig.skip_end = tempReminderSkipEnd;
       reminderConfig.skip_if_no_todos = tempReminderSkipIfNoTodos;
       reminderConfig.weekly_days = tempReminderWeeklyDays.slice();
+      reminderConfig.precise_lead_minutes = tempReminderPreciseLead;
       if (!reminderConfig.app_url) reminderConfig.app_url = window.location.origin + '/';
     }
 
@@ -1132,6 +1152,7 @@ export const core = `
             tempReminderSkipStart = reminderConfig.skip_start;
             tempReminderSkipEnd = reminderConfig.skip_end;
             tempReminderSkipIfNoTodos = !!reminderConfig.skip_if_no_todos;
+            tempReminderPreciseLead = reminderConfig.precise_lead_minutes;
             tempReminderWeeklyDays = reminderConfig.weekly_days.slice();
             _saveReminderSnapshot();
             renderReminderConfig();
@@ -1172,6 +1193,7 @@ export const core = `
           });
           tempReminderSkipIfNoTodos = !!reminderConfig.skip_if_no_todos;
           tempReminderWeeklyDays = reminderConfig.weekly_days.slice();
+          tempReminderPreciseLead = reminderConfig.precise_lead_minutes;
           renderReminderConfig();
         }
         var testRes = await fetch('/api/reminder/test', { method: 'POST' });
@@ -1185,6 +1207,38 @@ export const core = `
         _setReminderStatus('✗ ' + e.message, true);
       } finally {
         if (testBtn) { testBtn.disabled = false; testBtn.textContent = '连通测试'; }
+      }
+    }
+
+    // ==================== DO 事件清理（手动维护） ====================
+
+    /**
+     * 执行 DO 事件清理。使用浏览器 confirm() 确认。
+     * @param mode 'past' = 清理过期事件；'all' = 清空全部事件
+     */
+    async function executePreciseCleanup(mode) {
+      var msg = mode === 'all'
+        ? '确认清空 DO 中所有精确提醒事件？\\n包括尚未触发的有效提醒，已调度的待办将不再收到提醒邮件。'
+        : '确认清理 DO 中的过期死事件？\\n未来事件不受影响。';
+      if (!confirm(msg)) return;
+
+      _setReminderStatus('清理中...', false);
+
+      try {
+        var endpoint = mode === 'all' ? '/api/reminder/precise/clear-all' : '/api/reminder/precise/clear-past';
+        var res = await fetch(endpoint, { method: 'POST' });
+        var data = await res.json();
+        if (res.ok && data.success) {
+          if (mode === 'all') {
+            _setReminderStatus('✓ 已清空 ' + (data.cleared || 0) + ' 个事件', false);
+          } else {
+            _setReminderStatus('✓ 已清理 ' + (data.cleared || 0) + ' 个，剩余 ' + (data.remaining || 0) + ' 个', false);
+          }
+        } else {
+          _setReminderStatus('✗ ' + (data.error || '清理失败'), true);
+        }
+      } catch (e) {
+        _setReminderStatus('✗ ' + e.message, true);
       }
     }
 

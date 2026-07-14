@@ -3,7 +3,7 @@
   "private": true,
   "version": "1.0.0",
   "scripts": {
-    "build": "node tools/gen-snarkdown-source.js && esbuild src/index.ts --bundle --format=esm --platform=browser --outfile=dist/worker.mjs --banner:js=\"/* eslint-disable */\"",
+    "build": "node tools/gen-snarkdown-source.js && esbuild src/index.ts --bundle --format=esm --platform=browser --outfile=dist/worker.mjs --banner:js=\"/* eslint-disable */\" --external:cloudflare:workers && node tools/fix-do-exports.js",
     "dev": "npm run db:migrate:local && wrangler dev --test-scheduled",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",

@@ -2,7 +2,7 @@ name: Deploy to Cloudflare Workers
 
 on:
   push:
-    branches: [main, bak/reminder-ui-07072146]
+    branches: [main, reminder]
   workflow_dispatch:
 
 jobs:

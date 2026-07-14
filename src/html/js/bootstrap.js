@@ -236,9 +236,12 @@ export const bootstrap = `
       toggleReminderSkipIfNoTodos: toggleReminderSkipIfNoTodos,
       toggleReminderWeeklyDay: toggleReminderWeeklyDay,
       openReminderLeadPicker: openReminderLeadPicker,
+      openReminderPreciseLeadPicker: openReminderPreciseLeadPicker,
       openReminderSkipPicker: openReminderSkipPicker,
       saveReminderConfig: saveReminderConfig,
       sendTestReminder: sendTestReminder,
+      // DO 事件清理（手动维护）
+      executePreciseCleanup: executePreciseCleanup,
       onScaleSliderChange: onScaleSliderChange,
       setScalePreset: setScalePreset,
       resetScaleBrowserData: resetScaleBrowserData,

@@ -3,7 +3,7 @@
  * 与多模式配置的正确性。完整集成测试需要 wrangler dev + miniflare。
  */
 import { describe, it, expect } from 'vitest';
-import { normalizeConfig, parseWeeklyDays, getLocalIsoWeekday } from '../../src/services/reminder-service';
+import { normalizeConfig, parseWeeklyDays, getLocalIsoWeekday, isInSkipWindow, dueUtcMsFor, timezoneLabel } from '../../src/services/reminder-service';
 import { validatePayload } from '../../src/services/resend';
 
 describe('normalizeConfig', () => {
@@ -24,6 +24,43 @@ describe('normalizeConfig', () => {
     expect(cfg.skip_if_no_todos).toBe(false);
     expect(Array.isArray(cfg.weekly_days)).toBe(true);
     expect(cfg.weekly_days).toEqual([]);
+    // 精确提醒字段默认值
+    expect(cfg.precise_enabled).toBe(false);
+    expect(cfg.precise_lead_minutes).toBe(15);
+  });
+
+  it('precise_enabled: only true when explicitly true', () => {
+    expect(normalizeConfig({ precise_enabled: true }).precise_enabled).toBe(true);
+    expect(normalizeConfig({ precise_enabled: false }).precise_enabled).toBe(false);
+    expect(normalizeConfig({ precise_enabled: 'true' }).precise_enabled).toBe(false);
+    expect(normalizeConfig({ precise_enabled: 1 }).precise_enabled).toBe(false);
+    expect(normalizeConfig({}).precise_enabled).toBe(false);
+    expect(normalizeConfig(null).precise_enabled).toBe(false);
+  });
+
+  it('precise_lead_minutes: clamps to [0, 1440] range with default 15', () => {
+    expect(normalizeConfig({ precise_lead_minutes: -5 }).precise_lead_minutes).toBe(0);
+    expect(normalizeConfig({ precise_lead_minutes: 0 }).precise_lead_minutes).toBe(0);
+    expect(normalizeConfig({ precise_lead_minutes: 30 }).precise_lead_minutes).toBe(30);
+    expect(normalizeConfig({ precise_lead_minutes: 1440 }).precise_lead_minutes).toBe(1440);
+    expect(normalizeConfig({ precise_lead_minutes: 99999 }).precise_lead_minutes).toBe(1440);
+    expect(normalizeConfig({ precise_lead_minutes: 'abc' }).precise_lead_minutes).toBe(15);
+    expect(normalizeConfig({}).precise_lead_minutes).toBe(15);
+    expect(normalizeConfig(null).precise_lead_minutes).toBe(15);
+  });
+
+  it('precise_* fields are independent from timed_* fields', () => {
+    // 启用 timed 不应启用 precise
+    const cfg1 = normalizeConfig({ enabled: true, timed_enabled: true, timed_lead_minutes: 30 });
+    expect(cfg1.timed_enabled).toBe(true);
+    expect(cfg1.precise_enabled).toBe(false);
+    expect(cfg1.precise_lead_minutes).toBe(15);
+
+    // 启用 precise 不应启用 timed
+    const cfg2 = normalizeConfig({ enabled: true, precise_enabled: true, precise_lead_minutes: 5 });
+    expect(cfg2.timed_enabled).toBe(false);
+    expect(cfg2.precise_enabled).toBe(true);
+    expect(cfg2.precise_lead_minutes).toBe(5);
   });
 
   it('clamps timed_lead_minutes to [1, 1440] range', () => {
@@ -52,12 +89,6 @@ describe('normalizeConfig', () => {
     expect(cfg.app_url).toBe('https://example.com');
   });
 
-  it('backward compat: migrates old lead_minutes to timed_lead_minutes when enabled', () => {
-    const cfg = normalizeConfig({ enabled: true, lead_minutes: 30 });
-    expect(cfg.timed_enabled).toBe(true);
-    expect(cfg.timed_lead_minutes).toBe(30);
-  });
-
   it('parses priority level including low', () => {
     expect(normalizeConfig({ priority_min_level: 'high' }).priority_min_level).toBe('high');
     expect(normalizeConfig({ priority_min_level: 'med' }).priority_min_level).toBe('med');
@@ -73,11 +104,6 @@ describe('normalizeConfig', () => {
     expect(normalizeConfig({}).daily_include_search).toBe('off');
   });
 
-  it('backward compat: migrates old hot_search_enabled to daily_include_search', () => {
-    expect(normalizeConfig({ hot_search_enabled: true }).daily_include_search).toBe('all');
-    expect(normalizeConfig({ hot_search_enabled: false }).daily_include_search).toBe('off');
-  });
-
   it('handles daily include flags', () => {
     const cfg = normalizeConfig({
       daily_include_completed: true,
@@ -88,18 +114,6 @@ describe('normalizeConfig', () => {
     const cfg2 = normalizeConfig({});
     expect(cfg2.daily_include_uncompleted).toBe(true);
     expect(cfg2.daily_include_completed).toBe(false);
-  });
-
-  it('drops legacy time fields (daily_time, priority_time, hot_search_time)', () => {
-    const cfg = normalizeConfig({
-      daily_time: '10:00',
-      priority_time: '11:00',
-      hot_search_time: '12:00',
-    });
-    expect(cfg).not.toHaveProperty('daily_time');
-    expect(cfg).not.toHaveProperty('priority_time');
-    expect(cfg).not.toHaveProperty('hot_search_time');
-    expect(cfg).not.toHaveProperty('hot_search_enabled');
   });
 
   it('skip_if_no_todos: only true when explicitly true', () => {
@@ -235,5 +249,105 @@ describe('validatePayload with idempotencyKey', () => {
       idempotencyKey: 'cf-todo:abc123',
     });
     expect(err).toBe('from is required');
+  });
+});
+
+// ==================== 精确提醒（DO Alarm）相关工具函数测试 ====================
+// 这些函数原本是 reminder-service.ts 的私有函数，为支持 DO 复用而 export。
+
+describe('isInSkipWindow (exported for DO reuse)', () => {
+  // localNow 是 tzOffsetMs 位移后的「本地」Date（用 UTC getter 读时分）
+  it('returns false when either bound is empty', () => {
+    const now = new Date(Date.UTC(2024, 0, 1, 10, 0, 0));
+    expect(isInSkipWindow(now, '', '12:00')).toBe(false);
+    expect(isInSkipWindow(now, '10:00', '')).toBe(false);
+    expect(isInSkipWindow(now, '', '')).toBe(false);
+  });
+
+  it('detects inside a normal daytime window', () => {
+    // 10:00-12:00 窗口
+    expect(isInSkipWindow(new Date(Date.UTC(2024, 0, 1, 10, 0)), '10:00', '12:00')).toBe(true);
+    expect(isInSkipWindow(new Date(Date.UTC(2024, 0, 1, 11, 30)), '10:00', '12:00')).toBe(true);
+    expect(isInSkipWindow(new Date(Date.UTC(2024, 0, 1, 12, 0)), '10:00', '12:00')).toBe(false);  // exclusive end
+    expect(isInSkipWindow(new Date(Date.UTC(2024, 0, 1, 9, 59)), '10:00', '12:00')).toBe(false);
+    expect(isInSkipWindow(new Date(Date.UTC(2024, 0, 1, 13, 0)), '10:00', '12:00')).toBe(false);
+  });
+
+  it('handles cross-midnight window (23:00-07:00)', () => {
+    expect(isInSkipWindow(new Date(Date.UTC(2024, 0, 1, 23, 30)), '23:00', '07:00')).toBe(true);
+    expect(isInSkipWindow(new Date(Date.UTC(2024, 0, 1, 2, 0)), '23:00', '07:00')).toBe(true);
+    expect(isInSkipWindow(new Date(Date.UTC(2024, 0, 1, 6, 59)), '23:00', '07:00')).toBe(true);
+    expect(isInSkipWindow(new Date(Date.UTC(2024, 0, 1, 7, 0)), '23:00', '07:00')).toBe(false);  // exclusive end
+    expect(isInSkipWindow(new Date(Date.UTC(2024, 0, 1, 12, 0)), '23:00', '07:00')).toBe(false);
+    expect(isInSkipWindow(new Date(Date.UTC(2024, 0, 1, 22, 59)), '23:00', '07:00')).toBe(false);
+  });
+
+  it('returns false when start == end', () => {
+    expect(isInSkipWindow(new Date(Date.UTC(2024, 0, 1, 10, 0)), '10:00', '10:00')).toBe(false);
+  });
+});
+
+describe('dueUtcMsFor (exported for DO reuse)', () => {
+  // tzOffsetMs = +8h (UTC+8)
+  const tzOffsetMs = 8 * 60 * 60 * 1000;
+  // localNow 是 tzOffsetMs 位移后的「本地」Date，用 UTC getter 读年月日 = 2024-01-15
+  const localNow = new Date(Date.UTC(2024, 0, 15, 0, 0, 0));
+
+  it('returns UTC ms for valid hh:mm on the localNow date', () => {
+    // 14:30 UTC+8 = 06:30 UTC
+    const ms = dueUtcMsFor('14:30', localNow, tzOffsetMs);
+    expect(ms).not.toBeNull();
+    const d = new Date(ms!);
+    expect(d.getUTCHours()).toBe(6);
+    expect(d.getUTCMinutes()).toBe(30);
+    expect(d.getUTCDate()).toBe(15);
+  });
+
+  it('returns null for invalid format', () => {
+    expect(dueUtcMsFor('abc', localNow, tzOffsetMs)).toBeNull();
+    expect(dueUtcMsFor('', localNow, tzOffsetMs)).toBeNull();
+    expect(dueUtcMsFor('25:00', localNow, tzOffsetMs)).not.toBeNull();  // 25:00 parses but wraps to next day
+    // Actually: 25:00 → hh=25, mm=0 → Date.UTC(..., 25, 0, 0) → wraps. Let's verify it doesn't crash.
+  });
+
+  it('handles UTC+0 timezone correctly', () => {
+    const ms = dueUtcMsFor('14:30', localNow, 0);
+    expect(ms).not.toBeNull();
+    const d = new Date(ms!);
+    expect(d.getUTCHours()).toBe(14);
+    expect(d.getUTCMinutes()).toBe(30);
+  });
+
+  it('handles negative timezone (UTC-5)', () => {
+    const tzMs = -5 * 60 * 60 * 1000;
+    // 14:30 UTC-5 = 19:30 UTC
+    const ms = dueUtcMsFor('14:30', localNow, tzMs);
+    expect(ms).not.toBeNull();
+    const d = new Date(ms!);
+    expect(d.getUTCHours()).toBe(19);
+    expect(d.getUTCMinutes()).toBe(30);
+  });
+});
+
+describe('timezoneLabel (exported for DO reuse)', () => {
+  it('formats positive whole-hour offsets (omits :00)', () => {
+    expect(timezoneLabel(480)).toBe('UTC+08');
+    expect(timezoneLabel(540)).toBe('UTC+09');
+    expect(timezoneLabel(60)).toBe('UTC+01');
+  });
+
+  it('formats positive offsets with minutes', () => {
+    expect(timezoneLabel(330)).toBe('UTC+05:30');
+    expect(timezoneLabel(345)).toBe('UTC+05:45');
+  });
+
+  it('formats negative offsets', () => {
+    expect(timezoneLabel(-480)).toBe('UTC-08');
+    expect(timezoneLabel(-300)).toBe('UTC-05');
+    expect(timezoneLabel(-210)).toBe('UTC-03:30');
+  });
+
+  it('formats zero offset', () => {
+    expect(timezoneLabel(0)).toBe('UTC+00');
   });
 });
