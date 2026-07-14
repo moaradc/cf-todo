@@ -2,7 +2,7 @@ name: Deploy to Cloudflare Workers
 
 on:
   push:
-    branches: [main, reminder-2]
+    branches: [main, reminder]
   workflow_dispatch:
 
 jobs:
