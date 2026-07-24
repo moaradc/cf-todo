@@ -493,11 +493,11 @@ export const detail = `
       // 我们只用 templateRecords（用于 predictDuration）
       const bustUrl = '/api/time-records?todo_id=' + encodeURIComponent(tid) + '&_t=' + Date.now();
       fetch(bustUrl)
-        .then(function(r) { return r.ok ? r.json() : { templateRecords: [] }; })
+        .then(function(r) { return r.ok ? r.json() : { template_records: [] }; })
         .then(function(data) {
           // 防止竞态：仅当当前详情仍是同一事项时才刷新 UI
           const cur = todos[currentDetailIndex];
-          detailTemplateRecords = (data && Array.isArray(data.templateRecords)) ? data.templateRecords : [];
+          detailTemplateRecords = (data && Array.isArray(data.template_records)) ? data.template_records : [];
           if (cur && cur.id === task.id) refreshDetailTimerBlock();
         })
         .catch(function() {
@@ -626,12 +626,12 @@ export const detail = `
           if (fetchTodoId) {
             const bustUrl = '/api/time-records?todo_id=' + encodeURIComponent(fetchTodoId) + '&_t=' + Date.now();
             fetch(bustUrl)
-              .then(function(r) { return r.ok ? r.json() : { templateRecords: [] }; })
+              .then(function(r) { return r.ok ? r.json() : { template_records: [] }; })
               .then(function(data) {
                 // 防止竞态：仅当当前详情仍是同一事项时才应用结果
                 const cur = todos[currentDetailIndex];
                 if (!cur || cur.id !== task.id) return;
-                detailTemplateRecords = (data && Array.isArray(data.templateRecords)) ? data.templateRecords : [];
+                detailTemplateRecords = (data && Array.isArray(data.template_records)) ? data.template_records : [];
                 refreshDetailTimerBlock();
               })
               .catch(function() {
