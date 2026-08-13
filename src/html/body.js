@@ -473,12 +473,12 @@ export function getBody(isAuthorized) {
 
             <div class="reminder-mode-block">
               <div class="reminder-mode-head">
-                <span class="reminder-mode-title">无待办时跳过</span>
+                <span class="reminder-mode-title">无待处理待办时跳过</span>
                 <div class="switch-label" onclick="toggleReminderSkipIfNoTodos()" style="margin-bottom: 0;">
                     <div class="switch-box" id="reminder-skip-empty-box"></div>
                 </div>
               </div>
-              <div class="reminder-mode-desc">今日无任何待办时 Cron 不发邮件</div>
+              <div class="reminder-mode-desc">今日无任何待办或全部完成时 Cron 不发邮件</div>
             </div>
 
             <div class="reminder-mode-block">

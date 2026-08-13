@@ -3,7 +3,7 @@
  * 与多模式配置的正确性。完整集成测试需要 wrangler dev + miniflare。
  */
 import { describe, it, expect } from 'vitest';
-import { normalizeConfig, parseWeeklyDays, getLocalIsoWeekday, isInSkipWindow, dueUtcMsFor, timezoneLabel } from '../../src/services/reminder-service';
+import { normalizeConfig, parseWeeklyDays, getLocalIsoWeekday, isInSkipWindow, dueUtcMsFor, timezoneLabel, shouldSkipForNoPendingTodos } from '../../src/services/reminder-service';
 import { validatePayload } from '../../src/services/resend';
 
 describe('normalizeConfig', () => {
@@ -351,3 +351,74 @@ describe('timezoneLabel (exported for DO reuse)', () => {
     expect(timezoneLabel(0)).toBe('UTC+00');
   });
 });
+
+// ==================== 「无待处理待办时跳过」策略测试 ====================
+// shouldSkipForNoPendingTodos 是 runScheduledReminders 在 skip_if_no_todos=true
+// 时使用的纯函数：今日无任何待办 → 跳过；今日待办全部完成 → 跳过；存在未完成 → 不跳过。
+// 使用最小 DueTodo 形状（仅 done 字段参与判断）。
+
+function makeTodo(done: 0 | 1) {
+  // 仅 done 字段参与判断，其它字段给最小合法值即可
+  return {
+    id: String(Math.random()).slice(2),
+    text: '', time: '', end_time: '', priority: 'low',
+    done, desc: '', url: '', categoryName: '', categoryColor: '', search_terms: '',
+  } as any;
+}
+
+describe('shouldSkipForNoPendingTodos', () => {
+  it('skips with reason=no_todos_today when list is empty', () => {
+    const r = shouldSkipForNoPendingTodos([]);
+    expect(r.skip).toBe(true);
+    expect(r.reason).toBe('no_todos_today');
+  });
+
+  it('skips with reason=no_todos_today when input is null/undefined (defensive)', () => {
+    expect(shouldSkipForNoPendingTodos(null)).toEqual({ skip: true, reason: 'no_todos_today' });
+    expect(shouldSkipForNoPendingTodos(undefined)).toEqual({ skip: true, reason: 'no_todos_today' });
+  });
+
+  it('skips with reason=all_todos_completed when every todo is done', () => {
+    const r = shouldSkipForNoPendingTodos([makeTodo(1), makeTodo(1), makeTodo(1)]);
+    expect(r.skip).toBe(true);
+    expect(r.reason).toBe('all_todos_completed');
+  });
+
+  it('does NOT skip when there is at least one uncompleted todo (mixed)', () => {
+    const r = shouldSkipForNoPendingTodos([makeTodo(1), makeTodo(0), makeTodo(1)]);
+    expect(r.skip).toBe(false);
+    expect(r.reason).toBeUndefined();
+  });
+
+  it('does NOT skip when all todos are uncompleted', () => {
+    const r = shouldSkipForNoPendingTodos([makeTodo(0), makeTodo(0)]);
+    expect(r.skip).toBe(false);
+  });
+
+  it('does NOT skip when there is exactly one uncompleted todo', () => {
+    const r = shouldSkipForNoPendingTodos([makeTodo(0)]);
+    expect(r.skip).toBe(false);
+  });
+
+  it('skips when there is exactly one completed todo', () => {
+    const r = shouldSkipForNoPendingTodos([makeTodo(1)]);
+    expect(r.skip).toBe(true);
+    expect(r.reason).toBe('all_todos_completed');
+  });
+
+  it('treats only done===0 as pending (done===2 / null are NOT pending)', () => {
+    // done 字段为 SQLite 整数，仅 0=未完成；任何非 0 值都不算未完成。
+    // 这条用例锁死语义：脏数据 done=2 / null 不被误判为「未完成」。
+    const dirtyTodo = { ...makeTodo(1), done: 2 as any };
+    expect(shouldSkipForNoPendingTodos([dirtyTodo]).skip).toBe(true);
+    const nullDoneTodo = { ...makeTodo(1), done: null as any };
+    expect(shouldSkipForNoPendingTodos([nullDoneTodo]).skip).toBe(true);
+  });
+
+  it('short-circuits: returns as soon as one pending todo is found', () => {
+    // 即使后面跟着 done=2 脏数据，只要存在 done===0 就不跳过
+    const list = [makeTodo(1), { ...makeTodo(1), done: 2 as any }, makeTodo(0), makeTodo(1)];
+    expect(shouldSkipForNoPendingTodos(list).skip).toBe(false);
+  });
+});
+

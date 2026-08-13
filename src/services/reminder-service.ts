@@ -286,6 +286,23 @@ export function isInSkipWindow(localNow: Date, skipStart: string, skipEnd: strin
   return false;
 }
 
+/**
+ * 当 skip_if_no_todos 启用时，判断本轮 Cron 是否应跳过：
+ *   - 今日无任何待办 → 跳过（reason='no_todos_today'）
+ *   - 今日待办已全部完成（done=1）→ 跳过（reason='all_todos_completed'）
+ *   - 否则（存在未完成待办）→ 不跳过
+ * 输入为 null/undefined 时安全降级为「无待办」。导出供 DO / 测试复用。
+ */
+export function shouldSkipForNoPendingTodos(allTodos: DueTodo[] | null | undefined): { skip: boolean; reason?: string } {
+  const list = Array.isArray(allTodos) ? allTodos : [];
+  if (list.length === 0) return { skip: true, reason: 'no_todos_today' };
+  // done 字段为 SQLite 布尔整数：0=未完成，1=已完成。
+  // 用 some 而非 every 可在第一个未完成项处短路；空数组已在前置分支返回。
+  const hasPending = list.some((t) => t && t.done === 0);
+  if (!hasPending) return { skip: true, reason: 'all_todos_completed' };
+  return { skip: false };
+}
+
 // ==================== 查询 ====================
 
 /**
@@ -581,8 +598,10 @@ export async function runScheduledReminders(env: Env): Promise<ReminderRunResult
   const allTodos = await fetchAllTodayTodos(db, todayStr);
 
   if (cfg.skip_if_no_todos) {
-    if (allTodos.length === 0) {
-      return { skipped: true, reason: 'no_todos_today', sent: 0, failed: 0, modes: [] };
+    // 今日无任何待办，或今日待办已全部完成 → Cron 不发邮件
+    const skipInfo = shouldSkipForNoPendingTodos(allTodos);
+    if (skipInfo.skip) {
+      return { skipped: true, reason: skipInfo.reason, sent: 0, failed: 0, modes: [] };
     }
   }
 
